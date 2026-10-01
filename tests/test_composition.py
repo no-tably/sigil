@@ -249,7 +249,7 @@ class TestTreeView(unittest.TestCase):
     def test_notes_callouts_in_left_margin(self):
         rows, _ = view.compose_tree(render.parse_document(self.NOTED), 1, notes="callouts")
         out = [view.ansi(r, False) for r in rows]
-        router = next(ln for ln in out if "[Router] #1" in ln)
+        router = next(ln for ln in out if "#> [Router]" in ln)   # the leader points at it
         self.assertTrue(router.index("routes") < router.index("[Router]"))  # box is left
         self.assertNotIn("── notes ──", "\n".join(out))                   # no list needed
 
@@ -292,13 +292,13 @@ class TestTreeView(unittest.TestCase):
         idx = view.note_index(g)
         rows, _ = view.compose_tree(g, 1, notes="callouts")
         out = [view.ansi(r, False) for r in rows]
-        a_row = next(ln for ln in out if "[A] #1" in ln)
-        self.assertIn("│ #1 above", a_row)                  # block: framed, on the left
+        a_row = next(ln for ln in out if "#> [A]" in ln)
+        self.assertIn("│ above", a_row)                     # block: framed, on the left
         self.assertTrue(a_row.rstrip().endswith("# beside"))  # inline: trails its own line
         b_row = next(ln for ln in out if ln.lstrip().startswith("[B]") or "[B] ◀" in ln)
         self.assertTrue(b_row.rstrip().endswith("# about the flow"))   # on the flow's row
         styles = {t: st[0].role for r in rows for t, st in r if st and t.strip()}
-        self.assertEqual(styles["#1"], "ui-note-block")     # colour tells the kinds apart
+        self.assertEqual(styles["#>"], "ui-note-block")     # colour tells the kinds apart
         self.assertEqual(styles["# beside"], "ui-note-inline")
         self.assertEqual(sorted(view.edge_notes(idx)), [("A_service", "B_service", "->")])
 
@@ -312,9 +312,20 @@ class TestTreeView(unittest.TestCase):
     def test_payload_chips_are_colour_coded(self):
         runs = view.payload_runs("quote(route) => {Fare} ×3")
         roles = {t: st[0].role for t, st in runs if t.strip()}
-        self.assertEqual(roles["{Fare}"], "kinds-data")
+        self.assertEqual(roles["{"], "kinds-data")           # brackets: the kind's colour
+        self.assertEqual(roles["Fare"], "ui-glyph-name")     # names: off-white
+        self.assertEqual(roles["("], "syntax-call")          # a call's ( )
         self.assertEqual(roles["=>"], "syntax-operator")
         self.assertEqual(roles["×3"], "syntax-cardinality")
+        complement = roles["quote"]
+        try:
+            view.apply_theme({**view.THEME, "ui": {**view.THEME["ui"], "payload_words": "shade"}})
+            shaded = {t: st[0].role for t, st in view.payload_runs("quote(route)") if t.strip()}
+        finally:
+            view.use_theme("sigil")
+        self.assertEqual(complement, "syntax-call-name")
+        self.assertEqual(shaded["quote"], "shade:syntax-call")   # name + args: a shade
+        self.assertEqual(shaded["route"], "shade:syntax-call")
 
     def test_live_toggle(self):
         import tempfile

@@ -237,15 +237,17 @@ class TestLiveView(unittest.TestCase):
         self.path.write_text("(User) -> [API] -> |DB|\n")
         st = view.ViewState(self.path, do_lint=False)
         st.reload(force=True)
-        styles = {}
+        styles = {}                     # run text → style, for the label runs
         for row in st.frame(100, 30)[1:]:
             for t, sty in row:
-                for label in ("(User)", "[API]", "|DB|"):
-                    if label in t:
-                        styles[label] = sty
-        self.assertEqual(styles["(User)"][0], view.CORE_KINDS["actor"]["color"])
-        self.assertEqual(styles["[API]"][0], view.CORE_KINDS["service"]["color"])
-        self.assertEqual(styles["|DB|"][0], view.CORE_KINDS["store"]["color"])
+                if t in ("(", "[", "|", "User", "API", "DB"):
+                    styles.setdefault(t, sty)
+        # brackets in the kind's colour, the name off-white, all on the tinted fill
+        self.assertEqual(styles["("][0], view.CORE_KINDS["actor"]["color"])
+        self.assertEqual(styles["["][0], view.CORE_KINDS["service"]["color"])
+        self.assertEqual(styles["|"][0], view.CORE_KINDS["store"]["color"])
+        for name in ("User", "API", "DB"):
+            self.assertEqual(styles[name][0], view.GLYPH_NAME)
         self.assertTrue(all(s[1] for s in styles.values()))   # tinted fill
 
     def test_dialect_node_kinds_are_drawn(self):

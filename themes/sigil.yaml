@@ -35,6 +35,7 @@ palette:
   amber: "#ffbf47"
   lessgold: "#ffe0b0"
   teal: "#5abea0"
+  rose: "#f08cac"         # teal's complement
   cyan: "#5ccfe6"
   green: "#7ee787"
   ok: "#3fb950"
@@ -80,6 +81,10 @@ syntax:
   comment: $dim
   punct: $punct
   tag: $fg                # bare names: states, labels
+  call: $teal             # a call's ( ) in a payload: quote(route)
+  call_name: $rose        #   its name (payload_words: complement)
+  shade: "0.6"            #   payload_words: shade — name and arguments at this
+                          #   fraction of the call colour (mixed toward bg)
 
 # Viewer chrome: legends, bars, notes, lint.
 ui:
@@ -97,6 +102,8 @@ ui:
   note_tag: $dim
   note_block: $slate      # a comment on its own lines above a statement
   note_inline: $sky       # a comment trailing a statement
+  glyph_name: $bright     # the name inside any glyph; its brackets keep the kind's colour
+  payload_words: complement   # call colouring in payloads: complement | shade
   bar_fg: $fg
   bar_bg: $surface
   bar_name: $bright

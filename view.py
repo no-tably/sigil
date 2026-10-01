@@ -129,14 +129,16 @@ _BUILTIN_THEME = {
     "ui": {"text": "#c9d1d9", "muted": "#8b949e", "dim": "#6e7681", "tree": "#6e7681",
            "relation": "#5abea0", "label": "#5abea0", "title": "#c9d1d9",
            "payload": "#8b949e", "note": "#8b949e", "note_tag": "#6e7681",
-           "note_block": "#8b7aad", "note_inline": "#a5d6ff",
+           "note_block": "#8b7aad", "note_inline": "#a5d6ff", "glyph_name": "#e6edf3",
+           "payload_words": "complement",
            "bar_fg": "#c9d1d9", "bar_bg": "#161b22", "bar_name": "#e6edf3",
            "key_fg": "#e6edf3", "key_bg": "#30363d",
            "error": "#f85149", "warn": "#ffbf47", "ok": "#3fb950", "fill": "0.22"},
     # Code roles (highlight/sigil.tmTheme): payloads are drawn highlighted.
     "syntax": {"operator": "#e85d9e", "cardinality": "#f59cc4", "modifier": "#ffe0b0",
                "keyword": "#c850e0", "ref": "#bc8cff", "string": "#a5d6ff",
-               "number": "#79c0ff", "punct": "#586e75", "tag": "#c9d1d9"},
+               "number": "#79c0ff", "punct": "#586e75", "tag": "#c9d1d9",
+               "call": "#5abea0", "call_name": "#f08cac", "shade": "0.6"},
 }
 EDGE_ROLE = {"!>": "fail", "?>": "maybe", "~>": "async", "]>[": "split"}
 _HEX = re.compile(r"#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})")
@@ -147,6 +149,19 @@ def _hex(value) -> str | None:
     if not isinstance(value, str) or not _HEX.fullmatch(value):
         return None
     return value if len(value) == 7 else "#" + "".join(ch * 2 for ch in value[1:])
+
+
+def _shade(colour: "Colour", amount, bg: str) -> "Colour":
+    """colour mixed toward the background, keeping `amount` of it (a fraction).
+    Its role, "shade:<role>", lets the page mix the same on its CSS variables."""
+    try:
+        k = min(max(float(amount), 0.0), 1.0)
+    except (TypeError, ValueError):
+        k = float(_BUILTIN_THEME["syntax"]["shade"])
+    fg = [int(colour[i:i + 2], 16) for i in (1, 3, 5)]
+    back = [int(bg[i:i + 2], 16) for i in (1, 3, 5)]
+    mixed = "#%02x%02x%02x" % tuple(round(b + (f - b) * k) for f, b in zip(fg, back))
+    return Colour(mixed, "shade:" + colour.role)
 
 
 def _theme_styles(t: dict) -> dict:
@@ -183,7 +198,13 @@ def _theme_styles(t: dict) -> dict:
         "NOTE_STYLE": {"block": (pick("ui", "note_block"), None, False),
                        "inline": (pick("ui", "note_inline"), None, False)},
         "SYNTAX": {role: (pick("syntax", role), None, False)
-                   for role in _BUILTIN_THEME["syntax"]},
+                   for role in _BUILTIN_THEME["syntax"] if role != "shade"},
+        "GLYPH_NAME": pick("ui", "glyph_name"),
+        "PAYLOAD_WORDS": (t["ui"].get("payload_words")
+                          if t["ui"].get("payload_words") in ("complement", "shade")
+                          else "complement"),
+        "CALL_SHADE": _shade(pick("syntax", "call"), t["syntax"].get("shade"),
+                             pick("palette", "bg")),
         "BAR_STYLE": (pick("ui", "bar_fg"), bar_bg, False),
         "BAR_NAME_STYLE": (pick("ui", "bar_name"), bar_bg, True),
         "KEY_STYLE": (pick("ui", "key_fg"), pick("ui", "key_bg"), True),
@@ -832,12 +853,14 @@ def _draw(lay: _Layout) -> Canvas:
     return cv
 
 
-# A payload drawn as code: glyphs in their kind's colour, the rest by role.
+# A payload drawn as code: glyphs with their kind's brackets and an off-white
+# name, calls with coloured ( ), the rest by syntax role.
 _PAYLOAD_TOKEN = re.compile(r"""
     (?P<string>"(?:[^"\\]|\\.)*")
   | (?P<ref>\$\{[^}]*\})
   | (?P<glyph>[~*]?(?:\[[^\]\s,][^\],]*\]|\{[^}\s:,][^}:,]*\}|<(?!->)[^<>\s][^<>]*>
                     |(?<!\w)\([^)\s][^)]*\)|\|[^|\s][^|]*\|))
+  | (?P<call>[A-Za-z_][\w.]*)(?=\()
   | (?P<operator>=>|->|~>|!>|\?>|\*>|<->|\+\+|\|\||[+\-*/])
   | (?P<cardinality>[×^]\d+\w*)
   | (?P<modifier>@[A-Za-z_][\w-]*)
@@ -848,23 +871,67 @@ _PAYLOAD_TOKEN = re.compile(r"""
 _GLYPH_KIND = {"[": "service", "{": "data", "<": "event", "(": "actor", "|": "store"}
 
 
+def glyph_runs(tok: str, kind: str, bold: bool = False, bg=None) -> list:
+    """A glyph as runs: lead (~ *) and brackets in the kind's colour, the name
+    off-white (ui.glyph_name)."""
+    lead = tok[:len(tok) - len(tok.lstrip("~*"))]
+    body = tok[len(lead):]
+    colour = (kind_color(kind), bg, bold)
+    if len(body) < 2:
+        return [(tok, colour)]
+    return [(lead + body[0], colour), (body[1:-1], (GLYPH_NAME, bg, bold)),
+            (body[-1], colour)]
+
+
 def payload_runs(text: str) -> list:
-    """A payload as styled runs (colour-coded like the code highlighter)."""
-    runs, last = [], 0
+    """A payload as styled runs, colour-coded like the code highlighter. A call's
+    ( ) take syntax.call; its name and arguments follow ui.payload_words:
+    "complement" (name in syntax.call_name) or "shade" (name and arguments a
+    darker shade of the call colour)."""
+    call, shade = SYNTAX["call"], (CALL_SHADE, None, False)
+    name_style = SYNTAX["call_name"] if PAYLOAD_WORDS == "complement" else shade
+    runs, last, parens, pending = [], 0, [], False
+
+    def plain(chunk):
+        inside = parens and parens[-1] and PAYLOAD_WORDS == "shade"
+        runs.append((chunk, shade if inside else PAYLOAD_STYLE))
+
     for m in _PAYLOAD_TOKEN.finditer(text):
         if m.start() > last:
-            runs.append((text[last:m.start()], PAYLOAD_STYLE))
+            plain(text[last:m.start()])
         role, tok = m.lastgroup, m.group()
         if role == "glyph":
-            kind = _GLYPH_KIND[tok.lstrip("~*")[0]]
-            style = (kind_color(kind), None, False)
+            runs += glyph_runs(tok, _GLYPH_KIND[tok.lstrip("~*")[0]])
+        elif role == "call":
+            runs.append((tok, name_style))
+            pending = True
+        elif tok == "(":
+            parens.append(pending)
+            runs.append((tok, call if pending else SYNTAX["punct"]))
+            pending = False
+        elif tok == ")":
+            runs.append((tok, call if parens and parens.pop() else SYNTAX["punct"]))
+        elif role == "number" and parens and parens[-1] and PAYLOAD_WORDS == "shade":
+            runs.append((tok, shade))
         else:
-            style = SYNTAX[role]
-        runs.append((tok, style))
+            runs.append((tok, SYNTAX[role]))
         last = m.end()
     if last < len(text):
-        runs.append((text[last:], PAYLOAD_STYLE))
+        plain(text[last:])
     return runs
+
+
+def label_runs(n, bold: bool = True, bg=None) -> list:
+    """A node's label as runs: brackets in the kind's colour, the name off-white.
+    A dialect's custom label or a pseudo-state stays one run in the kind colour."""
+    spec = KINDS.get(n.kind, {})
+    label = node_label(n)
+    colour = (HOLE_COLOR if n.is_hole else kind_color(n.kind), bg, bold)
+    if n.kind == CHIP or "label" in spec or n.attrs.get("pseudo") in PSEUDO_LABEL:
+        return [(label, colour)]
+    if not spec.get("open"):                    # a state: just its name
+        return [(label, (GLYPH_NAME, bg, bold))]
+    return glyph_runs(label, n.kind, bold, bg) if not n.is_hole else [(label, colour)]
 
 
 def _put_runs(cv: Canvas, x, y, runs) -> int:
@@ -905,6 +972,8 @@ def _draw_box(cv: Canvas, x, y, w, label, n):
     cv.put(x + 2, y + 1, label.ljust(w - 4), text)
     if n.kind == CHIP:                          # a payload reads as the code it is
         _put_runs(cv, x + 2, y + 1, payload_runs(n.name))
+    else:                                       # brackets in colour, name off-white
+        _put_runs(cv, x + 2, y + 1, label_runs(n, bg=text[1]))
     cv.put(x + w - 2, y + 1, " " + s, border)
     cv.put(x, y + 2, bl + h * (w - 2) + br, border)
 
@@ -1270,7 +1339,7 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     blocks = {nid: [e for e in es if e[2] == "block"] for nid, es in idx.items()}
     blocks = {nid: es for nid, es in blocks.items() if es}
     cv = Canvas()
-    out = _draw_outline(cv, rows, blocks)
+    out = _draw_outline(cv, rows, blocks, show_tags=notes != "callouts")
     lanes = _collect_lanes(cv, wires, out)
     placed = _pack_lanes(lanes, max(out.ends) + 3, out.node)
     _draw_lanes(cv, placed, out.ends)
@@ -1329,7 +1398,7 @@ class _Outline:
     node: dict                                  # node id → its node (first row's)
 
 
-def _draw_outline(cv: Canvas, rows, idx: dict) -> _Outline:
+def _draw_outline(cv: Canvas, rows, idx: dict, show_tags: bool = True) -> _Outline:
     """The outline: rails, relation, label, #N tag and (for a state) the triggers
     that lead into it, one row each."""
     out = _Outline([], {}, {}, {}, {})
@@ -1354,8 +1423,11 @@ def _draw_outline(cv: Canvas, rows, idx: dict) -> _Outline:
             x += 1
         label = node_label(n) + (" ▸" if row.collapsed else "")
         _border, text = node_styles(n)
-        cv.put(x, y, label, (text[0], None, True))
+        _put_runs(cv, x, y, label_runs(n) + ([(" ▸", (text[0], None, True))]
+                                             if row.collapsed else []))
         x += len(label)
+        if n.id in idx and n.id not in out.tagged and not show_tags:
+            out.tagged[n.id] = y                # callouts point here with `#>` instead
         if n.id in idx and n.id not in out.tagged:  # `#N` on the node's first row
             tag = " " + note_tag(idx[n.id])
             tx = x
@@ -1559,7 +1631,8 @@ def _with_callouts(rows, idx: dict, tagged: dict):
             # A block note is a framed box (up to 3 lines); an inline note stays
             # bare (two lines at most), like the trailing comment it came from.
             limit = 3 if kind == "block" else 2
-            lines = textwrap.wrap(f"#{num} {text}", CALLOUT_TEXT) or [""]
+            # No number: the leader itself points at the entity (`#>`).
+            lines = textwrap.wrap(text, CALLOUT_TEXT) or [""]
             if len(lines) > limit:
                 lines = lines[:limit]
                 lines[-1] = lines[-1][:CALLOUT_TEXT - 1] + "…"
@@ -1608,6 +1681,8 @@ def _with_callouts(rows, idx: dict, tagged: dict):
         mc.run(x0, x1, yy, stroke, colour,
                hops=lambda x, _y=yy, _own=own: ((x, _y) in verticals and x != _own
                                                and (x, _y) not in ends_at))
+    for y, _top, _lines, kind in boxes:         # each leader ends `#>` at its entity
+        mc.put(end - 1, y, "#>", NOTE_STYLE[kind])
     margin_rows = list(mc.rows())
     height = max(len(rows), len(margin_rows))
     out = []
