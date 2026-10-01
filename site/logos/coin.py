@@ -7,11 +7,10 @@ characters.
     site/logos/coin.py [--rows N] [--rim F] [--curl] [--name NAME]
 
 Writes <name>.txt (the characters) and <name>.mask (one colour code per cell,
-same shape) next to this file, and prints the coin. The committed files come
-from exactly these commands:
+same shape) next to this file, and prints the coin. The committed coin.txt and
+coin.mask come from the defaults:
 
-    site/logos/coin.py                              # coin.txt, coin.mask
-    site/logos/coin.py --rows 15 --name coin-small  # coin-small.txt, .mask
+    site/logos/coin.py
 
 The defaults are the plain `&` (two crossings), 19 rows, the rim's inner edge
 at 0.92 of the radius; --curl draws the flourished `&` with a third crossing.

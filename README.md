@@ -145,7 +145,7 @@ variables; `.github/workflows/pages.yml` publishes it with GitHub Pages.
 python3 site/build_site.py --out _site && python3 -m http.server -d _site 8000
 ```
 
-`?theme=NAME` and `?logo=NAME` (a file in `site/logos/`) preview alternatives.
+`?theme=NAME` previews another theme from `themes/`.
 
 ## Dialects
 

@@ -2,7 +2,6 @@
 
 Covers:
   - the default run reproduces the committed coin.txt / coin.mask;
-  - the command documented for coin-small reproduces coin-small.txt / .mask;
   - the plain & crosses itself twice and the curled one three times, at
     every size from the smallest allowed up to the default;
   - the command line rejects too few rows and a rim outside 0..1.
@@ -46,12 +45,6 @@ class CommittedLogos(unittest.TestCase):
         args = coin.parse_args([])
         chars, mask, _ = coin.coin(args.rows, args.curl, args.rim)
         self.assertEqual((chars, mask), _committed("coin"))
-
-    def test_documented_command_reproduces_coin_small(self):
-        args = coin.parse_args(["--rows", "15", "--name", "coin-small"])
-        self.assertIn("--rows 15 --name coin-small", coin.__doc__)
-        chars, mask, _ = coin.coin(args.rows, args.curl, args.rim)
-        self.assertEqual((chars, mask), _committed("coin-small"))
 
 
 class Crossings(unittest.TestCase):
