@@ -27,6 +27,8 @@ Options:
     --no-triggers    Start without event → state triggers (lanes / wires).
     --notes MODE     off | markers (#N tags + a notes list) | callouts (tree view:
                      boxes in a left margin tied to their rows).
+    --width N        --once: the columns to fit (default: the terminal's width,
+                     else 100). See "Fitting" below.
 
 Keys (live view):
     d  cycle depth (0 → 1 → all)   p  payloads   l  lint panel   r  reload
@@ -41,6 +43,14 @@ top-down in layers (cycle breaking, longest-path layering, barycenter ordering,
 block-merged x placement, one track per fan-out) and drawn with box-drawing
 characters. The live view is a plain alternate-screen terminal loop that keeps
 the drawing centred in the pane while it fits, and scrolls when it doesn't.
+
+Fitting: a drawing wider than the window (the live pane, or --width) is
+rearranged, never squashed — boxes, lanes and the outline keep their shapes.
+Comment text rewraps between 16 and 40 columns; block comments move to a panel
+at the top-left (their entity keeps its #N tag), payloads and inline comments to
+one at the bottom-right (the flow keeps a ┆a┆ marker; in the graph view a chip
+shrinks to its letter). A panel takes an empty corner of the drawing when one is
+big enough. When everything fits, the drawing is exactly the natural one.
 
 Boxes are colour-coded by node type (border + tinted fill); the sigil theme:
     [component] periwinkle   {data} violet   <event> pink   (actor) green
@@ -983,8 +993,15 @@ def _draw_box(cv: Canvas, x, y, w, label, n):
 # ---------------------------------------------------------------------------
 
 NOTE_MODES = ("off", "markers", "callouts")
-CALLOUT_TEXT = 24                               # callout box text width
+CALLOUT_TEXT = 24                               # callout box text width, given room
+# Comment text may scale to the window, between these. Below 16 columns a line
+# holds two or three words and prose turns into a word ladder; past 40 a side
+# note stops reading at a glance (half an 80-column terminal) and crowds the
+# drawing. Boxes only grow past CALLOUT_TEXT to avoid cutting a comment off.
+CALLOUT_MIN = 16
+CALLOUT_MAX = 40
 NOTE_WIDTH = 76                                 # notes list wrap width
+ONCE_WIDTH = 100                                # --once width when stdout isn't a tty
 ALL_DEPTH = 99                                  # --depth all
 
 
@@ -997,10 +1014,12 @@ def _walk(g):
         queue += list(cur.expansions.values())
 
 
-def with_chips(g, payloads: bool = False, triggers=()):
+def with_chips(g, payloads: bool = False, triggers=(), marks: list | None = None):
     """The graph as the graph view draws it: each `: payload` as a chip splitting
     its edge (src → chip → dst), and each trigger whose event and owner are both
-    here as an edge event ⇢ owner. Returns g itself when there is nothing to add."""
+    here as an edge event ⇢ owner. Returns g itself when there is nothing to add.
+    With `marks` (a list), each chip shows only a marker letter and the payload is
+    appended to marks as (letter, payload) — for a panel beside the drawing."""
     extra = [t for t in triggers if t.event in g.nodes and t.owner in g.nodes]
     if not extra and not (payloads and any(e.payload for e in g.edges)):
         return g
@@ -1008,7 +1027,11 @@ def with_chips(g, payloads: bool = False, triggers=()):
     for k, e in enumerate(g.edges):
         if payloads and e.payload and e.src != e.dst:
             cid = f"\0p{k}"
-            nodes[cid] = render.Node(id=cid, name=e.payload, kind=CHIP, attrs={"src": e.src})
+            name = e.payload
+            if marks is not None:
+                name = _letter(len(marks))
+                marks.append((name, e.payload))
+            nodes[cid] = render.Node(id=cid, name=name, kind=CHIP, attrs={"src": e.src})
             edges += [replace(e, dst=cid, label=None, payload=None),
                       replace(e, src=cid, payload=None)]
         else:
@@ -1022,13 +1045,25 @@ def with_chips(g, payloads: bool = False, triggers=()):
 
 
 def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None = None,
-             payloads: bool = False, triggers=()):
+             payloads: bool = False, triggers=(), fit: int | None = None,
+             marks: list | None = None):
     """Yield (title, graph, canvas) for the graph and its expansions up to depth.
     `payloads` draws each flow's payload as a chip on its edge; `triggers` (the
-    document's event → state triggers) draw as dashed edges event ⇢ owner."""
+    document's event → state triggers) draw as dashed edges event ⇢ owner. With
+    `fit` (columns) and `marks` (a list), a section wider than `fit` that has chips
+    is laid out again with marker-letter chips — kept (and its payloads appended
+    to marks) when that fits, or is at least a fifth narrower."""
     show = set(g.expansions) if level < depth else set()
     collapsed = set(g.expansions) - show
-    yield title, g, layout(with_chips(g, payloads, triggers), show, collapsed, tags)
+    cv = layout(with_chips(g, payloads, triggers), show, collapsed, tags)
+    if (fit is not None and marks is not None and cv.w > fit and payloads
+            and any(e.payload and e.src != e.dst for e in g.edges)):
+        trial = list(marks)
+        marked = layout(with_chips(g, payloads, triggers, trial), show, collapsed, tags)
+        # Worth it when that fits, or saves at least a fifth of the width.
+        if marked.w < cv.w and (marked.w <= fit or marked.w * 5 <= cv.w * 4):
+            cv, marks[:] = marked, trial
+    yield title, g, cv
     for nid in g.expansions:
         if nid in show:
             what = ("state machine" if getattr(g.expansions[nid], "role", "") == "state"
@@ -1037,7 +1072,7 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
             if title:
                 sub_title = f"{title}  ›  {sub_title}"
             yield from sections(g.expansions[nid], depth, sub_title, level + 1, tags,
-                                payloads, triggers)
+                                payloads, triggers, fit, marks)
 
 
 def trigger_lines(g):
@@ -1126,12 +1161,20 @@ def note_rows(idx: dict, width: int = NOTE_WIDTH):
     return rows
 
 
-def compose(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = True):
+def compose(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = True,
+            width: int | None = None):
     """The whole drawing as rows of (text, style) runs, plus its width. Each
     section's canvas is centred within the widest section. `payloads` draws each
     flow's payload as a chip on its edge; `triggers` wires each event to the owner
     of the state machine it drives (and lists the transitions below). Notes (any
-    mode but "off") tag commented boxes `#N` and list the notes below."""
+    mode but "off") tag commented boxes `#N` and list the notes below.
+
+    `width`: the columns to fit (None: draw at the natural width). When the
+    drawing is wider, it is rearranged — never squashed: block notes move to a
+    panel at the top-left, inline notes to one at the bottom-right, and a
+    section still too wide because of its payload chips draws each chip as a
+    marker letter (┆ a ┆) with the payload beside its letter in that panel.
+    Panels go into empty corners of the drawing when one is big enough."""
     idx = note_index(g) if notes != "off" else {}
     tags = {nid: note_tag_runs(node_notes(entries)) for nid, entries in idx.items()
             if node_notes(entries)}
@@ -1139,6 +1182,40 @@ def compose(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = 
         tags[key] = [(" ".join(f"#{num}" for num, _t in notes_), NOTE_STYLE["inline"])]
     trig_edges = getattr(g, "triggers", []) if triggers else []
     parts = list(sections(g, depth, tags=tags, payloads=payloads, triggers=trig_edges))
+    rows, drawing_w = _section_rows(parts)
+    trig = trigger_lines(g) if triggers else []
+    if trig:
+        rows += [[], [("── triggers ──", TITLE_STYLE)], []]
+        rows += [[(t, LABEL_STYLE)] for t in trig]
+    natural = rows + ([[], [("── notes ──", TITLE_STYLE)], []] + note_rows(idx) if idx else [])
+    natural_w = max([drawing_w] + [row_len(r) for r in natural])
+    if width is None or natural_w <= width:
+        return natural, natural_w
+
+    marks = []
+    if payloads and drawing_w > width:
+        parts = list(sections(g, depth, tags=tags, payloads=payloads, triggers=trig_edges,
+                              fit=width, marks=marks))
+        rows, _w = _section_rows(parts)
+        if trig:
+            rows += [[], [("── triggers ──", TITLE_STYLE)], []]
+            rows += [[(t, LABEL_STYLE)] for t in trig]
+    listed = sorted(e for entries in idx.values() for e in entries)
+    block = [([(f"#{num}", NOTE_STYLE[kind])], [(text, kind)])
+             for num, text, kind, _e in listed if kind == "block"]
+    side = ([(_chip_marker(letter), [(text, "code")]) for letter, text in marks]
+            + [([(f"#{num}", NOTE_STYLE[kind])], [(text, kind)])
+               for num, text, kind, _e in listed if kind != "block"])
+    if block:
+        rows = _fit_panel(rows, lambda tw: _panel_rows(block, tw), width, "tl", CALLOUT_MAX)
+    if side:
+        rows = _fit_panel(rows, lambda tw: _panel_rows(side, tw), width, "br", CALLOUT_MAX)
+    return rows, max([0] + [row_len(r) for r in rows])
+
+
+def _section_rows(parts):
+    """The sections' canvases as rows, each centred within the widest, under
+    their titles; and that width."""
     width = max([cv.w for _, _, cv in parts] + [len(t) + 6 for t, _, _ in parts if t] + [0])
     rows = []
     for title, _sg, cv in parts:
@@ -1147,13 +1224,176 @@ def compose(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = 
         pad = (width - cv.w) // 2
         for row in cv.rows():
             rows.append(([(" " * pad, None)] if pad and row else []) + row)
-    trig = trigger_lines(g) if triggers else []
-    if trig:
-        rows += [[], [("── triggers ──", TITLE_STYLE)], []]
-        rows += [[(t, LABEL_STYLE)] for t in trig]
-    if idx:
-        rows += [[], [("── notes ──", TITLE_STYLE)], []] + note_rows(idx)
-    return rows, max([width] + [row_len(r) for r in rows])
+    return rows, width
+
+
+# ---------------------------------------------------------------------------
+# Fitting — panels of relocated comments / payloads, placed in an empty corner
+# of the drawing when one is big enough, else above (top-left) or below it,
+# right-aligned (bottom-right). Only comment text rewraps; the drawing never
+# changes shape.
+# ---------------------------------------------------------------------------
+
+def _letter(k: int) -> str:
+    """The k-th marker letter: a … z, aa, ab, …"""
+    s, k = "", k + 1
+    while k:
+        k, r = divmod(k - 1, 26)
+        s = chr(97 + r) + s
+    return s
+
+
+def _chip_marker(letter: str) -> list:
+    """`┆a┆`: a small payload chip standing in for a relocated payload."""
+    dim = (GREY["dim"], None, False)
+    return [("┆", dim), (letter, PAYLOAD_STYLE), ("┆", dim)]
+
+
+def _callout_lines_cap(kind: str, tw: int) -> int:
+    """How many lines a callout may take at text width tw: 3 for a block note (2
+    inline) from CALLOUT_TEXT up; a narrowed box may take as many lines as it
+    needs to hold what that box holds at CALLOUT_MAX, so narrowing never cuts a
+    comment off sooner."""
+    base = 3 if kind == "block" else 2
+    return base if tw >= CALLOUT_TEXT else max(base, -(-base * CALLOUT_MAX // tw))
+
+
+def _callout_lines(text: str, kind: str, tw: int) -> list:
+    """A callout's text wrapped at tw, cut with … past its line limit."""
+    lines = textwrap.wrap(text, tw) or [""]
+    limit = _callout_lines_cap(kind, tw)
+    if len(lines) > limit:
+        lines = lines[:limit]
+        lines[-1] = lines[-1][:tw - 1] + "…"
+    return lines
+
+
+def _callout_need(blocks: dict) -> int:
+    """The narrowest text width from CALLOUT_TEXT up to CALLOUT_MAX that shows
+    every callout whole (CALLOUT_MAX if none does)."""
+    need = CALLOUT_TEXT
+    for entries in blocks.values():
+        for _num, text, kind, _e in entries:
+            while (need < CALLOUT_MAX
+                   and len(textwrap.wrap(text, need)) > _callout_lines_cap(kind, need)):
+                need += 1
+    return need
+
+
+def _callout_panel(entries, tw: int):
+    """Block notes as a stack of framed boxes, each headed by its `#N` (the same
+    tag sits on its entity's row); returns (rows, width)."""
+    tag_w = max(len(f"#{num}") for num, _t, _k in entries) + 1
+    rows = []
+    for num, text, kind in entries:
+        lines = _callout_lines(text, kind, tw)
+        style, k = NOTE_STYLE[kind], len(lines)
+        for j, ln in enumerate(lines):
+            if k == 1:
+                lside, rside = "│ ", " │"
+            else:
+                lside, rside = {0: ("╭ ", " ╮"), k - 1: ("╰ ", " ╯")}.get(j, ("│ ", " │"))
+            tag = f"#{num}".ljust(tag_w) if j == 0 else " " * tag_w
+            rows.append([(tag, style), (lside, style), (ln.ljust(tw), style), (rside, style)])
+    return rows, tag_w + tw + 4
+
+
+def _panel_rows(items, tw: int):
+    """A panel: each item is (marker runs, [(text, kind)]); kind "code" is a
+    payload (drawn as code), else a note kind. Each text wraps at tw under its
+    marker (a payload, being code, at no less than its own length up to
+    CALLOUT_MAX). Returns (rows, width)."""
+    mark_w = max(row_len(m) for m, _ in items) + 1
+    rows = []
+    for marker, texts in items:
+        first = True
+        for text, kind in texts:
+            wrap = max(tw, min(len(text), CALLOUT_MAX)) if kind == "code" else tw
+            for ln in textwrap.wrap(text, wrap) or [""]:
+                lead = (marker + [(" " * (mark_w - row_len(marker)), None)] if first
+                        else [(" " * mark_w, None)])
+                body = (payload_runs(ln) if kind == "code"
+                        else [(ln, NOTE_STYLE[kind] if kind == "inline" else NOTE_TEXT_STYLE)])
+                rows.append(lead + body)
+                first = False
+    return rows, max(row_len(r) for r in rows)
+
+
+def _occupancy(rows, width: int):
+    """Prefix sums of the non-blank cells in rows (clipped to width): a rectangle's
+    count of drawn cells in O(1)."""
+    acc = [[0] * (width + 1)]
+    for row in rows:
+        text = "".join(t for t, _ in row)[:width].ljust(width)
+        line, run = [0], 0
+        for x, ch in enumerate(text):
+            run += ch != " "
+            line.append(acc[-1][x + 1] + run)
+        acc.append(line)
+    return acc
+
+
+def _empty_spot(acc, ph: int, pw: int, width: int, corner: str):
+    """Where a ph×pw panel fits with blank clearance all round, in the
+    corner's quarter of the drawing ("tl": topmost, then leftmost; "br":
+    bottommost, then rightmost); None when nowhere."""
+    h = len(acc) - 1
+    if ph > h or pw > width:
+        return None
+
+    def blank(y, x):                    # a row of clearance, two columns
+        y0, y1 = max(y - 1, 0), min(y + ph + 1, h)
+        x0, x1 = max(x - 2, 0), min(x + pw + 2, width)
+        return acc[y1][x1] - acc[y0][x1] - acc[y1][x0] + acc[y0][x0] == 0
+
+    if corner == "tl":
+        ys, xs = range(0, (h - ph) // 2 + 1), range(0, (width - pw) // 2 + 1)
+    else:
+        ys = range(h - ph, (h - ph + 1) // 2 - 1, -1)
+        xs = range(width - pw, (width - pw + 1) // 2 - 1, -1)
+    for y in ys:
+        for x in xs:
+            if blank(y, x):
+                return y, x
+    return None
+
+
+def _splice(row, x: int, runs, w: int):
+    """row with runs (w columns) written over its columns from x."""
+    left = clip(row, 0, x)
+    right = clip(row, x + w, 1 << 30)
+    pad = x - row_len(left)
+    fill = w - row_len(runs)
+    return (left + ([(" " * pad, None)] if pad else []) + runs
+            + ([(" " * fill, None)] if right and fill > 0 else []) + right)
+
+
+def _fit_panel(rows, make, width: int, corner: str, pref: int):
+    """Place a panel (make(text width) → (rows, width)) in the drawing: in an empty
+    region of its corner if one is big enough at some text width (pref first, then
+    CALLOUT_MAX down to CALLOUT_MIN), else above the drawing (tl) or below it,
+    right-aligned (br), at the widest text width within `width`."""
+    acc = _occupancy(rows, width)
+    tries = [pref] + [t for t in range(CALLOUT_MAX, CALLOUT_MIN - 1, -4) if t != pref]
+    for tw in tries:
+        panel, pw = make(tw)
+        spot = _empty_spot(acc, len(panel), pw, width, corner)
+        if spot:
+            y, x = spot
+            out = list(rows)
+            for j, prow in enumerate(panel):
+                out[y + j] = _splice(out[y + j], x, prow, pw)
+            return out
+    tw = pref
+    panel, pw = make(tw)
+    while pw > width and tw > CALLOUT_MIN:
+        tw -= 1
+        panel, pw = make(tw)
+    if corner == "tl":
+        return panel + [[]] + list(rows)
+    right = min(width, max([pw] + [row_len(r) for r in rows]))
+    pad = max(right - pw, 0)
+    return list(rows) + [[]] + [([(" " * pad, None)] if pad else []) + r for r in panel]
 
 
 # ---------------------------------------------------------------------------
@@ -1319,14 +1559,22 @@ def keys_legend(state):
 
 
 def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
-                 notes: str = "off", payloads: bool = False):
+                 notes: str = "off", payloads: bool = False, width: int | None = None):
     """The drawing as outline rows with a lane gutter; same return shape as compose().
     `triggers`: draw event → state lanes. `spaced`: a blank row between top-level
     units (a root with parts, or the first root after one). `notes`: "markers" tags
     commented rows `#N` and lists the notes below; "callouts" draws them as boxes in
     a left margin, each tied to its row by a leader. `payloads`: draw each flow's
     payload as a chip in a right margin, on its target row (the mirror of the
-    callouts); any that can't be placed are listed below."""
+    callouts); any that can't be placed are listed below.
+
+    `width`: the columns to fit (None: the natural width). When the drawing is
+    wider, the margins give way — the outline and lanes never change shape: the
+    callout boxes narrow (down to CALLOUT_MIN); then the right margin moves to a
+    panel at the bottom-right (each row keeps a `┆a┆` marker, the panel repeats
+    it beside the payload / comment); then the callouts move to a panel at the
+    top-left (each entity keeps its `#N` tag, the panel's box is headed `#N`).
+    A callout that would be cut off widens (up to CALLOUT_MAX) when there is room."""
     idx = note_index(g) if notes != "off" else {}
     rows, wires = _tree_rows(g, depth, triggers=triggers)
     if not rows:
@@ -1338,20 +1586,70 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     # the payload the line carries — as in the source.
     blocks = {nid: [e for e in es if e[2] == "block"] for nid, es in idx.items()}
     blocks = {nid: es for nid, es in blocks.items() if es}
-    cv = Canvas()
-    out = _draw_outline(cv, rows, blocks, show_tags=notes != "callouts")
-    lanes = _collect_lanes(cv, wires, out)
-    placed = _pack_lanes(lanes, max(out.ends) + 3, out.node)
-    _draw_lanes(cv, placed, out.ends)
+    payload_of = _payload_of(g) if payloads else {}
     trailing = _trailing_notes(idx) if notes != "off" else {}
-    drawn = _draw_right_margin(cv, lanes, placed, out, _payload_of(g) if payloads else {},
-                               trailing, notes)
-    out_rows, width = list(cv.rows()), cv.w
-    if notes == "callouts" and out.tagged:
-        out_rows, width = _with_callouts(out_rows, blocks, out.tagged)
-    extra = _extras(g, idx, notes, payloads, drawn)
-    out_rows += extra
-    return out_rows, max([width] + [row_len(r) for r in extra])
+    bases = {}
+
+    def base(left: bool, right: bool):
+        """The outline, lanes and right margin; `left`: callouts relocated (so
+        rows carry #N tags), `right`: the right margin relocated."""
+        if (left, right) not in bases:
+            cv = Canvas()
+            out = _draw_outline(cv, rows, blocks, show_tags=notes != "callouts" or left)
+            lanes = _collect_lanes(cv, wires, out)
+            placed = _pack_lanes(lanes, max(out.ends) + 3, out.node)
+            _draw_lanes(cv, placed, out.ends)
+            moved = [] if right else None
+            drawn = _draw_right_margin(cv, lanes, placed, out, payload_of, trailing, notes,
+                                       moved)
+            bases[(left, right)] = (list(cv.rows()), cv.w, out, drawn, moved or [])
+        return bases[(left, right)]
+
+    def assemble(left: bool, right: bool, tw: int):
+        out_rows, w, out, _drawn, _moved = base(left, right)
+        if notes == "callouts" and out.tagged and not left:
+            out_rows, w = _with_callouts(out_rows, blocks, out.tagged, tw)
+        return out_rows, w
+
+    callouts = notes == "callouts" and bool(blocks)
+    need = _callout_need(blocks) if callouts else CALLOUT_TEXT
+    choice = (False, False, CALLOUT_TEXT)
+    if width is not None:
+        out_rows, w = assemble(*choice)
+        extra = _extras(g, idx, notes, payloads, base(False, False)[3])
+        fits = max([w] + [row_len(r) for r in extra]) <= width
+        if fits and need > CALLOUT_TEXT and assemble(False, False, need)[1] <= width:
+            choice = (False, False, need)           # room to show every callout whole
+        elif not fits:
+            shrink = range(need, CALLOUT_MIN - 1, -1) if callouts else (CALLOUT_TEXT,)
+            # Each margin arrangement, its callouts as wide as fit; an arrangement
+            # whose narrowest callouts don't fit is skipped whole.
+            tries = [[(False, False, tw) for tw in shrink], [(False, True, tw) for tw in shrink]]
+            if callouts:
+                tries += [[(True, False, need)], [(True, True, need)]]
+            tries = [t for group in tries if assemble(*group[-1])[1] <= width for t in group]
+            choice = next((t for t in tries if assemble(*t)[1] <= width),
+                          (callouts, True, need))
+    left, right, tw = choice
+    out_rows, w = assemble(left, right, tw)
+    _r, _w, out, drawn, moved = base(left, right)
+    # (A list that already fits rewraps to the same lines at the narrower width.)
+    extra = _extras(g, idx, notes, payloads, drawn,
+                    NOTE_WIDTH if width is None else min(NOTE_WIDTH, width))
+    if width is not None and right and moved:
+        items = [(_chip_marker(letter), ([(" · ".join(chips), "code")] if chips else [])
+                  + [(f"# {text}", "inline") for _num, text in notes_])
+                 for letter, chips, notes_ in moved]
+        out_rows = _fit_panel(out_rows, lambda t: _panel_rows(items, t), width, "br",
+                              CALLOUT_MAX)
+    if width is not None and left and out.tagged:
+        entries = [(num, text, kind) for nid, _y in sorted(out.tagged.items(), key=lambda kv: kv[1])
+                   for num, text, kind, _e in blocks[nid]]
+        out_rows = _fit_panel(out_rows, lambda t: _callout_panel(entries, t), width, "tl", need)
+    if (left, right) != (False, False):
+        w = max([0] + [row_len(r) for r in out_rows])
+    out_rows = list(out_rows) + extra
+    return out_rows, max([w] + [row_len(r) for r in extra])
 
 
 def _space_units(rows):
@@ -1558,13 +1856,15 @@ def _trailing_notes(idx: dict) -> dict:
 
 
 def _draw_right_margin(cv: Canvas, lanes, placed, out: _Outline, payload_of: dict,
-                       trailing: dict, notes: str) -> set:
+                       trailing: dict, notes: str, moved: list | None = None) -> set:
     """The right margin, the mirror of the note callouts: on each flow's target row
     the payload it carries (a ┆chip┆) and the inline comment from its line; on a
     node's row the inline comment of the line that placed it. A dotted leader ties
     each to the row's rightmost tap, hopping (┄│┄) over lanes it crosses. Comments
     show as `#N` (markers) or their text (callouts). Returns the flow keys whose
-    payloads were drawn."""
+    payloads were drawn. With `moved` (a list), a row's payloads and comment text
+    are relocated instead: the row ends in a `┆a┆` marker and moved gets
+    (letter, payloads, [(number, text)]); `#N` markers stay on the row."""
     margin = max([x for x, *_ in placed] + [max(out.ends) - 1]) + 3
     rightmost, chips, notes_at, drawn = {}, {}, {}, set()
     for (_lo, _hi, src, dst, kind, _sy, _dy), (x, _l, _h, sy, dy, _k, _st) in zip(lanes, placed):
@@ -1593,6 +1893,21 @@ def _draw_right_margin(cv: Canvas, lanes, placed, out: _Outline, payload_of: dic
             if (x, y) not in cv.lines and (x, y) not in cv.text:
                 cv.put(x, y, "┄", leader)
         x = margin - 1
+        if moved is not None:
+            row_notes = sorted(notes_at.get(y, ()))
+            go = [] if notes == "markers" else row_notes
+            if chips.get(y) or go:                # the same content shares a letter
+                item = (chips.get(y, []), go)
+                letter = next((m[0] for m in moved if m[1:] == item), None)
+                if letter is None:
+                    letter = _letter(len(moved))
+                    moved.append((letter, *item))
+                x = _put_runs(cv, x, y, _chip_marker(letter)) + 1
+            if notes == "markers":
+                for num, _text in row_notes:
+                    cv.put(x, y, f"#{num}", NOTE_STYLE["inline"])
+                    x += len(f"#{num}") + 2
+            continue
         if chips.get(y):
             body = " · ".join(chips[y])
             cv.put(x, y, "┆ ", border)
@@ -1606,36 +1921,34 @@ def _draw_right_margin(cv: Canvas, lanes, placed, out: _Outline, payload_of: dic
     return drawn
 
 
-def _extras(g, idx: dict, notes: str, payloads: bool, drawn: frozenset = frozenset()):
+def _extras(g, idx: dict, notes: str, payloads: bool, drawn: frozenset = frozenset(),
+            note_width: int = NOTE_WIDTH):
     """The lists under the tree: payloads not drawn as chips (when shown), then
-    notes (markers mode)."""
+    notes (markers mode, wrapped at note_width)."""
     extra = []
     pl = [f"  {edge_text(sub, e)} : {e.payload}" for sub in _walk(g) for e in sub.edges
           if e.payload and (e.src, e.dst, e.kind) not in drawn] if payloads else []
     if pl:
         extra += [[], [("── payloads ──", TITLE_STYLE)], []] + [[(p, PAYLOAD_STYLE)] for p in pl]
     if notes == "markers" and idx:
-        extra += [[], [("── notes ──", TITLE_STYLE)], []] + note_rows(idx)
+        extra += [[], [("── notes ──", TITLE_STYLE)], []] + note_rows(idx, note_width)
     return extra
 
 
-def _with_callouts(rows, idx: dict, tagged: dict):
-    """Prefix the tree rows with a left margin of note boxes. A box sits level with
-    its row when there is room, else slides down; its leader runs right, up to the
-    row, and into it. Leaders get their own columns (interval-packed)."""
+def _with_callouts(rows, idx: dict, tagged: dict, tw: int = CALLOUT_TEXT):
+    """Prefix the tree rows with a left margin of note boxes, their text tw wide. A
+    box sits level with its row when there is room, else slides down; its leader
+    runs right, up to the row, and into it. Leaders get their own columns
+    (interval-packed)."""
     boxes = []                                  # (row, top, lines, kind)
     free = 0
     anchors = set(tagged.values())
     for nid, y in sorted(tagged.items(), key=lambda kv: kv[1]):
         for num, text, kind, _edges in idx[nid]:
-            # A block note is a framed box (up to 3 lines); an inline note stays
-            # bare (two lines at most), like the trailing comment it came from.
-            limit = 3 if kind == "block" else 2
-            # No number: the leader itself points at the entity (`#>`).
-            lines = textwrap.wrap(text, CALLOUT_TEXT) or [""]
-            if len(lines) > limit:
-                lines = lines[:limit]
-                lines[-1] = lines[-1][:CALLOUT_TEXT - 1] + "…"
+            # A block note is a framed box (3 lines at CALLOUT_TEXT); an inline
+            # note stays bare (2), like the trailing comment it came from. No
+            # number: the leader itself points at the entity (`#>`).
+            lines = _callout_lines(text, kind, tw)
             top = max(y, free)
             while top != y and top in anchors:  # a slid box never starts on another
                 top += 1                        # note's row: its runs would merge
@@ -1643,7 +1956,7 @@ def _with_callouts(rows, idx: dict, tagged: dict):
             free = top + len(lines) + (1 if kind == "block" else 0)
     cols = []                                   # leader columns: list of (lo, hi)
     leader_col = [None if top == y else _first_fit(cols, y, top) for y, top, _l, _n in boxes]
-    box_w = CALLOUT_TEXT + 4
+    box_w = tw + 4
     margin = box_w + 2 + 2 * len(cols) + 2
     mc = Canvas()
     for (y, top, lines, kind), c in zip(boxes, leader_col):
@@ -1657,7 +1970,7 @@ def _with_callouts(rows, idx: dict, tagged: dict):
             else:
                 lside, rside = {0: ("╭ ", " ╮"), k - 1: ("╰ ", " ╯")}.get(j, ("│ ", " │"))
             mc.put(0, top + j, lside, border)
-            mc.put(2, top + j, ln.ljust(CALLOUT_TEXT), style)
+            mc.put(2, top + j, ln.ljust(tw), style)
             mc.put(box_w - 2, top + j, rside, border)
     # Leaders: verticals first, then horizontal runs that hop (─│─) over any other
     # leader's vertical, so two leaders never read as joined.
@@ -1768,16 +2081,20 @@ def row_len(row) -> int:
 
 def once(path: Path, depth: int, payloads: bool, do_lint: bool,
          dialect=None, colour: bool = False, tree: bool = False,
-         triggers: bool = True, spaced: bool = True, notes: str = "off") -> int:
+         triggers: bool = True, spaced: bool = True, notes: str = "off",
+         width: int | None = None) -> int:
+    """Print the drawing once. `width`: the columns to fit it to (None: its
+    natural width); the legend wraps at the narrower of that and LEGEND_WIDTH."""
     use_dialect(dialect)
     text = path.read_text()
     g = _call(render.parse_document, text, dialect)
-    rows, _w = (compose_tree(g, depth, triggers, spaced, notes, payloads) if tree
-                else compose(g, depth, payloads, notes, triggers))
+    rows, _w = (compose_tree(g, depth, triggers, spaced, notes, payloads, width) if tree
+                else compose(g, depth, payloads, notes, triggers, width))
     out = [ansi(r, colour) for r in rows]
     if tree:
+        legend_w = LEGEND_WIDTH if width is None else min(LEGEND_WIDTH, width)
         out += [""] + [ansi(ln, colour) for r in tree_legend(triggers, payloads)
-                       for ln in wrap_legend(r, LEGEND_WIDTH)]
+                       for ln in wrap_legend(r, legend_w)]
     out.append("")
     out.append(f"{path.name}: {len(g.nodes)} nodes, {len(g.edges)} edges, "
                f"{len(g.expansions)} expansions")
@@ -1830,7 +2147,8 @@ class ViewState:
         self.sx = self.sy = 0          # scroll offsets (only used when it overflows)
         self._recentre = False         # centre the overflowing drawing on the next frame
         self._vh = 1                   # viewport height of the last frame (a page)
-        self._rows, self._width = [], 0
+        self._rows, self._width = [], 0  # the drawing at its natural width
+        self._fit = None               # (cols, rows, width): the drawing fitted to cols
 
     # -- model ---------------------------------------------------------------
 
@@ -1861,14 +2179,24 @@ class ViewState:
         return True
 
     def _recompose(self):
+        self._fit = None
+        self._rows, self._width = self._compose(None)
+
+    def _compose(self, width: int | None):
         if self.graph is None:
-            self._rows, self._width = [], 0
-        else:
-            self._rows, self._width = (
-                compose_tree(self.graph, self.depth, self.show_triggers, self.spaced,
-                             self.notes, self.payloads)
-                if self.tree else compose(self.graph, self.depth, self.payloads, self.notes,
-                                          self.show_triggers))
+            return [], 0
+        if self.tree:
+            return compose_tree(self.graph, self.depth, self.show_triggers, self.spaced,
+                                self.notes, self.payloads, width)
+        return compose(self.graph, self.depth, self.payloads, self.notes,
+                       self.show_triggers, width)
+
+    def fitted(self, cols: int):
+        """(rows, width): the drawing rearranged to fit `cols` columns when it can
+        be (see compose / compose_tree); cached until the view or the size changes."""
+        if self._fit is None or self._fit[0] != cols:
+            self._fit = (cols, *self._compose(cols))
+        return self._fit[1], self._fit[2]
 
     # -- keys ----------------------------------------------------------------
 
@@ -1974,10 +2302,12 @@ class ViewState:
 
     def frame(self, cols: int, rows: int):
         """Exactly `rows` rows of styled runs for a cols×rows terminal: the status bar,
-        the drawing (centred while it fits, scrolled when it doesn't), the footer."""
+        the drawing (rearranged to fit `cols` when it is wider — see fitted(); centred
+        while it fits, scrolled when it still doesn't), the footer."""
         footer = self._footer_rows(cols)
         vh = self._vh = max(rows - 1 - len(footer), 1)
-        body, W, H = self._rows, self._width, len(self._rows)
+        body, W = self.fitted(cols)
+        H = len(body)
         if self.graph is None and not self.error:
             body = [[("waiting for " + str(self.path), (GREY["mid"], None, False))]]
             W, H = row_len(body[0]), 1
@@ -2091,6 +2421,16 @@ def _depth_arg(text: str) -> int:
     return depth
 
 
+def _width_arg(text: str) -> int:
+    try:
+        width = int(text)
+    except ValueError:
+        width = 0
+    if width < 1:
+        raise argparse.ArgumentTypeError(f"expected a number of columns >= 1, got {text!r}")
+    return width
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Live terminal view of a Sigil graph.")
     ap.add_argument("file", type=Path)
@@ -2109,6 +2449,9 @@ def main() -> int:
                          "lanes in the tree view)")
     ap.add_argument("--tree", action="store_true",
                     help="tree + wires: the composition tree as an outline, flows as lanes")
+    ap.add_argument("--width", type=_width_arg, default=None, metavar="N",
+                    help="--once: fit the drawing to N columns (default: the terminal's "
+                         f"width, or {ONCE_WIDTH} when stdout is not a terminal)")
     ap.add_argument("--color", choices=("auto", "always", "never"), default="auto")
     ap.add_argument("--theme", default=None,
                     help="colour theme: a name in themes/ or a .yaml path (default: $SIGIL_THEME or sigil)")
@@ -2131,8 +2474,9 @@ def main() -> int:
     tty_out = sys.stdout.isatty()
     if a.once or not tty_out or not sys.stdin.isatty():
         colour = a.color == "always" or (a.color == "auto" and tty_out)
+        width = a.width or (shutil.get_terminal_size().columns if tty_out else ONCE_WIDTH)
         return once(a.file, a.depth, a.payloads, not a.no_lint, dialect, colour, a.tree,
-                    not a.no_triggers, not a.compact, a.notes)
+                    not a.no_triggers, not a.compact, a.notes, width)
     tui(ViewState(a.file, a.depth, a.payloads, not a.no_lint, dialect, a.tree,
                   not a.no_triggers, not a.compact, a.notes))
     return 0

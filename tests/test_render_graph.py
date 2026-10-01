@@ -63,9 +63,12 @@ class TestJoinFanOut(unittest.TestCase):
         })
 
     def test_continuation_inherits_subject(self):
+        # language.md: a continuation line inherits only the SUBJECT (the first
+        # glyph) of the line above — not its last target (pitfall 9).
         g = render.parse_document("[A] -> [B]\n  -> [C] & [D]\n")
-        self.assertIn(("B_service", "C_service", "->"), edges(g))
-        self.assertIn(("B_service", "D_service", "->"), edges(g))
+        self.assertIn(("A_service", "C_service", "->"), edges(g))
+        self.assertIn(("A_service", "D_service", "->"), edges(g))
+        self.assertNotIn(("B_service", "C_service", "->"), edges(g))
 
 
 class TestHoles(unittest.TestCase):

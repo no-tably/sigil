@@ -88,19 +88,28 @@ class OneLineState(unittest.TestCase):              # 4
         self.assertEqual(edges(machine), {("Order_state_Draft", "Order_state_Paid")})
 
     def test_unowned_header_still_consumes_its_block(self):
-        g = parse("state {Job<T>} {\n  (pending) -<go>-> (done)\n}\n")
+        g = parse("state {\n  (pending) -<go>-> (done)\n}\n")
         self.assertEqual(g.nodes, {})
+
+    def test_generic_owner_owns_its_machine(self):
+        # `{Job<T>}` is ONE glyph (generics are part of the name), so it owns it.
+        g = parse("state {Job<T>} {\n  (pending) -<go>-> (done)\n}\n")
+        self.assertEqual(set(g.nodes), {"Job_T__data"})
+        self.assertEqual(g.expansions["Job_T__data"].role, "state")
 
 
 class AliasToGlyph(unittest.TestCase):              # 5
+    # An alias is a node whose expansion is its definition when that draws a flow;
+    # `{Summary}` after `:=` is not an expansion block `{ … }`.
     def test_alias_to_data_glyph_is_no_expansion(self):
         g = parse("[Materializer] := {Summary} cache")
         self.assertEqual(g.expansions, {})
-        self.assertEqual(g.nodes, {})
+        self.assertEqual(set(g.nodes), {"Materializer_service"})   # defined → a node
 
     def test_alias_to_flow_is_no_expansion(self):
         g = parse("ingress := {Req} => {Ctx}")
-        self.assertEqual(g.expansions, {})
+        self.assertEqual(g.nodes["ingress_alias"].kind, "alias")
+        self.assertEqual(edges(g.expansions["ingress_alias"]), {("Req_data", "Ctx_data")})
 
     def test_brace_then_space_is_an_expansion(self):
         g = parse("[X] := { [A] -> [B] }")
