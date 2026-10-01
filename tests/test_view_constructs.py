@@ -220,7 +220,8 @@ class TestArrowKinds(unittest.TestCase):
         out = graph(doc)
         self.assertRegex(out, "[╏╍]")
         t = tree(doc)
-        self.assertRegex(line_with(t, "<Paid> ◀"), "◎")
+        self.assertIn("›", line_with(t, "[Pay]"))        # the emitter's lane
+        self.assertIn("{Order} <Paid> ◀", t)             # named where it lands
         self.assertRegex(t, "[╏╍]")
         legend = "".join(t for t, _ in view.graph_legend())
         self.assertIn("╍╍▼ trigger", legend)

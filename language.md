@@ -440,8 +440,9 @@ state [Checkout] {
 
 Here `<Paid>` settles the order *and* frees the checkout. Viewers draw the link:
 `view.py` draws a dashed edge from `<Paid>` to each owner it drives (and lists the
-transitions under "triggers"), `view.py --tree` runs a lane from `<Paid>` into each
-state it enters (`e` toggles both), and Mermaid gets a dotted `triggers` edge. A trigger with no matching event is still valid — it
+transitions under "triggers"), `view.py --tree` draws `<Paid>` where it lands — a lane
+from whoever emits it (`›`) into each state it enters (`e` toggles both) — and Mermaid
+gets a dotted `triggers` edge. A trigger with no matching event is still valid — it
 names a cause outside the document.
 
 **Narrowing: aim an event at one owner.** By default an event drives every machine

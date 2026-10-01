@@ -249,7 +249,7 @@ class TestLiveView(unittest.TestCase):
         self.assertEqual(styles["["][0], view.CORE_KINDS["service"]["color"])
         self.assertEqual(styles["|"][0], view.CORE_KINDS["store"]["color"])
         for name in ("User", "API", "DB"):
-            self.assertEqual(styles[name][0], view.GLYPH_NAME)
+            self.assertTrue(styles[name][0].role.startswith("muted:kinds-"))
         self.assertTrue(all(s[1] for s in styles.values()))   # tinted fill
 
     def test_dialect_node_kinds_are_drawn(self):

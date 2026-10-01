@@ -604,20 +604,19 @@ flow; `●` a lane's source, `◀` each target):
 ├─& {Health} ◀───────────────────│─│─┐
 ├─& {Input} ─────────────●       │ │ │
 └─* [Bullet]             │       │ │ │
-   ├─& {Transform} ◀─────│─┬─────┼─┤ │
-   └─& {Damage} ─────────│─│───● │ │ │
-                         │ │   │ │ │ │
-[Asteroid]               │ │   │ │ │ │
-├─& {Transform} ◀────────│─│───│─┼─┤ │
-├─& {Health} ◀───────────│─│───│─│─│─┤
-└─{shattered}? [Shard] ◀━│━│━┓ │ │ │ │
-                         │ │ ┃ │ │ │ │
-[Physics] ───────────────│─│─┃─│─● │ │
-[Steering] ◀─────────────┴─│─┃─│───● │
-[Homing] ──────────────────● ┃ │     │
-[Combat] ◀───────────────○───┃─┴─────●
-<Destroyed> ◀╌╌╌╌╌╌╌╌╌╌╌╌┴─● ┃
-[Spawner] ◀────────────────┴━◆
+   ├─& {Transform} ◀─────│───┬───┼─┤ │
+   └─& {Damage} ─────────│───│─● │ │ │
+                         │   │ │ │ │ │
+[Asteroid]               │   │ │ │ │ │
+├─& {Transform} ◀────────│───│─│─┼─┤ │
+├─& {Health} ◀───────────│───│─│─│─│─┤
+└─{shattered}? [Shard] ◀━│━┓ │ │ │ │ │
+                         │ ┃ │ │ │ │ │
+[Physics] ───────────────│─┃─│─│─● │ │
+[Steering] ◀─────────────┴─┃─│─│───● │
+[Homing] ──────────────────┃─● │     │
+[Combat] ◀───────────────›─┃───┴─────●
+[Spawner] <Destroyed> ◀──┴━◆
 ```
 
 **Key decisions:**
@@ -670,27 +669,25 @@ state [Checkout] {
 }
 ```
 
-**Tree view** (`view.py FILE --tree` — dashed lanes run from each event into the
-states it drives; each state lists the triggers that enter it):
+**Tree view** (`view.py FILE --tree` — an event is drawn where it lands: trigger lanes
+(`╍`) run from each emitter (`›`) into the states its events drive; each state lists
+the triggers that enter it):
 
 ```text
 ── checkout ──
 (Shopper) ───────────────────────●
                                  │
-[Checkout] ◀─────────────────────┴─●╌╌╌╌╌╌╌○
-├─· Idle <Declined> <Paid> ◀─●─┬╍╍╍│╍╍╍╍╍╍╍╎╍┬╍┐
-└─· Busy <Placed> ◀──────────┴─●╍╍╍│╍╍╍╍╍┐ ╎ ╏ ╏
-                                   │     ╏ ╎ ╏ ╏
-{Order} ◀──────────────────────────┘     ╏ ╎ ╏ ╏
-├─· ● ───────────────────────●           ╏ ╎ ╏ ╏
-├─· Open <Placed> ◀──────────┴─●─●╍┐     ╏ ╎ ╏ ╏
-├─· Settled <Paid> ◀───────────┴╍│╍╏╍┐   ╏ ╎ ╏ ╏
-└─· Cancelled <Declined> ◀───────┴╍╏╍╏╍┐ ╏ ╎ ╏ ╏
-                                   ╏ ╏ ╏ ╏ ╎ ╏ ╏
-<Placed> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌◎╌╏╌╏╌◎╌┘ ╏ ╏
-[Payments] ──────────────────○─✖     ╏ ╏     ╏ ╏
-<Paid> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┴╍│╍╍╍╍╍◎╍╏╍╍╍╍╍◎ ╏
-<Declined> ◀───────────────────┴╍╍╍╍╍╍╍◎╍╍╍╍╍╍╍◎
+[Checkout] ◀─────────────────────┴─›─●╍›
+├─· Idle <Declined> <Paid> ◀─●─┬╍╍╍╏╍│╍╏╍┐
+└─· Busy <Placed> ◀──────────┴─●╍╍╍┘ │ ╏ ╏
+                                     │ ╏ ╏
+{Order} ◀────────────────────────────┘ ╏ ╏
+├─· ● ───────────────────────●         ╏ ╏
+├─· Open <Placed> ◀──────────┴─●─●╍╍╍╍╍┘ ╏
+├─· Settled <Paid> ◀───────────┴╍│╍┐     ╏
+└─· Cancelled <Declined> ◀───┬───┘ ╏     ╏
+                             ╏     ╏     ╏
+[Payments] ╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍›╍╍╍╍╍›╍╍╍╍╍›
 ```
 
 **Key decisions:**

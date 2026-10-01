@@ -86,6 +86,7 @@ The status bar shows the document's `#!mode`.
 from __future__ import annotations
 
 import argparse
+import colorsys
 import importlib.util
 import os
 import re
@@ -162,7 +163,7 @@ _BUILTIN_THEME = {
     "ui": {"text": "#c9d1d9", "muted": "#8b949e", "dim": "#6e7681", "tree": "#6e7681",
            "relation": "#5abea0", "label": "#5abea0", "title": "#c9d1d9",
            "payload": "#8b949e", "note": "#8b949e", "note_tag": "#6e7681",
-           "note_block": "#8b7aad", "note_inline": "#a5d6ff", "glyph_name": "#e6edf3",
+           "note_block": "#8b7aad", "note_inline": "#a5d6ff", "name_saturation": "0.5",
            "payload_words": "complement",
            "bar_fg": "#c9d1d9", "bar_bg": "#161b22", "bar_name": "#e6edf3",
            "key_fg": "#e6edf3", "key_bg": "#30363d",
@@ -197,6 +198,31 @@ def _shade(colour: "Colour", amount, bg: str) -> "Colour":
     back = [int(bg[i:i + 2], 16) for i in (1, 3, 5)]
     mixed = "#%02x%02x%02x" % tuple(round(b + (f - b) * k) for f, b in zip(fg, back))
     return Colour(mixed, "shade:" + colour.role)
+
+
+def _fraction(value, default) -> float:
+    """value as a number in 0..1, else the default."""
+    try:
+        k = float(value)
+    except (TypeError, ValueError):
+        k = float(default)
+    return min(max(k, 0.0), 1.0) if k == k else float(default)
+
+
+_MUTED: dict = {}
+
+
+def muted(colour: "Colour") -> "Colour":
+    """A glyph name's colour: its kind's colour at NAME_SATURATION of the
+    saturation (HSL). Its role, "muted:<role>", lets the page do the same."""
+    key = (str(colour), NAME_SATURATION)
+    if key not in _MUTED:
+        r, g, b = (int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5))
+        h, light, s = colorsys.rgb_to_hls(r, g, b)
+        rgb = colorsys.hls_to_rgb(h, light, s * NAME_SATURATION)
+        _MUTED[key] = Colour("#%02x%02x%02x" % tuple(round(c * 255) for c in rgb),
+                             "muted:" + getattr(colour, "role", ""))
+    return _MUTED[key]
 
 
 def _theme_styles(t: dict) -> dict:
@@ -234,7 +260,8 @@ def _theme_styles(t: dict) -> dict:
                        "inline": (pick("ui", "note_inline"), None, False)},
         "SYNTAX": {role: (pick("syntax", role), None, False)
                    for role in _BUILTIN_THEME["syntax"] if role != "shade"},
-        "GLYPH_NAME": pick("ui", "glyph_name"),
+        "NAME_SATURATION": _fraction(t["ui"].get("name_saturation"),
+                                     _BUILTIN_THEME["ui"]["name_saturation"]),
         "PAYLOAD_WORDS": (t["ui"].get("payload_words")
                           if t["ui"].get("payload_words") in ("complement", "shade")
                           else "complement"),
@@ -1033,8 +1060,8 @@ _GLYPH_KIND = {"[": "service", "{": "data", "<": "event", "(": "actor", "|": "st
 
 
 def glyph_runs(tok: str, kind: str, bold: bool = False, bg=None) -> list:
-    """A glyph as runs: lead (~ *) and brackets in the kind's colour, the name
-    off-white (ui.glyph_name). Brackets are the kind's own (`[[` `]]` for an
+    """A glyph as runs: lead (~ *) and brackets in the kind's colour, the name in
+    the same colour, muted (ui.name_saturation). Brackets are the kind's own (`[[` `]]` for an
     alias, a dialect's `<<` `>>`), else one character each side."""
     lead = tok[:len(tok) - len(tok.lstrip("~*"))]
     body = tok[len(lead):]
@@ -1046,7 +1073,8 @@ def glyph_runs(tok: str, kind: str, bold: bool = False, bg=None) -> list:
         op, cl = body[:1], body[-1:]
     if len(body) < len(op) + len(cl):
         return [(tok, colour)]
-    return [(lead + op, colour), (body[len(op):len(body) - len(cl)], (GLYPH_NAME, bg, bold)),
+    return [(lead + op, colour), (body[len(op):len(body) - len(cl)],
+                                  (muted(kind_color(kind)), bg, bold)),
             (cl, colour)]
 
 
@@ -1167,7 +1195,7 @@ def label_runs(n, bold: bool = True, bg=None) -> list:
     if n.kind == CHIP or "label" in spec or n.attrs.get("pseudo") in PSEUDO_LABEL:
         return [(label, colour)]
     if not spec.get("open"):                    # a state: just its name
-        return [(label, (GLYPH_NAME, bg, bold))]
+        return [(label, (muted(kind_color(n.kind)), bg, bold))]
     return glyph_runs(label, n.kind, bold, bg) if not n.is_hole else [(label, colour)]
 
 
@@ -2124,7 +2152,9 @@ def tree_legend(triggers: bool = True, payloads: bool = False, access: bool = Fa
         sample = ("◀─▶" if kind == "<->"
                   else SOURCE_MARK.get(kind, "●") + _stroke_sample(kind))
         wires += [(sample, (colour, None, False)), (f" {word}  ", mid)]
-    wires += [("◀", (GREY["light"], None, True)), (" target  ", mid),
+    wires += [(EMIT_MARK + "─", (kind_color("event"), None, False)),
+              (" emits  ", mid),
+              ("◀", (GREY["light"], None, True)), (" target  ", mid),
               ("─│─", dim), (" crossing  ", mid),
               ("■", (EDGE_DEFAULT, None, False)), (" lane: its source's colour  ", mid)]
     if access:
@@ -2214,6 +2244,52 @@ def keys_legend(state):
     return row
 
 
+def _collapse_events(rows, wires, g):
+    """Draw a pass-through event where it lands, not as its own row: a top-level
+    event row with no parts, expansion or state machine of its own, that is both
+    emitted (a flow into it) and delivered (a flow or trigger out of it), goes;
+    each emitter is wired straight to each destination, and the event's label
+    sits on the destination's row (a state's row already names its triggers).
+    Returns (rows, wires, emitted lane keys, {destination id: [event nodes]},
+    {emitted key: [the emission and delivery keys it merges]})."""
+    nodes = {}
+    for cur in _walk(g):
+        for nid, n in cur.nodes.items():
+            nodes.setdefault(nid, n)
+    has_parts = {r.node.id for k, r in enumerate(rows)
+                 if r and k + 1 < len(rows) and rows[k + 1] and rows[k + 1].depth > r.depth}
+    owners = {nid for cur in _walk(g) for nid, sub in cur.expansions.items()}
+    candidates = {r.node.id for r in rows if r and r.depth == 0 and r.node.kind == "event"
+                  and r.node.id not in has_parts and r.node.id not in owners}
+    emitted, landed, merged = set(), {}, {}
+    gone, out_wires = set(), []
+    for ev in candidates:
+        into = [w for w in wires if w[1] == ev and w[2] != "trigger" and w[0] != ev]
+        onward = [w for w in wires if w[0] == ev and w[1] != ev]
+        if not into or not onward:
+            continue
+        gone.add(ev)
+        for a in into:
+            for b in onward:
+                # a failure emission stays a failure path (!> stroke, ✖ source)
+                kind = "!>" if a[2] == "!>" and b[2] != "trigger" else b[2]
+                key = (a[0], b[1], kind)
+                if key not in merged:
+                    out_wires.append((a[0], b[1], kind, a[3], b[4]))
+                    merged[key] = [a[:3], b[:3]]
+                    if kind != "!>":
+                        emitted.add(key)
+                if b[2] != "trigger":
+                    events = landed.setdefault(b[1], [])
+                    if nodes[ev] not in events:
+                        events.append(nodes[ev])
+    if not gone:
+        return rows, wires, frozenset(), {}, {}
+    kept = [w for w in wires if w[0] not in gone and w[1] not in gone]
+    rows = [r for r in rows if not (r and r.depth == 0 and r.node.id in gone)]
+    return rows, kept + out_wires, frozenset(emitted), landed, merged
+
+
 def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
                  notes: str = "off", payloads: bool = False, width: int | None = None,
                  access: bool = False, mods: bool = False):
@@ -2244,6 +2320,7 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     rows, wires = _tree_rows(g, depth, triggers=triggers)
     if not rows:
         return [], 0
+    rows, wires, emitted, landed, merged = _collapse_events(rows, wires, g)
     if access:
         wires = wires + [(a.principal, a.store, access_kind(a), None, None)
                          for cur in _walk(g) for a in getattr(cur, "access", None) or []
@@ -2253,6 +2330,10 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     rows, brackets, arms = _tree_banners(rows, g)
     xs, x0 = _bracket_cols(brackets)
     after_label = _tree_extras(g, access, mods, arms)
+    for nid, events in landed.items():          # an event shows where it lands
+        after_label[nid] = [run for ev in events
+                            for run in [(" ", None)] + glyph_runs(node_label(ev), "event")
+                            ] + after_label.get(nid, [])
     joins = _join_marks(g)
     # Block notes are about a component: tagged on its row, called out on the
     # left. Inline notes are about their line: they trail it on the right, after
@@ -2261,6 +2342,12 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     blocks = {nid: es for nid, es in blocks.items() if es}
     payload_of = _payload_of(g, payloads, mods) if (payloads or mods) else {}
     trailing = _trailing_notes(idx) if notes != "off" else {}
+    for key, parts in merged.items():           # an emitted lane carries both legs'
+        for table in (payload_of, trailing):
+            got = [table[p] for p in parts if p in table]
+            if got and key not in table:
+                table[key] = (" · ".join(got) if isinstance(got[0], str)
+                              else [x for part in got for x in part])
     bases = {}
 
     def base(left: bool, right: bool):
@@ -2272,8 +2359,9 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
                                 x0=x0, extra=after_label)
             _draw_brackets(cv, brackets, xs, x0)
             lanes = _collect_lanes(cv, wires, out)
-            placed = _pack_lanes(lanes, max(out.ends) + 3, out.node)
-            _draw_lanes(cv, placed, out.ends)
+            placed = _pack_lanes(lanes, max(out.ends) + 3, out.node, emitted)
+            _draw_lanes(cv, placed, out.ends,
+                        frozenset(i for i, ln in enumerate(lanes) if ln[2:5] in emitted))
             _draw_join_taps(cv, lanes, out.ends, joins)
             moved = [] if right else None
             drawn = _draw_right_margin(cv, lanes, placed, out, payload_of, trailing, notes,
@@ -2574,18 +2662,24 @@ def _collect_lanes(cv: Canvas, wires, out: _Outline):
     return lanes
 
 
-def _pack_lanes(lanes, left: int, node: dict):
+def _pack_lanes(lanes, left: int, node: dict, emitted: frozenset = frozenset()):
     """Give each lane a gutter column (interval-packed) and its style:
-    (x, lo, hi, src rows, dst rows, kind, style)."""
+    (x, lo, hi, src rows, dst rows, kind, style). An emitted lane (an event
+    drawn where it lands, see _collapse_events) takes the event colour."""
     cols, placed = [], []
-    for lo, hi, src, _dst, kind, sy, dy in lanes:
+    for lo, hi, src, dst, kind, sy, dy in lanes:
         x = left + _first_fit(cols, lo, hi) * LANE_GAP
-        style = (_lane_colour(kind, node[src].kind), None, False)
+        colour = (kind_color("event") if (src, dst, kind) in emitted
+                  else _lane_colour(kind, node[src].kind))
+        style = (colour, None, False)
         placed.append((x, lo, hi, sy, dy, kind, style))
     return placed
 
 
-def _draw_lanes(cv: Canvas, placed, ends):
+EMIT_MARK = "›"          # the source of a lane that carries an emitted event
+
+
+def _draw_lanes(cv: Canvas, placed, ends, emitted: frozenset = frozenset()):
     """Verticals first; then each row's runs out to the lanes it taps, hopping
     (─│─) over lanes it merely crosses, so a joint (┤ ┴ ┬ ┼) only ever appears
     where a lane is actually tapped."""
@@ -2595,12 +2689,13 @@ def _draw_lanes(cv: Canvas, placed, ends):
             cv.path([(x, lo), (x, hi)], kind, style)
             verticals |= {(x, y) for y in range(lo, hi + 1)}
 
-    taps = {}                                   # y → [(lane x, kind, style, role)]
-    for x, lo, hi, sy, dy, kind, style in placed:
+    taps = {}                                   # y → [(lane x, kind, style, role, mark)]
+    for i, (x, lo, hi, sy, dy, kind, style) in enumerate(placed):
+        mark = EMIT_MARK if i in emitted else SOURCE_MARK.get(kind, "●")
         for y in sy:
-            taps.setdefault(y, []).append((x, kind, style, "src"))
+            taps.setdefault(y, []).append((x, kind, style, "src", mark))
         for y in dy:
-            taps.setdefault(y, []).append((x, kind, style, "dst"))
+            taps.setdefault(y, []).append((x, kind, style, "dst", mark))
 
     heads = []
     for y, row_taps in taps.items():
@@ -2614,19 +2709,19 @@ def _draw_lanes(cv: Canvas, placed, ends):
         # cells keep the incoming stroke, so a row that is also a source still
         # shows what arrives; a source run sharing them only joins them.
         into = set()
-        for x1, kind, style, role in order:
+        for x1, kind, style, role, _mark in order:
             if role == "dst":
                 into |= cv.run(ends[y] + 2, x1, y, kind, style, hops)
         nearest = min((t[0] for t in row_taps if t[3] == "dst"), default=-1)
         into = {cell for cell in into if cell[0] <= nearest}
-        for x1, kind, style, role in order:
+        for x1, kind, style, role, _mark in order:
             if role == "src":
                 x0 = ends[y] + (2 if kind == "<->" else 1)
                 cv.run(x0, x1, y, kind, style, hops, fixed=into)
-        for x1, kind, style, role in order:
+        for x1, kind, style, role, mark in order:
             both = kind == "<->" and role == "src"
             if role == "src":
-                heads.append((x1, y, SOURCE_MARK.get(kind, "●"), style))
+                heads.append((x1, y, mark, style))
             if role == "dst" or both:
                 heads.append((ends[y] + 1, y, "◀", style))
     for x, y, ch, st in heads:

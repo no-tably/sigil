@@ -165,11 +165,11 @@ class TestTreeRelocation(unittest.TestCase):
         self.assertEqual(len(panel_marks), len(set(panel_marks)))
 
     def test_narrowing_comes_first_and_never_cuts_sooner(self):
-        # At 50 the right margin moves and the callout narrows (more lines),
+        # At 62 the right margin moves and the callout narrows (more lines),
         # still whole — it is cut at 24 only because 3 lines can't hold it.
-        rows, w = view.compose_tree(self.g, 1, notes="callouts", payloads=True, width=50)
+        rows, w = view.compose_tree(self.g, 1, notes="callouts", payloads=True, width=62)
         lines = text_rows(rows)
-        self.assertLessEqual(w, 50)
+        self.assertLessEqual(w, 62)
         (tw,) = box_text_widths(lines)
         self.assertTrue(view.CALLOUT_MIN <= tw < view.CALLOUT_TEXT, tw)
         self.assertNotIn("…", "\n".join(lines))

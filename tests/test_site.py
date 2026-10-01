@@ -117,7 +117,7 @@ class TestBuild(unittest.TestCase):
         for fg, bg, _bold in self.frames["styles"]:
             for c in (fg, bg):
                 if c:
-                    self.assertIn(c.removeprefix("tint:").removeprefix("shade:"), defined, c)
+                    self.assertIn(c.removeprefix("tint:").removeprefix("shade:").removeprefix("muted:"), defined, c)
 
 
     def test_symbols_outside_the_font_get_a_fixed_cell(self):

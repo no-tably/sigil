@@ -105,7 +105,8 @@ ui:
   note_tag: $dim
   note_block: $slate      # a comment on its own lines above a statement
   note_inline: $sky       # a comment trailing a statement
-  glyph_name: $bright     # the name inside any glyph; its brackets keep the kind's colour
+  name_saturation: "0.5"  # a glyph's name: its kind's colour at this fraction of the
+                          #   saturation (the brackets keep the full colour)
   payload_words: complement   # call colouring in payloads: complement | shade
   bar_fg: $fg
   bar_bg: $surface

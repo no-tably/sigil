@@ -192,8 +192,11 @@ class TestTreeView(unittest.TestCase):
         busy = next(ln for ln in out if "Busy" in ln)
         self.assertIn("<Paid>", busy)            # trigger listed beside the state
         self.assertIn("◀", busy)                 # and a lane arrives there
-        paid = next(ln for ln in out if ln.startswith("<Paid>"))
-        self.assertIn("◎", paid)                 # the event is a trigger lane's source
+        # a pass-through event has no row of its own: the emitter's lane (›)
+        # runs straight to the state it drives
+        self.assertFalse(any(ln.startswith("<Paid>") for ln in out))
+        pays = next(ln for ln in out if ln.startswith("[Payments]"))
+        self.assertIn("›", pays)
 
     def test_graph_mode_lists_triggers(self):
         doc = ("#!sketch\n[Payments] ~> <Paid>\n"
@@ -229,8 +232,8 @@ class TestTreeView(unittest.TestCase):
             with_trig = "\n".join(view.ansi(r, False) for r in st._rows)
             st.key("e")
             without = "\n".join(view.ansi(r, False) for r in st._rows)
-            self.assertIn("◎", with_trig)
-            self.assertNotIn("◎", without)
+            self.assertIn("╍", with_trig)                   # trigger lanes
+            self.assertNotIn("╍", without)
 
     NOTED = ("#!sketch\n# routes traffic\n[Router]\n    \\-(3)-> [ZoneA]   # 3:1 while B migrates\n"
              "(User) -> [Router] : {Query}\n")
@@ -313,7 +316,7 @@ class TestTreeView(unittest.TestCase):
         runs = view.payload_runs("quote(route) => {Fare} ×3")
         roles = {t: st[0].role for t, st in runs if t.strip()}
         self.assertEqual(roles["{"], "kinds-data")           # brackets: the kind's colour
-        self.assertEqual(roles["Fare"], "ui-glyph-name")     # names: off-white
+        self.assertEqual(roles["Fare"], "muted:kinds-data")  # names: the kind colour, muted
         self.assertEqual(roles["("], "syntax-call")          # a call's ( )
         self.assertEqual(roles["=>"], "syntax-operator")
         self.assertEqual(roles["×3"], "syntax-cardinality")
