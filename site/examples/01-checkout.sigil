@@ -1,0 +1,10 @@
+#!sketch
+# a checkout, one flow at a time
+
+--- checkout ---
+
+(Shopper) -> [API] : {Cart}
+[API] -> [Payments] : charge(total) ×3 @timeout(2s)
+       !> <PaymentFailed>
+[API] -> |Orders| : insert => {Order}
+[API] ~> <OrderPlaced> *> [Email] & [Shipping] & |Ledger|

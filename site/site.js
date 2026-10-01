@@ -1,0 +1,855 @@
+/* Sigil site — themes from YAML, the live-coding editor and the 3D background.
+   No dependencies. The background frames are view.py's own output (frames.json,
+   made by build_site.py), coloured by theme role so they follow a theme change. */
+(() => {
+  "use strict";
+
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+  // Reduced motion can change while the page is open: listeners stop the tilt
+  // and pause the typing.
+  const motionQuery = matchMedia("(prefers-reduced-motion: reduce)");
+  let reduceMotion = motionQuery.matches;
+  const motionListeners = [];
+  motionQuery.addEventListener?.("change", (e) => {
+    reduceMotion = e.matches;
+    motionListeners.forEach((fn) => fn(reduceMotion));
+  });
+
+  // Symbols Departure Mono lacks: they fall back to another font inside a fixed
+  // 1ch cell (.fb), so a row's columns stay aligned. index.html loads the fallback
+  // font for exactly these characters.
+  const FALLBACK = /[↺⇢∗▸▾◀▶◆◇◉○◎●✖✱◦✦]/g;
+  const wrapFallback = (html) => html.replace(FALLBACK, '<span class="fb">$&</span>');
+
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
+  };
+
+  // ------------------------------------------------------------------ YAML subset
+  // Exactly the subset themes.py reads (its module docstring is the contract;
+  // tests/fixtures/yaml_cases.json checks both): nested maps, plain / "JSON-
+  // escaped" / 'single-quoted' scalars, # comments, space indentation. Lists,
+  // flow collections, tabs in the indent, duplicate and empty keys are errors.
+  // Maps have no prototype, so a key like __proto__ is just a key.
+
+  // What Python's str.isspace() calls whitespace (BMP), for the indent check.
+  const PY_SPACE = /[\t\n\v\f\r\x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/;
+  const stripTabs = (s) => s.replace(/^[ \t]+|[ \t]+$/g, "");
+
+  /** s[i] opens a quote: the index just past its close (s.length if unclosed). */
+  function skipQuoted(s, i) {
+    const q = s[i];
+    i++;
+    while (i < s.length) {
+      const ch = s[i];
+      if (q === '"' && ch === "\\") { i += 2; continue; }
+      if (ch === q) {
+        if (q === "'" && s[i + 1] === "'") { i += 2; continue; }
+        return i + 1;
+      }
+      i++;
+    }
+    return s.length;
+  }
+
+  function stripComment(line) {
+    let i = 0;
+    while (i < line.length) {
+      const ch = line[i];
+      if ((ch === '"' || ch === "'") && (i === 0 || " \t:".includes(line[i - 1]))) {
+        i = skipQuoted(line, i);
+        continue;
+      }
+      if (ch === "#" && (i === 0 || line[i - 1] === " " || line[i - 1] === "\t")) return line.slice(0, i);
+      i++;
+    }
+    return line;
+  }
+
+  function singleQuoted(text, where) {
+    let out = "";
+    for (let i = 1; i < text.length; i++) {
+      if (text[i] !== "'") { out += text[i]; continue; }
+      if (text[i + 1] === "'") { out += "'"; i++; continue; }
+      if (i + 1 !== text.length) throw new Error(`${where}: text after a closing single quote`);
+      return out;
+    }
+    throw new Error(`${where}: unterminated single-quoted string`);
+  }
+
+  function scalar(text, where) {
+    text = stripTabs(text);
+    if (text[0] === '"') {
+      let value;
+      try { value = JSON.parse(text); } catch { value = null; }
+      if (typeof value !== "string") throw new Error(`${where}: bad double-quoted string ${text}`);
+      return value;
+    }
+    if (text[0] === "'") return singleQuoted(text, where);
+    return text;
+  }
+
+  /** The key/value colon (followed by a space or the end), past a quoted key; -1 if none. */
+  function findColon(body) {
+    for (let i = body[0] === '"' || body[0] === "'" ? skipQuoted(body, 0) : 0; i < body.length; i++) {
+      if (body[i] === ":" && (i + 1 === body.length || body[i + 1] === " ")) return i;
+    }
+    return -1;
+  }
+
+  function parseYaml(text, source = "theme") {
+    if (text[0] === "\ufeff") text = text.slice(1);
+    const root = Object.create(null);
+    const stack = [[0, root]];                         // [indent, map], innermost last
+    let pending = null;                                // a `key:` that may open a map
+    text.replace(/\r\n/g, "\n").split("\n").forEach((raw, n) => {
+      const where = `${source}:${n + 1}`;
+      const line = stripComment(raw).replace(/[ \t]+$/, "");
+      if (!stripTabs(line)) return;
+      const indent = line.length - line.replace(/^ +/, "").length;
+      if (PY_SPACE.test(line[indent])) throw new Error(`${where}: indent with spaces only`);
+      const body = line.slice(indent);
+      if (/^(- |\[|\{)/.test(body) || body === "-") {
+        throw new Error(`${where}: lists and flow collections are not supported`);
+      }
+      if (pending) {
+        const [pIndent, pMap, pKey] = pending;
+        pending = null;
+        if (indent > pIndent) {                        // deeper: `key:` opens a map
+          pMap[pKey] = Object.create(null);
+          stack.push([indent, pMap[pKey]]);
+        }
+      }
+      while (indent < stack[stack.length - 1][0]) stack.pop();
+      if (indent !== stack[stack.length - 1][0]) {
+        if (stack.length === 1 && !Object.keys(root).length) throw new Error(`${where}: top-level keys start at column 0`);
+        throw new Error(`${where}: inconsistent indentation`);
+      }
+      const cur = stack[stack.length - 1][1];
+      const sep = findColon(body);
+      if (sep < 0) throw new Error(`${where}: expected key: value`);
+      const key = scalar(body.slice(0, sep), where);
+      if (!key) throw new Error(`${where}: empty key`);
+      if (key in cur) throw new Error(`${where}: duplicate key ${JSON.stringify(key)}`);
+      const value = stripTabs(body.slice(sep + 1));
+      cur[key] = value ? scalar(value, where) : "";
+      if (!value) pending = [indent, cur, key];
+    });
+    return root;
+  }
+
+  // ------------------------------------------------------------------ themes
+
+  const merge = (base, over) => {
+    const out = Object.assign(Object.create(null), base);
+    for (const [k, v] of Object.entries(over)) {
+      out[k] = v && typeof v === "object" && out[k] && typeof out[k] === "object" ? merge(out[k], v) : v;
+    }
+    return out;
+  };
+
+  async function loadThemeRaw(name, seen = []) {
+    if (seen.includes(name)) throw new Error(`theme extends cycle at ${name}`);
+    const res = await fetch(`themes/${encodeURIComponent(name)}.yaml`);
+    if (!res.ok) throw new Error(`theme ${name}: HTTP ${res.status}`);
+    let theme = parseYaml(await res.text(), `${name}.yaml`);
+    if (theme.extends) {
+      const parent = await loadThemeRaw(theme.extends, [...seen, name]);
+      delete theme.extends;
+      theme = merge(parent, theme);
+    }
+    return theme;
+  }
+
+  let appliedVars = [];
+  function applyTheme(theme) {
+    const style = document.documentElement.style;
+    appliedVars.forEach((v) => style.removeProperty(v));
+    appliedVars = [];
+    style.colorScheme = "";
+    for (const [section, entries] of Object.entries(theme)) {
+      if (!entries || typeof entries !== "object") continue;
+      for (const [key, value] of Object.entries(entries)) {
+        if (typeof value !== "string") continue;
+        const prop = `--${section}-${key.replace(/_/g, "-")}`;
+        const css = value.startsWith("$") ? `var(--palette-${value.slice(1)})` : value;
+        style.setProperty(prop, css);
+        appliedVars.push(prop);
+      }
+    }
+    if (theme.type === "dark" || theme.type === "light") style.colorScheme = theme.type;
+    document.documentElement.dataset.theme = theme.name || "";
+  }
+
+  async function initThemes() {
+    const select = $("#theme");
+    let request = 0;                                   // the latest choice wins a load race
+    try {
+      const res = await fetch("themes/index.yaml");
+      if (res.ok) {
+        const index = parseYaml(await res.text(), "index.yaml").themes || {};
+        select.innerHTML = Object.entries(index)
+          .map(([name, label]) => `<option value="${esc(name)}">${esc(label)}</option>`).join("");
+      }
+    } catch { /* keep the built-in option */ }
+    const wanted = new URLSearchParams(location.search).get("theme") || store.get("sigil-theme") || "sigil";
+    if ([...select.options].some((o) => o.value === wanted)) select.value = wanted;
+    const use = async (name, save) => {
+      const id = ++request;
+      try {
+        const theme = await loadThemeRaw(name);
+        if (id !== request) return;
+        applyTheme(theme);
+        if (save) store.set("sigil-theme", name);     // only a choice made here, not ?theme=
+      } catch (err) {
+        console.warn(err);
+      }
+    };
+    select.addEventListener("change", () => use(select.value, true));
+    await use(select.value, false);
+  }
+
+  // ------------------------------------------------------------------ logo
+
+  const GLYPH_KIND = { "[": "service", "{": "data", "<": "event", "(": "actor", "|": "store" };
+
+  function drawLogo() {
+    const name = new URLSearchParams(location.search).get("logo") || document.body.dataset.logo;
+    const tpl = $(`template[data-logo="${CSS.escape(name)}"]`) || $("template[data-logo]");
+    if (!tpl) return;
+    const art = tpl.content.textContent;
+    // An optional mask (same shape as the art) marks cells drawn in the accent colour.
+    const maskTpl = $(`template[data-logo-mask="${CSS.escape(tpl.dataset.logo)}"]`);
+    const code = new Array(art.length).fill(" ");
+    if (maskTpl) {
+      const rows = maskTpl.content.textContent.split("\n");
+      let line = 0, col = 0;
+      for (let i = 0; i < art.length; i++) {
+        if (art[i] === "\n") { line++; col = 0; continue; }
+        const c = (rows[line] || "")[col] || " ";
+        code[i] = /^[a-z0-9]$/.test(c) ? c : " ";      // it becomes a class name
+        col++;
+      }
+    }
+    const re = /([[{<(|])([A-Z])([\]}>)|])|([·◦])|([✦◆◇])|([─~═!?✱]?▶)|([▀-▟]+)|(●)/g;
+    const tokens = (text) => {          // unmasked art: colour by what the characters are
+      let html = "", last = 0, m;
+      re.lastIndex = 0;
+      while ((m = re.exec(text))) {
+        html += esc(text.slice(last, m.index));
+        if (m[1]) {
+          const k = GLYPH_KIND[m[1]];
+          html += `<span class="g-${k}">${esc(m[1])}</span><span class="letter">${m[2]}</span><span class="g-${k}">${esc(m[3])}</span>`;
+        } else if (m[4]) html += `<span class="dot">${m[4]}</span>`;
+        else if (m[5]) html += `<span class="star">${m[5]}</span>`;
+        else if (m[6]) html += `<span class="arrow">${esc(m[6])}</span>`;
+        else if (m[7]) html += `<span class="mark">${m[7]}</span>`;
+        else html += `<span class="via">●</span>`;
+        last = re.lastIndex;
+      }
+      return html + esc(text.slice(last));
+    };
+    // masked cells take their code's colour; the rest go through tokens()
+    let html = "";
+    for (let i = 0; i < art.length;) {
+      let j = i;
+      while (j < art.length && code[j] === code[i] && art[j] !== "\n") j++;
+      if (j === i) j = i + 1;                          // a newline
+      const text = art.slice(i, j);
+      html += code[i] === " " || text === "\n" ? tokens(text) : `<span class="k-${code[i]}">${esc(text)}</span>`;
+      i = j;
+    }
+    $("#logo").innerHTML = wrapFallback(html);
+    $("#logo").dataset.logo = tpl.dataset.logo;
+  }
+
+  // ------------------------------------------------------------------ highlighter
+  // Token roles match highlight/sigil.tmTheme; colours come from --syntax-*.
+
+  const RULES = [
+    ["comment", /(?<=^|\s)#(?!!).*$/y],
+    ["string", /"(?:[^"\\]|\\.)*"/y],
+    ["ref", /\$\{[^}]*\}/y],
+    ["branch", /\\-(?:\*-?)?(?:\(\d+\)-|\{[^}]*\}-)?(?:->|[>&?$@!=_])?/y],
+    ["operator", /<->|\]>\[|->|~>|=>|!>|\?>|\*>|:=|&\?|&|-(?=<)/y],
+    ["modifier", /@[A-Za-z_][\w-]*(?:\([^)]*\))?/y],
+    ["cardinality", /[×^]\d+(?:@\w+)?/y],
+    ["glyph", /[~*]?(?:\[[^\]\s][^\]]*\]|\{[^}\s][^}]*\}|<[A-Za-z?_][^>]*>|(?<!\w)\([^)\s][^)]*\)|\|[^|\s][^|]*\|)/y],
+    ["keyword", /\b(?:state|loop|parallel|branch)\b/y],
+    ["number", /\b\d+(?:\.\d+)?\b/y],
+    ["punct", /[:,/]/y],
+    ["tag", /[A-Za-z_][\w.]*/y],
+  ];
+
+  function glyphHtml(tok) {
+    const lead = tok.match(/^[~*]?/)[0];
+    const open = tok[lead.length];
+    const close = tok[tok.length - 1];
+    const name = tok.slice(lead.length + 1, -1);
+    const nameCls = name === "?" ? "t-hole" : "t-name";
+    return (lead ? `<span class="t-operator">${esc(lead)}</span>` : "") +
+      `<span class="t-glyph">${esc(open)}</span><span class="${nameCls}">${esc(name)}</span>` +
+      `<span class="t-glyph">${esc(close)}</span>`;
+  }
+
+  function highlight(line) {
+    if (/^\s*#!/.test(line)) return `<span class="t-shebang">${esc(line)}</span>`;
+    const sec = line.match(/^(\s*)(---)(\s*)(.*?)(\s*)(---)(\s*)$/);
+    if (sec) {
+      return `${sec[1]}<span class="t-rails">---</span>${sec[3]}<span class="t-section">${esc(sec[4])}</span>` +
+        `${sec[5]}<span class="t-rails">---</span>`;
+    }
+    let out = "", i = 0;
+    outer: while (i < line.length) {
+      for (const [role, re] of RULES) {
+        re.lastIndex = i;
+        const m = re.exec(line);
+        if (m && m[0]) {
+          out += role === "glyph" ? glyphHtml(m[0]) : `<span class="t-${role}">${esc(m[0])}</span>`;
+          i += m[0].length;
+          continue outer;
+        }
+      }
+      out += esc(line[i]);
+      i++;
+    }
+    return out;
+  }
+
+  // ------------------------------------------------------------------ frames
+
+  /** A frame colour as CSS: "#hex", a theme role ("kinds-service") or a tinted
+      role ("tint:kinds-service"); anything else is dropped (it goes into <style>). */
+  function roleCss(role) {
+    if (typeof role !== "string") return null;
+    if (/^#[0-9a-f]{3,8}$/i.test(role)) return role;
+    const m = role.match(/^(tint:)?([a-z0-9-]+)$/);
+    if (!m) return null;
+    if (m[1]) return `color-mix(in srgb, var(--${m[2]}) calc(var(--ui-fill) * 100%), var(--palette-bg))`;
+    return `var(--${m[2]})`;
+  }
+
+  function installFrameStyles(styles) {
+    const css = styles.map(([fg, bg, bold], i) => {
+      const parts = [];
+      const fgCss = roleCss(fg), bgCss = roleCss(bg);
+      if (fgCss) parts.push(`color:${fgCss}`);
+      if (bgCss) parts.push(`background:${bgCss}`);
+      if (bold) parts.push("font-weight:700");
+      return parts.length ? `.f${i}{${parts.join(";")}}` : "";
+    }).join("\n");
+    const el = document.createElement("style");
+    el.textContent = css;
+    document.head.appendChild(el);
+  }
+
+  const frameHtml = (rows) => rows.map((row) =>
+    row.map(([text, sid]) => `<span class="f${Number(sid)}">${wrapFallback(esc(String(text)))}</span>`).join(""))
+    .join("\n");
+
+  // ------------------------------------------------------------------ scene
+
+  function rng(seed) {                                   // mulberry32
+    return () => {
+      seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  const NAMES = ["Api", "Auth", "Cart", "Pay", "Log", "Db", "Queue", "Cache", "Job", "User",
+    "Ord", "Bus", "Ship", "Hp", "Xf", "Risk", "Edge", "Feed", "Sync", "Lock", "Tick", "Mesh"];
+  const KINDS = [["[", "]", "service"], ["{", "}", "data"], ["<", ">", "event"], ["(", ")", "actor"], ["|", "|", "store"]];
+  const LATTICE = "··········[]{}<>()|~*&";
+
+  /** A floating grid of glyph characters: a faint lattice, glyph nodes, and
+      circuit wiring between them. Returns HTML. */
+  function glyphGrid(cols, rows, seed) {
+    const r = rng(seed);
+    const grid = Array.from({ length: rows }, () => Array.from({ length: cols }, () => [" ", ""]));
+    const set = (x, y, ch, cls, force) => {
+      if (y < 0 || y >= rows || x < 0 || x >= cols) return false;
+      const c = grid[y][x];
+      if (!force && c[1] && c[1] !== "faint") return false;
+      grid[y][x] = [ch, cls];
+      return true;
+    };
+    for (let y = 1; y < rows; y += 2) {
+      for (let x = 2; x < cols; x += 4) if (r() < 0.55) set(x, y, LATTICE[Math.floor(r() * LATTICE.length)], "faint");
+    }
+    const nodes = [];
+    const want = Math.floor((cols * rows) / 170);
+    for (let tries = 0; nodes.length < want && tries < want * 20; tries++) {
+      const [open, close, kind] = KINDS[Math.floor(r() * KINDS.length)];
+      const label = open + NAMES[Math.floor(r() * NAMES.length)] + close;
+      const x = 2 + Math.floor(r() * (cols - label.length - 4));
+      const y = 1 + 2 * Math.floor(r() * ((rows - 2) / 2));
+      if (nodes.some((n) => Math.abs(n.y - y) < 3 && x < n.x + n.w + 6 && n.x < x + label.length + 6)) continue;
+      nodes.push({ x, y, w: label.length, label, kind, delay: (r() * 6).toFixed(2), dur: (4 + r() * 5).toFixed(2) });
+    }
+    for (const n of nodes) {
+      [...n.label].forEach((ch, i) => set(n.x + i, n.y, ch, `node g-${n.kind}`, true));
+    }
+    // wires: each node to its nearest neighbour to the right, routed right-down/up-right
+    for (const a of nodes) {
+      const b = nodes.filter((n) => n.x > a.x + a.w + 3)
+        .sort((p, q) => Math.hypot(p.x - a.x, (p.y - a.y) * 2) - Math.hypot(q.x - a.x, (q.y - a.y) * 2))[0];
+      if (!b || r() < 0.2) continue;
+      const x0 = a.x + a.w, x1 = b.x - 1, mid = Math.floor((x0 + x1) / 2);
+      const y0 = a.y, y1 = b.y;
+      for (let x = x0; x < mid; x++) set(x, y0, "─", "wire");
+      if (y0 !== y1) {
+        const down = y1 > y0;
+        set(mid, y0, down ? "╮" : "╯", "wire");
+        for (let y = Math.min(y0, y1) + 1; y < Math.max(y0, y1); y++) set(mid, y, "│", "wire");
+        set(mid, y1, down ? "╰" : "╭", "wire");
+      } else set(mid, y0, "─", "wire");
+      for (let x = mid + 1; x < x1; x++) set(x, y1, "─", "wire");
+      set(x1, y1, "▶", "t-operator");
+    }
+    const nodeAt = new Map(nodes.map((n) => [`${n.x},${n.y}`, n]));     // a node's first cell
+    return grid.map((row, y) => {
+      let html = "", run = "", cls = null, style = "";
+      const flush = () => {
+        if (!run) return;
+        const text = wrapFallback(esc(run));
+        html += cls ? `<span class="${cls}"${style}>${text}</span>` : text;
+        run = "";
+      };
+      row.forEach(([ch, c], x) => {
+        const node = nodeAt.get(`${x},${y}`);
+        if (c !== cls || node) {
+          flush();
+          cls = c;
+          style = node ? ` style="--delay:-${node.delay}s;--dur:${node.dur}s"` : "";
+        }
+        run += ch;
+      });
+      flush();
+      return html;
+    }).join("\n");
+  }
+
+  const GRIDS = [
+    { x: "-40vw", y: "-26vh", z: -1500, ry: 24, d: 4.6, cols: 74, rows: 26, seed: 11 },
+    { x: "42vw", y: "-30vh", z: -1150, ry: -26, d: 3.8, cols: 64, rows: 22, seed: 23 },
+    { x: "-46vw", y: "30vh", z: -820, ry: 30, d: 2.8, cols: 60, rows: 20, seed: 37 },
+    { x: "44vw", y: "32vh", z: -620, ry: -22, d: 2.4, cols: 56, rows: 18, seed: 41 },
+    { x: "2vw", y: "-46vh", z: -1350, rx: -24, d: 4.2, cols: 90, rows: 16, seed: 53 },
+    { x: "-34vw", y: "44vh", z: 260, ry: 16, d: 5.4, cols: 46, rows: 14, seed: 67 },
+    { x: "38vw", y: "-6vh", z: 380, ry: -14, d: 6.0, cols: 40, rows: 16, seed: 71 },
+  ];
+  const VIEWS = {
+    tree: { x: "27vw", y: "14vh", z: -40, ry: -16, d: 0.7, label: "view.py --tree" },
+    graph: { x: "-27vw", y: "8vh", z: -340, ry: 18, d: 1.2, label: "view.py --payloads" },
+  };
+
+  function placePlane(el, p) {
+    el.style.setProperty("--x", p.x);
+    el.style.setProperty("--y", p.y);
+    el.style.setProperty("--z", `${p.z}px`);
+    el.style.setProperty("--ry", `${p.ry || 0}deg`);
+    el.style.setProperty("--rx", `${p.rx || 0}deg`);
+    el.style.setProperty("--d", p.d);
+  }
+
+  function buildScene() {
+    const stage = $("#stage");
+    const small = innerWidth < 700;
+    GRIDS.slice(0, small ? 4 : GRIDS.length).forEach((g) => {
+      const el = document.createElement("pre");
+      el.className = "plane grid";
+      el.innerHTML = glyphGrid(g.cols, g.rows, g.seed);
+      placePlane(el, g);
+      stage.appendChild(el);
+    });
+    const views = {};
+    for (const [name, p] of Object.entries(VIEWS)) {
+      const el = document.createElement("pre");
+      el.className = `plane view ${name}`;
+      el.innerHTML = `<span class="label">${esc(p.label)}</span><div class="frame"></div>`;
+      placePlane(el, small ? { ...p, x: name === "tree" ? "8vw" : "-8vw", z: p.z - 300 } : p);
+      stage.appendChild(el);
+      views[name] = el;
+    }
+    initTilt(stage);
+    initSceneFade($("#scene"));
+    return views;
+  }
+
+  /** Drift + pointer tilt, eased by the stage's CSS transition (1.8 s, so it
+      settles before the next 2 s tick). Off with reduced motion or a hidden tab. */
+  function initTilt(stage) {
+    let px = 0, py = 0, timer = null;
+    const onPointer = (e) => {
+      px = e.clientX / innerWidth - 0.5;
+      py = e.clientY / innerHeight - 0.5;
+    };
+    const tilt = () => {
+      const t = performance.now() / 1000;
+      const ry = px * 5 + Math.sin(t / 9) * 2.5;
+      const rx = -py * 4 + Math.cos(t / 11) * 1.5;
+      stage.style.transform = `rotateX(${rx.toFixed(2)}deg) rotateY(${ry.toFixed(2)}deg)`;
+    };
+    const start = () => {
+      if (timer || reduceMotion || document.hidden) return;
+      addEventListener("pointermove", onPointer, { passive: true });
+      tilt();
+      timer = setInterval(tilt, 2000);
+    };
+    const stop = () => {
+      clearInterval(timer);
+      timer = null;
+      removeEventListener("pointermove", onPointer);
+    };
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) stop();
+      else start();
+    });
+    motionListeners.push((reduce) => {
+      if (reduce) {
+        stop();
+        stage.style.transform = "";
+      } else {
+        start();
+      }
+    });
+    start();
+  }
+
+  /** The background dims as the page scrolls: #scene's own opacity, once per frame. */
+  function initSceneFade(scene) {
+    let queued = false;
+    const fade = () => {
+      queued = false;
+      const k = Math.min(scrollY / innerHeight, 1);
+      scene.style.opacity = (1 - 0.6 * k).toFixed(3);
+    };
+    addEventListener("scroll", () => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(fade);
+    }, { passive: true });
+    fade();
+  }
+
+  // ------------------------------------------------------------------ tabs
+
+  /** ARIA tabs with a roving tabindex: click, ArrowLeft/Right (wrapping), Home
+      and End select a tab and call onSelect(tab). mark(tab) only shows a tab as
+      selected (for a selection made in code). */
+  function initTabs(tablist, onSelect) {
+    const tabs = () => $$("[role=tab]", tablist);
+    const mark = (tab) => {
+      tabs().forEach((t) => {
+        const on = t === tab;
+        t.setAttribute("aria-selected", String(on));
+        t.tabIndex = on ? 0 : -1;
+      });
+    };
+    const choose = (tab, focus) => {
+      mark(tab);
+      if (focus) tab.focus();
+      onSelect(tab);
+    };
+    tablist.addEventListener("click", (e) => {
+      const tab = e.target.closest("[role=tab]");
+      if (tab && tablist.contains(tab)) choose(tab, false);
+    });
+    tablist.addEventListener("keydown", (e) => {
+      const list = tabs();
+      const i = list.indexOf(e.target);
+      if (i < 0) return;
+      const to = { ArrowLeft: i - 1, ArrowRight: i + 1, Home: 0, End: list.length - 1 }[e.key];
+      if (to === undefined) return;
+      e.preventDefault();
+      choose(list[(to + list.length) % list.length], true);
+    });
+    return { mark };
+  }
+
+  // ------------------------------------------------------------------ player
+
+  function player(data, views) {
+    const code = $("#code");
+    const tablist = $("#tabs");
+    const playBtn = $("#play");
+    const status = { lint: $("#st-lint"), count: $("#st-count"), line: $("#st-line") };
+    const st = { ex: 0, line: 0, col: 0, playing: !reduceMotion, timer: null, shown: {} };
+    const highlighted = data.examples.map(() => []);   // per example, per line: highlight() output
+    const swaps = {};                                  // per view: its pending frame swap
+    let rowsShown = 0;                                 // finished rows in #code
+    let nowRow = null;                                 // the row being typed
+
+    tablist.innerHTML = data.examples.map((e, i) =>
+      `<button type="button" role="tab" id="ex-tab-${i}" data-i="${i}" aria-controls="code" ` +
+      `aria-selected="false" tabindex="-1">${esc(e.file)}</button>`).join("");
+    const tabs = initTabs(tablist, (tab) => select(Number(tab.dataset.i)));
+
+    const ex = () => data.examples[st.ex];
+    const lineHtml = (i) => {
+      const cache = highlighted[st.ex];
+      if (cache[i] === undefined) cache[i] = highlight(ex().lines[i]);
+      return cache[i];
+    };
+
+    function showFrame(name, id) {
+      const rows = data.frames[id];
+      if (!rows || st.shown[name] === id) return;
+      st.shown[name] = id;
+      const el = views[name];
+      const swap = () => {
+        $(".frame", el).innerHTML = frameHtml(rows);
+        el.classList.remove("swap");
+      };
+      clearTimeout(swaps[name]);
+      if (reduceMotion) {
+        swap();
+        return;
+      }
+      el.classList.add("swap");
+      swaps[name] = setTimeout(swap, 140);
+    }
+
+    function applyStep(lineIdx) {
+      let s = null;
+      for (const step of ex().steps) if (step.line <= lineIdx) s = step;
+      if (!s) return;
+      showFrame("tree", s.tree);
+      showFrame("graph", s.graph);
+      status.lint.textContent = `lint: ${s.lint}`;
+      status.lint.className = s.lint === "OK" ? "ok" : "bad";
+      status.count.textContent = `${s.nodes} nodes · ${s.edges} edges`;
+    }
+
+    // #code holds one .row per line, "\n" between rows. A finished row is
+    // highlighted once and appended; only the row being typed is redrawn.
+    function addRow(i, parent) {
+      const row = document.createElement("span");
+      row.className = "row";
+      if (i > 0) parent.append("\n");
+      parent.append(row);
+      return row;
+    }
+
+    function fillRow(row, i, html) {
+      row.innerHTML = `<span class="ln">${i + 1}</span>${html}`;
+    }
+
+    function clearCode() {
+      code.textContent = "";
+      code.setAttribute("aria-labelledby", `ex-tab-${st.ex}`);
+      rowsShown = 0;
+      nowRow = null;
+    }
+
+    function render() {
+      const lines = ex().lines;
+      const done = Math.min(st.line, lines.length);
+      const before = rowsShown + (nowRow ? 1 : 0);
+      if (nowRow && rowsShown < done) {               // the typed row is finished
+        nowRow.classList.remove("now");
+        fillRow(nowRow, rowsShown, lineHtml(rowsShown));
+        nowRow = null;
+        rowsShown++;
+      }
+      if (rowsShown < done) {
+        const frag = document.createDocumentFragment();
+        for (; rowsShown < done; rowsShown++) fillRow(addRow(rowsShown, frag), rowsShown, lineHtml(rowsShown));
+        code.append(frag);
+      }
+      if (st.line < lines.length) {
+        if (!nowRow) {
+          nowRow = addRow(st.line, code);
+          nowRow.classList.add("now");
+        }
+        fillRow(nowRow, st.line, highlight(lines[st.line].slice(0, st.col)) + '<span class="caret"></span>');
+      }
+      if (rowsShown + (nowRow ? 1 : 0) > before) {     // a row was added
+        code.scrollTop = code.scrollHeight;
+        status.line.textContent = `${ex().file} · line ${Math.min(st.line + 1, lines.length)}/${lines.length}`;
+      }
+    }
+
+    function select(i, play = st.playing) {
+      clearTimeout(st.timer);
+      st.ex = i;
+      st.line = 0;
+      st.col = 0;
+      tabs.mark(tablist.children[i]);
+      clearCode();
+      if (!play) {
+        finish(false);
+        return;
+      }
+      render();
+      schedule(400);
+    }
+
+    function finish(advance = true) {
+      clearTimeout(st.timer);
+      st.line = ex().lines.length;
+      render();
+      applyStep(st.line - 1);
+      if (advance && st.playing) st.timer = setTimeout(next, 6000);
+    }
+
+    const next = () => select((st.ex + 1) % data.examples.length);
+
+    function schedule(ms) {
+      clearTimeout(st.timer);
+      if (st.playing) st.timer = setTimeout(tick, ms);
+    }
+
+    function tick() {
+      const lines = ex().lines;
+      if (st.line >= lines.length) {
+        finish();
+        return;
+      }
+      const line = lines[st.line];
+      if (st.col < line.length) {
+        // A space is typed together with the character after it, so indents and
+        // gaps go by at half the keystrokes; a short pause after whitespace.
+        st.col += line[st.col] === " " ? 2 : 1;
+        render();
+        const ch = line[st.col - 1] || "";
+        schedule(/\s/.test(ch) ? 18 : 30 + Math.random() * 40);
+        return;
+      }
+      applyStep(st.line);
+      st.line++;
+      st.col = 0;
+      render();
+      if (st.line >= lines.length) {
+        finish();
+        return;
+      }
+      schedule(line.trim() ? 380 : 140);
+    }
+
+    function setPlaying(on) {
+      st.playing = on;
+      playBtn.textContent = on ? "pause" : "play";
+      playBtn.title = on ? "Pause typing" : "Resume typing";
+    }
+
+    playBtn.addEventListener("click", () => {
+      setPlaying(!st.playing);
+      if (!st.playing) clearTimeout(st.timer);
+      else if (st.line >= ex().lines.length) next();
+      else schedule(100);
+    });
+    $("#skip").addEventListener("click", () => finish());
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) clearTimeout(st.timer);
+      else if (st.playing) schedule(300);
+    });
+    motionListeners.push((reduce) => {
+      if (!reduce || !st.playing) return;
+      setPlaying(false);
+      finish(false);
+    });
+    setPlaying(st.playing);
+    select(0);
+  }
+
+  // ------------------------------------------------------------------ page bits
+
+  function initFocus() {
+    const btn = $("#focus");
+    btn.addEventListener("click", () => {
+      const on = document.body.classList.toggle("focused");
+      btn.setAttribute("aria-pressed", String(on));
+    });
+  }
+
+  function selectText(node) {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const sel = getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
+  function initInstall() {
+    const root = $(".install");
+    if (!root) return;
+    initTabs($("[role=tablist]", root), (tab) => {
+      const pane = tab.getAttribute("aria-controls");
+      $$("[role=tabpanel]", root).forEach((p) => { p.hidden = p.id !== pane; });
+    });
+    $$("pre.copy").forEach((pre) => {
+      pre.dataset.copy = pre.textContent.trim();
+      const text = pre.firstChild;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "copy-btn";
+      btn.textContent = "copy";
+      let timer = null;
+      btn.addEventListener("click", async () => {
+        clearTimeout(timer);
+        try {
+          await navigator.clipboard.writeText(pre.dataset.copy);
+          btn.textContent = "copied";
+        } catch {
+          selectText(text);                            // no clipboard access: ready for ctrl+c
+          btn.textContent = "selected";
+        }
+        timer = setTimeout(() => { btn.textContent = "copy"; }, 1400);
+      });
+      pre.appendChild(btn);
+    });
+  }
+
+  function initSnippets() {
+    $$("code.hl").forEach((el) => { el.innerHTML = highlight(el.textContent); });
+    $$("pre.hl-block").forEach((el) => {
+      el.innerHTML = el.textContent.split("\n").map(highlight).join("\n");
+    });
+  }
+
+  async function loadFrames() {
+    const res = await fetch("frames.json");
+    if (!res.ok) throw new Error(`frames.json: HTTP ${res.status}`);
+    const data = await res.json();
+    if (!Array.isArray(data.styles) || !Array.isArray(data.frames) ||
+        !Array.isArray(data.examples) || !data.examples.length) {
+      throw new Error("frames.json: no examples");
+    }
+    return data;
+  }
+
+  /** No frames: say so in the editor, hide the viewer planes, disable the controls. */
+  function editorUnavailable(views, err) {
+    console.warn("frames.json unavailable", err);
+    Object.values(views).forEach((el) => { el.hidden = true; });
+    $$("#play, #skip").forEach((b) => { b.disabled = true; });
+    $("#tabs").textContent = "";
+    $("#code").textContent = "The examples could not be loaded.";
+    $$(".editor-status span").forEach((el) => { el.textContent = ""; });
+  }
+
+  async function main() {
+    drawLogo();
+    initSnippets();
+    initFocus();
+    initInstall();
+    initThemes();
+    const views = buildScene();
+    try {
+      const data = await loadFrames();
+      installFrameStyles(data.styles);
+      player(data, views);
+    } catch (err) {
+      editorUnavailable(views, err);
+    }
+  }
+
+  main();
+})();

@@ -1,0 +1,20 @@
+{
+  "name": "sigil",
+  "version": "0.1.0",
+  "description": "Sigil: a compact notation for system designs, with a linter, a terminal graph viewer and a Mermaid renderer.",
+  "author": {
+    "name": "Ian Patrick"
+  },
+  "homepage": "TODO: https://github.com/OWNER/sigil",
+  "repository": "TODO: https://github.com/OWNER/sigil",
+  "license": "MIT",
+  "keywords": [
+    "sigil",
+    "notation",
+    "system-design",
+    "architecture",
+    "diagram",
+    "lint",
+    "mermaid"
+  ]
+}

@@ -1,0 +1,265 @@
+%YAML 1.2
+---
+# Sublime-syntax grammar for core Sigil (the architecture-description language).
+#
+# Consumed by syntect → powers `bat` and `broot` highlighting. The regexes
+# mirror the token model in `lexer.py` (this directory); each token class maps
+# to a shared scope name so one theme colours every surface uniformly. Themed
+# roles carry the `.sigil` suffix; universal roles use the bare standard scopes.
+#
+# Root scope: source.sigil · extension: .sigil
+name: Sigil
+file_extensions:
+  - sigil
+scope: source.sigil
+
+variables:
+  ident: '[A-Za-z_][\w-]*'
+  # Control-flow keywords (+ `on`/`of` of branch/loop, `op` of the op-call).
+  block_kw: 'state|loop|parallel|branch|on|of|op'
+
+contexts:
+  main:
+    - include: comments
+    - include: branch
+    - include: path
+    - include: block-string
+    - include: refs
+    - include: modifiers
+    - include: transition
+    - include: arrows
+    - include: op-call
+    - include: block-keywords
+    - include: structural-sigils
+    - include: call-args
+    - include: literal-openers
+    - include: glyphs
+    - include: values
+    - include: predicates
+    - include: punctuation
+    - include: bare-name
+
+  comments:
+    # Mode line `#!spec` / `#!sketch` / `#!craft` — first-class (gold).
+    - match: '#!(?:spec|sketch|craft)\b'
+      scope: keyword.other.sigil.shebang
+    # Section header `--- [L<n>:] Name ---` — split rails / level / name.
+    - match: '(-{3,})([ \t]*)(?:(L\d+)([ \t]*:[ \t]*))?([^\n]*?)([ \t]*)(-{3,})?[ \t]*$'
+      captures:
+        1: punctuation.definition.sigil.section
+        3: markup.heading.sigil.level
+        4: punctuation.separator.sigil
+        5: markup.heading.sigil.name
+        7: punctuation.definition.sigil.section
+    # Inline / whole-line comment (after the mode-line rule).
+    - match: '#.*$'
+      scope: comment.line.sigil
+
+  branch:
+    # Composition-tree branch marker `\-` [`*-`] [`(N)-` | `{cond}-`] rel
+    # (rel ∈ `> & ? $ @ ! = _`), only at a line start or right after a parent
+    # glyph; the `{cond}` name reads as a glyph name, the `(N)` weight as a
+    # number. Plus the bare spawn `\-*`.
+    - match: '(?<![^\s\]})>|])(\\-(?:\*-)?)(?:(\{)([A-Za-z0-9_-]+)(\}-)|(\()(\d+)(\)-))?([>&?$@!=_])'
+      captures:
+        1: keyword.operator.sigil.branch
+        2: keyword.operator.sigil.branch
+        3: storage.type.sigil
+        4: keyword.operator.sigil.branch
+        5: keyword.operator.sigil.branch
+        6: constant.numeric.integer.sigil
+        7: keyword.operator.sigil.branch
+        8: keyword.operator.sigil.branch
+    - match: '(?<![^\s\]})>|])\\-\*(?=\s|$)'
+      scope: keyword.operator.sigil.branch
+
+  path:
+    # Qualified-path separator: a `/` hugging a closing and an opening glyph
+    # (`[Bullet]/{Transform}`, no spaces). A spaced ` / ` stays the alternative
+    # value operator.
+    - match: '(?<=[\]})>|])/(?=[~*]?[\[{<(|])'
+      scope: keyword.operator.sigil.path
+
+  block-string:
+    # Multiline triple-quoted block string — the one multiline construct.
+    # `${…}` inside is template text, so the body stays a string.
+    - match: '"""'
+      scope: punctuation.definition.string.begin.sigil
+      push:
+        - meta_scope: string.quoted.sigil.block
+        - match: '"""'
+          scope: punctuation.definition.string.end.sigil
+          pop: true
+
+  refs:
+    # `${path}` refs — the substitution seam.
+    - match: '(\$\{)([^}]*)(\})'
+      captures:
+        1: punctuation.definition.template-expression.begin.sigil
+        2: variable.interpolation.sigil
+        3: punctuation.definition.template-expression.end.sigil
+
+  modifiers:
+    # Every `@`-modifier reads one hue.
+    - match: '@[A-Za-z][\w-]*'
+      scope: storage.modifier.sigil
+
+  transition:
+    # State-block transition `-<trigger>->`.
+    - match: '(-)(<)([^<>\n]*)(>)(->)'
+      captures:
+        1: keyword.operator.sigil.arrow
+        2: keyword.control.sigil.glyph
+        3: storage.type.sigil
+        4: keyword.control.sigil.glyph
+        5: keyword.operator.sigil.arrow
+
+  arrows:
+    # The closed arrow set — longest first so `<->` wins over `<`.
+    - match: '<->|->|~>|=>|!>|\?>|\*>|→'
+      scope: keyword.operator.sigil.arrow
+    - match: ':='
+      scope: keyword.operator.sigil.alias
+    # Joins: `&?` race / `&` strict join.
+    - match: '&\?|&'
+      scope: keyword.operator.sigil.join
+
+  op-call:
+    # External op-call `op ns.verb(…)` — keyword + dotted name; args lex as values.
+    - match: '\b(op)(\s+)({{ident}}(?:\.{{ident}})+)(\()'
+      captures:
+        1: keyword.control.sigil
+        3: entity.name.function.sigil.op
+        4: punctuation.separator.sigil
+      push: args
+
+  args:
+    - match: '\)'
+      scope: punctuation.separator.sigil
+      pop: true
+    - include: main
+
+  block-keywords:
+    - match: '\b(?:{{block_kw}})\b'
+      scope: keyword.control.sigil
+
+  structural-sigils:
+    # Mutability / stream prefixes hugging a glyph: `~{Session}`, `*<Event>`.
+    - match: '[~*](?=[\[{<(|])'
+      scope: keyword.control.sigil.glyph-prefix
+    # State-machine anchors + holes / wildcards → muted meta.
+    - match: '\+(?=[ \t]*-<)'
+      scope: comment.other.meta.sigil.anchor
+    - match: '\$(?![\w{])'
+      scope: comment.other.meta.sigil.anchor
+    - match: '(?<![\w])_(?![\w])'
+      scope: comment.other.meta.sigil.wildcard
+    - match: '(?<![\w\]})>|])\?(?![\w>])'
+      scope: comment.other.meta.sigil.hole
+
+  call-args:
+    # Call parens `verb(…)` / `@mod(…)`: the args lex as values, not a glyph.
+    - match: '(?<=\w)\('
+      scope: punctuation.separator.sigil
+      push: args
+
+  literal-openers:
+    # Map literal `{k: v}` (a top-level `:` before the close) and list literal
+    # `[v, …]` openers — bare delimiters; the body lexes as values.
+    - match: '\{(?=[^{}\n]*:)'
+      scope: keyword.control.sigil.glyph
+    - match: '\[(?=\s*(?:\$\{|"|-?\d|true\b|false\b|null\b|\]))'
+      scope: keyword.control.sigil.glyph
+
+  glyphs:
+    # `||` map merge — never an (empty) store glyph.
+    - match: '\|\|'
+      scope: keyword.operator.sigil.value
+    # Entity glyphs (single line): open + name (type position) + close.
+    - match: '(\()([^()\n]*?)(\))'
+      captures:
+        1: keyword.control.sigil.glyph
+        2: storage.type.sigil
+        3: keyword.control.sigil.glyph
+    - match: '(\|)([^|\n]*?)(\|)'
+      captures:
+        1: keyword.control.sigil.glyph
+        2: storage.type.sigil
+        3: keyword.control.sigil.glyph
+    - match: '(\[)([^\[\]\n]*?)(\])'
+      captures:
+        1: keyword.control.sigil.glyph
+        2: storage.type.sigil
+        3: keyword.control.sigil.glyph
+    - match: '(\{)([^{}\n]*?)(\})'
+      captures:
+        1: keyword.control.sigil.glyph
+        2: storage.type.sigil
+        3: keyword.control.sigil.glyph
+    - match: '(<)([^<>\n]*?)(>)'
+      captures:
+        1: keyword.control.sigil.glyph
+        2: storage.type.sigil
+        3: keyword.control.sigil.glyph
+    # Bare (unbalanced / block-opening) glyph delimiters.
+    - match: '[\[\]{}|()]'
+      scope: keyword.control.sigil.glyph
+
+  values:
+    - match: '\btrue\b'
+      scope: constant.language.boolean.true.sigil
+    - match: '\bfalse\b'
+      scope: constant.language.boolean.false.sigil
+    - match: '\bnull\b'
+      scope: constant.language.null.sigil
+    # Cardinality `×N` / `xN` + stream cap `^N`.
+    - match: '×(?:\d+|[A-Za-z]\w*)'
+      scope: keyword.operator.sigil.cardinality
+    - match: '\bx\d+\b'
+      scope: keyword.operator.sigil.cardinality
+    - match: '\^\d+[a-zA-Z]*'
+      scope: keyword.operator.sigil.cardinality
+    # Numbers (optional duration / size unit suffix).
+    - match: '-?\d+\.\d+[a-zA-Z%]*'
+      scope: constant.numeric.float.sigil
+    - match: '-?\d+[a-zA-Z%]*'
+      scope: constant.numeric.integer.sigil
+    # Quoted strings.
+    - match: '"'
+      scope: punctuation.definition.string.begin.sigil
+      push:
+        - meta_scope: string.quoted.sigil.double
+        - match: '\\.'
+          scope: constant.character.escape.sigil
+        - match: '"'
+          scope: punctuation.definition.string.end.sigil
+          pop: true
+    - match: "'"
+      scope: punctuation.definition.string.begin.sigil
+      push:
+        - meta_scope: string.quoted.sigil.single
+        - match: "''"
+          scope: constant.character.escape.sigil
+        - match: "'"
+          scope: punctuation.definition.string.end.sigil
+          pop: true
+    # Value operators + alternative `/` (closed set).
+    - match: '\+\+|\|\||[+\-*/]'
+      scope: keyword.operator.sigil.value
+
+  predicates:
+    # Predicate / comparison operators in `@inv` + guards.
+    - match: '!=|>=|<=|=|∈|∉|∪|∩|[<>]'
+      scope: punctuation.separator.predicate.sigil
+    # Critical `!` / optional `?` suffix modifiers.
+    - match: '[!?]'
+      scope: storage.modifier.sigil.suffix
+
+  punctuation:
+    - match: '[:,.]'
+      scope: punctuation.separator.sigil
+
+  bare-name:
+    # A state name, branch arm label, alias name, internal op verb, map key.
+    - match: '{{ident}}'
+      scope: entity.name.tag.sigil

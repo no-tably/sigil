@@ -1,0 +1,83 @@
+#!sketch
+
+# Core Sigil highlight showcase — every token family the core grammar colours.
+
+--- L1: Checkout ---
+
+(Customer) -> [Gateway] -> [Orders] -> |OrderDB| => {Receipt}
+[Gateway]  !> <Rejected>
+(Reporter) -> |OrderDB|
+[Orders]   ~> <OrderPlaced> *> [Mailer]
+[Orders]  <-> [Pricing] : quote({Cart}) => {Quote}
+[Orders]   ?> [Review]
+
+# values, refs, value operators, a map literal, a block string
+<tick>    -> ~|history| : ${state.history} ++ [${out}]
+<stop>    -> ~|running| : false
+[Cfg]     -> ~|opts|    : {retries: 3, mode: "strict", ratio: 0.5}
+[Cfg]     -> ~|note|    : null
+[Cfg]     -> ~|opts|    : ${state.opts} || {strict: true}
+[Cfg]     -> ~|policy|  : """
+Refunds within 30 days.
+${terms} is template text, resolved by the consumer.
+"""
+
+# external op-call + call resilience
+[Orders]  -> |Ledger|   : op db.insert(${out.total}) @timeout(5s) ×3 @fallback(0)
+
+# joins, holes, streams, parametric glyphs
+[Orders]  -> [Inventory] & [Fraud]
+[Orders]  -> [CacheA] &? [CacheB]
+[Ingest]  => *<Raw>^10k@drop
+[Cache<K,V>] <-> |Store|
+(Partner) -> [?]
+
+# composition tree: what things are made of (branches add no flow edges)
+[Cart]
+    \-> [LineItems]
+    \-& {Discount}
+    \-*-> [Hold]
+    \-{expired}-? [Reminder]
+[Mailer] \-@ [Templates]
+[Edge]
+    \-(3)-> [ZoneA]
+    \-(1)-> [ZoneB]
+    \-*-= [ShardQuery]
+    \-_ [PrimaryDB]
+    \-_ [StandbyDB]
+    \-{lagging}-! <LagAlarm>
+# qualified path: the {Discount} directly under [Cart]
+[Cart]/{Discount} -> [Pricing]
+
+--- L2: [Orders] ---
+
+[Orders] := {
+  [Router]  -> [Handler]×4
+  [Handler] -> |OrderDB|
+}
+
+state {Order} {
+  +         -<submit>->    Pending
+  Pending   -<pay>->       Paid
+  Paid      -<ship>->      Shipped     ×2
+  Shipped   -<close>->     $
+  _         -<cancel>->    Cancelled
+}
+
+loop @each item of {Cart} {
+  [Orders] -> [Inventory] : reserve(item)
+}
+
+parallel @all {
+  [Orders] -> [Tax]     : compute({Cart})
+  [Orders] -> [Shipper] : rate({Cart})
+}
+
+branch on {Order}.kind {
+  gift     => [Wrapper]
+  _        => [Packer]
+}
+
+|OrderDB| @read(Orders, Reporter) @write(Orders)
+|OrderDB| @inv unique:order_id
+[Orders]  @owns |Conn| @sla(p99<200ms)

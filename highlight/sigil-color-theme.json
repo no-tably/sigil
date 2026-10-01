@@ -1,0 +1,227 @@
+{
+  "name": "Sigil",
+  "type": "dark",
+  "comment": "VSCode/TextMate color theme for core Sigil. Maps the scopes emitted by sigil.tmLanguage.json to the palette hexes: magenta structure (glyph delimiters non-bold, control keyword bold) · periwinkle names · less-gold modifiers · pink operator + soft-pink cardinality · first-class mode line (gold) and section header (slate rails / violet level / near-white name). Universal roles (refs, strings, numbers, constants, comments, punctuation) use neutral shared values.",
+  "colors": {
+    "editor.background": "#0d1117",
+    "editor.foreground": "#c9d1d9"
+  },
+  "tokenColors": [
+    {
+      "name": "Glyph delimiters (structure, magenta)",
+      "scope": [
+        "keyword.control.sigil.glyph"
+      ],
+      "settings": {
+        "foreground": "#c850e0"
+      }
+    },
+    {
+      "name": "Block keyword (magenta, bold)",
+      "scope": [
+        "keyword.control.sigil"
+      ],
+      "settings": {
+        "foreground": "#c850e0",
+        "fontStyle": "bold"
+      }
+    },
+    {
+      "name": "Glyph name (periwinkle)",
+      "scope": [
+        "storage.type.sigil"
+      ],
+      "settings": {
+        "foreground": "#8aa0ff",
+        "fontStyle": "italic"
+      }
+    },
+    {
+      "name": "External op name — op ns.verb (periwinkle)",
+      "scope": [
+        "entity.name.function.sigil"
+      ],
+      "settings": {
+        "foreground": "#8aa0ff"
+      }
+    },
+    {
+      "name": "@-modifiers (less-gold)",
+      "scope": [
+        "storage.modifier.sigil"
+      ],
+      "settings": {
+        "foreground": "#ffe0b0"
+      }
+    },
+    {
+      "name": "Composition-tree branch marker (teal)",
+      "scope": [
+        "keyword.operator.sigil.branch"
+      ],
+      "settings": {
+        "foreground": "#5abea0"
+      }
+    },
+    {
+      "name": "Cardinality (soft pink)",
+      "scope": [
+        "keyword.operator.sigil.cardinality"
+      ],
+      "settings": {
+        "foreground": "#f59cc4"
+      }
+    },
+    {
+      "name": "Operator — arrows · := · value-ops (pink)",
+      "scope": [
+        "keyword.operator.sigil"
+      ],
+      "settings": {
+        "foreground": "#e85d9e"
+      }
+    },
+    {
+      "name": "Shebang mode line (gold)",
+      "scope": [
+        "keyword.other.sigil.shebang"
+      ],
+      "settings": {
+        "foreground": "#e3c000",
+        "fontStyle": "bold"
+      }
+    },
+    {
+      "name": "Section header rails (slate)",
+      "scope": [
+        "punctuation.definition.sigil.section"
+      ],
+      "settings": {
+        "foreground": "#8b7aad"
+      }
+    },
+    {
+      "name": "Section level L<n> (violet, bold)",
+      "scope": [
+        "markup.heading.sigil.level"
+      ],
+      "settings": {
+        "foreground": "#d2a8ff",
+        "fontStyle": "bold"
+      }
+    },
+    {
+      "name": "Section name (near-white, bold)",
+      "scope": [
+        "markup.heading.sigil.name"
+      ],
+      "settings": {
+        "foreground": "#e6edf3",
+        "fontStyle": "bold"
+      }
+    },
+    {
+      "name": "Ref braces (the ${ } template seam)",
+      "scope": [
+        "punctuation.definition.template-expression"
+      ],
+      "settings": {
+        "foreground": "#a371f7"
+      }
+    },
+    {
+      "name": "Ref body (ns.path inside ${…})",
+      "scope": [
+        "variable.interpolation"
+      ],
+      "settings": {
+        "foreground": "#bc8cff",
+        "fontStyle": "italic"
+      }
+    },
+    {
+      "name": "String literals",
+      "scope": [
+        "string.quoted.sigil"
+      ],
+      "settings": {
+        "foreground": "#a5d6ff"
+      }
+    },
+    {
+      "name": "Numbers",
+      "scope": [
+        "constant.numeric"
+      ],
+      "settings": {
+        "foreground": "#79c0ff"
+      }
+    },
+    {
+      "name": "Constant true",
+      "scope": [
+        "constant.language.boolean.true.sigil"
+      ],
+      "settings": {
+        "foreground": "#3fb950"
+      }
+    },
+    {
+      "name": "Constant false",
+      "scope": [
+        "constant.language.boolean.false.sigil"
+      ],
+      "settings": {
+        "foreground": "#f85149"
+      }
+    },
+    {
+      "name": "Constant null",
+      "scope": [
+        "constant.language.null.sigil"
+      ],
+      "settings": {
+        "foreground": "#6e7681",
+        "fontStyle": "italic"
+      }
+    },
+    {
+      "name": "Comments",
+      "scope": [
+        "comment.line.sigil"
+      ],
+      "settings": {
+        "foreground": "#6e7681",
+        "fontStyle": "italic"
+      }
+    },
+    {
+      "name": "Meta (anchors · holes · wildcards)",
+      "scope": [
+        "comment.other.meta.sigil"
+      ],
+      "settings": {
+        "foreground": "#6e7681",
+        "fontStyle": "italic"
+      }
+    },
+    {
+      "name": "Tag (bare names: states · labels · verbs)",
+      "scope": [
+        "entity.name.tag.sigil"
+      ],
+      "settings": {
+        "foreground": "#c9d1d9"
+      }
+    },
+    {
+      "name": "Punctuation",
+      "scope": [
+        "punctuation.separator.sigil"
+      ],
+      "settings": {
+        "foreground": "#586e75"
+      }
+    }
+  ]
+}

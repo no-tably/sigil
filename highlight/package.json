@@ -1,0 +1,36 @@
+{
+  "name": "sigil-syntax",
+  "displayName": "Sigil",
+  "description": "Syntax highlighting + magenta theme for Sigil, the architecture-description language.",
+  "version": "0.1.0",
+  "publisher": "sigil",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": ["Programming Languages", "Themes"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "sigil",
+        "aliases": ["Sigil", "sigil"],
+        "extensions": [".sigil"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "sigil",
+        "scopeName": "source.sigil",
+        "path": "./sigil.tmLanguage.json"
+      }
+    ],
+    "themes": [
+      {
+        "label": "Sigil (magenta)",
+        "uiTheme": "vs-dark",
+        "path": "./sigil-color-theme.json"
+      }
+    ]
+  }
+}

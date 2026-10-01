@@ -1,0 +1,117 @@
+# Sigil — the default theme.
+#
+# One file themes both surfaces: view.py (the terminal viewer) reads it for box,
+# edge and chrome colours, and the site loads it into its global CSS variables.
+# Hues follow highlight/sigil.tmTheme: magenta structure, periwinkle names,
+# less-gold modifiers, pink operators, gold mode line, slate/violet sections.
+#
+# Format: a small YAML subset — nested maps (2-space indent), "quoted" or plain
+# scalar values, # comments (quote any value that starts with #). A value
+# "$name" refers to palette.name, so every role moves with the palette.
+# Another theme can start from this one with `extends: sigil` and override only
+# the keys it changes.
+
+name: sigil
+label: Sigil
+type: dark
+
+palette:
+  bg: "#0d1117"
+  surface: "#161b22"
+  raised: "#21262d"
+  line: "#30363d"
+  fg: "#c9d1d9"
+  bright: "#e6edf3"
+  muted: "#8b949e"
+  dim: "#6e7681"
+  faint: "#484f58"
+  magenta: "#c850e0"
+  violet: "#d2a8ff"
+  lilac: "#bc8cff"
+  periwinkle: "#8aa0ff"
+  pink: "#e85d9e"
+  softpink: "#f59cc4"
+  gold: "#e3c000"
+  amber: "#ffbf47"
+  lessgold: "#ffe0b0"
+  teal: "#5abea0"
+  cyan: "#5ccfe6"
+  green: "#7ee787"
+  ok: "#3fb950"
+  red: "#f85149"
+  slate: "#8b7aad"
+  blue: "#79c0ff"
+  sky: "#a5d6ff"
+  punct: "#586e75"
+
+# Node boxes, by glyph. A dialect's extra kinds can be coloured here too.
+kinds:
+  service: $periwinkle    # [component]
+  data: $violet           # {data}
+  event: $pink            # <event>
+  actor: $green           # (actor)
+  store: $amber           # |store|
+  state: $cyan            # state-machine states
+  hole: $dim              # [?]
+
+# Arrow colours. An arrow not listed takes its source node's colour.
+edges:
+  fail: $red              # !>
+  maybe: $dim             # ?>
+  async: $muted           # ~>
+  split: $dim             # ]>[
+  default: $fg
+
+# Code highlighting roles (the scopes of highlight/sigil.tmTheme).
+syntax:
+  glyph: $magenta         # [ ] { } < > ( ) | |
+  keyword: $magenta       # state loop parallel branch
+  name: $periwinkle       # the name inside a glyph
+  modifier: $lessgold     # @timeout(2s)
+  operator: $pink         # -> ~> => !> := &
+  cardinality: $softpink  # ×3 ^8
+  branch: $teal           # \-  \-&  \-*-
+  shebang: $gold          # #!sketch
+  rails: $slate           # --- … ---
+  section: $bright        # the section name
+  ref: $lilac             # ${ref}
+  string: $sky
+  number: $blue
+  comment: $dim
+  punct: $punct
+  tag: $fg                # bare names: states, labels
+
+# Viewer chrome: legends, bars, notes, lint.
+ui:
+  text: $fg
+  strong: $bright
+  muted: $muted
+  dim: $dim
+  accent: $magenta
+  tree: $dim              # outline rails
+  relation: $teal         # & ? $ @ ! = _ in the tree
+  label: $teal            # edge and trigger labels
+  title: $fg
+  payload: $muted
+  note: $muted
+  note_tag: $dim
+  bar_fg: $fg
+  bar_bg: $surface
+  bar_name: $bright
+  key_fg: $bright
+  key_bg: $line
+  error: $red
+  warn: $amber
+  ok: $ok
+  fill: "0.22"            # box fill: the kind colour mixed this far into bg
+
+# Page-only roles for the site.
+site:
+  accent: $magenta
+  link: $periwinkle
+  glow: $magenta
+  scene_opacity: "0.5"    # the 3D background's glyph grids
+  scene_blur: "2.2px"     # blur per unit of depth away from the focal plane
+  coin_thread: $magenta   # the logo coin: the embroidered &
+  coin_metal: $amber      #   its rim
+  coin_field: $slate      #   its face

@@ -1,0 +1,539 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Sigil theme (TextMate .tmTheme) for syntect (bat · broot) — core Sigil.
+
+  TWO layers:
+   1. The sigil signature — `*.sigil` scopes mapped to the palette: magenta
+      structure · periwinkle names · less-gold modifiers · pink operator +
+      soft-pink cardinality · first-class mode line (gold) and section header
+      (slate rails / violet level / near-white name). More-specific `.sigil`
+      rules precede the generic rules.
+   2. A COMPLETE dark base (GitHub-Dark-derived generic scopes) so this theme is
+      safe as a global default (BAT_THEME=sigil) — non-sigil files stay readable
+      while `.sigil` files get the full signature. Background ref: #0d1117.
+-->
+<plist version="1.0">
+<dict>
+  <key>name</key>
+  <string>Sigil</string>
+  <key>settings</key>
+  <array>
+
+    <!-- ===== Global / default ===== -->
+    <dict>
+      <key>settings</key>
+      <dict>
+        <key>background</key>
+        <string>#0d1117</string>
+        <key>foreground</key>
+        <string>#c9d1d9</string>
+        <key>caret</key>
+        <string>#c9d1d9</string>
+        <key>lineHighlight</key>
+        <string>#161b22</string>
+        <key>selection</key>
+        <string>#264f78</string>
+        <key>invisibles</key>
+        <string>#484f58</string>
+      </dict>
+    </dict>
+
+    <!-- ===== Sigil signature (themed roles) ===== -->
+
+    <dict>
+      <key>name</key>
+      <string>Sigil glyph delimiters (structure, magenta)</string>
+      <key>scope</key>
+      <string>keyword.control.sigil.glyph</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#c850e0</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Sigil block keyword (magenta, bold)</string>
+      <key>scope</key>
+      <string>keyword.control.sigil</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#c850e0</string>
+        <key>fontStyle</key>
+        <string>bold</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Sigil glyph name (periwinkle)</string>
+      <key>scope</key>
+      <string>storage.type.sigil</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#8aa0ff</string>
+        <key>fontStyle</key>
+        <string>italic</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Sigil external op name (op ns.verb, periwinkle)</string>
+      <key>scope</key>
+      <string>entity.name.function.sigil</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#8aa0ff</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Sigil @-modifiers (less-gold)</string>
+      <key>scope</key>
+      <string>storage.modifier.sigil</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#ffe0b0</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Sigil composition-tree branch marker (teal)</string>
+      <key>scope</key>
+      <string>keyword.operator.sigil.branch</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#5abea0</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Sigil cardinality (soft pink)</string>
+      <key>scope</key>
+      <string>keyword.operator.sigil.cardinality</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#f59cc4</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Sigil operator — arrows · := · value-ops (pink)</string>
+      <key>scope</key>
+      <string>keyword.operator.sigil</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#e85d9e</string>
+      </dict>
+    </dict>
+
+    <!-- Document markers — first-class -->
+
+    <dict>
+      <key>name</key>
+      <string>Sigil shebang mode line (gold)</string>
+      <key>scope</key>
+      <string>keyword.other.sigil.shebang</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#e3c000</string>
+        <key>fontStyle</key>
+        <string>bold</string>
+      </dict>
+    </dict>
+
+
+
+    <dict>
+      <key>name</key>
+      <string>Sigil section header rails (slate)</string>
+      <key>scope</key>
+      <string>punctuation.definition.sigil.section</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#8b7aad</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Sigil section level L&lt;n&gt; (violet, bold)</string>
+      <key>scope</key>
+      <string>markup.heading.sigil.level</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#d2a8ff</string>
+        <key>fontStyle</key>
+        <string>bold</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Sigil section name (near-white, bold)</string>
+      <key>scope</key>
+      <string>markup.heading.sigil.name</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#e6edf3</string>
+        <key>fontStyle</key>
+        <string>bold</string>
+      </dict>
+    </dict>
+
+    <!-- ===== Sigil universal roles (neutral shared values) ===== -->
+
+    <dict>
+      <key>name</key>
+      <string>Ref braces (the ${ } template seam)</string>
+      <key>scope</key>
+      <string>punctuation.definition.template-expression</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#a371f7</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Ref body (ns.path inside ${…})</string>
+      <key>scope</key>
+      <string>variable.interpolation</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#bc8cff</string>
+        <key>fontStyle</key>
+        <string>italic</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Sigil string literals</string>
+      <key>scope</key>
+      <string>string.quoted.sigil</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#a5d6ff</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Numbers</string>
+      <key>scope</key>
+      <string>constant.numeric</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#79c0ff</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Sigil constant true</string>
+      <key>scope</key>
+      <string>constant.language.boolean.true.sigil</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#3fb950</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Sigil constant false</string>
+      <key>scope</key>
+      <string>constant.language.boolean.false.sigil</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#f85149</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Sigil constant null</string>
+      <key>scope</key>
+      <string>constant.language.null.sigil</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#6e7681</string>
+        <key>fontStyle</key>
+        <string>italic</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Sigil comments</string>
+      <key>scope</key>
+      <string>comment.line.sigil</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#6e7681</string>
+        <key>fontStyle</key>
+        <string>italic</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Sigil meta (anchors · holes · wildcards)</string>
+      <key>scope</key>
+      <string>comment.other.meta.sigil</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#6e7681</string>
+        <key>fontStyle</key>
+        <string>italic</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Sigil tag (bare names: states · labels · verbs)</string>
+      <key>scope</key>
+      <string>entity.name.tag.sigil</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#c9d1d9</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Sigil punctuation</string>
+      <key>scope</key>
+      <string>punctuation.separator.sigil</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#586e75</string>
+      </dict>
+    </dict>
+
+    <!-- ===== Complete dark base (generic scopes; non-sigil files) ===== -->
+
+    <dict>
+      <key>name</key>
+      <string>Comment</string>
+      <key>scope</key>
+      <string>comment, punctuation.definition.comment</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#8b949e</string>
+        <key>fontStyle</key>
+        <string>italic</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>String</string>
+      <key>scope</key>
+      <string>string</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#a5d6ff</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Number / constant</string>
+      <key>scope</key>
+      <string>constant.numeric, constant.language, constant.character, constant.other</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#79c0ff</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Keyword / storage</string>
+      <key>scope</key>
+      <string>keyword, storage, storage.type, storage.modifier, keyword.control</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#ff7b72</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Operator</string>
+      <key>scope</key>
+      <string>keyword.operator</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#ff7b72</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Function</string>
+      <key>scope</key>
+      <string>entity.name.function, support.function, meta.function-call entity.name.function</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#d2a8ff</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Type / class</string>
+      <key>scope</key>
+      <string>entity.name.type, entity.name.class, entity.other.inherited-class, support.type, support.class</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#f0883e</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Variable</string>
+      <key>scope</key>
+      <string>variable, variable.other, meta.definition.variable entity.name.function</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#c9d1d9</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Markup tag (HTML/XML) + attribute</string>
+      <key>scope</key>
+      <string>entity.name.tag</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#7ee787</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Attribute name</string>
+      <key>scope</key>
+      <string>entity.other.attribute-name</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#79c0ff</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Invalid</string>
+      <key>scope</key>
+      <string>invalid, invalid.illegal</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#f85149</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Markup heading</string>
+      <key>scope</key>
+      <string>markup.heading</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#79c0ff</string>
+        <key>fontStyle</key>
+        <string>bold</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Markup inserted / deleted (diff)</string>
+      <key>scope</key>
+      <string>markup.inserted</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#3fb950</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
+      <string>Markup deleted (diff)</string>
+      <key>scope</key>
+      <string>markup.deleted</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#f85149</string>
+      </dict>
+    </dict>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  </array>
+  <key>uuid</key>
+  <string>7d2b1f3c-5a44-4c6e-9b1a-9f0e2c3d4a55</string>
+</dict>
+</plist>

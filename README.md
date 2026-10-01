@@ -1,0 +1,186 @@
+# Sigil
+
+<p align="center"><img src="assets/banner.svg" alt="Sigil — a coin with a knotwork ampersand, and the wordmark [S]{I}&lt;G&gt;(I)|L|" width="880"></p>
+
+Sigil is a compact, non-executable notation for system designs. Components,
+data, events, actors and stores are **glyphs**; the flows between them are
+**arrows**; constraints are **modifiers**. A whole architecture fits on one
+screen, reads aloud, and expands unambiguously back into prose.
+
+```sigil
+#!sketch
+
+--- Checkout ---
+(User) -> [API] : {Cart}
+[API] -> [Payment] : charge ×3 @timeout(2s)
+       !> <PaymentFailed>
+[API] ~> <OrderPlaced> -> |Ledger|
+```
+
+`(User)` is an actor outside the system, `[API]` a component, `{Cart}` data,
+`<OrderPlaced>` an event, `|Ledger|` a store. `->` is a call, `~>` is async,
+`!>` is the failure path, and a line starting with an arrow continues the
+previous subject. `view.py` draws it in the terminal:
+
+```
+             ╭────────╮
+             │ (User) │
+             ╰────────╯
+                  │
+                  ▼
+              ┌───────┐
+              │ [API] │
+              └───────┘
+                  │
+         ┌────────┴╌╌╌╌╌╌╌╌┐
+         ▼                 ▼
+   ┌───────────┐   ┌───────────────┐
+   │ [Payment] │   │ <OrderPlaced> │
+   └───────────┘   └───────────────┘
+         │                  │
+         ▼                  ▼
+┌─────────────────┐   ┌──────────┐
+│ <PaymentFailed> │   │ |Ledger| │
+└─────────────────┘   └──────────┘
+
+checkout.sigil: 6 nodes, 5 edges, 0 expansions
+lint: OK
+```
+
+- **Spec:** [`language.md`](./language.md) — glyphs, arrows, modifiers, payloads,
+  control-flow blocks, streams, zoom, composition trees (`\-` branches with the
+  relations `> & ? $ @ ! = _` and qualified paths like `[Bullet]/{Transform}`),
+  modes, normal form, grammar.
+- **Design records:** [`rfcs/`](./rfcs) — accepted RFCs with their decisions.
+- **Examples:** [`examples.md`](./examples.md) — worked prose ↔ Sigil pairs.
+
+## Tools
+
+All tools are Python 3 standard library only.
+
+| Tool | Does |
+| --- | --- |
+| `lint.py FILE\|-` | Validates a document. One `severity:line:rule: message` per issue; exit 0 clean, 1 warnings, 2 errors. |
+| `view.py FILE` | Live terminal view of the graph that redraws on every save. `--once` prints the drawing plus a lint summary and exits (1 on lint error); `--depth N\|all` opens `X := { … }` expansions; `--payloads` shows flow payloads (chips on their edges in the graph view, a list in the tree view); `--no-lint` skips lint; `--tree` (or `t` live) shows the composition tree as an outline with every flow as a lane beside it; `--compact` starts without the blank row between top-level units; `--no-triggers` starts with event ⇢ state triggers hidden; `--notes markers\|callouts` shows comments as `#N` tags with a notes list, or as boxes in a left margin tied to their rows (tree view). Live keys: `t` tree/graph · `n` notes · `e` triggers · `s` spacing · `d` depth · `p` payloads · `l` lint · `c` centre · `g` home · `r` reload · `q` quit. |
+| `render.py FILE\|- [--depth N\|all] [--composition MODE]` | Emits a Mermaid `flowchart TD` for docs (GitHub, Obsidian, mermaid.live, …). Composition trees draw as nested subgraphs (`subgraphs`, the default), as labelled dotted edges (`edges`), or not at all (`none`). |
+| `themes.py [NAME\|PATH]` | Loads a colour theme from `themes/<name>.yaml` (prints it resolved; `--list` lists them). `view.py --theme NAME` or `SIGIL_THEME=NAME` picks one; the web page reads the same files. |
+| `dialects.py` | Loads a dialect (`--dialect NAME` or `SIGIL_DIALECT`) that extends the linter and renderer. |
+| `highlight/` | Syntax highlighting for bat, nvim, VS Code, Sublime/TextMate. |
+
+## Install as an agent skill
+
+Sigil ships as a skill (`sigil`) plus two commands (`sigil-view`, `sigil-lint`)
+for several coding agents. Each GitHub release attaches one archive per agent,
+`sigil-<agent>-<version>.zip` (and `.tar.gz`), plus
+`sigil-{claude,codex}-marketplace-<version>` archives. Build them locally with
+`./build.py` (see [Development](#development)).
+
+### Claude Code
+
+```sh
+# from a release: unzip sigil-claude-marketplace-<version>.zip, then in Claude Code
+/plugin marketplace add ./sigil-claude-marketplace-<version>
+/plugin install sigil@sigil
+# or try it for one session without installing
+claude --plugin-dir ./sigil-claude-<version>
+```
+
+Commands appear as `/sigil:sigil-view <file>` and `/sigil:sigil-lint <file>`.
+
+### Codex
+
+Unzip `sigil-codex-marketplace-<version>.zip` and add it as a local plugin
+marketplace (it holds `.agents/plugins/marketplace.json` → `./plugins/sigil`), or
+copy the skills straight into a skills directory:
+
+```sh
+unzip sigil-codex-<version>.zip
+cp -R sigil-codex-<version>/skills/* ~/.agents/skills/     # or <repo>/.agents/skills/
+```
+
+The commands become explicit-only skills: invoke them as `$sigil-view` /
+`$sigil-lint`.
+
+### pi
+
+```sh
+unzip sigil-pi-<version>.zip
+pi install ./sigil-pi-<version>        # add -l to install for this project only
+```
+
+Provides the `sigil` skill and the `/sigil-view` and `/sigil-lint` prompts.
+
+### OpenCode
+
+```sh
+unzip sigil-opencode-<version>.zip
+./sigil-opencode-<version>/install.sh                   # ~/.config/opencode
+./sigil-opencode-<version>/install.sh --project .       # ./.opencode
+```
+
+Provides the `sigil` skill and the `/sigil-view` and `/sigil-lint` commands.
+(OpenCode also discovers skills in `~/.claude/skills` and `.agents/skills`.)
+
+## Themes
+
+One YAML file colours both the terminal viewer and the web page:
+`themes/sigil.yaml` (the default) holds a `palette` of named colours and the roles
+built from it — `kinds` (box colours by glyph; `kinds.service` colours
+`[component]` glyphs), `edges`, `syntax` (code highlighting), `ui` (viewer
+chrome) and `site`. A value `$name` refers to `palette.name`, so a role follows
+its palette colour; a new theme can start with `extends: sigil` and override
+only what it changes. Drop it in `themes/` or a directory on `SIGIL_THEME_PATH`.
+The format is a small YAML subset (nested maps, scalars, `#` comments) that
+`themes.py` and the page both parse without a YAML library.
+
+## Web page
+
+`site/` is a static page: an explainer, a live editor that types the examples in
+`site/examples/` line by line while `view.py`'s tree and graph views redraw in a
+3D background, the skill, and install commands. `site/build_site.py` renders every
+typing step through `view.py` into `frames.json` and turns the theme YAML into CSS
+variables; `.github/workflows/pages.yml` publishes it with GitHub Pages.
+
+```sh
+python3 site/build_site.py --out _site && python3 -m http.server -d _site 8000
+```
+
+`?theme=NAME` and `?logo=NAME` (a file in `site/logos/`) preview alternatives.
+
+## Dialects
+
+Plain Sigil is domain-neutral. A **dialect** layers extra vocabulary on top —
+additional modifiers, lint passes and render rules — without changing the core
+language. Dialects are Python modules loaded by `dialects.py` from a path or
+from directories on `SIGIL_DIALECT_PATH`; select one with `--dialect NAME` or
+`SIGIL_DIALECT=NAME`. For example, `sigil-merlang` (maintained separately) adds a
+component type system and UI-layout vocabulary for one agent runtime. See
+"Dialects" in [`language.md`](./language.md) for the extension API.
+
+## Development
+
+```sh
+python3 -m unittest discover tests          # all tests
+./build.py                                   # build every target into dist/
+./build.py --target claude --version 1.2.3   # one target, explicit version
+./build.py --check                           # validate dist/ (CI runs this)
+```
+
+Canonical packaging sources — edit these, never `dist/`:
+
+- `skills/sigil/SKILL.md` — the skill, with spec-only frontmatter and paths
+  relative to the skill (`scripts/…`, `references/…`).
+- `plugin/meta.json` — name, version, description, author, keywords.
+- `plugin/commands/*.md` — commands, using `$1` / `$ARGUMENTS` and the
+  `@SCRIPTS@` placeholder for the skill's scripts directory.
+
+`build.py` copies `lint.py`, `render.py`, `view.py`, `dialects.py` and `themes.py`
+(with `themes/*.yaml`) into `skills/sigil/scripts/` and `language.md` / `examples.md` into
+`skills/sigil/references/`, then writes each agent's manifests. Archives are
+deterministic. CI (`.github/workflows/ci.yml`) tests, builds and validates on
+every push; pushing a `v*` tag builds with that version and attaches the
+archives to a GitHub Release.
+
+## License
+
+MIT — see [`LICENSE`](./LICENSE).

@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sigil</title>
+<meta name="description" content="Sigil — a compact notation for system designs. Glyphs for things, arrows for flows; linted, drawn live in the terminal, and fluent for coding agents.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- the fallback font, only for the symbols Departure Mono lacks (site.js FALLBACK) -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400&text=%E2%86%BA%E2%87%A2%E2%88%97%E2%96%B8%E2%96%BE%E2%97%80%E2%96%B6%E2%97%86%E2%97%87%E2%97%89%E2%97%8B%E2%97%8E%E2%97%8F%E2%9C%96%E2%9C%B1%E2%97%A6%E2%9C%A6&display=swap">
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="site.css">
+</head>
+<body data-logo="{{logo}}" data-released="{{released}}">
+
+<div id="scene" aria-hidden="true"><div class="stage" id="stage"></div></div>
+
+<header class="nav">
+  <a class="brand" href="#top" aria-label="Sigil home"><span class="g-service">[</span>S<span class="g-service">]</span><span class="g-data">{</span>I<span class="g-data">}</span><span class="g-event">&lt;</span>G<span class="g-event">&gt;</span><span class="g-actor">(</span>I<span class="g-actor">)</span><span class="g-store">|</span>L<span class="g-store">|</span></a>
+  <nav aria-label="Sections">
+    <a href="#language">language</a>
+    <a href="#viewer">viewer</a>
+    <a href="#skill">skill</a>
+    <a href="#install">install</a>
+    <a href="{{repo_url}}">github</a>
+  </nav>
+  <label class="theme-pick">theme
+    <select id="theme" aria-label="Colour theme"><option value="sigil">Sigil</option></select>
+  </label>
+</header>
+
+<main id="top">
+
+<section class="hero">
+  <div class="hero-head">
+    <pre class="logo" id="logo" role="img" aria-label="Sigil"></pre>
+    <div class="hero-text">
+      <h1>A compact notation for system designs.</h1>
+      <p class="lede">Glyphs for the things, arrows for the flows. A whole architecture fits
+      on one screen, reads aloud, lints, and draws itself live in your terminal — and your
+      coding agent speaks it fluently.</p>
+    </div>
+  </div>
+
+  <div class="editor" id="editor">
+    <div class="editor-bar">
+      <div class="tabs" id="tabs" role="tablist" aria-label="Examples"></div>
+      <div class="controls">
+        <button type="button" id="play" title="Pause typing">pause</button>
+        <button type="button" id="skip" title="Finish this example">skip</button>
+        <button type="button" id="focus" title="Bring the background into focus" aria-pressed="false">focus</button>
+      </div>
+    </div>
+    <pre class="code" id="code" role="tabpanel" tabindex="0"></pre>
+    <div class="editor-status">
+      <span id="st-lint"></span><span id="st-count"></span><span id="st-line"></span>
+    </div>
+  </div>
+  <p class="hint">Behind the editor is <code>view.py</code> redrawing after every line — the
+  tree view in front, the graph view further back. Press <kbd>focus</kbd> to pull them into focus.</p>
+</section>
+
+<section id="language" class="panel">
+  <h2><span class="sec-rail">---</span> language <span class="sec-rail">---</span></h2>
+  <p>Sigil describes the <em>wiring</em> of a system — what exists, what talks to what,
+  what fails where — and nothing about how it is coded. It is a notation for people and
+  agents to think in, not a language to run.</p>
+
+  <div class="cards">
+    <article class="card">
+      <h3>glyphs — the things</h3>
+      <table class="ref">
+        <tr><td><code class="hl">[Checkout]</code></td><td>component — anything with identity that does work</td></tr>
+        <tr><td><code class="hl">{Order}</code></td><td>data, a record type</td></tr>
+        <tr><td><code class="hl">&lt;OrderPlaced&gt;</code></td><td>event, a message</td></tr>
+        <tr><td><code class="hl">(Shopper)</code></td><td>actor, or a system outside yours</td></tr>
+        <tr><td><code class="hl">|Ledger|</code></td><td>store, persistence</td></tr>
+        <tr><td><code class="hl">[?]</code></td><td>a hole — "something goes here", allowed while sketching</td></tr>
+      </table>
+    </article>
+    <article class="card">
+      <h3>arrows — the flows</h3>
+      <table class="ref">
+        <tr><td><code class="hl">-&gt;</code></td><td>call, request</td></tr>
+        <tr><td><code class="hl">~&gt;</code></td><td>async, fire and forget</td></tr>
+        <tr><td><code class="hl">=&gt;</code></td><td>returns, produces</td></tr>
+        <tr><td><code class="hl">!&gt;</code></td><td>the failure path</td></tr>
+        <tr><td><code class="hl">?&gt;</code></td><td>conditional branch</td></tr>
+        <tr><td><code class="hl">*&gt;</code></td><td>broadcast, fan-out</td></tr>
+        <tr><td><code class="hl">&lt;-&gt;</code></td><td>both ways, RPC</td></tr>
+      </table>
+      <p class="small">After a flow, <code class="hl">: payload</code> says what travels;
+      modifiers like <code class="hl">×3 @timeout(2s)</code> say how.</p>
+    </article>
+    <article class="card">
+      <h3>composition — the parts</h3>
+      <table class="ref">
+        <tr><td><code class="hl">[Shop] := { … }</code></td><td>zoom in: the inside of a component</td></tr>
+        <tr><td><code class="hl">\-&amp; {Health}</code></td><td>has a component</td></tr>
+        <tr><td><code class="hl">\-*-&gt; [Bullet]</code></td><td>spawns instances</td></tr>
+        <tr><td><code class="hl">\-{shattered}-? [Shard]</code></td><td>exists only when</td></tr>
+        <tr><td><code class="hl">\-_ [StandbyPsp]</code></td><td>one of a group is active</td></tr>
+        <tr><td><code class="hl">\-(3)-&gt; [ZoneA]</code></td><td>a weighted share</td></tr>
+      </table>
+      <p class="small">Also <code class="hl">&gt;</code> contains (the default), <code class="hl">$</code> from data,
+      <code class="hl">@</code> attached, <code class="hl">!</code> alerts when, <code class="hl">=</code> gathers — and paths like
+      <code class="hl">[Bullet]/{Transform}</code>.</p>
+    </article>
+  </div>
+
+  <div class="cards two">
+    <article class="card">
+      <h3>state, driven by events</h3>
+      <pre class="snippet hl-block">state {Order} {
+  +     -&lt;Placed&gt;-&gt;  Open
+  Open  -&lt;Paid&gt;-&gt;    Settled
+}</pre>
+      <p class="small">Any glyph can own a state machine. An event whose name matches a
+      trigger drives it — the viewer draws a dashed wire from the event to what it drives.</p>
+    </article>
+    <article class="card">
+      <h3>modes — how strict</h3>
+      <table class="ref">
+        <tr><td><code class="hl">#!sketch</code></td><td>partial: holes allowed, defaults assumed</td></tr>
+        <tr><td><code class="hl">#!craft</code></td><td>work in progress with an agent, gaps surfaced as you go</td></tr>
+        <tr><td><code class="hl">#!spec</code></td><td>binding: every element is a constraint, holes are errors</td></tr>
+      </table>
+      <p class="small">The linter checks every document against its mode, and a dialect can
+      add vocabulary for one domain without changing the core.</p>
+    </article>
+  </div>
+</section>
+
+<section id="viewer" class="panel">
+  <h2><span class="sec-rail">---</span> viewer <span class="sec-rail">---</span></h2>
+  <p>Keep a design open in one pane and <code>view.py</code> in another: it redraws on every
+  save. Zero dependencies — Python's standard library and a terminal with truecolor.</p>
+  <div class="cards two">
+    <article class="card">
+      <h3>graph view</h3>
+      <p>The flows as a layered graph, boxes colour-coded by glyph, every arrow type its own
+      stroke. Payloads ride their edges as chips (<kbd>p</kbd>), events wire with a dashed edge
+      to the owners whose state they drive, and
+      <code class="hl">:=</code> expansions open as sections below, as deep as you ask.</p>
+      <pre class="snippet cmd">view.py design.sigil --depth all</pre>
+    </article>
+    <article class="card">
+      <h3>tree view</h3>
+      <p>The composition tree as an outline with every flow as a lane in a gutter beside it —
+      a hierarchy and a wired graph at the same time. Comments become margin callouts.</p>
+      <pre class="snippet cmd">view.py design.sigil --tree --notes callouts</pre>
+    </article>
+  </div>
+  <p class="keys"><kbd>t</kbd> tree/graph <kbd>d</kbd> depth <kbd>n</kbd> notes
+  <kbd>e</kbd> triggers <kbd>s</kbd> spacing <kbd>p</kbd> payloads <kbd>l</kbd> lint
+  <kbd>q</kbd> quit · <code>--once</code> prints a frame for agents and CI ·
+  <code>--theme</code> picks the same YAML themes as this page.</p>
+</section>
+
+<section id="skill" class="panel">
+  <h2><span class="sec-rail">---</span> skill <span class="sec-rail">---</span></h2>
+  <p>Sigil ships as an agent skill with two commands. Once installed, your coding agent
+  reaches for it whenever a conversation turns to architecture — and keeps the design in
+  a file you can both edit.</p>
+  <div class="cards">
+    <article class="card"><h3>compress</h3><p>Turn a prose spec, a meeting's notes or an
+    existing codebase into a one-screen sketch.</p></article>
+    <article class="card"><h3>craft</h3><p>Design together in <code class="hl">#!craft</code>
+    mode: the agent proposes structure, leaves named holes, and asks about the gaps.</p></article>
+    <article class="card"><h3>expand</h3><p>Turn a sketch back into prose for a design doc,
+    unambiguously — the notation is the source of truth.</p></article>
+    <article class="card"><h3>compare</h3><p>Diff two designs structurally: what moved, what
+    is new, which flows changed shape.</p></article>
+    <article class="card"><h3>lint &amp; normalise</h3><p>Validate against the spec and
+    tighten hand-written sketches into normal form.</p></article>
+    <article class="card"><h3>draw</h3><p>Check the graph with <code>view.py --once</code>,
+    or emit Mermaid for docs with <code>render.py</code>.</p></article>
+  </div>
+  <p class="small">Commands: <code>sigil-view &lt;file&gt;</code> draws a document;
+  <code>sigil-lint &lt;file&gt;</code> checks it. Names vary slightly per agent —
+  <code>/sigil:sigil-view</code> in Claude Code, <code>$sigil-view</code> in Codex.</p>
+</section>
+
+<section id="install" class="panel">
+  <h2><span class="sec-rail">---</span> install <span class="sec-rail">---</span></h2>
+  <p class="pending">Release pending — these commands go live with the first
+  tagged release (<code>v{{version}}</code>). Until then, build the archives from a clone with
+  <code>./build.py</code>.</p>
+  <div class="install">
+    <div class="tabs" role="tablist" aria-label="Agents">
+      <button type="button" role="tab" id="tab-claude" aria-controls="pane-claude" aria-selected="true" tabindex="0">Claude Code</button>
+      <button type="button" role="tab" id="tab-codex" aria-controls="pane-codex" aria-selected="false" tabindex="-1">Codex</button>
+      <button type="button" role="tab" id="tab-pi" aria-controls="pane-pi" aria-selected="false" tabindex="-1">pi</button>
+      <button type="button" role="tab" id="tab-opencode" aria-controls="pane-opencode" aria-selected="false" tabindex="-1">OpenCode</button>
+      <button type="button" role="tab" id="tab-source" aria-controls="pane-source" aria-selected="false" tabindex="-1">from source</button>
+    </div>
+    <div class="pane" id="pane-claude" role="tabpanel" aria-labelledby="tab-claude">
+<pre class="cmd copy">curl -LO {{repo_url}}/releases/download/v{{version}}/sigil-claude-marketplace-{{version}}.zip
+unzip sigil-claude-marketplace-{{version}}.zip</pre>
+      <p>then, inside Claude Code:</p>
+<pre class="cmd copy">/plugin marketplace add ./sigil-claude-marketplace-{{version}}
+/plugin install sigil@sigil</pre>
+      <p class="small">Commands appear as <code>/sigil:sigil-view</code> and <code>/sigil:sigil-lint</code>.</p>
+    </div>
+    <div class="pane" id="pane-codex" role="tabpanel" aria-labelledby="tab-codex" hidden>
+<pre class="cmd copy">curl -LO {{repo_url}}/releases/download/v{{version}}/sigil-codex-{{version}}.zip
+unzip sigil-codex-{{version}}.zip
+cp -R sigil-codex-{{version}}/skills/* ~/.agents/skills/</pre>
+      <p class="small">Or add <code>sigil-codex-marketplace-{{version}}.zip</code> as a local plugin
+      marketplace. Commands become explicit skills: <code>$sigil-view</code>, <code>$sigil-lint</code>.</p>
+    </div>
+    <div class="pane" id="pane-pi" role="tabpanel" aria-labelledby="tab-pi" hidden>
+<pre class="cmd copy">curl -LO {{repo_url}}/releases/download/v{{version}}/sigil-pi-{{version}}.zip
+unzip sigil-pi-{{version}}.zip
+pi install ./sigil-pi-{{version}}</pre>
+      <p class="small">Add <code>-l</code> to install for one project. Provides the skill and the
+      <code>/sigil-view</code> and <code>/sigil-lint</code> prompts.</p>
+    </div>
+    <div class="pane" id="pane-opencode" role="tabpanel" aria-labelledby="tab-opencode" hidden>
+<pre class="cmd copy">curl -LO {{repo_url}}/releases/download/v{{version}}/sigil-opencode-{{version}}.zip
+unzip sigil-opencode-{{version}}.zip
+./sigil-opencode-{{version}}/install.sh</pre>
+      <p class="small"><code>install.sh --project .</code> installs into <code>./.opencode</code> instead.</p>
+    </div>
+    <div class="pane" id="pane-source" role="tabpanel" aria-labelledby="tab-source" hidden>
+<pre class="cmd copy">git clone {{repo_url}}.git &amp;&amp; cd sigil
+./view.py site/examples/02-shop.sigil --tree --depth all
+./build.py            # every agent's archive, into dist/</pre>
+      <p class="small">Python 3, standard library only.</p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <span>sigil v{{version}}</span>
+  <span>MIT licensed</span>
+  <a href="{{repo_url}}">{{repo}}</a>
+</footer>
+
+{{logos}}
+<script src="site.js" defer></script>
+</body>
+</html>

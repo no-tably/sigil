@@ -1,0 +1,22 @@
+#!sketch
+# an entity-component system: trees for entities, flows for systems
+
+--- arena ---
+
+[Ship]
+    \-& {Transform}
+    \-& {Health}
+    \-*-> [Bullet]
+        \-& {Transform}
+        \-& {Damage}
+[Asteroid]
+    \-& {Transform}
+    \-{shattered}-? [Shard]
+
+--- systems ---
+
+[Physics] -> {Transform}
+[Homing]  -> [Bullet]/{Transform}
+{Damage}  -> [Combat] -> {Health}
+[Combat]  ~> <Destroyed> -> [Spawner]
+[Spawner] => [Shard]

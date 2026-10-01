@@ -1,0 +1,456 @@
+/* Departure Mono (SIL OFL, fonts/DepartureMono-OFL.txt) — a pixel font, crisp at
+   multiples of 11px, hence the --fs-* scale. The few symbols it lacks (the viewer's
+   lane markers) fall back to JetBrains Mono inside a fixed 1ch cell (.fb). */
+@font-face {
+  font-family: "Departure Mono";
+  src: url("fonts/DepartureMono-Regular.woff2") format("woff2");
+  font-display: swap;
+}
+
+/* Sigil site. Every colour is a theme variable (theme.css, then site.js loads
+   themes/<name>.yaml into :root), so a theme change moves the whole page —
+   prose, code, logo and the 3D background — together. Page-level derived values
+   live here as variables too, built from the theme's. */
+
+:root {
+  --font-mono: "Departure Mono", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --fs-s: 11px;
+  --fs-m: 16.5px;
+  --fs-l: 22px;
+  --fs-xl: 33px;
+  --bg: var(--palette-bg);
+  --surface: var(--palette-surface);
+  --raised: var(--palette-raised);
+  --line: var(--palette-line);
+  --text: var(--ui-text);
+  --strong: var(--ui-strong);
+  --muted: var(--ui-muted);
+  --dim: var(--ui-dim);
+  --accent: var(--site-accent);
+  --link: var(--site-link);
+  --glass: color-mix(in srgb, var(--surface) 82%, transparent);
+  --glass-strong: color-mix(in srgb, var(--surface) 94%, transparent);
+  --hairline: color-mix(in srgb, var(--line) 80%, transparent);
+  --glow: color-mix(in srgb, var(--site-glow) 35%, transparent);
+  --nav-bg: color-mix(in srgb, var(--bg) 70%, transparent);
+  --editor-bg: color-mix(in srgb, var(--bg) 32%, transparent);
+  --shadow: color-mix(in srgb, var(--bg) 80%, transparent);
+  --accent-ring: color-mix(in srgb, var(--accent) 12%, transparent);
+  --row-now: color-mix(in srgb, var(--accent) 7%, transparent);
+  --warn-wash: color-mix(in srgb, var(--ui-warn) 8%, transparent);
+  --grid-faint: color-mix(in srgb, var(--line) 60%, transparent);
+  --radius: 10px;
+  --gutter: clamp(16px, 4vw, 40px);
+  --measure: 72ch;
+  --code-rows: 22;
+  --code-lh: 1.45;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: var(--fs-m)/1.6 var(--font-mono);
+  font-variant-ligatures: none;      /* -> stays two characters: it is notation */
+  font-synthesis: none;              /* the pixel font has no italic or bold: no fakes */
+  /* So the font-weight / font-style rules below (syntax roles, logo shades,
+     frame styles) change nothing in Departure Mono; they are kept for the
+     fallback font and for a locally installed monospace that has the styles. */
+  overflow-x: hidden;
+}
+
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+code, kbd, pre { font-family: var(--font-mono); }
+code { color: var(--strong); white-space: nowrap; }
+.fb { display: inline-block; width: 1ch; text-align: center; font-family: "JetBrains Mono", monospace; }
+kbd {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 0 0.35em;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--raised);
+  color: var(--strong);
+  font-size: var(--fs-s);
+  text-align: center;
+}
+
+h1, h2, h3 { color: var(--strong); font-weight: 400; line-height: 1.25; }
+h1 { font-size: var(--fs-xl); margin: 0.4em 0 0.3em; }
+h2 { font-size: var(--fs-l); margin: 0 0 0.8em; }
+h3 { font-size: var(--fs-m); margin: 0 0 0.6em; color: var(--syntax-name); }
+
+/* ---------------------------------------------------------------- scene */
+
+#scene {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  perspective: 1100px;
+  perspective-origin: 50% 42%;
+  overflow: hidden;
+  transition: opacity 0.3s linear;   /* site.js sets opacity as the page scrolls */
+}
+
+.stage {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  transition: transform 1.8s cubic-bezier(0.2, 0.7, 0.2, 1);   /* site.js tilts it every 2 s */
+}
+
+.plane {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  margin: 0;
+  white-space: pre;
+  font: var(--fs-s)/1.22 var(--font-mono);
+  transform: translate(-50%, -50%) translate3d(var(--x, 0), var(--y, 0), var(--z, 0))
+             rotateY(var(--ry, 0deg)) rotateX(var(--rx, 0deg));
+  filter: blur(calc(var(--site-scene-blur) * var(--d, 1) * var(--focus-k, 1)));
+  transition: filter 0.6s ease, opacity 0.6s ease;
+  will-change: transform, filter;
+}
+
+/* the viewer's own frames: slightly out of focus */
+.plane.view { opacity: 0.85; font-size: var(--fs-m); }
+.plane.view .frame { transition: opacity 0.25s ease; }
+.plane.view.swap .frame { opacity: 0.25; }
+.plane.view .label {
+  display: block;
+  margin-bottom: 0.6em;
+  color: var(--dim);
+  font-size: var(--fs-s);
+  letter-spacing: 0.12em;
+}
+
+/* glyph grids: half opacity, mostly out of focus */
+.plane.grid { opacity: var(--site-scene-opacity); }
+/* nodes pulse in opacity only (a static glow): animating the glow itself would
+   repaint and re-blur the plane every frame */
+.plane.grid .node {
+  text-shadow: 0 0 12px currentColor;
+  animation: pulse var(--dur, 6s) ease-in-out var(--delay, 0s) infinite;
+}
+.plane.grid .wire { color: color-mix(in srgb, var(--line) 70%, var(--dim)); }
+.plane.grid .faint { color: var(--grid-faint); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+body.focused { --focus-k: 0.08; }
+body.focused .plane.view { opacity: 1; }
+
+/* ---------------------------------------------------------------- nav */
+
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+  padding: 0.6rem var(--gutter);
+  background: var(--nav-bg);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--hairline);
+}
+.brand { color: var(--strong); font-weight: 700; letter-spacing: 0.02em; }
+.brand:hover { text-decoration: none; }
+.nav nav { display: flex; gap: 1rem; flex-wrap: wrap; margin-left: auto; }
+.nav nav a { color: var(--muted); }
+.nav nav a:hover { color: var(--accent); text-decoration: none; }
+.theme-pick { color: var(--dim); font-size: var(--fs-s); display: flex; gap: 0.5em; align-items: center; }
+select {
+  font: inherit;
+  color: var(--text);
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.15em 0.4em;
+}
+
+/* glyph colours, shared by the brand, the logo and the highlighter */
+.g-service { color: var(--kinds-service); }
+.g-data { color: var(--kinds-data); }
+.g-event { color: var(--kinds-event); }
+.g-actor { color: var(--kinds-actor); }
+.g-store { color: var(--kinds-store); }
+
+/* ---------------------------------------------------------------- layout */
+
+main { position: relative; z-index: 1; }
+
+.hero {
+  min-height: 100vh;
+  padding: 2rem var(--gutter) 3rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.hero-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(1rem, 4vw, 3.5rem);
+  margin-bottom: 1.6rem;
+  text-align: left;
+}
+.hero-text { max-width: 46ch; }
+.lede { color: var(--muted); margin: 0; }
+@media (max-width: 860px) {
+  .hero-head { flex-direction: column; text-align: center; }
+}
+.hint { max-width: 64ch; color: var(--dim); font-size: var(--fs-s); margin-top: 1.2rem; }
+
+.panel {
+  max-width: 1080px;
+  margin: 0 auto 4rem;
+  padding: clamp(1.2rem, 3vw, 2.2rem);
+  background: var(--glass);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  backdrop-filter: blur(6px);
+}
+.panel > p { max-width: var(--measure); }
+@media (max-width: 1140px) { .panel { margin-left: var(--gutter); margin-right: var(--gutter); } }
+
+.sec-rail { color: var(--syntax-rails); font-weight: 400; }
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
+  gap: 1rem;
+  margin: 1.4rem 0;
+}
+#skill .cards { grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+.cards:not(#skill .cards) > .card:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.card {
+  padding: 1rem 1.1rem;
+  background: var(--glass-strong);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+}
+.card p { margin: 0.4em 0 0; }
+.small { font-size: var(--fs-s); color: var(--muted); }
+
+table.ref { border-collapse: collapse; width: 100%; }
+table.ref td { padding: 0.25em 0; vertical-align: top; }
+table.ref td:first-child { padding-right: 1em; white-space: nowrap; }
+table.ref td:last-child { color: var(--muted); }
+
+.snippet {
+  margin: 0.6em 0 0;
+  padding: 0.7em 0.9em;
+  background: var(--bg);
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  overflow-x: auto;
+}
+.cmd { color: var(--strong); }
+.keys { color: var(--muted); line-height: 2; }
+
+/* ---------------------------------------------------------------- logo */
+
+.logo {
+  margin: 0;
+  flex: none;
+  font-size: var(--fs-s);
+  line-height: 1.1;
+  color: var(--syntax-rails);
+}
+.logo[data-logo^="coin"] { line-height: 1.15; }
+@media (min-width: 1100px) { .logo[data-logo^="coin"] { font-size: var(--fs-m); } }
+.logo .dot { color: var(--dim); }
+.logo .mark { color: var(--accent); text-shadow: 0 0 14px var(--glow); }
+.logo .via { color: var(--syntax-operator); }
+
+/* logo masks: one colour code per cell (site/logos/*.mask). The coin shades
+   its thread, rim and face from three theme colours. */
+.logo .k-a { color: var(--accent); text-shadow: 0 0 14px var(--glow); }
+.logo .k-1 { color: color-mix(in srgb, var(--site-coin-thread) 50%, var(--bg)); }
+.logo .k-2 { color: color-mix(in srgb, var(--site-coin-thread) 62%, var(--bg)); }
+.logo .k-3 { color: color-mix(in srgb, var(--site-coin-thread) 86%, var(--bg)); font-weight: 700; }
+.logo .k-4 { color: var(--site-coin-thread); font-weight: 700; }
+.logo .k-5 { color: color-mix(in srgb, var(--site-coin-thread) 50%, var(--strong)); font-weight: 700; }
+.logo .k-r { color: color-mix(in srgb, var(--site-coin-metal) 34%, var(--bg)); }
+.logo .k-s { color: color-mix(in srgb, var(--site-coin-metal) 58%, var(--bg)); }
+.logo .k-t { color: var(--site-coin-metal); font-weight: 700; }
+.logo .k-u { color: color-mix(in srgb, var(--site-coin-metal) 50%, var(--strong)); font-weight: 700; }
+.logo .k-f { color: color-mix(in srgb, var(--site-coin-field) 18%, var(--bg)); }
+.logo .k-g { color: color-mix(in srgb, var(--site-coin-field) 30%, var(--bg)); }
+.logo .k-z { color: color-mix(in srgb, var(--site-coin-field) 8%, var(--bg)); }
+.logo .star { color: var(--syntax-shebang); }
+.logo .arrow { color: var(--syntax-operator); }
+.logo .letter { color: var(--strong); font-weight: 700; }
+
+/* ---------------------------------------------------------------- editor */
+
+.editor {
+  width: min(1000px, 100%);
+  text-align: left;
+  background: var(--editor-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 20px 60px var(--shadow), 0 0 0 1px var(--accent-ring);
+  overflow: hidden;
+}
+.editor-bar {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--line);
+  background: var(--raised);
+}
+.tabs { display: flex; flex-wrap: wrap; }
+.controls button:disabled { opacity: 0.4; cursor: default; }
+.tabs button, .controls button {
+  font: inherit;
+  font-size: var(--fs-s);
+  color: var(--muted);
+  background: none;
+  border: 0;
+  padding: 0.55em 0.95em;
+  cursor: pointer;
+}
+.tabs button[aria-selected="true"] {
+  color: var(--strong);
+  background: var(--glass-strong);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.tabs button:hover, .controls button:hover { color: var(--accent); }
+.controls { margin-left: auto; display: flex; }
+.controls button[aria-pressed="true"] { color: var(--accent); }
+
+.code {
+  margin: 0;
+  padding: 0.9rem 1.1rem;
+  height: calc(var(--code-rows) * var(--code-lh) * 1em + 1.8rem);
+  font-size: var(--fs-m);
+  line-height: var(--code-lh);
+  overflow: auto;
+  color: var(--syntax-tag);
+}
+.code .ln { display: inline-block; width: 2.6em; color: var(--syntax-punct); user-select: none; }
+.code .row.now { background: var(--row-now); }
+.caret {
+  display: inline-block;
+  width: 0.55em;
+  height: 1.15em;
+  vertical-align: -0.2em;
+  background: var(--accent);
+  animation: blink 1s steps(1) infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+.editor-status {
+  display: flex;
+  gap: 1.4em;
+  padding: 0.35em 1.1em;
+  border-top: 1px solid var(--line);
+  background: var(--raised);
+  color: var(--dim);
+  font-size: var(--fs-s);
+}
+.editor-status .ok { color: var(--ui-ok); }
+.editor-status .bad { color: var(--ui-warn); }
+#st-line { margin-left: auto; }
+
+/* syntax roles — the scopes of highlight/sigil.tmTheme */
+.t-glyph { color: var(--syntax-glyph); }
+.t-name { color: var(--syntax-name); font-style: italic; }
+.t-hole { color: var(--syntax-comment); font-style: italic; }
+.t-keyword { color: var(--syntax-keyword); font-weight: 700; }
+.t-modifier { color: var(--syntax-modifier); }
+.t-operator { color: var(--syntax-operator); }
+.t-cardinality { color: var(--syntax-cardinality); }
+.t-branch { color: var(--syntax-branch); }
+.t-shebang { color: var(--syntax-shebang); font-weight: 700; }
+.t-rails { color: var(--syntax-rails); }
+.t-section { color: var(--syntax-section); font-weight: 700; }
+.t-ref { color: var(--syntax-ref); font-style: italic; }
+.t-string { color: var(--syntax-string); }
+.t-number { color: var(--syntax-number); }
+.t-comment { color: var(--syntax-comment); font-style: italic; }
+.t-punct { color: var(--syntax-punct); }
+.t-tag { color: var(--syntax-tag); }
+
+/* ---------------------------------------------------------------- install */
+
+.pending {
+  padding: 0.6em 0.9em;
+  border-left: 3px solid var(--ui-warn);
+  background: var(--warn-wash);
+  color: var(--text);
+}
+body[data-released="true"] .pending { display: none; }
+.install .tabs { border-bottom: 1px solid var(--line); margin-bottom: 0.8rem; }
+.install .tabs button[aria-selected="true"] { background: none; }
+.pane pre { position: relative; }
+.copy-btn {
+  position: absolute;
+  top: 0.4em;
+  right: 0.4em;
+  font: inherit;
+  font-size: var(--fs-s);
+  color: var(--muted);
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.1em 0.6em;
+  cursor: pointer;
+}
+.copy-btn:hover { color: var(--accent); }
+.install pre.cmd {
+  padding: 0.8em 4.5em 0.8em 1em;
+  background: var(--bg);
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: var(--fs-s);
+}
+
+/* ---------------------------------------------------------------- footer */
+
+.foot {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 2rem;
+  padding: 2rem var(--gutter) 3rem;
+  color: var(--dim);
+  font-size: var(--fs-s);
+}
+
+/* ---------------------------------------------------------------- small screens */
+
+@media (max-width: 640px) {
+  h1 { font-size: var(--fs-l); }
+  .nav { gap: 0.6rem; flex-wrap: wrap; }
+  .nav nav { order: 3; width: 100%; margin: 0; gap: 0.8rem; }
+  .theme-pick { margin-left: auto; }
+  .code { font-size: var(--fs-s); --code-rows: 18; }
+  .code .ln { width: 2em; }
+  .controls button, .tabs button { padding: 0.5em 0.6em; }
+  .editor-status { gap: 0.8em; }
+  .plane.view { opacity: 0.4; }
+  .hero-text { text-shadow: 0 0 12px var(--bg), 0 0 4px var(--bg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  #scene, .stage, .plane, .plane.view .frame { transition: none; }
+  .plane.grid .node, .caret { animation: none; }
+}

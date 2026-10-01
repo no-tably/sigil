@@ -1,0 +1,542 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Sigil",
+  "scopeName": "source.sigil",
+  "fileTypes": [
+    "sigil"
+  ],
+  "comment": "TextMate grammar for core Sigil (the architecture-description language). Regexes mirror highlight/lexer.py (the token model); themed roles carry the .sigil suffix, universal roles use the bare standard scopes. Root scope source.sigil.",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#branch"
+    },
+    {
+      "include": "#path"
+    },
+    {
+      "include": "#block-string"
+    },
+    {
+      "include": "#refs"
+    },
+    {
+      "include": "#modifiers"
+    },
+    {
+      "include": "#transition"
+    },
+    {
+      "include": "#arrows"
+    },
+    {
+      "include": "#op-call"
+    },
+    {
+      "include": "#block-keywords"
+    },
+    {
+      "include": "#structural-sigils"
+    },
+    {
+      "include": "#call-args"
+    },
+    {
+      "include": "#literal-openers"
+    },
+    {
+      "include": "#glyphs"
+    },
+    {
+      "include": "#values"
+    },
+    {
+      "include": "#predicates"
+    },
+    {
+      "include": "#punctuation"
+    },
+    {
+      "include": "#bare-name"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "comment": "Mode line — first-class (gold).",
+          "name": "keyword.other.sigil.shebang",
+          "match": "#!(?:spec|sketch|craft)\\b"
+        },
+        {
+          "comment": "Section header --- [L<n>:] Name --- — split rails / level / name.",
+          "match": "(-{3,})([ \\t]*)(?:(L\\d+)([ \\t]*:[ \\t]*))?([^\\n]*?)([ \\t]*)(-{3,})?[ \\t]*$",
+          "captures": {
+            "1": {
+              "name": "punctuation.definition.sigil.section"
+            },
+            "3": {
+              "name": "markup.heading.sigil.level"
+            },
+            "4": {
+              "name": "punctuation.separator.sigil"
+            },
+            "5": {
+              "name": "markup.heading.sigil.name"
+            },
+            "7": {
+              "name": "punctuation.definition.sigil.section"
+            }
+          }
+        },
+        {
+          "name": "comment.line.sigil",
+          "match": "#.*$"
+        }
+      ]
+    },
+    "branch": {
+      "patterns": [
+        {
+          "comment": "Composition-tree branch marker \\- [*-] [(N)- | {cond}-] rel (rel ∈ > & ? $ @ ! = _) — only at a line start or right after a parent glyph. The {cond} name reads as a glyph name, the (N) weight as a number.",
+          "match": "(?<![^\\s\\]})>|])(\\\\-(?:\\*-)?)(?:(\\{)([A-Za-z0-9_-]+)(\\}-)|(\\()(\\d+)(\\)-))?([>&?$@!=_])",
+          "captures": {
+            "1": {
+              "name": "keyword.operator.sigil.branch"
+            },
+            "2": {
+              "name": "keyword.operator.sigil.branch"
+            },
+            "3": {
+              "name": "storage.type.sigil"
+            },
+            "4": {
+              "name": "keyword.operator.sigil.branch"
+            },
+            "5": {
+              "name": "keyword.operator.sigil.branch"
+            },
+            "6": {
+              "name": "constant.numeric.integer.sigil"
+            },
+            "7": {
+              "name": "keyword.operator.sigil.branch"
+            },
+            "8": {
+              "name": "keyword.operator.sigil.branch"
+            }
+          }
+        },
+        {
+          "comment": "Bare spawn \\-* (default relation).",
+          "name": "keyword.operator.sigil.branch",
+          "match": "(?<![^\\s\\]})>|])\\\\-\\*(?=\\s|$)"
+        }
+      ]
+    },
+    "path": {
+      "patterns": [
+        {
+          "comment": "Qualified-path separator: a / hugging a closing and an opening glyph ([Bullet]/{Transform}, no spaces). A spaced / stays the alternative value operator.",
+          "name": "keyword.operator.sigil.path",
+          "match": "(?<=[\\]})>|])/(?=[~*]?[\\[{<(|])"
+        }
+      ]
+    },
+    "block-string": {
+      "patterns": [
+        {
+          "comment": "Multiline triple-quoted block string — the one multiline construct; ${…} inside is template text.",
+          "name": "string.quoted.sigil.block",
+          "begin": "\"\"\"",
+          "end": "\"\"\"",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.sigil"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.sigil"
+            }
+          }
+        }
+      ]
+    },
+    "refs": {
+      "patterns": [
+        {
+          "comment": "${path} — the substitution seam.",
+          "match": "(\\$\\{)([^}]*)(\\})",
+          "captures": {
+            "1": {
+              "name": "punctuation.definition.template-expression.begin.sigil"
+            },
+            "2": {
+              "name": "variable.interpolation.sigil"
+            },
+            "3": {
+              "name": "punctuation.definition.template-expression.end.sigil"
+            }
+          }
+        }
+      ]
+    },
+    "modifiers": {
+      "patterns": [
+        {
+          "comment": "Every @-modifier reads one hue.",
+          "name": "storage.modifier.sigil",
+          "match": "@[A-Za-z][\\w-]*"
+        }
+      ]
+    },
+    "transition": {
+      "patterns": [
+        {
+          "comment": "State-block transition -<trigger>->.",
+          "match": "(-)(<)([^<>\\n]*)(>)(->)",
+          "captures": {
+            "1": {
+              "name": "keyword.operator.sigil.arrow"
+            },
+            "2": {
+              "name": "keyword.control.sigil.glyph"
+            },
+            "3": {
+              "name": "storage.type.sigil"
+            },
+            "4": {
+              "name": "keyword.control.sigil.glyph"
+            },
+            "5": {
+              "name": "keyword.operator.sigil.arrow"
+            }
+          }
+        }
+      ]
+    },
+    "arrows": {
+      "patterns": [
+        {
+          "comment": "The closed arrow set — longest first so <-> wins over <.",
+          "name": "keyword.operator.sigil.arrow",
+          "match": "<->|->|~>|=>|!>|\\?>|\\*>|→"
+        },
+        {
+          "name": "keyword.operator.sigil.alias",
+          "match": ":="
+        },
+        {
+          "comment": "Joins: &? race / & strict join.",
+          "name": "keyword.operator.sigil.join",
+          "match": "&\\?|&"
+        }
+      ]
+    },
+    "op-call": {
+      "patterns": [
+        {
+          "comment": "External op-call op ns.verb(…) — keyword + dotted name; args lex as values.",
+          "begin": "\\b(op)(\\s+)([A-Za-z_][\\w-]*(?:\\.[A-Za-z_][\\w-]*)+)(\\()",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.sigil"
+            },
+            "3": {
+              "name": "entity.name.function.sigil.op"
+            },
+            "4": {
+              "name": "punctuation.separator.sigil"
+            }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.separator.sigil"
+            }
+          },
+          "patterns": [
+            {
+              "include": "$self"
+            }
+          ]
+        }
+      ]
+    },
+    "block-keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.sigil",
+          "match": "\\b(?:state|loop|parallel|branch|on|of|op)\\b"
+        }
+      ]
+    },
+    "structural-sigils": {
+      "patterns": [
+        {
+          "comment": "Mutability / stream prefixes hugging a glyph.",
+          "name": "keyword.control.sigil.glyph-prefix",
+          "match": "[~*](?=[\\[{<(|])"
+        },
+        {
+          "comment": "State-machine creation source + (opens a -<e>-> transition).",
+          "name": "comment.other.meta.sigil.anchor",
+          "match": "\\+(?=[ \\t]*-<)"
+        },
+        {
+          "comment": "State-machine terminal $.",
+          "name": "comment.other.meta.sigil.anchor",
+          "match": "\\$(?![\\w{])"
+        },
+        {
+          "name": "comment.other.meta.sigil.wildcard",
+          "match": "(?<![\\w])_(?![\\w])"
+        },
+        {
+          "name": "comment.other.meta.sigil.hole",
+          "match": "(?<![\\w\\]})>|])\\?(?![\\w>])"
+        }
+      ]
+    },
+    "call-args": {
+      "patterns": [
+        {
+          "comment": "Call parens verb(…) / @mod(…): the argument list lexes as values, not as an actor glyph.",
+          "begin": "(?<=\\w)\\(",
+          "end": "\\)",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.separator.sigil"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.separator.sigil"
+            }
+          },
+          "patterns": [
+            {
+              "include": "$self"
+            }
+          ]
+        }
+      ]
+    },
+    "literal-openers": {
+      "patterns": [
+        {
+          "comment": "Map literal {k: v} (a top-level : before the close) — bare opener, body lexes as values.",
+          "name": "keyword.control.sigil.glyph",
+          "match": "\\{(?=[^{}\\n]*:)"
+        },
+        {
+          "comment": "List literal [v, …] — bare opener.",
+          "name": "keyword.control.sigil.glyph",
+          "match": "\\[(?=\\s*(?:\\$\\{|\\\"|-?\\d|true\\b|false\\b|null\\b|\\]))"
+        }
+      ]
+    },
+    "glyphs": {
+      "patterns": [
+        {
+          "comment": "|| map merge — never an (empty) store glyph.",
+          "name": "keyword.operator.sigil.value",
+          "match": "\\|\\|"
+        },
+        {
+          "match": "(\\()([^()\\n]*?)(\\))",
+          "captures": {
+            "1": {
+              "name": "keyword.control.sigil.glyph"
+            },
+            "2": {
+              "name": "storage.type.sigil"
+            },
+            "3": {
+              "name": "keyword.control.sigil.glyph"
+            }
+          }
+        },
+        {
+          "match": "(\\|)([^|\\n]*?)(\\|)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.sigil.glyph"
+            },
+            "2": {
+              "name": "storage.type.sigil"
+            },
+            "3": {
+              "name": "keyword.control.sigil.glyph"
+            }
+          }
+        },
+        {
+          "match": "(\\[)([^\\[\\]\\n]*?)(\\])",
+          "captures": {
+            "1": {
+              "name": "keyword.control.sigil.glyph"
+            },
+            "2": {
+              "name": "storage.type.sigil"
+            },
+            "3": {
+              "name": "keyword.control.sigil.glyph"
+            }
+          }
+        },
+        {
+          "match": "(\\{)([^{}\\n]*?)(\\})",
+          "captures": {
+            "1": {
+              "name": "keyword.control.sigil.glyph"
+            },
+            "2": {
+              "name": "storage.type.sigil"
+            },
+            "3": {
+              "name": "keyword.control.sigil.glyph"
+            }
+          }
+        },
+        {
+          "match": "(<)([^<>\\n]*?)(>)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.sigil.glyph"
+            },
+            "2": {
+              "name": "storage.type.sigil"
+            },
+            "3": {
+              "name": "keyword.control.sigil.glyph"
+            }
+          }
+        },
+        {
+          "comment": "Bare (unbalanced / block-opening) glyph delimiters.",
+          "name": "keyword.control.sigil.glyph",
+          "match": "[\\[\\]{}|()]"
+        }
+      ]
+    },
+    "values": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.true.sigil",
+          "match": "\\btrue\\b"
+        },
+        {
+          "name": "constant.language.boolean.false.sigil",
+          "match": "\\bfalse\\b"
+        },
+        {
+          "name": "constant.language.null.sigil",
+          "match": "\\bnull\\b"
+        },
+        {
+          "comment": "Cardinality ×N / xN + stream cap ^N.",
+          "name": "keyword.operator.sigil.cardinality",
+          "match": "×(?:\\d+|[A-Za-z]\\w*)"
+        },
+        {
+          "name": "keyword.operator.sigil.cardinality",
+          "match": "\\bx\\d+\\b"
+        },
+        {
+          "name": "keyword.operator.sigil.cardinality",
+          "match": "\\^\\d+[a-zA-Z]*"
+        },
+        {
+          "name": "constant.numeric.float.sigil",
+          "match": "-?\\d+\\.\\d+[a-zA-Z%]*"
+        },
+        {
+          "name": "constant.numeric.integer.sigil",
+          "match": "-?\\d+[a-zA-Z%]*"
+        },
+        {
+          "name": "string.quoted.sigil.double",
+          "begin": "\"",
+          "end": "\"",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.sigil"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.sigil"
+            }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.sigil",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.sigil.single",
+          "begin": "'",
+          "end": "'",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.sigil"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.sigil"
+            }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.sigil",
+              "match": "''"
+            }
+          ]
+        },
+        {
+          "comment": "Value operators + alternative / (closed set).",
+          "name": "keyword.operator.sigil.value",
+          "match": "\\+\\+|\\|\\||[+\\-*/]"
+        }
+      ]
+    },
+    "predicates": {
+      "patterns": [
+        {
+          "comment": "Predicate / comparison operators in @inv + guards.",
+          "name": "punctuation.separator.predicate.sigil",
+          "match": "!=|>=|<=|=|∈|∉|∪|∩|[<>]"
+        },
+        {
+          "comment": "Critical ! / optional ? suffix modifiers.",
+          "name": "storage.modifier.sigil.suffix",
+          "match": "[!?]"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.separator.sigil",
+          "match": "[:,.]"
+        }
+      ]
+    },
+    "bare-name": {
+      "patterns": [
+        {
+          "comment": "State name / branch label / alias / internal op verb / map key.",
+          "name": "entity.name.tag.sigil",
+          "match": "[A-Za-z_][\\w-]*"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,33 @@
+#!sketch
+# a shop, three levels deep
+
+--- shop ---
+
+# anonymous or signed-in; the edge does TLS, auth and rate limits
+(Shopper) -> [Edge] -> [Shop] : {Request}
+[Shop] -> |Catalog| : lookup(sku) => {Item}
+[Shop] ~> <OrderPlaced> *> [Fulfilment] & |Ledger|   # the ledger is append-only
+
+[Shop] := {
+  [Cart] -> [Checkout] : {Cart}
+  [Checkout] -> [Payments] : charge(total) => {Receipt}   # 3 retries, idempotent key
+  [Checkout] ~> <OrderPlaced>
+
+  [Payments] := {
+    # one PSP active at a time; failover is manual
+    [Gateway]
+        \-_ [StripePSP]
+        \-_ [AdyenPSP]
+    [Gateway] -> [Risk] : score(card) => {Verdict}
+    [Risk] ?> [Review]   # only above the risk threshold
+
+    [Risk] := {
+      [Model] -> |Features| : read(customer)
+      [Model] => {Verdict}   # retrained weekly
+    }
+  }
+}
+
+[Fulfilment] := {
+  [Picker] -> [Packer] -> (Courier) : {Parcel}
+}

@@ -1,0 +1,20 @@
+#!sketch
+# events drive state: an order's lifecycle and the checkout's modes
+
+--- orders ---
+
+(Shopper)  -> [Checkout] -> {Order}
+[Checkout] ~> <Placed>
+[Payments] ~> <Paid>
+[Payments] !> <Declined>
+
+state {Order} {
+  +     -<Placed>->    Open
+  Open  -<Paid>->      Settled
+  Open  -<Declined>->  Cancelled
+}
+state [Checkout] {
+  Idle  -<Placed>->    Busy
+  Busy  -<Paid>->      Idle
+  Busy  -<Declined>->  Idle
+}
