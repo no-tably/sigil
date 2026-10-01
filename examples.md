@@ -598,7 +598,7 @@ loop @while node {
 flow; `●` a lane's source, `◀` each target):
 
 ```text
-── systems ──
+── systems ───────────────────────────
 [Ship]
 ├─& {Transform} ◀────────────────┬─┐
 ├─& {Health} ◀───────────────────│─│─┐
@@ -674,7 +674,7 @@ state [Checkout] {
 the triggers that enter it):
 
 ```text
-── checkout ──
+── checkout ──────────────────────────────
 (Shopper) ───────────────────────●
                                  │
 [Checkout] ◀─────────────────────┴─›─●╍›
@@ -748,7 +748,7 @@ the triggers that enter it):
 **Tree view** (`view.py FILE --tree`):
 
 ```text
-── wiring ──
+── wiring ─────────────────────────────
 [Router] ◀────────────────────────────┐
 ├─(3)─ [ZoneA] ─────────────────●     │
 └─(1)─ [ZoneB] ─────────────●   │     │

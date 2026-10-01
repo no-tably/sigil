@@ -203,7 +203,12 @@ class TestTreeView(unittest.TestCase):
                "state [Checkout] {\n  Idle -<Paid>-> Busy\n}\n")
         rows, _ = view.compose(render.parse_document(doc), 1, False)
         text = "\n".join(view.ansi(r, False) for r in rows)
-        self.assertIn("<Paid> ⇢ [Checkout]: Idle → Busy", text)
+        # drawn, not listed: the machine's section has the event as a node with a
+        # trigger edge (╍) into the state it enters, the label not repeated
+        machine = text.split("state machine")[1]
+        self.assertIn("<Paid>", machine)
+        self.assertIn("╏", machine)
+        self.assertNotIn("⇢", text)
 
     def test_path_taps_only_matching_occurrence(self):
         out = self.draw(ECS + "[Homing] => [Bullet]/{Transform}\n")
@@ -320,15 +325,7 @@ class TestTreeView(unittest.TestCase):
         self.assertEqual(roles["("], "syntax-call")          # a call's ( )
         self.assertEqual(roles["=>"], "syntax-operator")
         self.assertEqual(roles["×3"], "syntax-cardinality")
-        complement = roles["quote"]
-        try:
-            view.apply_theme({**view.THEME, "ui": {**view.THEME["ui"], "payload_words": "shade"}})
-            shaded = {t: st[0].role for t, st in view.payload_runs("quote(route)") if t.strip()}
-        finally:
-            view.use_theme("sigil")
-        self.assertEqual(complement, "syntax-call-name")
-        self.assertEqual(shaded["quote"], "shade:syntax-call")   # name + args: a shade
-        self.assertEqual(shaded["route"], "shade:syntax-call")
+        self.assertEqual(roles["quote"], "syntax-call-name")  # the name: the complement
 
     def test_live_toggle(self):
         import tempfile

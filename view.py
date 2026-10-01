@@ -163,8 +163,7 @@ _BUILTIN_THEME = {
     "ui": {"text": "#c9d1d9", "muted": "#8b949e", "dim": "#6e7681", "tree": "#6e7681",
            "relation": "#5abea0", "label": "#5abea0", "title": "#c9d1d9",
            "payload": "#8b949e", "note": "#8b949e", "note_tag": "#6e7681",
-           "note_block": "#8b7aad", "note_inline": "#a5d6ff", "name_saturation": "0.5",
-           "payload_words": "complement",
+           "note_block": "#8b7aad", "note_inline": "#a5d6ff", "name_saturation": "0.25",
            "bar_fg": "#c9d1d9", "bar_bg": "#161b22", "bar_name": "#e6edf3",
            "key_fg": "#e6edf3", "key_bg": "#30363d",
            "error": "#f85149", "warn": "#ffbf47", "ok": "#3fb950", "fill": "0.22",
@@ -173,7 +172,7 @@ _BUILTIN_THEME = {
     "syntax": {"operator": "#e85d9e", "cardinality": "#f59cc4", "modifier": "#ffe0b0",
                "keyword": "#c850e0", "ref": "#bc8cff", "string": "#a5d6ff",
                "number": "#79c0ff", "punct": "#586e75", "tag": "#c9d1d9",
-               "call": "#5abea0", "call_name": "#f08cac", "shade": "0.6"},
+               "call": "#5abea0", "call_name": "#f08cac"},
 }
 EDGE_ROLE = {"!>": "fail", "?>": "maybe", "~>": "async", "]>[": "split",
              "arm": "arm", "access": "access"}       # (+ a branch arm, a permission edge)
@@ -185,19 +184,6 @@ def _hex(value) -> str | None:
     if not isinstance(value, str) or not _HEX.fullmatch(value):
         return None
     return value if len(value) == 7 else "#" + "".join(ch * 2 for ch in value[1:])
-
-
-def _shade(colour: "Colour", amount, bg: str) -> "Colour":
-    """colour mixed toward the background, keeping `amount` of it (a fraction).
-    Its role, "shade:<role>", lets the page mix the same on its CSS variables."""
-    try:
-        k = min(max(float(amount), 0.0), 1.0)
-    except (TypeError, ValueError):
-        k = float(_BUILTIN_THEME["syntax"]["shade"])
-    fg = [int(colour[i:i + 2], 16) for i in (1, 3, 5)]
-    back = [int(bg[i:i + 2], 16) for i in (1, 3, 5)]
-    mixed = "#%02x%02x%02x" % tuple(round(b + (f - b) * k) for f, b in zip(fg, back))
-    return Colour(mixed, "shade:" + colour.role)
 
 
 def _fraction(value, default) -> float:
@@ -259,14 +245,9 @@ def _theme_styles(t: dict) -> dict:
         "NOTE_STYLE": {"block": (pick("ui", "note_block"), None, False),
                        "inline": (pick("ui", "note_inline"), None, False)},
         "SYNTAX": {role: (pick("syntax", role), None, False)
-                   for role in _BUILTIN_THEME["syntax"] if role != "shade"},
+                   for role in _BUILTIN_THEME["syntax"]},
         "NAME_SATURATION": _fraction(t["ui"].get("name_saturation"),
                                      _BUILTIN_THEME["ui"]["name_saturation"]),
-        "PAYLOAD_WORDS": (t["ui"].get("payload_words")
-                          if t["ui"].get("payload_words") in ("complement", "shade")
-                          else "complement"),
-        "CALL_SHADE": _shade(pick("syntax", "call"), t["syntax"].get("shade"),
-                             pick("palette", "bg")),
         "FRAME_STYLE": (pick("ui", "frame"), None, False),          # block frames / brackets
         "SECTION_STYLE": (pick("ui", "section"), None, False),      # `--- section ---` rules
         "MODE_STYLE": (pick("ui", "mode"), bar_bg, True),           # `#!sketch` in the bar
@@ -1079,40 +1060,29 @@ def glyph_runs(tok: str, kind: str, bold: bool = False, bg=None) -> list:
 
 
 def payload_runs(text: str) -> list:
-    """A payload as styled runs, colour-coded like the code highlighter. A call's
-    ( ) take syntax.call; its name and arguments follow ui.payload_words:
-    "complement" (name in syntax.call_name) or "shade" (name and arguments a
-    darker shade of the call colour)."""
-    call, shade = SYNTAX["call"], (CALL_SHADE, None, False)
-    name_style = SYNTAX["call_name"] if PAYLOAD_WORDS == "complement" else shade
+    """A payload as styled runs, colour-coded like the code highlighter: a call's
+    ( ) in syntax.call, its name in the complement (syntax.call_name)."""
     runs, last, parens, pending = [], 0, [], False
-
-    def plain(chunk):
-        inside = parens and parens[-1] and PAYLOAD_WORDS == "shade"
-        runs.append((chunk, shade if inside else PAYLOAD_STYLE))
-
     for m in _PAYLOAD_TOKEN.finditer(text):
         if m.start() > last:
-            plain(text[last:m.start()])
+            runs.append((text[last:m.start()], PAYLOAD_STYLE))
         role, tok = m.lastgroup, m.group()
         if role == "glyph":
             runs += glyph_runs(tok, _GLYPH_KIND[tok.lstrip("~*")[0]])
         elif role == "call":
-            runs.append((tok, name_style))
+            runs.append((tok, SYNTAX["call_name"]))
             pending = True
         elif tok == "(":
             parens.append(pending)
-            runs.append((tok, call if pending else SYNTAX["punct"]))
+            runs.append((tok, SYNTAX["call"] if pending else SYNTAX["punct"]))
             pending = False
         elif tok == ")":
-            runs.append((tok, call if parens and parens.pop() else SYNTAX["punct"]))
-        elif role == "number" and parens and parens[-1] and PAYLOAD_WORDS == "shade":
-            runs.append((tok, shade))
+            runs.append((tok, SYNTAX["call"] if parens and parens.pop() else SYNTAX["punct"]))
         else:
             runs.append((tok, SYNTAX[role]))
         last = m.end()
     if last < len(text):
-        plain(text[last:])
+        runs.append((text[last:], PAYLOAD_STYLE))
     return runs
 
 
@@ -1630,7 +1600,7 @@ def _stack(main: "Canvas", frames: list) -> "Canvas":
 def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None = None,
              payloads: bool = False, triggers=(), fit: int | None = None,
              marks: list | None = None, mods: bool = False, access: bool = False,
-             _secs=None, _level=None):
+             _secs=None, _level=None, _nodes=None):
     """Yield (title, graph, canvas) for the graph and its expansions up to depth.
     `payloads` draws each flow's payload as a chip on its edge; `triggers` (the
     document's event → state triggers) draw as dashed edges event ⇢ owner. With
@@ -1679,8 +1649,40 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
                 sub_title = f"{zoom} · {sub_title}"
             if title and not isinstance(title, Rule):
                 sub_title = f"{title}  ›  {sub_title}"
+            if getattr(sub, "role", "") == "state":
+                sub = _with_trigger_sources(sub, nid, triggers, _nodes or _all_nodes(g))
             yield from sections(sub, depth, sub_title, level + 1, tags, payloads, triggers,
-                                fit, marks, mods, access, secs, zoom or _level)
+                                fit, marks, mods, access, secs, zoom or _level,
+                                _nodes or _all_nodes(g))
+
+
+def _all_nodes(g) -> dict:
+    """Every node id → node, across g and its expansions."""
+    out = {}
+    for cur in _walk(g):
+        for nid, n in cur.nodes.items():
+            out.setdefault(nid, n)
+    return out
+
+
+def _with_trigger_sources(machine, owner: str, triggers, nodes: dict):
+    """A state machine as the graph view draws it: each event that drives it is
+    a node with a trigger edge (╍) into the state it enters — the graph view's
+    counterpart of the tree's trigger lanes. The transition labels those edges
+    now show are dropped (an event is drawn once). No triggers: machine itself."""
+    ts = [t for t in triggers if t.owner == owner and t.dst in machine.nodes and t.event in nodes]
+    if not ts:
+        return machine
+    drawn = {t.label for t in ts}
+    new_nodes = dict(machine.nodes)
+    edges = [replace(e, label=None) if e.label in drawn else e for e in machine.edges]
+    seen = set()
+    for t in ts:
+        new_nodes.setdefault(t.event, nodes[t.event])
+        if (t.event, t.dst) not in seen:
+            seen.add((t.event, t.dst))
+            edges.append(render.Edge(src=t.event, dst=t.dst, kind="trigger"))
+    return replace(machine, nodes=new_nodes, edges=edges)
 
 
 def trigger_lines(g):
@@ -1799,23 +1801,16 @@ def compose(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = 
     parts = list(sections(g, depth, tags=tags, payloads=payloads, triggers=trig_edges,
                           mods=mods, access=access))
     rows, drawing_w = _section_rows(parts)
-    trig = trigger_lines(g) if triggers else []
-    if trig:
-        rows += [[], [("── triggers ──", TITLE_STYLE)], []]
-        rows += [[(t, LABEL_STYLE)] for t in trig]
-    natural = rows + ([[], [("── notes ──", TITLE_STYLE)], []] + note_rows(idx) if idx else [])
+    natural = rows + ([[], section_rule("notes"), []] + note_rows(idx) if idx else [])
     natural_w = max([drawing_w] + [row_len(r) for r in natural])
     if width is None or natural_w <= width:
-        return natural, natural_w
+        return stretch_rules(natural, natural_w), natural_w
 
     marks = []
     if (payloads or mods) and drawing_w > width:
         parts = list(sections(g, depth, tags=tags, payloads=payloads, triggers=trig_edges,
                               fit=width, marks=marks, mods=mods, access=access))
         rows, _w = _section_rows(parts)
-        if trig:
-            rows += [[], [("── triggers ──", TITLE_STYLE)], []]
-            rows += [[(t, LABEL_STYLE)] for t in trig]
     listed = sorted(e for entries in idx.values() for e in entries)
     block = [([(f"#{num}", NOTE_STYLE[kind])], [(text, kind)])
              for num, text, kind, _e in listed if kind == "block"]
@@ -1826,7 +1821,8 @@ def compose(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = 
         rows = _fit_panel(rows, lambda tw: _panel_rows(block, tw), width, "tl", CALLOUT_MAX)
     if side:
         rows = _fit_panel(rows, lambda tw: _panel_rows(side, tw), width, "br", CALLOUT_MAX)
-    return rows, max([0] + [row_len(r) for r in rows])
+    w = max([0] + [row_len(r) for r in rows if not isinstance(r, RuleRow)])
+    return stretch_rules(rows, w), max([w] + [row_len(r) for r in rows])
 
 
 def _label_extras(g, tags: dict, access: bool, mods: bool):
@@ -1856,19 +1852,34 @@ def _section_rows(parts):
         if isinstance(title, Rule):
             rows += ([[]] if rows else []) + [section_rule(title, width), []]
         elif title:
-            rows += [[], [(f"── {title} ──", TITLE_STYLE)], []]
+            rows += [[], section_rule(title, width), []]
         pad = (width - cv.w) // 2
         for row in cv.rows():
             rows.append(([(" " * pad, None)] if pad and row else []) + row)
     return rows, width
 
 
+class RuleRow(list):
+    """A title row (`── name ───`) whose rule is stretched to the drawing's width
+    once that is known (stretch_rules), so every title looks the same."""
+
+
 def section_rule(name: str, width: int = 0) -> list:
     """`── L2 · Payments ──`, the rule run out to `width` columns: the rails in
-    ui.section, the name as code (a glyph in it keeps its colours)."""
+    ui.section, the name as code (a glyph in it keeps its colours). Every title —
+    sections, expansions, state machines, lists — is one of these."""
     runs = [("── ", SECTION_STYLE)] + [(t, (st[0], st[1], True)) for t, st in payload_runs(name)]
     n = row_len(runs)
-    return runs + [(" " + "─" * max(width - n - 1, 2), SECTION_STYLE)]
+    return RuleRow(runs + [(" " + "─" * max(width - n - 1, 2), SECTION_STYLE)])
+
+
+def stretch_rules(rows, width: int):
+    """Run every title rule out to `width` columns."""
+    for row in rows:
+        if isinstance(row, RuleRow) and row_len(row) < width:
+            text, style = row[-1]
+            row[-1] = (text + "─" * (width - row_len(row)), style)
+    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -2366,6 +2377,9 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
             moved = [] if right else None
             drawn = _draw_right_margin(cv, lanes, placed, out, payload_of, trailing, notes,
                                        moved)
+            for y, row in enumerate(rows):      # section rules run the full width
+                if isinstance(row, Banner) and row.kind == "section" and out.ends[y] < cv.w:
+                    cv.put(out.ends[y], y, "─" * (cv.w - out.ends[y]), SECTION_STYLE)
             bases[(left, right)] = (list(cv.rows()), cv.w, out, drawn, moved or [])
         return bases[(left, right)]
 
@@ -2709,7 +2723,9 @@ def _draw_lanes(cv: Canvas, placed, ends, emitted: frozenset = frozenset()):
         # cells keep the incoming stroke, so a row that is also a source still
         # shows what arrives; a source run sharing them only joins them.
         into = set()
-        for x1, kind, style, role, _mark in order:
+        # nearest first: the lane whose stroke reaches the ◀ owns the cells it
+        # shares with farther incoming lanes, so the colours follow the lines
+        for x1, kind, style, role, _mark in sorted(order, key=lambda t: t[0]):
             if role == "dst":
                 into |= cv.run(ends[y] + 2, x1, y, kind, style, hops)
         nearest = min((t[0] for t in row_taps if t[3] == "dst"), default=-1)
@@ -2722,7 +2738,8 @@ def _draw_lanes(cv: Canvas, placed, ends, emitted: frozenset = frozenset()):
             both = kind == "<->" and role == "src"
             if role == "src":
                 heads.append((x1, y, mark, style))
-            if role == "dst" or both:
+            # one ◀ per row, in the colour of the lane whose stroke runs into it
+            if (role == "dst" and x1 == nearest) or (both and nearest < 0):
                 heads.append((ends[y] + 1, y, "◀", style))
     for x, y, ch, st in heads:
         cv.put(x, y, ch, st)
@@ -2870,9 +2887,9 @@ def _extras(g, idx: dict, notes: str, payloads: bool, drawn: frozenset = frozens
     pl = [f"  {edge_text(sub, e)} : {e.payload}" for sub in _walk(g) for e in sub.edges
           if e.payload and (e.src, e.dst, e.kind) not in drawn] if payloads else []
     if pl:
-        extra += [[], [("── payloads ──", TITLE_STYLE)], []] + [[(p, PAYLOAD_STYLE)] for p in pl]
+        extra += [[], section_rule("payloads"), []] + [[(p, PAYLOAD_STYLE)] for p in pl]
     if notes == "markers" and idx:
-        extra += [[], [("── notes ──", TITLE_STYLE)], []] + note_rows(idx, note_width)
+        extra += [[], section_rule("notes"), []] + note_rows(idx, note_width)
     return extra
 
 

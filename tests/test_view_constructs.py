@@ -394,3 +394,20 @@ class TestCoverageFixture(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestArrowheadColour(unittest.TestCase):
+    def test_target_head_takes_the_nearest_incoming_lane_colour(self):
+        # [App] receives a call from (Rider) and a !> failure path: its ◀ must be
+        # the colour of the lane whose stroke runs into it, not the last drawn.
+        doc = "(Rider) -> [App]\n[Pay] !> [App]\n[X] -> [Pay]\n"
+        rows, _ = view.compose_tree(view.render.parse_document(doc), 1)
+        for row in rows:
+            if not "".join(t for t, _ in row).startswith("[App]"):
+                continue
+            cells = [(ch, st) for t, st in row for ch in t]
+            x = next(i for i, (ch, _st) in enumerate(cells) if ch == "◀")
+            run = next(st for ch, st in cells[x + 1:] if ch in "─━╌┄═")
+            self.assertEqual(cells[x][1][0], run[0])
+            return
+        self.fail("no [App] row")

@@ -327,11 +327,10 @@
   function roleCss(role) {
     if (typeof role !== "string") return null;
     if (/^#[0-9a-f]{3,8}$/i.test(role)) return role;
-    const m = role.match(/^(tint:|shade:|muted:)?([a-z0-9-]+)$/);
+    const m = role.match(/^(tint:|muted:)?([a-z0-9-]+)$/);
     if (!m) return null;
     if (m[1] === "tint:") return `color-mix(in srgb, var(--${m[2]}) calc(var(--ui-fill) * 100%), var(--palette-bg))`;
     if (m[1] === "muted:") return `hsl(from var(--${m[2]}) h calc(s * var(--ui-name-saturation)) l)`;
-    if (m[1] === "shade:") return `color-mix(in srgb, var(--${m[2]}) calc(var(--syntax-shade) * 100%), var(--palette-bg))`;
     return `var(--${m[2]})`;
   }
 
