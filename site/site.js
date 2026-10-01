@@ -759,6 +759,76 @@
     select(0);
   }
 
+  // ------------------------------------------------------------------ brand
+  // The name unpacks on hover / focus: each glyph's letter grows into its word
+  // (Sigil → Symbolic Intent Glyph Intermediate Language, see language.md "On
+  // the name"). New letters arrive as scrambled glyph characters and settle left
+  // to right; leaving runs the same timeline backwards from wherever it is.
+
+  const SCRAMBLE = "[]{}<>()|~*&?!$@#=:/\\";
+  const BRAND_STEP = 16;          // ms between successive letters starting
+  const BRAND_SETTLE = 170;       // ms a letter scrambles before it settles
+
+  function initBrand() {
+    const link = $(".brand");
+    const text = $(".brand-text", link);
+    const words = (link.dataset.expand || "").split(/\s+/);
+    // The compact name: (open, letter, close, kind) per glyph, read from the markup.
+    const glyphs = [];
+    const kids = [...text.childNodes];
+    for (let i = 0; i + 2 < kids.length; i += 3) {
+      glyphs.push({ open: kids[i].textContent, letter: kids[i + 1].textContent,
+        close: kids[i + 2].textContent, kind: kids[i].className });
+    }
+    if (glyphs.length !== words.length) return;   // markup and words disagree: keep it static
+    let tails = 0;                                  // letters added across all words so far
+    glyphs.forEach((g, i) => { g.tail = words[i].slice(1); g.first = tails; tails += g.tail.length; });
+    const total = tails * BRAND_STEP + BRAND_SETTLE;
+
+    function render(t) {
+      let html = "";
+      for (const g of glyphs) {
+        html += `<span class="${g.kind}">${esc(g.open)}</span><span class="brand-initial">${esc(g.letter)}</span>`;
+        for (let j = 0; j < g.tail.length; j++) {
+          const start = (g.first + j) * BRAND_STEP;
+          if (t < start) break;
+          html += t < start + BRAND_SETTLE
+            ? `<span class="brand-scramble ${g.kind}">${esc(SCRAMBLE[Math.floor(Math.random() * SCRAMBLE.length)])}</span>`
+            : esc(g.tail[j]);
+        }
+        html += `<span class="${g.kind}">${esc(g.close)}</span>`;
+      }
+      text.innerHTML = html;
+    }
+
+    let t = 0, target = 0, last = 0, raf = 0;
+    function tick(now) {
+      const dt = last ? now - last : 16;
+      last = now;
+      t = target > t ? Math.min(target, t + dt) : Math.max(target, t - dt * 1.6);
+      render(t);
+      link.classList.toggle("open", t > 0);
+      raf = t === target ? 0 : requestAnimationFrame(tick);
+    }
+    function go(open) {
+      target = open ? total : 0;
+      if (reduceMotion) {
+        t = target;
+        render(t);
+        link.classList.toggle("open", open);
+        return;
+      }
+      if (!raf) {
+        last = 0;
+        raf = requestAnimationFrame(tick);
+      }
+    }
+    link.addEventListener("pointerenter", (e) => { if (e.pointerType === "mouse") go(true); });
+    link.addEventListener("pointerleave", () => go(false));
+    link.addEventListener("focus", () => { if (link.matches(":focus-visible")) go(true); });
+    link.addEventListener("blur", () => go(false));
+  }
+
   // ------------------------------------------------------------------ page bits
 
   function initFocus() {
@@ -837,6 +907,7 @@
 
   async function main() {
     drawLogo();
+    initBrand();
     initSnippets();
     initFocus();
     initInstall();

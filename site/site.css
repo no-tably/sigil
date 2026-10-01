@@ -165,8 +165,35 @@ body.focused .plane.view { opacity: 1; }
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--hairline);
 }
-.brand { color: var(--strong); font-weight: 700; letter-spacing: 0.02em; }
+/* The brand keeps its compact width in the layout; the expanded name (site.js
+   initBrand) overlays the nav on an opaque backing instead of pushing it around. */
+.brand {
+  position: relative;
+  display: inline-block;
+  width: 15ch;
+  height: 1.6em;
+  color: var(--strong);
+  letter-spacing: 0.02em;
+}
 .brand:hover { text-decoration: none; }
+.brand-text {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 1;
+  white-space: nowrap;
+  color: var(--text);
+}
+.brand.open .brand-text {
+  padding-right: 0.8ch;
+  background: var(--bg);
+  box-shadow: 0 0 0 0.35em var(--bg), 0.6ch 0 1.2em var(--bg);
+}
+.brand-initial { color: var(--strong); }
+.brand-scramble { opacity: 0.75; }
+@media (max-width: 560px) {
+  .brand.open .brand-text { font-size: var(--fs-s); top: 0.3em; }
+}
 .nav nav { display: flex; gap: 1rem; flex-wrap: wrap; margin-left: auto; }
 .nav nav a { color: var(--muted); }
 .nav nav a:hover { color: var(--accent); text-decoration: none; }
