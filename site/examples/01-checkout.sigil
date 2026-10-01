@@ -3,8 +3,10 @@
 
 --- checkout ---
 
+# guests and signed-in shoppers share one path
 (Shopper) -> [API] : {Cart}
-[API] -> [Payments] : charge(total) ×3 @timeout(2s)
+[API] -> [Payments] : charge(total) ×3 @timeout(2s)   # retried, idempotent
        !> <PaymentFailed>
 [API] -> |Orders| : insert => {Order}
+# fan-out: each consumer keeps its own pace
 [API] ~> <OrderPlaced> *> [Email] & [Shipping] & |Ledger|

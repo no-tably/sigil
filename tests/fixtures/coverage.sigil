@@ -1,0 +1,198 @@
+#!sketch
+
+# Coverage fixture: exercises every core construct in language.md once.
+# Used by tests/fixtures/coverage-notes.md (viewer coverage audit).
+retry := @after(exp-backoff, cap=1min)
+
+--- L1: Shop ---
+
+# entities: five glyphs, holes, generics, mutability, stream store
+[Cache<K,V>] @loc(eu-west)
+{List<T>}
+<Msg<T>>
+~{Session}
+~|Counter|
+*|AuditLog| @read(Auditor) @write(Api, Worker)
+[?]
+{?}
+<?>
+|?|
+(?)
+
+# arrows: each kind once, plus unicode arrow and continuation lines
+(Customer) -> [Api] : {Cart} !                # critical call
+[Api] → [Auth] : {creds}
+[Auth] -> |UserDB| @cap(read)
+       => ~{Session}?                         # optional result
+       !> <Unauthorized>
+[Api] ~> <OrderPlaced>
+[Api] <-> [Cache<K,V>]
+[Api] ?> [Fraud]
+<OrderPlaced> *> [Shipping] & [Email] & |Ledger|
+[Api] -> [PspA] &? [PspB]
+[Api] -> [Stock] & [Tax]
+[Api] -> [Ghost] -> [?]                       # hole as a flow target
+
+# payload forms
+[Api] -> [Payment] : charge(amount) => {Receipt}
+[Api] -> [Scorer] : score({Cart}) @timeout(30s) ×3 @fallback(0)
+[Api] -> (Web) : op http.get(${url}) @timeout(5s) @fallback(${cache})
+<Stop> -> ~|Counter| : false
+[Cfg] -> ~|Opts| : {retries: 3, mode: "x"}
+[Api] -> (Customer) : "ack"
+[Cfg] -> ~|Limits| : [1, 2, 3]
+[Cfg] -> ~|Ratio| : 0.5
+[Cfg] -> ~|Last| : null
+<Tick> -> ~|History| : ${state.history} ++ [${out}]
+<Tick> -> ~|Total| : ${state.count} + 1
+[Cfg] -> ~|Merged| : ${a} || {b: 1}
+[Cfg] -> ~|Scaled| : ${n} * 2 - ${m} / 4
+[Grader] -> ~|Sys| : """
+You are a strict rubric grader.
+Interpolations like ${rubric} are resolved by the consumer.
+"""
+
+# modifiers
+[Api] @sla(p99<100ms, avail>99.95%)
+[Payment] @inv idempotent(transaction_id)
+{User}.age @inv >= 0
+[Worker] -> run() @deadline(2s)
+[Retry] @after(exp-backoff, cap=1min)
+[AuthSvc] @grants(session)
+|PaymentDB| @requires(write, pci)
+[Api] -> [Shard] ×4                           # cardinality fan-out
+[Api] -> [Replica] x2
+[Gateway] @loc(us-east) -> [Api]
+
+# streams + backpressure
+[Ingest] => *<Raw>^10k@drop
+*<Raw> -> [Parse] => *<Parsed>^10k
+*<Parsed> -> [Enrich] => *<Enriched>^5@latest
+*<Enriched> *> |Warehouse| & |RealtimeIdx|
+            !> |DLQ|
+*{Rows}^100@err -> [Sink]
+
+# alternatives and a scoped block
+[Api] => {Resp} / {Err}
+checkout {
+  [Cart] -> [Api]
+}
+
+# recursion
+walk := [Node] -> walk(.children)
+[Tree.walk] -> [Tree.walk] : child
+
+# permission graph
+[Boss]
+[Worker<N>]
+(Auditor)
+|Directives| @read(Worker) @write(Boss)
+|Results| @read(Boss) @write(Worker)
+[Helper] @borrow |Directives|
+[Helper] @borrow(read) |Results|
+[Handler] @owns |Conn| {
+  [Handler] -> |Conn| : query => {Rows}
+}
+
+--- Control ---
+
+# order lifecycle, driven by events
+state {Order} {
+  +       -<Placed>->  Open
+  Open    -<Paid>->    Settled  @timeout(1d)
+  Settled -<ship>->    $
+  _       -<cancel>->  Cancelled  ×3
+}
+state [Checkout] {
+  Idle  -<Placed>->  Busy
+  Busy  -<Paid>->    Idle
+}
+state |Queue| {
+  Empty -<push>-> Full
+}
+state <Signal> {
+  Up -<drop>-> Down
+}
+state (Courier) {
+  Free -<assign>-> Away
+}
+[Payments] ~> <Paid>
+[Checkout] ~> <Placed>
+<Paid> -> {Order}
+<Push> -> |Queue|
+
+loop @each x of {Items} {
+  [Worker] -> |Q| : pop => {Job}
+}
+loop @while |Q|.nonempty {
+  [Worker] ~> <metric> -> |Obs|
+}
+loop @until {Job}.state = done {
+  [Poller] -> [Api]
+}
+loop @times 3 {
+  [Pinger] -> (Peer)
+}
+
+parallel @all {
+  [Api] -> [Inventory] : reserve => {Hold}
+  [Api] -> [Fraud] : score
+}
+       !> [Inventory] : release({Hold})
+parallel @any {
+  [Api] -> [MirrorA]
+  [Api] -> [MirrorB]
+}
+parallel @none {
+  [Api] ~> [Metrics]
+}
+
+# route by request kind
+branch on {Request}.kind {
+  read  => [Reader] -> |DB|
+  write => [Writer] -> |DB| -> |WAL|
+  admin => [AdminSvc] @cap(admin)
+  _     => <Rejected>
+}
+
+--- Composition ---
+
+[Ship]
+    \-& {Transform}                  # inline note on a branch
+    \-> [Hull]
+    \-*-> [Bullet] ×N
+        \-& {Transform}
+        \-& {Damage}
+    \-*-= [ShardQuery]
+    \-* [Drone]
+[Asteroid]
+    \-{shattered}-? [Shard]
+    \-{rows}-$ [Row]
+    \-@ [Tracer]
+    \-{lagging}-! <LagAlarm>
+    \-_ [PrimaryPsp]
+    \-_ [StandbyPsp]
+    \-(3)-> [ZoneA]
+    \-(1)-> [ZoneB]
+[Log] \-& {Scrollable}
+
+[Physics] -> {Transform}
+[Homing] -> [Bullet]/{Transform}
+{Damage} -> [Combat] -> {Health}
+
+--- L2: [Core] ---
+
+(Client) -> [Gateway] -> [Core] -> |DB|
+[Core] := {
+  [Router] -> [Handler]×N
+  [Handler] <-> |Cache|
+  [Handler] ~> <AuditEvt> -> |Log|
+}
+
+--- L3: [Handler] ---
+
+[Handler] := {
+  ingress := {Req} => {Ctx}
+  process := {Ctx} => {Resp} / {Err}
+  egress  := {Resp} -> (Client)
+}

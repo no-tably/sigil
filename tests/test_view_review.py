@@ -17,10 +17,10 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import resource
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
@@ -134,15 +134,20 @@ class TestCli(_TempDoc):
         self.assertNotIn("built-in", p.stderr)
 
     def test_long_chain_is_fast(self):
-        for n in (600, 1200):                          # quadratic sweeps: ~1 s / ~4 s
-            with self.subTest(nodes=n):
-                self.path.write_text("".join(f"[N{i}] -> [N{i + 1}]\n" for i in range(n - 1)))
-                start = time.monotonic()
-                p = run_view(str(self.path), "--once", "--no-lint")
-                took = time.monotonic() - start
-                self.assertEqual(p.returncode, 0, p.stderr)
-                self.assertIn(f"[N{n - 1}]", p.stdout)
-                self.assertLess(took, 1.5)
+        """Layering stays linear-ish: doubling the chain must not quadruple the CPU
+        time (the quadratic sweeps did: ~1 s → ~4 s). CPU time of the child, not
+        wall-clock, so other load on the machine doesn't count."""
+        took = {}
+        for n in (600, 1200):
+            self.path.write_text("".join(f"[N{i}] -> [N{i + 1}]\n" for i in range(n - 1)))
+            before = resource.getrusage(resource.RUSAGE_CHILDREN)
+            p = run_view(str(self.path), "--once", "--no-lint")
+            after = resource.getrusage(resource.RUSAGE_CHILDREN)
+            took[n] = (after.ru_utime - before.ru_utime) + (after.ru_stime - before.ru_stime)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            self.assertIn(f"[N{n - 1}]", p.stdout)
+        self.assertLess(took[1200], 3.0 * took[600] + 0.3, took)
+        self.assertLess(took[1200], 4.0, took)
 
 
 class TestThemeValidation(unittest.TestCase):

@@ -238,8 +238,12 @@ class TestTreeView(unittest.TestCase):
     def test_notes_markers_and_list(self):
         rows, _ = view.compose_tree(render.parse_document(self.NOTED), 1, notes="markers")
         out = "\n".join(view.ansi(r, False) for r in rows)
-        self.assertIn("[Router] #1", out)
-        self.assertIn("[ZoneA] #2", out)
+        lines = out.splitlines()
+        self.assertIn("[Router] #1", out)                # a block note: on its component
+        zone = next(ln for ln in lines if "[ZoneA]" in ln)
+        self.assertNotIn("[ZoneA] #2", zone)              # an inline note trails its line…
+        self.assertTrue(zone.rstrip().endswith("#2"))     # …in the right margin
+        self.assertIn("#1 routes traffic", out)
         self.assertIn("#2 3:1 while B migrates", out)
 
     def test_notes_callouts_in_left_margin(self):
@@ -274,8 +278,43 @@ class TestTreeView(unittest.TestCase):
 
     def test_payloads_in_tree_view(self):
         rows, _ = view.compose_tree(render.parse_document(self.NOTED), 1, payloads=True)
-        self.assertIn("(User) -> [Router] : {Query}",
-                      "\n".join(view.ansi(r, False) for r in rows))
+        out = [view.ansi(r, False) for r in rows]
+        router = next(ln for ln in out if ln.startswith("[Router]"))
+        self.assertTrue(router.rstrip().endswith("┆ {Query} ┆"))    # a chip on its target row
+        self.assertNotIn("── payloads ──", "\n".join(out))          # drawn, so not listed
+
+    def test_block_and_inline_notes_drawn_differently(self):
+        doc = "#!sketch\n# above\n[A]   # beside\n[A] -> [B]   # about the flow\n"
+        g = render.parse_document(doc)
+        self.assertEqual([(n.text, n.kind, n.edges) for n in g.notes],
+                         [("above", "block", ()), ("beside", "inline", ()),
+                          ("about the flow", "inline", (("A_service", "B_service", "->"),))])
+        idx = view.note_index(g)
+        rows, _ = view.compose_tree(g, 1, notes="callouts")
+        out = [view.ansi(r, False) for r in rows]
+        a_row = next(ln for ln in out if "[A] #1" in ln)
+        self.assertIn("│ #1 above", a_row)                  # block: framed, on the left
+        self.assertTrue(a_row.rstrip().endswith("# beside"))  # inline: trails its own line
+        b_row = next(ln for ln in out if ln.lstrip().startswith("[B]") or "[B] ◀" in ln)
+        self.assertTrue(b_row.rstrip().endswith("# about the flow"))   # on the flow's row
+        styles = {t: st[0].role for r in rows for t, st in r if st and t.strip()}
+        self.assertEqual(styles["#1"], "ui-note-block")     # colour tells the kinds apart
+        self.assertEqual(styles["# beside"], "ui-note-inline")
+        self.assertEqual(sorted(view.edge_notes(idx)), [("A_service", "B_service", "->")])
+
+    def test_inline_flow_note_rides_its_edge_in_graph_view(self):
+        g = render.parse_document("#!sketch\n[A] -> [B]   # about the flow\n")
+        rows, _ = view.compose(g, 1, False, notes="markers")
+        out = "\n".join(view.ansi(r, False) for r in rows)
+        self.assertIn("▼ #1", out)                           # beside the arrowhead
+        self.assertNotIn("[A] #1", out)                      # not on the source box
+
+    def test_payload_chips_are_colour_coded(self):
+        runs = view.payload_runs("quote(route) => {Fare} ×3")
+        roles = {t: st[0].role for t, st in runs if t.strip()}
+        self.assertEqual(roles["{Fare}"], "kinds-data")
+        self.assertEqual(roles["=>"], "syntax-operator")
+        self.assertEqual(roles["×3"], "syntax-cardinality")
 
     def test_live_toggle(self):
         import tempfile

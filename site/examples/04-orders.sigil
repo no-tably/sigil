@@ -6,13 +6,15 @@
 (Shopper)  -> [Checkout] -> {Order}
 [Checkout] ~> <Placed>
 [Payments] ~> <Paid>
-[Payments] !> <Declined>
+[Payments] !> <Declined>   # card refused or timed out
 
+# an order settles or is cancelled, never both
 state {Order} {
   +     -<Placed>->    Open
   Open  -<Paid>->      Settled
   Open  -<Declined>->  Cancelled
 }
+# the checkout is busy while a payment is in flight
 state [Checkout] {
   Idle  -<Placed>->    Busy
   Busy  -<Paid>->      Idle

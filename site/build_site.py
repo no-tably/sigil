@@ -225,9 +225,11 @@ def render_example(path: Path, styles: Styles, frames: list, seen: dict) -> dict
     for k in range(1, len(lines) + 1):
         text = autoclose(lines[:k])
         g = view.render.parse_document(text)
+        # Both views show everything the viewer can: payload chips, and the
+        # comments as notes (callouts in the tree, ¶/# tags + a list in the graph).
         tree, _ = view.compose_tree(g, MAX_DEPTH, triggers=True, spaced=True,
-                                    notes="off", payloads=False)
-        graph, _ = view.compose(g, MAX_DEPTH, payloads=True, notes="off")   # payloads as chips
+                                    notes="callouts", payloads=True)
+        graph, _ = view.compose(g, MAX_DEPTH, payloads=True, notes="markers")
         diags = view.run_lint(text)
         ids = []
         for rows in (tree, graph):

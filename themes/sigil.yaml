@@ -95,6 +95,8 @@ ui:
   payload: $muted
   note: $muted
   note_tag: $dim
+  note_block: $slate      # a comment on its own lines above a statement
+  note_inline: $sky       # a comment trailing a statement
   bar_fg: $fg
   bar_bg: $surface
   bar_name: $bright

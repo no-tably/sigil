@@ -129,9 +129,14 @@ _BUILTIN_THEME = {
     "ui": {"text": "#c9d1d9", "muted": "#8b949e", "dim": "#6e7681", "tree": "#6e7681",
            "relation": "#5abea0", "label": "#5abea0", "title": "#c9d1d9",
            "payload": "#8b949e", "note": "#8b949e", "note_tag": "#6e7681",
+           "note_block": "#8b7aad", "note_inline": "#a5d6ff",
            "bar_fg": "#c9d1d9", "bar_bg": "#161b22", "bar_name": "#e6edf3",
            "key_fg": "#e6edf3", "key_bg": "#30363d",
            "error": "#f85149", "warn": "#ffbf47", "ok": "#3fb950", "fill": "0.22"},
+    # Code roles (highlight/sigil.tmTheme): payloads are drawn highlighted.
+    "syntax": {"operator": "#e85d9e", "cardinality": "#f59cc4", "modifier": "#ffe0b0",
+               "keyword": "#c850e0", "ref": "#bc8cff", "string": "#a5d6ff",
+               "number": "#79c0ff", "punct": "#586e75", "tag": "#c9d1d9"},
 }
 EDGE_ROLE = {"!>": "fail", "?>": "maybe", "~>": "async", "]>[": "split"}
 _HEX = re.compile(r"#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})")
@@ -174,6 +179,11 @@ def _theme_styles(t: dict) -> dict:
         "PAYLOAD_STYLE": (pick("ui", "payload"), None, False),
         "NOTE_TAG_STYLE": (pick("ui", "note_tag"), None, False),
         "NOTE_TEXT_STYLE": (pick("ui", "note"), None, False),
+        # block comments vs inline (trailing) ones: tag, callout text and list
+        "NOTE_STYLE": {"block": (pick("ui", "note_block"), None, False),
+                       "inline": (pick("ui", "note_inline"), None, False)},
+        "SYNTAX": {role: (pick("syntax", role), None, False)
+                   for role in _BUILTIN_THEME["syntax"]},
         "BAR_STYLE": (pick("ui", "bar_fg"), bar_bg, False),
         "BAR_NAME_STYLE": (pick("ui", "bar_name"), bar_bg, True),
         "KEY_STYLE": (pick("ui", "key_fg"), pick("ui", "key_bg"), True),
@@ -456,6 +466,7 @@ class _Layout:
     in_port: dict = field(default_factory=dict)     # w → {u: x where u → w enters w}
     tracks: list = field(default_factory=list)      # per gap: ({(u, w): track}, n tracks)
     top: list = field(default_factory=list)         # per layer: its y
+    tags: dict = field(default_factory=dict)        # node id / (src, dst, kind) → note tag runs
 
     def centre(self, vid):
         return self.V[vid].x + self.V[vid].w // 2
@@ -513,7 +524,7 @@ def _prepare(g, expanded, collapsed, tags) -> _Layout:
     for nid in g.nodes:
         lab = node_label(g.nodes[nid])
         if tags and nid in tags:
-            lab += f" #{tags[nid]}"
+            lab += "".join(text for text, _style in tags[nid])
         if nid in expanded:
             lab += " ▾"
         elif nid in collapsed:
@@ -535,7 +546,7 @@ def _prepare(g, expanded, collapsed, tags) -> _Layout:
     # row) and are drawn as a wrapped grid under the graph.
     linked = {e.src for e in edges} | {e.dst for e in edges}
     return _Layout(g, labels, edges, ids=[i for i in g.nodes if i in linked],
-                   isolated=[i for i in g.nodes if i not in linked])
+                   isolated=[i for i in g.nodes if i not in linked], tags=tags or {})
 
 
 def _layer(lay: _Layout) -> None:
@@ -769,7 +780,16 @@ def _draw(lay: _Layout) -> Canvas:
             first = k == 0
             # Arrowheads at the LOGICAL destination (and both ends for <->).
             if e.label and ((last and not rev) or (first and rev)):
-                edge_labels.append((dx, y1, e.label) if not rev else (sx, y0, e.label))
+                edge_labels.append((dx, y1, e.label, LABEL_STYLE) if not rev
+                                   else (sx, y0, e.label, LABEL_STYLE))
+            # An inline note about this flow's line sits beside its head (a chip
+            # remembers the flow it splits, so the tag follows into the chip half).
+            src = g.nodes[e.src].attrs.get("src", e.src) if g.nodes[e.src].kind == CHIP else e.src
+            for text, style in lay.tags.get((src, e.dst, e.kind), ()):
+                if last and not rev:
+                    edge_labels.append((dx, y1, text, style))
+                elif first and rev:
+                    edge_labels.append((sx, y0, text, style))
             into_chip = g.nodes[chain[-1]].kind == CHIP if not rev else False
             if last and not rev and not into_chip:
                 heads.append((dx, y1, "▼", style))
@@ -786,6 +806,7 @@ def _draw(lay: _Layout) -> Canvas:
     for vid, v in V.items():
         if not v.dummy:
             _draw_box(cv, v.x, top[v.layer], v.w, lay.labels[vid], g.nodes[vid])
+            _colour_tags(cv, v.x, top[v.layer], g.nodes[vid], lay.tags.get(vid))
 
     # Edge labels (e.g. state-machine triggers) beside their arrowhead, right side
     # first, then left; skipped where they would overwrite anything.
@@ -793,10 +814,10 @@ def _draw(lay: _Layout) -> Canvas:
         return x0 >= 0 and all((x, y) not in cv.text and (x, y) not in cv.lines
                                for x in range(x0 - 1, x0 + n + 1))
 
-    for x, y, text in edge_labels:
+    for x, y, text, style in edge_labels:
         for x0 in (x + 2, x - 1 - len(text)):
             if free(x0, y, len(text)):
-                cv.put(x0, y, text, LABEL_STYLE)
+                cv.put(x0, y, text, style)
                 break
 
     if lay.isolated:
@@ -809,6 +830,60 @@ def _draw(lay: _Layout) -> Canvas:
             _draw_box(cv, x, y, w, lay.labels[vid], g.nodes[vid])
             x += w + 1
     return cv
+
+
+# A payload drawn as code: glyphs in their kind's colour, the rest by role.
+_PAYLOAD_TOKEN = re.compile(r"""
+    (?P<string>"(?:[^"\\]|\\.)*")
+  | (?P<ref>\$\{[^}]*\})
+  | (?P<glyph>[~*]?(?:\[[^\]\s,][^\],]*\]|\{[^}\s:,][^}:,]*\}|<(?!->)[^<>\s][^<>]*>
+                    |(?<!\w)\([^)\s][^)]*\)|\|[^|\s][^|]*\|))
+  | (?P<operator>=>|->|~>|!>|\?>|\*>|<->|\+\+|\|\||[+\-*/])
+  | (?P<cardinality>[×^]\d+\w*)
+  | (?P<modifier>@[A-Za-z_][\w-]*)
+  | (?P<keyword>\bop\b)
+  | (?P<number>\b\d+(?:\.\d+)?\b)
+  | (?P<punct>[(),:{}\[\]])
+""", re.X)
+_GLYPH_KIND = {"[": "service", "{": "data", "<": "event", "(": "actor", "|": "store"}
+
+
+def payload_runs(text: str) -> list:
+    """A payload as styled runs (colour-coded like the code highlighter)."""
+    runs, last = [], 0
+    for m in _PAYLOAD_TOKEN.finditer(text):
+        if m.start() > last:
+            runs.append((text[last:m.start()], PAYLOAD_STYLE))
+        role, tok = m.lastgroup, m.group()
+        if role == "glyph":
+            kind = _GLYPH_KIND[tok.lstrip("~*")[0]]
+            style = (kind_color(kind), None, False)
+        else:
+            style = SYNTAX[role]
+        runs.append((tok, style))
+        last = m.end()
+    if last < len(text):
+        runs.append((text[last:], PAYLOAD_STYLE))
+    return runs
+
+
+def _put_runs(cv: Canvas, x, y, runs) -> int:
+    """Draw styled runs from x; returns the x after them."""
+    for text, style in runs:
+        cv.put(x, y, text, style)
+        x += len(text)
+    return x
+
+
+def _colour_tags(cv: Canvas, x, y, n, runs):
+    """Re-colour a box's #N note tags (drawn in the label's colour) by note kind."""
+    if not runs:
+        return
+    tx = x + 2 + len(node_label(n))
+    for text, style in runs:
+        if style:
+            cv.put(tx, y + 1, text, style)
+        tx += len(text)
 
 
 def _draw_box(cv: Canvas, x, y, w, label, n):
@@ -828,6 +903,8 @@ def _draw_box(cv: Canvas, x, y, w, label, n):
     cv.put(x, y, tl + h * (w - 2) + tr, border)
     cv.put(x, y + 1, s + " ", border)
     cv.put(x + 2, y + 1, label.ljust(w - 4), text)
+    if n.kind == CHIP:                          # a payload reads as the code it is
+        _put_runs(cv, x + 2, y + 1, payload_runs(n.name))
     cv.put(x + w - 2, y + 1, " " + s, border)
     cv.put(x, y + 2, bl + h * (w - 2) + br, border)
 
@@ -862,7 +939,7 @@ def with_chips(g, payloads: bool = False, triggers=()):
     for k, e in enumerate(g.edges):
         if payloads and e.payload and e.src != e.dst:
             cid = f"\0p{k}"
-            nodes[cid] = render.Node(id=cid, name=e.payload, kind=CHIP)
+            nodes[cid] = render.Node(id=cid, name=e.payload, kind=CHIP, attrs={"src": e.src})
             edges += [replace(e, dst=cid, label=None, payload=None),
                       replace(e, src=cid, payload=None)]
         else:
@@ -915,24 +992,68 @@ def all_payload_lines(g):
     return [line for cur in _walk(g) for line in payload_lines(cur)]
 
 
+# Notes are tagged #N either way; colour tells a block comment (own lines above
+# a statement, ui.note_block) from an inline one (trailing it, ui.note_inline).
+
+
 def note_index(g) -> dict:
-    """{node id: (number, text)} — every node's comments merged, numbered in
-    document order (top level first, then expansions)."""
-    merged = {}
+    """{node id: [(number, text, kind, edges), …]}, numbered in document order (top
+    level first, then expansions). A node's block comments (about the component)
+    merge into one note; each inline comment (about its line) stays its own note
+    and keeps the (src, dst, kind) of the flows that line drew."""
+    out, num = {}, 0
     for cur in _walk(g):
         for n in getattr(cur, "notes", []):
-            merged.setdefault(n.node, []).append(n.text)
-    return {nid: (i, " · ".join(texts)) for i, (nid, texts) in enumerate(merged.items(), 1)}
+            kind = getattr(n, "kind", "block")
+            entries = out.setdefault(n.node, [])
+            block = next((i for i, e in enumerate(entries) if e[2] == "block"), None)
+            if kind == "block" and block is not None:
+                b = entries[block]
+                entries[block] = (b[0], f"{b[1]} · {n.text}", "block", ())
+                continue
+            num += 1
+            entries.append((num, n.text, kind, tuple(getattr(n, "edges", ()) or ())))
+    return out
+
+
+def node_notes(entries) -> list:
+    """The notes drawn on the node itself: its block note, and inline notes from
+    lines that drew no flow (a branch or a bare node line is about that node)."""
+    return [e for e in entries if e[2] == "block" or not e[3]]
+
+
+def edge_notes(idx: dict) -> dict:
+    """(src, dst, kind) → [(number, text)]: inline notes about a flow's line."""
+    out = {}
+    for entries in idx.values():
+        for num, text, kind, edges in entries:
+            if kind == "inline":
+                for key in edges:
+                    out.setdefault(key, []).append((num, text))
+    return out
+
+
+def note_tag(entries) -> str:
+    """Tags as text: `#1`, or `#1 #2`."""
+    return " ".join(f"#{e[0]}" for e in entries)
+
+
+def note_tag_runs(entries) -> list:
+    """The tags as styled runs, each in its note kind's colour."""
+    runs = []
+    for e in entries:
+        runs += [(" ", None), (f"#{e[0]}", NOTE_STYLE[e[2]])]
+    return runs
 
 
 def note_rows(idx: dict, width: int = NOTE_WIDTH):
-    """The notes list: `#N text`, wrapped under its tag."""
+    """The notes list: `#N text`, wrapped under its tag, in its kind's colour."""
     rows = []
-    for num, text in sorted(idx.values()):
+    for num, text, kind, _edges in sorted(e for entries in idx.values() for e in entries):
         tag = f"#{num} "
         for k, ln in enumerate(textwrap.wrap(text, max(width - len(tag), 20)) or [""]):
-            rows.append([(tag if k == 0 else " " * len(tag), NOTE_TAG_STYLE),
-                         (ln, NOTE_TEXT_STYLE)])
+            rows.append([(tag if k == 0 else " " * len(tag), NOTE_STYLE[kind]),
+                         (ln, NOTE_STYLE[kind] if kind == "inline" else NOTE_TEXT_STYLE)])
     return rows
 
 
@@ -943,7 +1064,10 @@ def compose(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = 
     of the state machine it drives (and lists the transitions below). Notes (any
     mode but "off") tag commented boxes `#N` and list the notes below."""
     idx = note_index(g) if notes != "off" else {}
-    tags = {nid: num for nid, (num, _t) in idx.items()}
+    tags = {nid: note_tag_runs(node_notes(entries)) for nid, entries in idx.items()
+            if node_notes(entries)}
+    for key, notes_ in edge_notes(idx).items():    # inline notes ride their flow's edge
+        tags[key] = [(" ".join(f"#{num}" for num, _t in notes_), NOTE_STYLE["inline"])]
     trig_edges = getattr(g, "triggers", []) if triggers else []
     parts = list(sections(g, depth, tags=tags, payloads=payloads, triggers=trig_edges))
     width = max([cv.w for _, _, cv in parts] + [len(t) + 6 for t, _, _ in parts if t] + [0])
@@ -1050,7 +1174,7 @@ def _lane_colour(kind: str, src_kind: str) -> str:
     return EDGE_COLOR[kind] if kind in EDGE_COLOR else kind_color(src_kind)
 
 
-def tree_legend(triggers: bool = True):
+def tree_legend(triggers: bool = True, payloads: bool = False):
     """Legend rows for the tree + wires view: relations, then lanes by arrow type.
     Markers whose lanes take their source's colour are drawn neutral."""
     dim, mid = (GREY["dim"], None, False), (GREY["mid"], None, False)
@@ -1066,7 +1190,9 @@ def tree_legend(triggers: bool = True):
                   (f" {word}  ", mid)]
     wires += [("◀", (GREY["light"], None, True)), (" target  ", mid),
               ("─│─", dim), (" crossing  ", mid),
-              ("■", (EDGE_DEFAULT, None, False)), (" lane: its source's colour", mid)]
+              ("■", (EDGE_DEFAULT, None, False)), (" lane: its source's colour  ", mid)]
+    if payloads:
+        wires += [("┄┆{…}┆", dim), (" payload, on its target row", mid)]
     return [rel, wires]
 
 
@@ -1115,6 +1241,9 @@ def keys_legend(state):
         bright = on.get(key)
         if key == "n":
             word = f"notes:{state.notes}"
+        elif key == "d":
+            word = f"depth:{'all' if state.depth >= ALL_DEPTH else state.depth}"
+            bright = state.depth > 0
         row += [(key, KEY_STYLE),
                 (f" {word}  ", (GREY["light"], None, bright) if bright else mid)]
     return row
@@ -1126,21 +1255,32 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     `triggers`: draw event → state lanes. `spaced`: a blank row between top-level
     units (a root with parts, or the first root after one). `notes`: "markers" tags
     commented rows `#N` and lists the notes below; "callouts" draws them as boxes in
-    a left margin, each tied to its row by a leader. `payloads`: list flow payloads."""
+    a left margin, each tied to its row by a leader. `payloads`: draw each flow's
+    payload as a chip in a right margin, on its target row (the mirror of the
+    callouts); any that can't be placed are listed below."""
     idx = note_index(g) if notes != "off" else {}
     rows, wires = _tree_rows(g, depth, triggers=triggers)
     if not rows:
         return [], 0
     if spaced:
         rows = _space_units(rows)
+    # Block notes are about a component: tagged on its row, called out on the
+    # left. Inline notes are about their line: they trail it on the right, after
+    # the payload the line carries — as in the source.
+    blocks = {nid: [e for e in es if e[2] == "block"] for nid, es in idx.items()}
+    blocks = {nid: es for nid, es in blocks.items() if es}
     cv = Canvas()
-    out = _draw_outline(cv, rows, idx)
+    out = _draw_outline(cv, rows, blocks)
     lanes = _collect_lanes(cv, wires, out)
-    _draw_lanes(cv, _pack_lanes(lanes, max(out.ends) + 3, out.node), out.ends)
+    placed = _pack_lanes(lanes, max(out.ends) + 3, out.node)
+    _draw_lanes(cv, placed, out.ends)
+    trailing = _trailing_notes(idx) if notes != "off" else {}
+    drawn = _draw_right_margin(cv, lanes, placed, out, _payload_of(g) if payloads else {},
+                               trailing, notes)
     out_rows, width = list(cv.rows()), cv.w
     if notes == "callouts" and out.tagged:
-        out_rows, width = _with_callouts(out_rows, idx, out.tagged)
-    extra = _extras(g, idx, notes, payloads)
+        out_rows, width = _with_callouts(out_rows, blocks, out.tagged)
+    extra = _extras(g, idx, notes, payloads, drawn)
     out_rows += extra
     return out_rows, max([width] + [row_len(r) for r in extra])
 
@@ -1217,8 +1357,11 @@ def _draw_outline(cv: Canvas, rows, idx: dict) -> _Outline:
         cv.put(x, y, label, (text[0], None, True))
         x += len(label)
         if n.id in idx and n.id not in out.tagged:  # `#N` on the node's first row
-            tag = f" #{idx[n.id][0]}"
-            cv.put(x, y, tag, NOTE_TAG_STYLE)
+            tag = " " + note_tag(idx[n.id])
+            tx = x
+            for run, style in note_tag_runs(idx[n.id]):
+                cv.put(tx, y, run, style)
+                tx += len(run)
             x += len(tag)
             out.tagged[n.id] = y
         if n.kind == "state":                   # the triggers that lead into this state
@@ -1320,10 +1463,84 @@ def _draw_lanes(cv: Canvas, placed, ends):
         cv.put(x, y, ch, st)
 
 
-def _extras(g, idx: dict, notes: str, payloads: bool):
-    """The lists under the tree: payloads (when shown), then notes (markers mode)."""
+def _payload_of(g) -> dict:
+    """(src, dst, kind) → the payload its flow carries, across g and its expansions."""
+    out = {}
+    for sub in _walk(g):
+        for e in sub.edges:
+            if e.payload:
+                out.setdefault((e.src, e.dst, e.kind), e.payload)
+    return out
+
+
+def _trailing_notes(idx: dict) -> dict:
+    """Inline notes by what their line drew: (src, dst, kind) for a flow line, the
+    node id for a line that only placed a node → [(number, text)]."""
+    out = {}
+    for nid, entries in idx.items():
+        for num, text, kind, edges in entries:
+            if kind == "inline":
+                for key in (edges or (nid,)):
+                    out.setdefault(key, []).append((num, text))
+    return out
+
+
+def _draw_right_margin(cv: Canvas, lanes, placed, out: _Outline, payload_of: dict,
+                       trailing: dict, notes: str) -> set:
+    """The right margin, the mirror of the note callouts: on each flow's target row
+    the payload it carries (a ┆chip┆) and the inline comment from its line; on a
+    node's row the inline comment of the line that placed it. A dotted leader ties
+    each to the row's rightmost tap, hopping (┄│┄) over lanes it crosses. Comments
+    show as `#N` (markers) or their text (callouts). Returns the flow keys whose
+    payloads were drawn."""
+    margin = max([x for x, *_ in placed] + [max(out.ends) - 1]) + 3
+    rightmost, chips, notes_at, drawn = {}, {}, {}, set()
+    for (_lo, _hi, src, dst, kind, _sy, _dy), (x, _l, _h, sy, dy, _k, _st) in zip(lanes, placed):
+        for y in list(sy) + list(dy):
+            rightmost[y] = max(rightmost.get(y, 0), x)
+        key = (src, dst, kind)
+        text = payload_of.get(key)
+        for y in dy:
+            if text and text not in chips.setdefault(y, []):
+                chips[y].append(text)
+            for note in trailing.get(key, ()):
+                if note not in notes_at.setdefault(y, []):
+                    notes_at[y].append(note)
+        if text:
+            drawn.add(key)
+    for key, notes_ in trailing.items():         # lines that only placed a node
+        if isinstance(key, str) and key in out.by_id:
+            y = out.by_id[key][0]
+            notes_at.setdefault(y, []).extend(n for n in notes_ if n not in notes_at[y])
+    leader, border = (GREY["dim"], None, False), (GREY["dim"], None, False)
+    for y in sorted(set(chips) | set(notes_at)):
+        if not chips.get(y) and not notes_at.get(y):
+            continue
+        first = rightmost.get(y, out.ends[y]) + 1
+        for x in range(first, margin - 1):
+            if (x, y) not in cv.lines and (x, y) not in cv.text:
+                cv.put(x, y, "┄", leader)
+        x = margin - 1
+        if chips.get(y):
+            body = " · ".join(chips[y])
+            cv.put(x, y, "┆ ", border)
+            x = _put_runs(cv, x + 2, y, payload_runs(body))
+            cv.put(x, y, " ┆", border)
+            x += 3
+        for num, text in sorted(notes_at.get(y, ())):
+            note = f"#{num}" if notes == "markers" else f"# {text}"
+            cv.put(x, y, note, NOTE_STYLE["inline"])
+            x += len(note) + 2
+    return drawn
+
+
+def _extras(g, idx: dict, notes: str, payloads: bool, drawn: frozenset = frozenset()):
+    """The lists under the tree: payloads not drawn as chips (when shown), then
+    notes (markers mode)."""
     extra = []
-    if payloads and (pl := all_payload_lines(g)):
+    pl = [f"  {edge_text(sub, e)} : {e.payload}" for sub in _walk(g) for e in sub.edges
+          if e.payload and (e.src, e.dst, e.kind) not in drawn] if payloads else []
+    if pl:
         extra += [[], [("── payloads ──", TITLE_STYLE)], []] + [[(p, PAYLOAD_STYLE)] for p in pl]
     if notes == "markers" and idx:
         extra += [[], [("── notes ──", TITLE_STYLE)], []] + note_rows(idx)
@@ -1334,51 +1551,63 @@ def _with_callouts(rows, idx: dict, tagged: dict):
     """Prefix the tree rows with a left margin of note boxes. A box sits level with
     its row when there is room, else slides down; its leader runs right, up to the
     row, and into it. Leaders get their own columns (interval-packed)."""
-    boxes = []                                  # (row, top, lines, number)
+    boxes = []                                  # (row, top, lines, kind)
     free = 0
     anchors = set(tagged.values())
     for nid, y in sorted(tagged.items(), key=lambda kv: kv[1]):
-        num, text = idx[nid]
-        lines = textwrap.wrap(f"#{num} {text}", CALLOUT_TEXT) or [f"#{num}"]
-        if len(lines) > 3:
-            lines = lines[:3]
-            lines[-1] = lines[-1][:CALLOUT_TEXT - 1] + "…"
-        top = max(y, free)
-        while top != y and top in anchors:      # a slid box never starts on another
-            top += 1                            # note's row: its runs would merge
-        boxes.append((y, top, lines, num))
-        free = top + len(lines) + 1
+        for num, text, kind, _edges in idx[nid]:
+            # A block note is a framed box (up to 3 lines); an inline note stays
+            # bare (two lines at most), like the trailing comment it came from.
+            limit = 3 if kind == "block" else 2
+            lines = textwrap.wrap(f"#{num} {text}", CALLOUT_TEXT) or [""]
+            if len(lines) > limit:
+                lines = lines[:limit]
+                lines[-1] = lines[-1][:CALLOUT_TEXT - 1] + "…"
+            top = max(y, free)
+            while top != y and top in anchors:  # a slid box never starts on another
+                top += 1                        # note's row: its runs would merge
+            boxes.append((y, top, lines, kind))
+            free = top + len(lines) + (1 if kind == "block" else 0)
     cols = []                                   # leader columns: list of (lo, hi)
     leader_col = [None if top == y else _first_fit(cols, y, top) for y, top, _l, _n in boxes]
     box_w = CALLOUT_TEXT + 4
     margin = box_w + 2 + 2 * len(cols) + 2
     mc = Canvas()
-    border, text = (GREY["dim"], None, False), NOTE_TEXT_STYLE
-    for (y, top, lines, _num), c in zip(boxes, leader_col):
+    for (y, top, lines, kind), c in zip(boxes, leader_col):
         k = len(lines)
+        style = border = NOTE_STYLE[kind]       # colour tells the kinds apart
         for j, ln in enumerate(lines):
-            if k == 1:
-                lside, rside = "╶ ", " ╴"
+            if kind == "inline":                # bare, like a trailing comment
+                lside, rside = "  ", "  "
+            elif k == 1:
+                lside, rside = "│ ", " │"
             else:
                 lside, rside = {0: ("╭ ", " ╮"), k - 1: ("╰ ", " ╯")}.get(j, ("│ ", " │"))
             mc.put(0, top + j, lside, border)
-            mc.put(2, top + j, ln.ljust(CALLOUT_TEXT), text)
+            mc.put(2, top + j, ln.ljust(CALLOUT_TEXT), style)
             mc.put(box_w - 2, top + j, rside, border)
     # Leaders: verticals first, then horizontal runs that hop (─│─) over any other
     # leader's vertical, so two leaders never read as joined.
     start, end = box_w + 1, margin - 2          # a gap before the tree: not a guide
     runs, verticals = [], set()
-    for (y, top, _lines, _num), c in zip(boxes, leader_col):
+    for (y, top, _lines, kind), c in zip(boxes, leader_col):
+        stroke = "?>" if kind == "inline" else "->"     # inline: a dotted leader
         if c is None:
-            runs.append((start, end, y, None))
+            runs.append((start, end, y, None, stroke, NOTE_STYLE[kind]))
             continue
         cx = box_w + 2 + 2 * c
-        mc.path([(cx, top), (cx, y)], "->", border)
+        mc.path([(cx, top), (cx, y)], stroke, NOTE_STYLE[kind])
         verticals |= {(cx, yy) for yy in range(min(y, top), max(y, top) + 1)}
-        runs += [(start, cx, top, cx), (cx, end, y, cx)]
-    for x0, x1, yy, own in runs:
-        mc.run(x0, x1, yy, "->", border,
-               hops=lambda x, _y=yy, _own=own: (x, _y) in verticals and x != _own)
+        runs += [(start, cx, top, cx, stroke, NOTE_STYLE[kind]),
+                 (cx, end, y, cx, stroke, NOTE_STYLE[kind])]
+    # Leaders that end on the same row (a node with a block and an inline note)
+    # join there (┬ ┴) instead of hopping over each other.
+    ends_at = {(box_w + 2 + 2 * c, y) for (y, _t, _l, _k), c in zip(boxes, leader_col)
+               if c is not None}
+    for x0, x1, yy, own, stroke, colour in runs:
+        mc.run(x0, x1, yy, stroke, colour,
+               hops=lambda x, _y=yy, _own=own: ((x, _y) in verticals and x != _own
+                                               and (x, _y) not in ends_at))
     margin_rows = list(mc.rows())
     height = max(len(rows), len(margin_rows))
     out = []
@@ -1472,7 +1701,7 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
                 else compose(g, depth, payloads, notes, triggers))
     out = [ansi(r, colour) for r in rows]
     if tree:
-        out += [""] + [ansi(ln, colour) for r in tree_legend(triggers)
+        out += [""] + [ansi(ln, colour) for r in tree_legend(triggers, payloads)
                        for ln in wrap_legend(r, LEGEND_WIDTH)]
     out.append("")
     out.append(f"{path.name}: {len(g.nodes)} nodes, {len(g.edges)} edges, "
@@ -1636,7 +1865,7 @@ class ViewState:
             if len(self.diags) > len(shown):
                 rows[-1] = [(f"… {len(self.diags) - len(shown) + 1} more (view.py --once)",
                              (GREY["mid"], None, False))]
-        legend = (tree_legend(self.show_triggers) if self.tree
+        legend = (tree_legend(self.show_triggers, self.payloads) if self.tree
                   else [graph_legend(self.show_triggers, self.payloads)])
         rows[0:0] = [ln for r in legend + [keys_legend(self)] for ln in wrap_legend(r, cols)]
         rows.insert(0, self._legend_rule(cols))

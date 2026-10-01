@@ -3,20 +3,22 @@
 
 --- arena ---
 
+# the player: components it has, bullets it spawns
 [Ship]
     \-& {Transform}
     \-& {Health}
-    \-*-> [Bullet]
+    \-*-> [Bullet]   # one per shot
         \-& {Transform}
         \-& {Damage}
 [Asteroid]
     \-& {Transform}
-    \-{shattered}-? [Shard]
+    \-{shattered}-? [Shard]   # only after a hit
 
 --- systems ---
 
+# systems query components by kind
 [Physics] -> {Transform}
-[Homing]  -> [Bullet]/{Transform}
+[Homing]  -> [Bullet]/{Transform}   # bullets only
 {Damage}  -> [Combat] -> {Health}
 [Combat]  ~> <Destroyed> -> [Spawner]
 [Spawner] => [Shard]

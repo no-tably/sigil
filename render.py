@@ -188,6 +188,13 @@ class Note:
     node: str                 # node id the comment belongs to
     text: str
     line: int                 # 1-based line of the (first) comment line
+    # "block": own-line `#` comments directly above the statement (merged) —
+    # about the component the statement is about;
+    # "inline": the `#` comment trailing the statement on its own line — about
+    # that line, so `edges` holds the (src, dst, kind) of the flows it drew
+    # (empty for a line that only places a node, e.g. a branch).
+    kind: str = "block"
+    edges: tuple = ()
 
 
 @dataclass
@@ -685,14 +692,13 @@ class _DocParser:
             line = raw_lead
         return line.count("{") - line.count("}")
 
-    def attach(self, node_id, k: int):
-        texts = [t for t, _ln in self.above]
-        first_line = self.above[0][1] if self.above else k + 1
+    def attach(self, node_id, k: int, edges: tuple = ()):
+        if node_id and self.above:
+            self.graph.notes.append(Note(node_id, " ".join(t for t, _ln in self.above),
+                                         self.above[0][1], "block"))
         trailing = self.comments.get(k)
-        if trailing and not trailing[1]:
-            texts.append(trailing[0])
-        if node_id and texts:
-            self.graph.notes.append(Note(node_id, " ".join(texts), first_line))
+        if node_id and trailing and not trailing[1]:
+            self.graph.notes.append(Note(node_id, trailing[0], k + 1, "inline", edges))
         self.above.clear()
 
     def add_entry(self, node_id, parent, rel=None, spawn=False, cond=None, weight=None):
@@ -858,8 +864,11 @@ class _DocParser:
         waiting comments to the node it is about."""
         self.anchor = None
         col = offset + len(text) - len(text.lstrip())
+        before = len(self.graph.edges)
         self.last_src = self._flow(text.strip(), col, self.last_src)
-        self.attach(self.anchor, k)
+        drawn = tuple(dict.fromkeys((e.src, e.dst, e.kind) for e in self.graph.edges[before:]
+                                    if e.src != e.dst))
+        self.attach(self.anchor, k, drawn)
 
     def _flow(self, text: str, col: int, last):
         """One flow line; composition branches (`\\-<rel>`) become tree entries."""
