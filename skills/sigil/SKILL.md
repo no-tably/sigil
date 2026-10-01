@@ -53,10 +53,10 @@ All scripts are Python 3 standard library only. Write the document to a file
 | Task | Command | Result |
 | --- | --- | --- |
 | Validate | `python3 scripts/lint.py FILE` | one `severity:line:rule: message` per issue; exit 0 clean, 1 warnings, 2 errors |
-| Draw in the terminal | `python3 scripts/view.py FILE --once [--depth N\|all] [--payloads] [--no-lint]` | box-drawing graph + lint summary; exit 1 on lint error |
+| Draw in the terminal | `python3 scripts/view.py FILE --once [--depth N\|all] [--payloads] [--mods] [--access] [--no-lint]` | box-drawing graph + lint summary; exit 1 on lint error; control blocks as titled frames, joins as bars, sections as dividers; `--mods` modifier chips, `--access` the permission graph (`r` / `w` / `b` heads, `1w` / `Nw` writer badges) |
 | Show comments | `python3 scripts/view.py FILE --once --notes markers` (`--notes callouts` in `--tree`) | commented nodes tagged `#N`, notes listed (or drawn as margin boxes) |
 | Hierarchy + wiring | `python3 scripts/view.py FILE --once --tree [--compact]` | composition tree as an outline, each flow as a lane (`●` source, `◀` targets) + legend; `--compact` drops the blank row between top-level units |
-| Live view for a human | `python3 scripts/view.py FILE` | full-screen view that redraws on every save (tell the user to run it in their own terminal); keys: `t` tree/graph, `n` notes, `e` triggers, `s` spacing, `d` depth, `p` payloads, `l` lint, `c` centre, `g` home, `r` reload, `q` quit |
+| Live view for a human | `python3 scripts/view.py FILE` | full-screen view that redraws on every save (tell the user to run it in their own terminal); keys: `t` tree/graph, `n` notes, `e` triggers, `s` spacing, `d` depth, `p` payloads, `m` modifiers, `a` access, `l` lint, `c` centre, `g` home, `r` reload, `q` quit |
 | Mermaid diagram | `python3 scripts/render.py FILE [--depth N\|all] [--composition subgraphs\|edges\|none]` | `flowchart TD` source; present it in a fenced `mermaid` block. Composition trees draw as subgraphs by default |
 
 `--depth 0` shows the top level only, `1` (default) opens direct `:=` expansions,

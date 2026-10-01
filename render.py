@@ -52,7 +52,7 @@ The parsed model (parse_document → Graph) is described under "THE MODEL" below
 
 import sys
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import NamedTuple, Optional
 
 # ---------------------------------------------------------------------------
@@ -2003,6 +2003,74 @@ def _emit_flat(graph: Graph, depth: int = 1, indent: str = "    ", depth_so_far:
     return "\n".join(lines)
 
 
+def unique_ids(graph: Graph, depth: int = 1) -> Graph:
+    """A copy of the graph whose node ids are unique across every graph Mermaid
+    draws (the top level and the expansions up to `depth`): Mermaid ids are
+    global, so `[Handler]` at the top level and `[Core]`'s `[Handler]` would be
+    one node. The top level keeps its ids; a nested graph's id that a graph
+    nearer the top already uses becomes `<owner id>__<id>` (the owner being the
+    node the expansion hangs off, as emitted). Triggers follow their nodes."""
+    claimed = set(graph.nodes)
+    renamed = {}                                # id(graph) → {old id: new id}
+    queue = [(graph, None, 0)]
+    order = []
+    while queue:                                # breadth first: the shallower claims first
+        g, owner_mid, level = queue.pop(0)
+        order.append(g)
+        names = renamed.setdefault(id(g), {})
+        if g is not graph:
+            for nid in g.nodes:
+                new = nid
+                if nid in claimed:
+                    new, k = f"{owner_mid}__{nid}", 2
+                    while new in claimed:
+                        new, k = f"{owner_mid}__{nid}_{k}", k + 1
+                    names[nid] = new
+                claimed.add(new)
+        if level < depth:
+            for nid, sub in g.expansions.items():
+                queue.append((sub, names.get(nid, nid), level + 1))
+    if not any(renamed.values()):
+        return graph
+
+    def copy(g):
+        m = renamed.get(id(g), {})
+
+        def r(nid):
+            return m.get(nid, nid)
+
+        return replace(
+            g,
+            nodes={r(k): replace(n, id=r(n.id)) for k, n in g.nodes.items()},
+            edges=[replace(e, src=r(e.src), dst=r(e.dst)) for e in g.edges],
+            expansions={r(k): copy(sub) for k, sub in g.expansions.items()},
+            tree=[replace(t, node=r(t.node)) for t in g.tree],
+            blocks=[replace(b, refs=[r(x) for x in b.refs],
+                            members=[r(x) for x in b.members],
+                            arm_nodes=[(lab, [r(x) for x in ids]) for lab, ids in b.arm_nodes])
+                    for b in g.blocks],
+        )
+
+    out = copy(graph)
+    trig = []
+    for t in graph.triggers:
+        owner, src, dst, event = t.owner, t.src, t.dst, t.event
+        for g, _o, _l in _walk(graph):
+            sub = g.expansions.get(t.owner)
+            if sub is not None and t.dst in sub.nodes:
+                owner = renamed.get(id(g), {}).get(t.owner, t.owner)
+                src = renamed.get(id(sub), {}).get(t.src, t.src)
+                dst = renamed.get(id(sub), {}).get(t.dst, t.dst)
+                break
+        for g in order:
+            if t.event in g.nodes:
+                event = renamed.get(id(g), {}).get(t.event, t.event)
+                break
+        trig.append(replace(t, owner=owner, src=src, dst=dst, event=event))
+    out.triggers = trig
+    return out
+
+
 def render(text: str, depth: int = 1, dialect=None, composition: Optional[str] = None) -> str:
     """Mermaid for a document. `composition`: "subgraphs" (default — composition
     trees as nested subgraphs, one node per occurrence), "edges" (one node per name,
@@ -2010,7 +2078,7 @@ def render(text: str, depth: int = 1, dialect=None, composition: Optional[str] =
     (MERMAID_COMPOSITION)."""
     if composition is None:
         composition = _hook(dialect, "MERMAID_COMPOSITION", "subgraphs")
-    graph = parse_document(text, dialect=dialect)
+    graph = unique_ids(parse_document(text, dialect=dialect), depth)
     body = emit_graph(graph, depth=depth, dialect=dialect, composition=composition)
     in_tree = {t.node for t in graph.tree} if composition == "subgraphs" else set()
     occ = occurrences(graph) if in_tree else []

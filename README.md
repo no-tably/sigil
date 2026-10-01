@@ -23,6 +23,8 @@ screen, reads aloud, and expands unambiguously back into prose.
 previous subject. `view.py` draws it in the terminal:
 
 ```
+── Checkout ───────────────────────────────────────────
+
                     ╭────────╮
                     │ (User) │
                     ╰────────╯
@@ -33,7 +35,7 @@ previous subject. `view.py` draws it in the terminal:
                      └───────┘
                          │
       ┌──────────────────┼───────────────────┐
-      ▼                  ▼                   ▼
+      ▼                  ▼                   ✖
 ┌───────────┐   ┌───────────────┐   ┌─────────────────┐
 │ [Payment] │   │ <OrderPlaced> │   │ <PaymentFailed> │
 └───────────┘   └───────────────┘   └─────────────────┘
@@ -43,7 +45,7 @@ previous subject. `view.py` draws it in the terminal:
                   │ |Ledger| │
                   └──────────┘
 
-checkout.sigil: 6 nodes, 5 edges, 0 expansions
+checkout.sigil: 6 nodes, 5 edges, 0 expansions · #!sketch
 lint: OK
 ```
 
@@ -61,7 +63,7 @@ All tools are Python 3 standard library only.
 | Tool | Does |
 | --- | --- |
 | `lint.py FILE\|-` | Validates a document. One `severity:line:rule: message` per issue; exit 0 clean, 1 warnings, 2 errors. |
-| `view.py FILE` | Live terminal view of the graph that redraws on every save. `--once` prints the drawing plus a lint summary and exits (1 on lint error); `--depth N\|all` opens `X := { … }` expansions; `--payloads` shows flow payloads (chips on their edges in the graph view, a list in the tree view); `--no-lint` skips lint; `--tree` (or `t` live) shows the composition tree as an outline with every flow as a lane beside it; `--compact` starts without the blank row between top-level units; `--no-triggers` starts with event ⇢ state triggers hidden; `--notes markers\|callouts` shows comments as `#N` tags with a notes list, or as boxes in a left margin tied to their rows (tree view). Live keys: `t` tree/graph · `n` notes · `e` triggers · `s` spacing · `d` depth · `p` payloads · `l` lint · `c` centre · `g` home · `r` reload · `q` quit. |
+| `view.py FILE` | Live terminal view of the graph that redraws on every save. `--once` prints the drawing plus a lint summary and exits (1 on lint error); `--depth N\|all` opens `X := { … }` expansions; `--payloads` shows flow payloads (chips on their edges in the graph view, a list in the tree view); `--no-lint` skips lint; `--tree` (or `t` live) shows the composition tree as an outline with every flow as a lane beside it; `--compact` starts without the blank row between top-level units; `--no-triggers` starts with event ⇢ state triggers hidden; `--notes markers\|callouts` shows comments as `#N` tags with a notes list, or as boxes in a left margin tied to their rows (tree view); `--mods` shows modifiers (`@timeout 30s ×3`, `^10k drop`, `!`) as chips on edges and after node labels; `--access` draws the permission graph (`@read` / `@write` / `@borrow`: dotted principal → store edges headed `r` / `w` / `b`, stores badged `1w` / `Nw` writers). Both views also draw control blocks (graph: titled frames `↺ loop …`, `∥ parallel …`, `◇ branch on …` with a decision node and arm chips, `□ scope`; tree: brackets in a left gutter), `&` / `&?` / `/` joins, `--- section ---` dividers, `[[alias]]` nodes, and the `#!mode` in the status bar. Live keys: `t` tree/graph · `n` notes · `e` triggers · `s` spacing · `d` depth · `p` payloads · `m` modifiers · `a` access · `l` lint · `c` centre · `g` home · `r` reload · `q` quit. |
 | `render.py FILE\|- [--depth N\|all] [--composition MODE]` | Emits a Mermaid `flowchart TD` for docs (GitHub, Obsidian, mermaid.live, …). Composition trees draw as nested subgraphs (`subgraphs`, the default), as labelled dotted edges (`edges`), or not at all (`none`). |
 | `themes.py [NAME\|PATH]` | Loads a colour theme from `themes/<name>.yaml` (prints it resolved; `--list` lists them). `view.py --theme NAME` or `SIGIL_THEME=NAME` picks one; the web page reads the same files. |
 | `dialects.py` | Loads a dialect (`--dialect NAME` or `SIGIL_DIALECT`) that extends the linter and renderer. |

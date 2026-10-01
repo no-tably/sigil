@@ -54,6 +54,7 @@ kinds:
   store: $amber           # |store|
   state: $cyan            # state-machine states
   hole: $dim              # [?]
+  alias: $rose            # [[alias]] — a bare-word `name := …` definition
 
 # Arrow colours. An arrow not listed takes its source node's colour.
 edges:
@@ -61,6 +62,8 @@ edges:
   maybe: $dim             # ?>
   async: $muted           # ~>
   split: $dim             # ]>[
+  arm: $teal              # a branch arm: ◇ decision → ‹label› → the arm's entry
+  access: $lilac          # a permission edge (a key): principal ┄▸ store, r / w / b
   default: $fg
 
 # Code highlighting roles (the scopes of highlight/sigil.tmTheme).
@@ -113,6 +116,9 @@ ui:
   warn: $amber
   ok: $ok
   fill: "0.22"            # box fill: the kind colour mixed this far into bg
+  frame: $dim             # control-block frames (graph) and brackets (tree)
+  section: $slate         # `--- section ---` divider rules
+  mode: $gold             # the `#!mode` line, in the status bar
 
 # Page-only roles for the site.
 site:

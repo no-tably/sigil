@@ -57,6 +57,8 @@ class TestLayout(unittest.TestCase):
     def test_cycle_draws_upward_head(self):
         out = draw("[A] -> [B] -> [C]\n[C] !> [A]\n")
         self.assertEqual(out.count("▼"), 2)
+        self.assertEqual(out.count("✖"), 1)              # `!>`'s own head, at its target
+        out = draw("[A] -> [B] -> [C]\n[C] -> [A]\n")
         self.assertEqual(out.count("▲"), 1)
 
     def test_bidirectional_has_both_heads(self):
@@ -268,7 +270,8 @@ class TestLiveView(unittest.TestCase):
 
     def test_core_has_no_dialect_kinds(self):
         view.use_dialect(None)
-        self.assertEqual(set(view.KINDS), {"service", "data", "event", "actor", "store", "state"})
+        self.assertEqual(set(view.KINDS),
+                         {"service", "data", "event", "actor", "store", "state", "alias"})
 
     def test_once_colour_emits_truecolor(self):
         buf = io.StringIO()

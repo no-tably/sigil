@@ -29,9 +29,17 @@ Options:
                      boxes in a left margin tied to their rows).
     --width N        --once: the columns to fit (default: the terminal's width,
                      else 100). See "Fitting" below.
+    --mods           Show modifiers as compact chips: an edge's (`@timeout 30s ×3`,
+                     `!`, `?`) after its payload on its chip, a node's (`@sla …`,
+                     `^10k drop`, `@loc …`) after its label. Off by default.
+    --access         Show the permission graph (`@read` / `@write` / `@borrow`):
+                     dotted edges principal → store headed r / w / b (tree: lanes
+                     whose source is marked r / w / b), a store badged with its
+                     writers, `1w` (one owns it) or `Nw` (shared). Off by default.
 
 Keys (live view):
-    d  cycle depth (0 → 1 → all)   p  payloads   l  lint panel   r  reload
+    d  cycle depth (0 → 1 → all)   p  payloads   m  modifiers   a  access
+    l  lint panel   r  reload
     t  toggle graph / tree + wires   e  triggers (event ⇢ the state it drives)
     s  spacing between units
     n  notes: off → #N markers + list → margin callouts (tree view)
@@ -55,11 +63,24 @@ big enough. When everything fits, the drawing is exactly the natural one.
 Boxes are colour-coded by node type (border + tinted fill); the sigil theme:
     [component] periwinkle   {data} violet   <event> pink   (actor) green
     |store| amber   state cyan   ? hole grey   (a dialect may register more kinds)
-Border shape:  (actor) ╭╮ round   ~mutable ┏┓ heavy
+Border shape:  (actor) ╭╮ round   ~mutable ┏┓ heavy   [[alias]] rose
                ? hole ┄┆ dashed     ▸ collapsed expansion   ▾ shown below
-Edge strokes:  ->  │─ light        ~>  ╎╌ dashed      =>  ┃━ heavy
-               *>  ║═ double       ?>  ┆┄ dotted       !>  red   <-> heads both ends
-               ╭┄┄╮ a payload chip on its edge (p)  ╌╌ pink  event ⇢ owner (e)
+Edge strokes:  ->  │─ light ▼      ~>  ╎╌ dashed      =>  ┃━ heavy
+               *>  ║═ double       ?>  ┆┄ dotted       !>  │─ light, head ✖ (red)
+               <-> heads both ends  ╏╍ pink  event ⇢ owner (e: a trigger)
+               ╭┄┄╮ a chip on its edge: its payload (p) ┆ its modifiers (m)
+               ┆┆r ┆┆w ┆┆b  principal → store access (a)  1w / Nw writers
+               Two edges of different kinds between one pair are two strokes.
+Structure:     ── L2 · Payments ──── a `--- section ---`: its flows and nodes
+               ╭╌ ↺ loop @while … ╌╮ a control block's frame (∥ parallel,
+               ◇ branch on, □ scope / @owns); a branch draws ╱◇ X.kind╲ with a
+               ┆‹arm›┆ chip to each arm's entry; a `!>` after `}` leaves its subject
+               ━┷┯┷━ &  a join bar where an `&` / `&?` / `/` endpoint forks or meets
+               Tree view: blocks are brackets in a gutter left of the outline
+               (┌─ header, ├─ member rows), a branch arm's label beside its entry
+               (‹read›), a joined flow's taps marked (◀& ◀&? ◀/), sections a
+               divider row, `<->` lanes ◀──▶.
+The status bar shows the document's `#!mode`.
 """
 
 from __future__ import annotations
@@ -121,6 +142,7 @@ CORE_KINDS = {
     "actor":   {"open": "(", "close": ")", "border": "round"},
     "store":   {"open": "|", "close": "|", "border": "square"},
     "state":   {"open": "",  "close": "",  "border": "round"},
+    "alias":   {"open": "[[", "close": "]]", "border": "square"},   # `name := …`
 }
 PSEUDO_LABEL = {"start": "●", "end": "◉", "any": "∗ any"}
 KINDS: dict = {}                    # CORE_KINDS + the dialect's kinds, coloured
@@ -133,9 +155,10 @@ THEME: dict = {}                    # the theme in use, over the built-in colour
 _BUILTIN_THEME = {
     "palette": {"bg": "#0d1117"},
     "kinds": {"service": "#8aa0ff", "data": "#d2a8ff", "event": "#e85d9e",
-              "actor": "#7ee787", "store": "#ffbf47", "state": "#5ccfe6", "hole": "#6e7681"},
+              "actor": "#7ee787", "store": "#ffbf47", "state": "#5ccfe6", "hole": "#6e7681",
+              "alias": "#f08cac"},
     "edges": {"fail": "#f85149", "maybe": "#6e7681", "async": "#8b949e", "split": "#6e7681",
-              "default": "#c9d1d9"},
+              "arm": "#5abea0", "access": "#bc8cff", "default": "#c9d1d9"},
     "ui": {"text": "#c9d1d9", "muted": "#8b949e", "dim": "#6e7681", "tree": "#6e7681",
            "relation": "#5abea0", "label": "#5abea0", "title": "#c9d1d9",
            "payload": "#8b949e", "note": "#8b949e", "note_tag": "#6e7681",
@@ -143,14 +166,16 @@ _BUILTIN_THEME = {
            "payload_words": "complement",
            "bar_fg": "#c9d1d9", "bar_bg": "#161b22", "bar_name": "#e6edf3",
            "key_fg": "#e6edf3", "key_bg": "#30363d",
-           "error": "#f85149", "warn": "#ffbf47", "ok": "#3fb950", "fill": "0.22"},
+           "error": "#f85149", "warn": "#ffbf47", "ok": "#3fb950", "fill": "0.22",
+           "frame": "#6e7681", "section": "#8b7aad", "mode": "#e3c000"},
     # Code roles (highlight/sigil.tmTheme): payloads are drawn highlighted.
     "syntax": {"operator": "#e85d9e", "cardinality": "#f59cc4", "modifier": "#ffe0b0",
                "keyword": "#c850e0", "ref": "#bc8cff", "string": "#a5d6ff",
                "number": "#79c0ff", "punct": "#586e75", "tag": "#c9d1d9",
                "call": "#5abea0", "call_name": "#f08cac", "shade": "0.6"},
 }
-EDGE_ROLE = {"!>": "fail", "?>": "maybe", "~>": "async", "]>[": "split"}
+EDGE_ROLE = {"!>": "fail", "?>": "maybe", "~>": "async", "]>[": "split",
+             "arm": "arm", "access": "access"}       # (+ a branch arm, a permission edge)
 _HEX = re.compile(r"#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})")
 
 
@@ -215,6 +240,9 @@ def _theme_styles(t: dict) -> dict:
                           else "complement"),
         "CALL_SHADE": _shade(pick("syntax", "call"), t["syntax"].get("shade"),
                              pick("palette", "bg")),
+        "FRAME_STYLE": (pick("ui", "frame"), None, False),          # block frames / brackets
+        "SECTION_STYLE": (pick("ui", "section"), None, False),      # `--- section ---` rules
+        "MODE_STYLE": (pick("ui", "mode"), bar_bg, True),           # `#!sketch` in the bar
         "BAR_STYLE": (pick("ui", "bar_fg"), bar_bg, False),
         "BAR_NAME_STYLE": (pick("ui", "bar_name"), bar_bg, True),
         "KEY_STYLE": (pick("ui", "key_fg"), pick("ui", "key_bg"), True),
@@ -290,26 +318,41 @@ def _tint(hex_colour: str) -> str:
 def edge_style(kind: str):
     if kind == "trigger":                     # event ⇢ the owner of the state it drives
         return (kind_color("event"), None, False)
-    return (EDGE_COLOR.get(kind, EDGE_DEFAULT), None, False)
+    return (EDGE_COLOR.get(_base_kind(kind), EDGE_DEFAULT), None, False)
+
+
+def _base_kind(kind: str) -> str:
+    """An edge kind without its qualifier: `access:w` → `access`."""
+    return kind.split(":", 1)[0] if kind.startswith("access:") else kind
 
 
 # A flow's `: payload` drawn in the graph view as a chip on its edge (not a glyph,
-# so not in KINDS): the edge runs src → chip → dst, the chip on its own layer.
+# so not in KINDS): the edge runs src → chip → dst, the chip on its own layer. A
+# chip also carries an edge's modifiers (m key) and a branch arm's label.
 CHIP = "payload"
+# A joined endpoint (`&` all, `&?` race, `/` one of): a bar the joined edges fork
+# from or meet at, labelled with the join. A branch's choice: a ◇ decision node.
+JOIN = "join"
+DECISION = "decision"
+SYNTHETIC = (CHIP, JOIN, DECISION)
 
 
 def node_styles(n):
     """(border style, label style) for a node box, colour-coded by kind."""
     if n.kind == CHIP:
         return (GREY["dim"], None, False), (PAYLOAD_STYLE[0], None, False)
+    if n.kind in (JOIN, DECISION):
+        return FRAME_STYLE, (SYNTAX["keyword"][0], None, True)
     colour = HOLE_COLOR if n.is_hole else kind_color(n.kind)
     fill = _tint(colour)
     return (colour, fill, False), (colour, fill, True)
 
 
 def node_label(n) -> str:
-    if n.kind == CHIP:
+    if n.kind in (CHIP, JOIN):
         return n.name
+    if n.kind == DECISION:
+        return f"◇ {n.name}"
     spec = KINDS.get(n.kind, {})
     if n.attrs.get("pseudo") in PSEUDO_LABEL:
         return PSEUDO_LABEL[n.attrs["pseudo"]]
@@ -341,23 +384,32 @@ _HEAVY = {0: " ", U: "┃", D: "┃", U | D: "┃", L: "━", R: "━", L | R: "
 # Straight runs only; corners/junctions fall back to the light set.
 _DASHED = {U | D: "╎", U: "╎", D: "╎", L | R: "╌", L: "╌", R: "╌"}
 _DOTTED = {U | D: "┆", U: "┆", D: "┆", L | R: "┄", L: "┄", R: "┄"}
+_HDASH = {U | D: "╏", U: "╏", D: "╏", L | R: "╍", L: "╍", R: "╍"}   # heavy dashed: triggers
 
 _DOUBLE = {0: " ", U: "║", D: "║", U | D: "║", L: "═", R: "═", L | R: "═",
            D | R: "╔", D | L: "╗", U | R: "╚", U | L: "╝",
            U | D | R: "╠", U | D | L: "╣", L | R | D: "╦", L | R | U: "╩",
            U | D | L | R: "╬"}
-_TABLES = {"heavy": _HEAVY, "double": _DOUBLE, "dashed": _DASHED, "dotted": _DOTTED}
+_TABLES = {"heavy": _HEAVY, "double": _DOUBLE, "dashed": _DASHED, "dotted": _DOTTED,
+           "hdash": _HDASH}
 
-_STROKE_RANK = {"heavy": 4, "double": 3, "light": 2, "dashed": 1, "dotted": 0}
+_STROKE_RANK = {"heavy": 4, "double": 3, "light": 2, "hdash": 1, "dashed": 1, "dotted": 0}
 
 # Each arrow kind's source marker in the tree view (its stroke comes from _stroke).
+# A `<->` lane starts in ▶ (its row also gets ◀: ◀──▶ both ways); a permission
+# lane (the a key) starts in its access letter: r read, w write, b borrow.
 SOURCE_MARK = {"->": "●", "~>": "○", "=>": "◆", "!>": "✖", "?>": "◇", "*>": "✱",
-               "<->": "●", "trigger": "◎"}
+               "<->": "▶", "trigger": "◎",
+               "access:r": "r", "access:w": "w", "access:b": "b"}
 
 
 def _stroke(kind: str) -> str:
-    return {"=>": "heavy", "*>": "double", "~>": "dashed", "trigger": "dashed",
-            "?>": "dotted", "]>[": "dotted"}.get(kind, "light")
+    """The stroke an arrow kind draws with: one per kind, so a drawing reads
+    without colour (`->` / `!>` / `<->` share the light stroke and differ in their
+    heads). Triggers are heavy-dashed (╍╏), never the dashed ╌╎ of `~>`."""
+    return {"=>": "heavy", "*>": "double", "~>": "dashed", "trigger": "hdash",
+            "?>": "dotted", "]>[": "dotted", "arm": "dotted",
+            "access": "dotted"}.get(_base_kind(kind), "light")
 
 
 class Canvas:
@@ -425,6 +477,15 @@ class Canvas:
                 drawn |= {a, b}
         return drawn
 
+    def blit(self, other: "Canvas", ox: int, oy: int):
+        """Copy another canvas's cells in at an offset (lines keep their strokes)."""
+        for (x, y), v in other.text.items():
+            self.text[(x + ox, y + oy)] = v
+        for (x, y), v in other.lines.items():
+            self.lines[(x + ox, y + oy)] = list(v)
+        if other.w and other.h:
+            self._grow(ox + other.w - 1, oy + other.h - 1)
+
     def cell(self, x, y):
         if (x, y) in self.text:
             return self.text[(x, y)]
@@ -480,6 +541,7 @@ class _V:
     x: int = 0
     ins: list = field(default_factory=list)
     outs: list = field(default_factory=list)
+    pw: int = 0                                     # a join bar: its width (its ports' span)
 
 
 @dataclass
@@ -498,9 +560,17 @@ class _Layout:
     tracks: list = field(default_factory=list)      # per gap: ({(u, w): track}, n tracks)
     top: list = field(default_factory=list)         # per layer: its y
     tags: dict = field(default_factory=dict)        # node id / (src, dst, kind) → note tag runs
+    # Parallel edges between one pair (`?>` beside `->`): (chain, segment) → its
+    # rank k >= 1 among them, and the channel track it jogs on (its own).
+    dup: dict = field(default_factory=dict)
+    dup_track: dict = field(default_factory=dict)
 
     def centre(self, vid):
-        return self.V[vid].x + self.V[vid].w // 2
+        v = self.V[vid]
+        return v.x + (v.pw or v.w) // 2
+
+    def kind(self, vid) -> str:
+        return "" if self.V[vid].dummy else self.g.nodes[vid].kind
 
 
 @dataclass
@@ -597,9 +667,18 @@ def _layer(lay: _Layout) -> None:
         else:
             dag.append((e.src, e.dst, e, False))
 
-    # Longest-path layering (Kahn order).
+    # Longest-path layering (Kahn order). A join bar is as wide as its ports need,
+    # its label beside it.
+    deg_in, deg_out = {i: 0 for i in ids}, {i: 0 for i in ids}
+    for e in lay.edges:
+        deg_out[e.src] += 1
+        deg_in[e.dst] += 1
     for i in ids:
-        V[i] = _V(i, len(lay.labels[i]) + 4)
+        if lay.g.nodes[i].kind == JOIN:
+            pw = max(2 * max(deg_in[i], deg_out[i]) + 1, 5)
+            V[i] = _V(i, pw + 1 + len(lay.labels[i]), pw=pw)
+        else:
+            V[i] = _V(i, len(lay.labels[i]) + 4)
     indeg = {i: 0 for i in ids}
     down = {i: [] for i in ids}
     for a, b, _, _ in dag:
@@ -627,6 +706,16 @@ def _layer(lay: _Layout) -> None:
             V[u].outs.append(w)
             V[w].ins.append(u)
         lay.chains.append((e, rev, chain))
+
+    # Edges of different kinds between one pair keep a stroke each: every one
+    # after the first is offset (its own ports and track) instead of drawn over it.
+    seen = {}
+    for ci, (_e, rev, chain) in enumerate(lay.chains):
+        for si, (u, w) in enumerate(zip(chain, chain[1:])):
+            k = seen.get((u, w, rev), 0)
+            if k:
+                lay.dup[(ci, si)] = k
+            seen[(u, w, rev)] = k + 1
 
     nlayers = max((v.layer for v in V.values()), default=0) + 1
     lay.layers = [[] for _ in range(nlayers)]
@@ -707,14 +796,17 @@ def _ports(lay: _Layout) -> None:
     V, centre = lay.V, lay.centre
 
     # Incoming edges spread across the box width so each arrowhead is distinct.
-    def in_ports(vid):
-        v, nbrs = V[vid], V[vid].ins
+    def spread(vid, nbrs):
+        v = V[vid]
         if v.dummy or len(nbrs) <= 1:
             return {n: centre(vid) for n in nbrs}
-        inner = max(v.w - 2, 1)
+        inner = max((v.pw or v.w) - 2, 1)
         srt = sorted(nbrs, key=centre)
         return {n: v.x + 1 + (k * (inner - 1)) // max(len(srt) - 1, 1)
                 for k, n in enumerate(srt)}
+
+    def in_ports(vid):
+        return spread(vid, V[vid].ins)
 
     # Outgoing edges leave from the box centre (a fan-out draws as one ┬ tree); a
     # back edge (drawn upward) gets its own out-port right of centre, so it never
@@ -723,6 +815,8 @@ def _ports(lay: _Layout) -> None:
 
     def out_ports(vid):
         outs = V[vid].outs
+        if lay.kind(vid) == JOIN:                 # a fork: each branch leaves the bar
+            return spread(vid, outs)
         fwd = [n for n in outs if (vid, n) not in back_seg]
         bk = sorted((n for n in outs if (vid, n) in back_seg), key=centre)
         res = {n: centre(vid) for n in fwd}
@@ -741,7 +835,7 @@ def _ports(lay: _Layout) -> None:
     # straight down instead of jogging a column or two sideways.
     def inside(vid, x):
         v = V[vid]
-        return not v.dummy and v.x + 1 <= x <= v.x + v.w - 2
+        return not v.dummy and v.x + 1 <= x <= v.x + (v.pw or v.w) - 2
 
     for u in V:
         for w in V[u].outs:
@@ -772,7 +866,12 @@ def _route(lay: _Layout) -> None:
             t = _first_fit(cols, lo, hi)
             for u, w, _, _ in segs:
                 assign[(u, w)] = t
-        lay.tracks.append((assign, len(cols)))
+        extra = 0
+        for (ci, si) in sorted(lay.dup):          # an offset parallel edge: its own track
+            if V[lay.chains[ci][2][si]].layer == i:
+                lay.dup_track[(ci, si)] = len(cols) + extra
+                extra += 1
+        lay.tracks.append((assign, len(cols) + extra))
 
     y = 0
     for i in range(len(layers)):
@@ -782,24 +881,60 @@ def _route(lay: _Layout) -> None:
             y += lay.tracks[i][1] + 2
 
 
+def _head(kind: str, up: bool = False) -> str:
+    """An arrowhead: ✖ for `!>` (an error reads without colour), a permission
+    edge's access letter (r / w / b), else ▼ / ▲."""
+    if kind == "!>":
+        return "✖"
+    if kind.startswith("access:"):
+        return kind[-1]
+    return "▲" if up else "▼"
+
+
+def _free_port(v, x: int, k: int, used: set) -> int:
+    """A port near x on vertex v for the k-th parallel edge: off the ports in use."""
+    lo, hi = v.x + 1, v.x + (v.pw or v.w) - 2
+    for d in (2 * k, -2 * k, 2 * k + 1, -2 * k - 1, k, -k):
+        if lo <= x + d <= hi and x + d not in used:
+            return x + d
+    return min(max(x + k, lo), hi)
+
+
 def _draw(lay: _Layout) -> Canvas:
     """Edges, then boxes over them, then edge labels where they fit, then the
     grid of unconnected nodes."""
     V, top, g = lay.V, lay.top, lay.g
     cv = Canvas()
 
+    def is_join(vid):
+        return lay.kind(vid) == JOIN
+
     # Edges first (boxes overwrite line cells they touch).
     heads = []
     edge_labels = []   # (x, y, text) beside an arrowhead
-    for e, rev, chain in lay.chains:
+    bar_style = {}     # join bar → the style of the edges it joins
+    for ci, (e, rev, chain) in enumerate(lay.chains):
         style = edge_style(e.kind)
         for k, (u, w) in enumerate(zip(chain, chain[1:])):
             i = V[u].layer
             assign, _n = lay.tracks[i]
             sx, dx = lay.out_port[u][w], lay.in_port[w][u]
+            ty = top[i] + BOX_H + 1 + assign.get((u, w), 0)
+            if (ci, k) in lay.dup:                  # a parallel edge: offset ports, own track
+                n = lay.dup[(ci, k)]
+                if not V[u].dummy:
+                    sx = _free_port(V[u], sx, n, set(lay.out_port[u].values()))
+                if not V[w].dummy:
+                    dx = _free_port(V[w], dx, n, set(lay.in_port[w].values()))
+                ty = top[i] + BOX_H + 1 + lay.dup_track[(ci, k)]
             y0 = top[i] + BOX_H if not V[u].dummy else top[i]
             y1 = top[i + 1] - 1 if not V[w].dummy else top[i + 1]
-            ty = top[i] + BOX_H + 1 + assign.get((u, w), 0)
+            if is_join(u):                          # lines meet a join bar on its middle row
+                y0 = top[i] + 1
+                bar_style.setdefault(u, (style, e.kind))
+            if is_join(w):
+                y1 = top[i + 1] + 1
+                bar_style.setdefault(w, (style, e.kind))
             if V[u].dummy:
                 cv.path([(sx, top[i]), (sx, top[i] + BOX_H)], e.kind, style)
                 y0 = top[i] + BOX_H
@@ -816,16 +951,16 @@ def _draw(lay: _Layout) -> Canvas:
             # An inline note about this flow's line sits beside its head (a chip
             # remembers the flow it splits, so the tag follows into the chip half).
             src = g.nodes[e.src].attrs.get("src", e.src) if g.nodes[e.src].kind == CHIP else e.src
-            for text, style in lay.tags.get((src, e.dst, e.kind), ()):
+            for text, style_ in lay.tags.get((src, e.dst, e.kind), ()):
                 if last and not rev:
-                    edge_labels.append((dx, y1, text, style))
+                    edge_labels.append((dx, y1, text, style_))
                 elif first and rev:
-                    edge_labels.append((sx, y0, text, style))
-            into_chip = g.nodes[chain[-1]].kind == CHIP if not rev else False
+                    edge_labels.append((sx, y0, text, style_))
+            into_chip = g.nodes[chain[-1]].kind in (CHIP, JOIN) if not rev else False
             if last and not rev and not into_chip:
-                heads.append((dx, y1, "▼", style))
-            if first and rev:
-                heads.append((sx, y0, "▲", style))
+                heads.append((dx, y1, _head(e.kind), style))
+            if first and rev and g.nodes[chain[0]].kind != JOIN:
+                heads.append((sx, y0, _head(e.kind, up=True), style))
             if e.kind == "<->":
                 if first and not rev:
                     heads.append((sx, y0, "▲", style))
@@ -835,9 +970,14 @@ def _draw(lay: _Layout) -> Canvas:
         cv.put(x, y, ch, st)
 
     for vid, v in V.items():
-        if not v.dummy:
-            _draw_box(cv, v.x, top[v.layer], v.w, lay.labels[vid], g.nodes[vid])
-            _colour_tags(cv, v.x, top[v.layer], g.nodes[vid], lay.tags.get(vid))
+        if v.dummy:
+            continue
+        if is_join(vid):
+            _draw_join(cv, v, top[v.layer], lay.labels[vid], set(lay.in_port[vid].values()),
+                       set(lay.out_port[vid].values()), *bar_style.get(vid, (None, "->")))
+            continue
+        _draw_box(cv, v.x, top[v.layer], v.w, lay.labels[vid], g.nodes[vid])
+        _colour_tags(cv, v.x, top[v.layer], g.nodes[vid], lay.tags.get(vid))
 
     # Edge labels (e.g. state-machine triggers) beside their arrowhead, right side
     # first, then left; skipped where they would overwrite anything.
@@ -863,6 +1003,17 @@ def _draw(lay: _Layout) -> Canvas:
     return cv
 
 
+def _draw_join(cv: Canvas, v, y, label, ins: set, outs: set, style, kind):
+    """A join bar on its middle row: ━ with a junction where each joined edge
+    meets it (┷ in, ┯ out, ┿ both; ┻ ┳ ╋ for heavy `=>` edges), its label after."""
+    heavy = _stroke(kind) == "heavy"
+    marks = {(True, True): "╋" if heavy else "┿", (True, False): "┻" if heavy else "┷",
+             (False, True): "┳" if heavy else "┯", (False, False): "━"}
+    bar = "".join(marks[(x in ins, x in outs)] for x in range(v.x, v.x + v.pw))
+    cv.put(v.x, y + 1, bar, style)
+    cv.put(v.x + v.pw + 1, y + 1, label, LABEL_STYLE)
+
+
 # A payload drawn as code: glyphs with their kind's brackets and an off-white
 # name, calls with coloured ( ), the rest by syntax role.
 _PAYLOAD_TOKEN = re.compile(r"""
@@ -883,14 +1034,20 @@ _GLYPH_KIND = {"[": "service", "{": "data", "<": "event", "(": "actor", "|": "st
 
 def glyph_runs(tok: str, kind: str, bold: bool = False, bg=None) -> list:
     """A glyph as runs: lead (~ *) and brackets in the kind's colour, the name
-    off-white (ui.glyph_name)."""
+    off-white (ui.glyph_name). Brackets are the kind's own (`[[` `]]` for an
+    alias, a dialect's `<<` `>>`), else one character each side."""
     lead = tok[:len(tok) - len(tok.lstrip("~*"))]
     body = tok[len(lead):]
     colour = (kind_color(kind), bg, bold)
-    if len(body) < 2:
+    spec = KINDS.get(kind, {})
+    op, cl = spec.get("open") or "", spec.get("close") or ""
+    if not (op and cl and len(body) > len(op) + len(cl) - 1
+            and body.startswith(op) and body.endswith(cl)):
+        op, cl = body[:1], body[-1:]
+    if len(body) < len(op) + len(cl):
         return [(tok, colour)]
-    return [(lead + body[0], colour), (body[1:-1], (GLYPH_NAME, bg, bold)),
-            (body[-1], colour)]
+    return [(lead + op, colour), (body[len(op):len(body) - len(cl)], (GLYPH_NAME, bg, bold)),
+            (cl, colour)]
 
 
 def payload_runs(text: str) -> list:
@@ -931,12 +1088,82 @@ def payload_runs(text: str) -> list:
     return runs
 
 
+# Modifiers (the m key): compact chips — `@timeout 30s ×3`, `^10k drop`, `!`, `?`.
+# The access modifiers and `@owns` are not repeated: the a key and the block
+# frames draw them.
+HIDDEN_MODS = {"read", "write", "borrow", "owns"}
+MOD_ARG_MAX = 18                                # a longer argument is cut with …
+_MOD_TOKEN = re.compile(r"(?P<modifier>@[\w-]+)|(?P<cardinality>[×^]\S+)|(?P<word>[^\s@×^]+|[@×^])")
+
+
+def mod_text(pair) -> str:
+    """One modifier as chip text: ("timeout", "30s") → `@timeout 30s`, ("×", "3")
+    → `×3`, ("^", "10k@drop") → `^10k drop`, ("!", None) → `!`, (".", "age") → `.age`."""
+    name, arg = pair
+    arg = " ".join(str(arg).split()) if arg is not None else None
+    if arg and len(arg) > MOD_ARG_MAX:
+        arg = arg[:MOD_ARG_MAX - 1] + "…"
+    if name in ("×", "^", "."):
+        return name + (arg or "").replace("@", " ")
+    if name in ("!", "?"):
+        return name
+    return f"@{name} {arg}" if arg else f"@{name}"
+
+
+def mods_text(mods) -> str:
+    """A node's / edge's modifiers as one chip text ("" when none are shown)."""
+    return " ".join(mod_text(p) for p in mods or () if p[0] not in HIDDEN_MODS)
+
+
+def mod_runs(text: str) -> list:
+    """Modifier chip text as runs: `@name` in syntax.modifier, `×N` / `^N` in
+    syntax.cardinality, arguments in the payload colour."""
+    runs, last = [], 0
+    for m in _MOD_TOKEN.finditer(text):
+        if m.start() > last:
+            runs.append((text[last:m.start()], PAYLOAD_STYLE))
+        role = m.lastgroup
+        runs.append((m.group(), SYNTAX[role] if role in SYNTAX else PAYLOAD_STYLE))
+        last = m.end()
+    if last < len(text):
+        runs.append((text[last:], PAYLOAD_STYLE))
+    return runs
+
+
+def _payload_is_mods(e) -> bool:
+    """A payload that is only the edge's modifiers (a state transition keeps its
+    `@timeout(1d)` / `×3` as payload text too): not repeated beside the mods."""
+    if not e.mods or not e.payload:
+        return False
+    rest = render.MODIFIER_RE.sub(" ", e.payload)
+    rest = re.sub(r"×\s*\w+|\bx(?:\d+|N)\b|\^\S+|(?<!\S)[!?](?!\S)", " ", rest)
+    return not rest.strip()
+
+
+def chip_parts(e, payloads: bool, mods: bool):
+    """(payload, modifiers) an edge's chip shows — each None when not shown."""
+    payload = e.payload if payloads else None
+    mtext = mods_text(e.mods) if mods else ""
+    if payload and mtext and _payload_is_mods(e):
+        payload = None
+    return payload or None, mtext or None
+
+
+def chip_text(payload, mods) -> str:
+    """The chip as one line of text: `payload ┆ mods` (either part may be absent)."""
+    return " ┆ ".join(p for p in (payload, mods) if p)
+
+
 def label_runs(n, bold: bool = True, bg=None) -> list:
     """A node's label as runs: brackets in the kind's colour, the name off-white.
     A dialect's custom label or a pseudo-state stays one run in the kind colour."""
     spec = KINDS.get(n.kind, {})
     label = node_label(n)
     colour = (HOLE_COLOR if n.is_hole else kind_color(n.kind), bg, bold)
+    if n.kind == DECISION:                      # ◇ {Request}.kind: the header as code
+        return [("◇ ", (SYNTAX["keyword"][0], bg, True))] + payload_runs(n.name)
+    if n.kind == JOIN:
+        return [(label, LABEL_STYLE)]
     if n.kind == CHIP or "label" in spec or n.attrs.get("pseudo") in PSEUDO_LABEL:
         return [(label, colour)]
     if not spec.get("open"):                    # a state: just its name
@@ -963,8 +1190,24 @@ def _colour_tags(cv: Canvas, x, y, n, runs):
         tx += len(text)
 
 
+def chip_runs(n) -> list:
+    """A chip's content: a branch arm's label, or the payload (as code) and the
+    edge's modifiers, `┆`-separated."""
+    if n.attrs.get("arm"):
+        return [(n.name, (EDGE_COLOR["arm"], None, True))]
+    payload, mods = n.attrs.get("payload"), n.attrs.get("mods")
+    if payload is None and mods is None:
+        return payload_runs(n.name)
+    runs = payload_runs(payload) if payload else []
+    if payload and mods:
+        runs.append((" ┆ ", (GREY["dim"], None, False)))
+    return runs + (mod_runs(mods) if mods else [])
+
+
 def _draw_box(cv: Canvas, x, y, w, label, n):
-    if n.kind == CHIP:
+    if n.kind == DECISION:                      # a branch's choice: ╱──╲ ◇ … ╲──╱
+        tl, tr, bl, br, h, s = "╱", "╲", "╲", "╱", "─", "│"
+    elif n.kind == CHIP:
         tl, tr, bl, br, h, s = "╭", "╮", "╰", "╯", "┄", "┆"
     elif n.is_hole:
         tl, tr, bl, br, h, s = "┌", "┐", "└", "┘", "┄", "┆"
@@ -981,7 +1224,7 @@ def _draw_box(cv: Canvas, x, y, w, label, n):
     cv.put(x, y + 1, s + " ", border)
     cv.put(x + 2, y + 1, label.ljust(w - 4), text)
     if n.kind == CHIP:                          # a payload reads as the code it is
-        _put_runs(cv, x + 2, y + 1, payload_runs(n.name))
+        _put_runs(cv, x + 2, y + 1, chip_runs(n))
     else:                                       # brackets in colour, name off-white
         _put_runs(cv, x + 2, y + 1, label_runs(n, bg=text[1]))
     cv.put(x + w - 2, y + 1, " " + s, border)
@@ -1014,65 +1257,402 @@ def _walk(g):
         queue += list(cur.expansions.values())
 
 
-def with_chips(g, payloads: bool = False, triggers=(), marks: list | None = None):
+def drawn_join(g, e, side: str):
+    """The index into g.joins of the joined endpoint the edge leaves ("src") or
+    enters ("dst") when that join is drawn, else None. A `*>` broadcast's target
+    list (`*> [A] & [B]`) is not: the double fan-out already says "all of them"."""
+    idx = e.src_join if side == "src" else e.dst_join
+    joins = getattr(g, "joins", None) or []
+    if idx is None or not 0 <= idx < len(joins):
+        return None
+    if side == "dst" and e.kind == "*>" and joins[idx].kind == "&":
+        return None
+    return idx
+
+
+def access_kind(a) -> str:
+    """A permission edge's kind: `access:r` read, `access:w` write, `access:b` borrow."""
+    return "access:" + a.mode[0]
+
+
+def with_chips(g, payloads: bool = False, triggers=(), marks: list | None = None,
+               mods: bool = False, access: bool = False):
     """The graph as the graph view draws it: each `: payload` as a chip splitting
     its edge (src → chip → dst), and each trigger whose event and owner are both
     here as an edge event ⇢ owner. Returns g itself when there is nothing to add.
     With `marks` (a list), each chip shows only a marker letter and the payload is
-    appended to marks as (letter, payload) — for a panel beside the drawing."""
+    appended to marks as (letter, payload) — for a panel beside the drawing.
+    Joined endpoints (`&` `&?` `/`) fork from / meet at a join bar; `mods` adds an
+    edge's modifiers to its chip; `access` draws the permission graph as dotted
+    edges principal → store, headed r / w / b."""
     extra = [t for t in triggers if t.event in g.nodes and t.owner in g.nodes]
-    if not extra and not (payloads and any(e.payload for e in g.edges)):
+    perms = [a for a in (getattr(g, "access", None) or []) if access
+             and a.principal in g.nodes and a.store in g.nodes and a.principal != a.store]
+    chips = [any(chip_parts(e, payloads, mods)) for e in g.edges]
+    joined = any(drawn_join(g, e, "src") is not None or drawn_join(g, e, "dst") is not None
+                 for e in g.edges)
+    if not extra and not perms and not joined and not any(chips):
         return g
     nodes, edges = dict(g.nodes), []
+    finals = set()                              # a final segment shared through a join
+
+    def join_node(idx):
+        jid = f"\0j{idx}"
+        if jid not in nodes:
+            nodes[jid] = render.Node(id=jid, name=g.joins[idx].kind, kind=JOIN)
+        return jid
+
     for k, e in enumerate(g.edges):
-        if payloads and e.payload and e.src != e.dst:
+        src = e.src
+        sj, dj = drawn_join(g, e, "src"), drawn_join(g, e, "dst")
+        if sj is not None:
+            jid = join_node(sj)
+            edges.append(replace(e, dst=jid, label=None, payload=None, mods=[]))
+            src = jid
+        if dj is not None:
+            jid = join_node(dj)
+            edges.append(replace(e, src=src, dst=jid, label=None, payload=None, mods=[]))
+            src = jid
+        if src != e.src and (src, e.dst, e.kind) in finals:
+            continue                            # this joined segment is drawn already
+        if src != e.src:
+            finals.add((src, e.dst, e.kind))
+        payload, mtext = chip_parts(e, payloads, mods)
+        if (payload or mtext) and e.src != e.dst:
             cid = f"\0p{k}"
-            name = e.payload
+            name = chip_text(payload, mtext)
+            attrs = {"src": e.src, "payload": payload, "mods": mtext}
             if marks is not None:
-                name = _letter(len(marks))
-                marks.append((name, e.payload))
-            nodes[cid] = render.Node(id=cid, name=name, kind=CHIP, attrs={"src": e.src})
-            edges += [replace(e, dst=cid, label=None, payload=None),
+                letter = _letter(len(marks))
+                marks.append((letter, name))
+                name, attrs = letter, {"src": e.src}
+            nodes[cid] = render.Node(id=cid, name=name, kind=CHIP, attrs=attrs)
+            edges += [replace(e, src=src, dst=cid, label=None, payload=None),
                       replace(e, src=cid, payload=None)]
         else:
-            edges.append(e)
+            edges.append(replace(e, src=src) if src != e.src else e)
     seen = set()
     for t in extra:
         if (t.event, t.owner) not in seen:
             seen.add((t.event, t.owner))
             edges.append(render.Edge(src=t.event, dst=t.owner, kind="trigger"))
+    for a in perms:
+        edges.append(render.Edge(src=a.principal, dst=a.store, kind=access_kind(a), line=a.line))
     return replace(g, nodes=nodes, edges=edges)
+
+
+def writer_badges(g) -> dict:
+    """{store id: "1w" | "Nw"}: how many principals may write each store (the a
+    key) — a single writer owns it, several share it."""
+    writers = {}
+    for a in getattr(g, "access", None) or []:
+        if a.mode == "write" and a.store and a.principal:
+            writers.setdefault(a.store, set()).add(a.principal)
+    return {sid: f"{len(ps)}w" for sid, ps in writers.items()}
+
+
+class Rule(str):
+    """A part title drawn as a section divider (`── L2 · Payments ─────`) rather
+    than an expansion's `── [X] := { … } ──` heading."""
+
+
+def section_name(sec) -> str:
+    """`--- L2: Payments ---` → `L2 · Payments`; a topic header is its title."""
+    return f"{sec.level} · {sec.title}" if sec.level else sec.title
+
+
+def node_lines(g, notes: bool = True) -> dict:
+    """{node id: line}: where each node is first written, as near as the graph
+    tells — the earliest line any edge, note (`notes`: block comments too, the
+    line above), access, join, block or its own `:= { … }` names it on; for a node nothing names (a bare declaration),
+    the earliest line of any node after it (nodes are kept in first-seen order),
+    else the previous named node's."""
+    seen = {}
+
+    def at(nid, line):
+        if nid and line and (nid not in seen or line < seen[nid]):
+            seen[nid] = line
+
+    for e in g.edges:
+        at(e.src, e.line)
+        at(e.dst, e.line)
+    for n in getattr(g, "notes", []) or []:    # a block comment sits just above
+        if notes or getattr(n, "kind", "block") == "inline":
+            at(n.node, n.line)
+    for a in getattr(g, "access", []) or []:
+        at(a.principal, a.line)
+        at(a.store, a.line)
+    for j in getattr(g, "joins", []) or []:
+        for m in j.members:
+            at(m, j.line)
+    for b in getattr(g, "blocks", []) or []:   # a header's refs; a member no flow names
+        for m in list(b.refs) + [m for m in b.members if m not in seen]:
+            at(m, b.lines[0])
+    named = {nid: line for nid, line in seen.items()   # what bounds the nodes before it
+             if nid in g.nodes and g.nodes[nid].kind != "alias"}
+    for nid, sub in g.expansions.items():      # `X := { … }` names X above its body
+        lines = [e.line for cur in _walk(sub) for e in cur.edges if e.line]
+        if lines:
+            at(nid, min(lines))
+    # A node only its own `:= { … }` / `state` body names (an alias, a machine's
+    # owner) may be registered out of order: it bounds nothing.
+    out, bound = {}, None
+    for nid in reversed(list(g.nodes)):         # unnamed: no later than any later node
+        if nid in seen:
+            out[nid] = seen[nid]
+        elif bound is not None:
+            out[nid] = bound
+        if nid in named:
+            bound = named[nid] if bound is None else min(bound, named[nid])
+    prev = None
+    for nid in g.nodes:                         # nothing after it: the previous one's
+        prev = named.get(nid, prev)
+        if nid not in out and prev is not None:
+            out[nid] = prev
+    return out
+
+
+def section_of(secs, line) -> int:
+    """The index of the section a line is in (-1: before the first one)."""
+    k = -1
+    for i, sec in enumerate(secs or ()):
+        if line and sec.line <= line:
+            k = i
+    return k
+
+
+def edge_blocks(g) -> dict:
+    """{edge index: block index}: the innermost control block each edge is drawn
+    in — the block whose body holds its line, or whose `}` it continues (a `!>`
+    compensation, Block.after)."""
+    out = {}
+    blocks = getattr(g, "blocks", None) or []
+    for k, e in enumerate(g.edges):
+        key, best = (e.src, e.dst, e.kind), None
+        for bi, b in enumerate(blocks):
+            lo, hi = b.lines
+            if key in b.edges and (lo <= e.line <= hi or not e.line):
+                if best is None or hi - lo < blocks[best].lines[1] - blocks[best].lines[0]:
+                    best = bi
+        if best is None:
+            for bi, b in enumerate(blocks):
+                if key in b.after and e.line >= b.lines[1]:
+                    if best is None or b.lines[1] > blocks[best].lines[1]:
+                        best = bi
+        if best is not None:
+            out[k] = best
+    return out
+
+
+BLOCK_GLYPH = {"loop": "↺", "parallel": "∥", "branch": "◇", "scope": "□", "owns": "□"}
+
+
+def block_title(b) -> str:
+    """`↺ loop @while |Q|.nonempty`, `∥ parallel @all`, `◇ branch on {Request}.kind`,
+    `□ checkout`, `□ [Handler] @owns |Conn|`."""
+    word = {"loop": "loop ", "parallel": "parallel ", "branch": "branch on "}.get(b.kind, "")
+    return f"{BLOCK_GLYPH.get(b.kind, '□')} {word}{b.header}".rstrip()
+
+
+def block_title_runs(b) -> list:
+    """The title as runs: glyph and keyword as code keywords, the header as code."""
+    text = block_title(b)
+    word = {"loop": "loop", "parallel": "parallel", "branch": "branch on"}.get(b.kind, "")
+    lead = text[:2 + len(word)]
+    return [(lead, SYNTAX["keyword"])] + payload_runs(text[len(lead):])
+
+
+@dataclass
+class _Part:
+    """One drawing part of a graph: its title, the sub-graph of its free flows
+    (and unconnected nodes), and the control blocks drawn as frames under it."""
+    title: str
+    graph: object
+    blocks: list
+
+
+def graph_parts(g, top: bool = True, triggers=(), access: bool = False) -> list:
+    """The graph split for drawing. Flows inside a control block are drawn in
+    that block's frame, not in the main layout. A top-level graph with `---`
+    sections is split by them: each flow goes to the section its line is in,
+    each node to every section that draws it (an unconnected node: the section
+    it is first written in), each block to the section of its header."""
+    eb = edge_blocks(g)
+    blocks = getattr(g, "blocks", None) or []
+    secs = (getattr(g, "sections", None) or []) if top else []
+    est = node_lines(g) if secs else {}
+    in_block = set()
+    for k, bi in eb.items():
+        in_block |= {g.edges[k].src, g.edges[k].dst}
+    for b in blocks:
+        in_block |= set(b.members) | set(b.refs)
+    free = [k for k in range(len(g.edges)) if k not in eb]
+    linked = {g.edges[k].src for k in free} | {g.edges[k].dst for k in free}
+    groups = {}                                 # section index → [edges, nodes, blocks, access]
+
+    def grp(i):
+        return groups.setdefault(i, [[], set(), [], []])
+
+    for k in free:
+        e = g.edges[k]
+        i = section_of(secs, e.line or est.get(e.src, 0))
+        grp(i)[0].append(e)
+        grp(i)[1] |= {e.src, e.dst}
+    for nid in g.nodes:
+        if nid not in linked and nid not in in_block:
+            grp(section_of(secs, est.get(nid, 0)))[1].add(nid)
+    for bi, b in enumerate(blocks):
+        if b.parent is None:
+            grp(section_of(secs, b.lines[0]))[2].append(bi)
+    for a in (getattr(g, "access", None) or []) if access else ():
+        if a.principal in g.nodes and a.store in g.nodes:
+            i = section_of(secs, a.line or est.get(a.store, 0))
+            grp(i)[1] |= {a.principal, a.store}
+            grp(i)[3].append(a)
+    parts = []
+    for i in sorted(groups):
+        edges, nodes, bis, acc = groups[i]
+        nodes |= {t.event for t in triggers if t.owner in nodes and t.event in g.nodes}
+        sub = replace(g, nodes={nid: n for nid, n in g.nodes.items() if nid in nodes},
+                      edges=edges, access=acc)
+        title = Rule(section_name(secs[i])) if i >= 0 else ""
+        parts.append(_Part(title, sub, bis))
+    if not parts:
+        parts.append(_Part("", replace(g, nodes={}, edges=[], access=[]), []))
+    return parts
+
+
+def _frame_content(g, bi: int, eb: dict, draw) -> "Canvas":
+    """What a block's frame holds: its own flows laid out (a branch: a ◇ decision
+    node with each arm's label chip on the way to the arm's entry), then its
+    nested blocks' frames."""
+    b = g.blocks[bi]
+    kids = [ci for ci, c in enumerate(g.blocks) if c.parent == bi]
+    nested = set()
+    for ci in kids:
+        nested |= set(g.blocks[ci].members)
+    own = [g.edges[k] for k, owner in eb.items() if owner == bi]
+    keep = {e.src for e in own} | {e.dst for e in own}
+    keep |= set(b.members) - nested
+    nodes = {nid: n for nid, n in g.nodes.items() if nid in keep}
+    edges = list(own)
+    if b.kind == "branch":
+        dec = f"\0b{bi}"
+        name = b.header if b.header else "branch"
+        nodes = {dec: render.Node(id=dec, name=name, kind=DECISION), **nodes}
+        refs = set(b.refs)
+        edges = [replace(e, src=dec) if e.src in refs and e.key in b.after else e
+                 for e in edges]
+        for ai, (label, ids) in enumerate(b.arm_nodes):
+            if not ids or ids[0] not in nodes:
+                continue
+            cid = f"\0a{bi}.{ai}"
+            nodes[cid] = render.Node(id=cid, name=label, kind=CHIP, attrs={"arm": True})
+            edges += [render.Edge(src=dec, dst=cid, kind="arm"),
+                      render.Edge(src=cid, dst=ids[0], kind="arm")]
+    sub = replace(g, nodes=nodes, edges=edges, blocks=[], access=[])
+    own_cv = draw(sub) if nodes else Canvas()
+    frames = [_framed(_frame_content(g, ci, eb, draw), block_title_runs(g.blocks[ci]))
+              for ci in kids]
+    return _stack(own_cv, frames)
+
+
+def _framed(content: "Canvas", title_runs: list) -> "Canvas":
+    """A titled frame around a drawing: ╭╌ title ╌╌╮ / ╎ … ╎ / ╰╌╌╌╯ (light dashed)."""
+    tw = row_len(title_runs)
+    inner = max(content.w, tw + 2)
+    w = inner + 4
+    cv = Canvas()
+    cv.put(0, 0, "╭╌ ", FRAME_STYLE)
+    x = _put_runs(cv, 3, 0, title_runs)
+    cv.put(x, 0, " " + "╌" * (w - 2 - x) + "╮", FRAME_STYLE)
+    for y in range(1, content.h + 1):
+        cv.put(0, y, "╎", FRAME_STYLE)
+        cv.put(w - 1, y, "╎", FRAME_STYLE)
+    cv.blit(content, 2 + (inner - content.w) // 2, 1)
+    cv.put(0, content.h + 1, "╰" + "╌" * (w - 2) + "╯", FRAME_STYLE)
+    return cv
+
+
+FRAME_GAP = 2                                   # columns between frames in a row
+
+
+def _stack(main: "Canvas", frames: list) -> "Canvas":
+    """main, with the frames in rows under it (left to right, wrapped at the
+    wider of main and ISOLATED_WRAP); main is centred over a wider frame row."""
+    if not frames:
+        return main
+    wrap = max(main.w, ISOLATED_WRAP)
+    placed, x, y, row_h, width = [], 0, 0, 0, 0
+    for f in frames:
+        if x and x + f.w > wrap:
+            x, y, row_h = 0, y + row_h + 1, 0
+        placed.append((f, x, y))
+        width = max(width, x + f.w)
+        x += f.w + FRAME_GAP
+        row_h = max(row_h, f.h)
+    out = Canvas()
+    out.blit(main, max(width - main.w, 0) // 2, 0)
+    top = main.h + 1 if main.h else 0
+    for f, fx, fy in placed:
+        out.blit(f, fx, top + fy)
+    return out
 
 
 def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None = None,
              payloads: bool = False, triggers=(), fit: int | None = None,
-             marks: list | None = None):
+             marks: list | None = None, mods: bool = False, access: bool = False,
+             _secs=None, _level=None):
     """Yield (title, graph, canvas) for the graph and its expansions up to depth.
     `payloads` draws each flow's payload as a chip on its edge; `triggers` (the
     document's event → state triggers) draw as dashed edges event ⇢ owner. With
     `fit` (columns) and `marks` (a list), a section wider than `fit` that has chips
     is laid out again with marker-letter chips — kept (and its payloads appended
-    to marks) when that fits, or is at least a fifth narrower."""
+    to marks) when that fits, or is at least a fifth narrower.
+
+    A top-level graph with `--- sections ---` yields one part per section (its
+    title a Rule); control blocks are drawn as titled frames under their part's
+    flows. `mods` puts modifiers on chips (edges) and after labels (nodes);
+    `access` draws the permission graph."""
     show = set(g.expansions) if level < depth else set()
     collapsed = set(g.expansions) - show
-    cv = layout(with_chips(g, payloads, triggers), show, collapsed, tags)
-    if (fit is not None and marks is not None and cv.w > fit and payloads
-            and any(e.payload and e.src != e.dst for e in g.edges)):
-        trial = list(marks)
-        marked = layout(with_chips(g, payloads, triggers, trial), show, collapsed, tags)
-        # Worth it when that fits, or saves at least a fifth of the width.
-        if marked.w < cv.w and (marked.w <= fit or marked.w * 5 <= cv.w * 4):
-            cv, marks[:] = marked, trial
-    yield title, g, cv
+    eb = edge_blocks(g)
+    secs = (getattr(g, "sections", None) or []) if level == 0 else (_secs or [])
+    chipped = (payloads or mods) and any(any(chip_parts(e, payloads, mods)) and e.src != e.dst
+                                         for e in g.edges)
+
+    def draw_all(part, chip_marks):
+        def draw(sub):
+            return layout(with_chips(sub, payloads, triggers, chip_marks, mods, access),
+                          show, collapsed, tags)
+        main = draw(part.graph) if part.graph.nodes else Canvas()
+        frames = [_framed(_frame_content(g, bi, eb, draw), block_title_runs(g.blocks[bi]))
+                  for bi in part.blocks]
+        return _stack(main, frames)
+
+    for part in graph_parts(g, level == 0, triggers, access):
+        cv = draw_all(part, None)
+        if fit is not None and marks is not None and cv.w > fit and chipped:
+            trial = list(marks)
+            marked = draw_all(part, trial)
+            # Worth it when that fits, or saves at least a fifth of the width.
+            if marked.w < cv.w and (marked.w <= fit or marked.w * 5 <= cv.w * 4):
+                cv, marks[:] = marked, trial
+        yield part.title or title, part.graph, cv
     for nid in g.expansions:
         if nid in show:
-            what = ("state machine" if getattr(g.expansions[nid], "role", "") == "state"
-                    else ":= { … }")
+            sub = g.expansions[nid]
+            what = "state machine" if getattr(sub, "role", "") == "state" else ":= { … }"
             sub_title = f"{node_label(g.nodes[nid])} {what}"
-            if title:
+            lines = [e.line for cur in _walk(sub) for e in cur.edges if e.line]
+            k = section_of(secs, min(lines)) if lines else -1
+            zoom = secs[k].level if k >= 0 and secs[k].level != "L1" else None
+            if zoom and zoom != _level:         # the zoom level it is written at
+                sub_title = f"{zoom} · {sub_title}"
+            if title and not isinstance(title, Rule):
                 sub_title = f"{title}  ›  {sub_title}"
-            yield from sections(g.expansions[nid], depth, sub_title, level + 1, tags,
-                                payloads, triggers, fit, marks)
+            yield from sections(sub, depth, sub_title, level + 1, tags, payloads, triggers,
+                                fit, marks, mods, access, secs, zoom or _level)
 
 
 def trigger_lines(g):
@@ -1162,7 +1742,7 @@ def note_rows(idx: dict, width: int = NOTE_WIDTH):
 
 
 def compose(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = True,
-            width: int | None = None):
+            width: int | None = None, access: bool = False, mods: bool = False):
     """The whole drawing as rows of (text, style) runs, plus its width. Each
     section's canvas is centred within the widest section. `payloads` draws each
     flow's payload as a chip on its edge; `triggers` wires each event to the owner
@@ -1174,14 +1754,22 @@ def compose(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = 
     panel at the top-left, inline notes to one at the bottom-right, and a
     section still too wide because of its payload chips draws each chip as a
     marker letter (┆ a ┆) with the payload beside its letter in that panel.
-    Panels go into empty corners of the drawing when one is big enough."""
+    Panels go into empty corners of the drawing when one is big enough.
+
+    `--- sections ---` split the drawing into parts under divider rules; control
+    blocks are titled frames under their part's flows; joined endpoints fork
+    from / meet at a join bar. `access`: the permission graph (dotted edges
+    principal → store headed r / w / b, a store badged `1w` / `Nw` writers).
+    `mods`: modifier chips on edges (with the payload) and after node labels."""
     idx = note_index(g) if notes != "off" else {}
     tags = {nid: note_tag_runs(node_notes(entries)) for nid, entries in idx.items()
             if node_notes(entries)}
     for key, notes_ in edge_notes(idx).items():    # inline notes ride their flow's edge
         tags[key] = [(" ".join(f"#{num}" for num, _t in notes_), NOTE_STYLE["inline"])]
+    _label_extras(g, tags, access, mods)
     trig_edges = getattr(g, "triggers", []) if triggers else []
-    parts = list(sections(g, depth, tags=tags, payloads=payloads, triggers=trig_edges))
+    parts = list(sections(g, depth, tags=tags, payloads=payloads, triggers=trig_edges,
+                          mods=mods, access=access))
     rows, drawing_w = _section_rows(parts)
     trig = trigger_lines(g) if triggers else []
     if trig:
@@ -1193,9 +1781,9 @@ def compose(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = 
         return natural, natural_w
 
     marks = []
-    if payloads and drawing_w > width:
+    if (payloads or mods) and drawing_w > width:
         parts = list(sections(g, depth, tags=tags, payloads=payloads, triggers=trig_edges,
-                              fit=width, marks=marks))
+                              fit=width, marks=marks, mods=mods, access=access))
         rows, _w = _section_rows(parts)
         if trig:
             rows += [[], [("── triggers ──", TITLE_STYLE)], []]
@@ -1213,18 +1801,46 @@ def compose(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = 
     return rows, max([0] + [row_len(r) for r in rows])
 
 
+def _label_extras(g, tags: dict, access: bool, mods: bool):
+    """Add to the box-label runs (tags): a node's modifiers (mods) and a store's
+    writer badge (access), after any #N note tags."""
+    done = set()
+    for cur in _walk(g):
+        if mods:
+            for nid, n in cur.nodes.items():
+                text = mods_text(n.mods)
+                if text and nid not in done:
+                    done.add(nid)
+                    tags[nid] = list(tags.get(nid, [])) + [(" ", None)] + mod_runs(text)
+        if access:
+            for sid, badge in writer_badges(cur).items():
+                tags[sid] = list(tags.get(sid, [])) + [(" " + badge,
+                                                       (EDGE_COLOR["access"], None, True))]
+
+
 def _section_rows(parts):
     """The sections' canvases as rows, each centred within the widest, under
-    their titles; and that width."""
+    their titles; and that width. A Rule title (a `--- section ---`) is a
+    divider across the drawing: `── L2 · Payments ─────`."""
     width = max([cv.w for _, _, cv in parts] + [len(t) + 6 for t, _, _ in parts if t] + [0])
     rows = []
     for title, _sg, cv in parts:
-        if title:
+        if isinstance(title, Rule):
+            rows += ([[]] if rows else []) + [section_rule(title, width), []]
+        elif title:
             rows += [[], [(f"── {title} ──", TITLE_STYLE)], []]
         pad = (width - cv.w) // 2
         for row in cv.rows():
             rows.append(([(" " * pad, None)] if pad and row else []) + row)
     return rows, width
+
+
+def section_rule(name: str, width: int = 0) -> list:
+    """`── L2 · Payments ──`, the rule run out to `width` columns: the rails in
+    ui.section, the name as code (a glyph in it keeps its colours)."""
+    runs = [("── ", SECTION_STYLE)] + [(t, (st[0], st[1], True)) for t, st in payload_runs(name)]
+    n = row_len(runs)
+    return runs + [(" " + "─" * max(width - n - 1, 2), SECTION_STYLE)]
 
 
 # ---------------------------------------------------------------------------
@@ -1411,6 +2027,13 @@ class TreeRow(NamedTuple):
     collapsed: bool                             # an expansion not shown (▸)
 
 
+class Banner(NamedTuple):
+    """A row that is not a node: a `--- section ---` divider, or a control
+    block's header (`┌─ ↺ loop @while |Q|.nonempty`)."""
+    kind: str                                   # "section" | "block"
+    runs: list
+
+
 def _tree_rows(g, depth: int, level: int = 0, base: int = 0, rows=None, wires=None,
                triggers: bool = True):
     """Flatten a graph (and its expansions, to `depth`) into outline TreeRows and
@@ -1474,7 +2097,8 @@ LEGEND_WIDTH = 100                              # --once legend wrap width
 
 
 def _stroke_sample(kind: str) -> str:
-    return {"heavy": "━", "double": "═", "dashed": "╌", "dotted": "┄"}.get(_stroke(kind), "─")
+    return {"heavy": "━", "double": "═", "dashed": "╌", "dotted": "┄",
+            "hdash": "╍"}.get(_stroke(kind), "─")
 
 
 def _lane_colour(kind: str, src_kind: str) -> str:
@@ -1483,9 +2107,11 @@ def _lane_colour(kind: str, src_kind: str) -> str:
     return EDGE_COLOR[kind] if kind in EDGE_COLOR else kind_color(src_kind)
 
 
-def tree_legend(triggers: bool = True, payloads: bool = False):
-    """Legend rows for the tree + wires view: relations, then lanes by arrow type.
-    Markers whose lanes take their source's colour are drawn neutral."""
+def tree_legend(triggers: bool = True, payloads: bool = False, access: bool = False,
+                mods: bool = False):
+    """Legend rows for the tree + wires view: relations, then lanes by arrow type,
+    then the structure marks (blocks, joins, sections). Markers whose lanes take
+    their source's colour are drawn neutral."""
     dim, mid = (GREY["dim"], None, False), (GREY["mid"], None, False)
     rel = [("tree   ", dim), ("─", TREE_STYLE), (" contains  ", mid)]
     for glyph, word in (("&", "has"), ("*", "spawns"), ("?", "when"), ("$", "from data"),
@@ -1495,14 +2121,28 @@ def tree_legend(triggers: bool = True, payloads: bool = False):
     wires = [("wires  ", dim)]
     for kind, word in ARROW_LEGEND + ((("trigger", "trigger"),) if triggers else ()):
         colour = EDGE_COLOR.get(kind, EDGE_DEFAULT)
-        wires += [(SOURCE_MARK.get(kind, "●") + _stroke_sample(kind), (colour, None, False)),
-                  (f" {word}  ", mid)]
+        sample = ("◀─▶" if kind == "<->"
+                  else SOURCE_MARK.get(kind, "●") + _stroke_sample(kind))
+        wires += [(sample, (colour, None, False)), (f" {word}  ", mid)]
     wires += [("◀", (GREY["light"], None, True)), (" target  ", mid),
               ("─│─", dim), (" crossing  ", mid),
               ("■", (EDGE_DEFAULT, None, False)), (" lane: its source's colour  ", mid)]
+    if access:
+        acc = (EDGE_COLOR["access"], None, False)
+        wires += [("r┄", acc), (" reads  ", mid), ("w┄", acc), (" writes  ", mid),
+                  ("b┄", acc), (" borrows  ", mid),
+                  ("1w", (EDGE_COLOR["access"], None, True)), (" writers  ", mid)]
     if payloads:
         wires += [("┄┆{…}┆", dim), (" payload, on its target row", mid)]
-    return [rel, wires]
+    if mods:
+        wires += [("┆@… ×N┆", (SYNTAX["modifier"][0], None, False)), (" modifiers", mid)]
+    marks = [("blocks ", dim), ("┌─ ↺", FRAME_STYLE), (" loop  ", mid), ("∥", FRAME_STYLE),
+             (" parallel  ", mid), ("◇", FRAME_STYLE), (" branch ", mid),
+             ("‹arm›", (EDGE_COLOR["arm"], None, True)), ("  ", mid), ("□", FRAME_STYLE),
+             (" scope / owns  ", mid), ("◀&", LABEL_STYLE), (" joined: all  ", mid),
+             ("◀&?", LABEL_STYLE), (" race  ", mid), ("◀/", LABEL_STYLE), (" one of  ", mid),
+             ("── ──", SECTION_STYLE), (" section", mid)]
+    return [rel, wires, marks]
 
 
 def wrap_legend(row, cols: int):
@@ -1520,31 +2160,47 @@ def wrap_legend(row, cols: int):
     return out
 
 
-def graph_legend(triggers: bool = True, payloads: bool = False):
-    """Legend row for the graph view: the stroke of each arrow type, then the
-    trigger edge and the payload chip when they are shown."""
+def graph_legend(triggers: bool = True, payloads: bool = False, access: bool = False,
+                 mods: bool = False):
+    """Legend row for the graph view: the stroke and head of each arrow type,
+    then the trigger edge, structure marks (block frames, joins, branch arms),
+    the permission edges, payload and modifier chips when they are shown."""
     dim, mid = (GREY["dim"], None, False), (GREY["mid"], None, False)
     row = [("arrows ", dim)]
     for kind, word in ARROW_LEGEND:
         colour = EDGE_COLOR.get(kind, EDGE_DEFAULT)
-        row += [(_stroke_sample(kind) * 2 + "▼", (colour, None, False)), (f" {word}  ", mid)]
+        sample = ("▲" + _stroke_sample(kind) + "▼" if kind == "<->"
+                  else _stroke_sample(kind) * 2 + _head(kind))
+        row += [(sample, (colour, None, False)), (f" {word}  ", mid)]
     if triggers:
         row += [(_stroke_sample("trigger") * 2 + "▼", edge_style("trigger")), (" trigger  ", mid)]
+    row += [("╭╌ ↺ ∥ ◇ □", FRAME_STYLE), (" block frame  ", mid),
+            ("┄‹arm›┄", (EDGE_COLOR["arm"], None, False)), (" branch arm  ", mid),
+            ("━┷━ &", LABEL_STYLE), (" join: all  ", mid), ("&?", LABEL_STYLE),
+            (" race  ", mid), ("/", LABEL_STYLE), (" one of  ", mid)]
+    if access:
+        acc = (EDGE_COLOR["access"], None, False)
+        row += [("┄┄r", acc), (" read  ", mid), ("┄┄w", acc), (" write  ", mid),
+                ("┄┄b", acc), (" borrow  ", mid),
+                ("1w", (EDGE_COLOR["access"], None, True)), (" writers  ", mid)]
     if payloads:
         row += [("╭┄{…}┄╯", dim), (" payload", mid)]       # the chip's corners, on one row
+    if mods:
+        row += [("┆@… ×N┆", (SYNTAX["modifier"][0], None, False)), (" modifiers", mid)]
     return row
 
 
 KEY_LEGEND = (("t", "tree/graph"), ("n", "notes"), ("e", "triggers"), ("s", "spacing"),
-              ("d", "depth"), ("p", "payloads"), ("l", "lint"), ("c", "centre"),
-              ("g", "home"), ("r", "reload"), ("q", "quit"))
+              ("d", "depth"), ("p", "payloads"), ("m", "mods"), ("a", "access"),
+              ("l", "lint"), ("c", "centre"), ("g", "home"), ("r", "reload"), ("q", "quit"))
 
 
 def keys_legend(state):
     """The hotkeys row for a ViewState; toggles that are on are shown bright."""
     dim, mid = (GREY["dim"], None, False), (GREY["mid"], None, False)
     on = {"t": state.tree, "e": state.show_triggers, "s": state.spaced,
-          "p": state.payloads, "l": state.show_lint, "n": state.notes != "off"}
+          "p": state.payloads, "l": state.show_lint, "n": state.notes != "off",
+          "m": state.show_mods, "a": state.show_access}
     row = [("keys   ", dim)]
     for key, word in KEY_LEGEND:
         bright = on.get(key)
@@ -1559,7 +2215,8 @@ def keys_legend(state):
 
 
 def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
-                 notes: str = "off", payloads: bool = False, width: int | None = None):
+                 notes: str = "off", payloads: bool = False, width: int | None = None,
+                 access: bool = False, mods: bool = False):
     """The drawing as outline rows with a lane gutter; same return shape as compose().
     `triggers`: draw event → state lanes. `spaced`: a blank row between top-level
     units (a root with parts, or the first root after one). `notes`: "markers" tags
@@ -1574,19 +2231,35 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     panel at the bottom-right (each row keeps a `┆a┆` marker, the panel repeats
     it beside the payload / comment); then the callouts move to a panel at the
     top-left (each entity keeps its `#N` tag, the panel's box is headed `#N`).
-    A callout that would be cut off widens (up to CALLOUT_MAX) when there is room."""
+    A callout that would be cut off widens (up to CALLOUT_MAX) when there is room.
+
+    `--- sections ---` divide the outline (a rule before each section's first
+    unit); control blocks are brackets in a gutter left of it, from a header row
+    (`┌─ ↺ loop @while |Q|.nonempty`) to their members' rows, a branch arm's label
+    beside its entry (`‹read›`); a joined flow's taps carry its join (`◀&`).
+    `access`: the permission graph as dotted lanes from each principal (marked r
+    / w / b) into its store, a store badged `1w` / `Nw` writers. `mods`:
+    modifiers after a node's label, and after the payload in a flow's chip."""
     idx = note_index(g) if notes != "off" else {}
     rows, wires = _tree_rows(g, depth, triggers=triggers)
     if not rows:
         return [], 0
+    if access:
+        wires = wires + [(a.principal, a.store, access_kind(a), None, None)
+                         for cur in _walk(g) for a in getattr(cur, "access", None) or []
+                         if a.principal and a.store and a.principal != a.store]
     if spaced:
         rows = _space_units(rows)
+    rows, brackets, arms = _tree_banners(rows, g)
+    xs, x0 = _bracket_cols(brackets)
+    after_label = _tree_extras(g, access, mods, arms)
+    joins = _join_marks(g)
     # Block notes are about a component: tagged on its row, called out on the
     # left. Inline notes are about their line: they trail it on the right, after
     # the payload the line carries — as in the source.
     blocks = {nid: [e for e in es if e[2] == "block"] for nid, es in idx.items()}
     blocks = {nid: es for nid, es in blocks.items() if es}
-    payload_of = _payload_of(g) if payloads else {}
+    payload_of = _payload_of(g, payloads, mods) if (payloads or mods) else {}
     trailing = _trailing_notes(idx) if notes != "off" else {}
     bases = {}
 
@@ -1595,10 +2268,13 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
         rows carry #N tags), `right`: the right margin relocated."""
         if (left, right) not in bases:
             cv = Canvas()
-            out = _draw_outline(cv, rows, blocks, show_tags=notes != "callouts" or left)
+            out = _draw_outline(cv, rows, blocks, show_tags=notes != "callouts" or left,
+                                x0=x0, extra=after_label)
+            _draw_brackets(cv, brackets, xs, x0)
             lanes = _collect_lanes(cv, wires, out)
             placed = _pack_lanes(lanes, max(out.ends) + 3, out.node)
             _draw_lanes(cv, placed, out.ends)
+            _draw_join_taps(cv, lanes, out.ends, joins)
             moved = [] if right else None
             drawn = _draw_right_margin(cv, lanes, placed, out, payload_of, trailing, notes,
                                        moved)
@@ -1652,6 +2328,99 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     return out_rows, max([w] + [row_len(r) for r in extra])
 
 
+class _Bracket(NamedTuple):
+    """A control block in the tree view: its header row and member rows."""
+    header: int
+    members: list
+
+
+def _tree_banners(rows, g):
+    """rows with banners inserted: a section divider before the first top-level
+    unit of each `--- section ---`, and each control block's header — before the
+    first member row the block introduces (else after its last member row).
+    Returns (rows, brackets, arm labels {entry node id: [label]})."""
+    first = {}
+    for i, r in enumerate(rows):
+        if isinstance(r, TreeRow):
+            first.setdefault((id(r.graph), r.node.id), i)
+    pending = []                                # (at, order, Banner, members)
+    secs = getattr(g, "sections", None) or []
+    if secs:
+        est, cur = node_lines(g), -1
+        for i, r in enumerate(rows):
+            if isinstance(r, TreeRow) and r.graph is g and r.depth == 0:
+                k = section_of(secs, est.get(r.node.id, 0))
+                if k > cur:
+                    cur = k
+                    pending.append((i, (1, 0), Banner("section", section_rule(
+                        section_name(secs[k]))), None))
+    arms = {}
+    seen_graphs = {id(r.graph): r.graph for r in rows if isinstance(r, TreeRow)}
+    for G in seen_graphs.values():
+        blocks = getattr(G, "blocks", None) or []
+        est = node_lines(G, notes=False) if blocks else {}
+        for b in blocks:
+            members = [m for m in dict.fromkeys(b.members) if (id(G), m) in first]
+            if not members:
+                continue
+            ys = [first[(id(G), m)] for m in members]
+            intro = [first[(id(G), m)] for m in members if est.get(m, 0) >= b.lines[0]]
+            at, prio = (min(intro), 2) if intro else (max(ys) + 1, 0)
+            span = b.lines[1] - b.lines[0]
+            pending.append((at, (prio, -span), Banner("block", block_title_runs(b)), ys))
+            if b.kind == "branch":
+                for label, ids in b.arm_nodes:
+                    if ids:
+                        arms.setdefault(ids[0], []).append(label)
+    if not pending:
+        return rows, [], arms
+    pending.sort(key=lambda p: (p[0], p[1]))
+    out, new_at, brackets, k = [], {}, [], 0
+    for i in range(len(rows) + 1):
+        while k < len(pending) and pending[k][0] == i:
+            _at, _o, banner, ys = pending[k]
+            if ys is not None:
+                brackets.append((len(out), ys))
+            out.append(banner)
+            k += 1
+        if i < len(rows):
+            new_at[i] = len(out)
+            out.append(rows[i])
+    return out, [_Bracket(h, [new_at[y] for y in ys]) for h, ys in brackets], arms
+
+
+BRACKET_GAP = 2                                 # columns between block brackets
+
+
+def _bracket_cols(brackets) -> tuple:
+    """Each bracket's gutter column (interval-packed, the longest outermost) and
+    the gutter's width (where the outline starts: 0 without brackets)."""
+    cols, at = [], {}
+    order = sorted(range(len(brackets)), key=lambda k: -(max(brackets[k].members + [brackets[k].header])
+                                                          - min(brackets[k].members + [brackets[k].header])))
+    for k in order:
+        ys = brackets[k].members + [brackets[k].header]
+        at[k] = _first_fit(cols, min(ys), max(ys))
+    return [at[k] * BRACKET_GAP for k in range(len(brackets))], (
+        len(cols) * BRACKET_GAP + 1 if cols else 0)
+
+
+def _draw_brackets(cv: Canvas, brackets, xs, x0: int):
+    """Each block as a bracket in the gutter left of the outline: a vertical from
+    its first to its last row, a ─ tap into its header and each member row
+    (hopping ─│─ the brackets it crosses)."""
+    verticals = set()
+    for b, x in zip(brackets, xs):
+        ys = b.members + [b.header]
+        if max(ys) > min(ys):
+            cv.path([(x, min(ys)), (x, max(ys))], "->", FRAME_STYLE)
+            verticals |= {(x, y) for y in range(min(ys), max(ys) + 1)}
+    for b, x in zip(brackets, xs):
+        for y in sorted(set(b.members + [b.header])):
+            cv.run(x, x0 - 2, y, "->", FRAME_STYLE,
+                   hops=lambda xx, _y=y, _x=x: (xx, _y) in verticals and xx != _x)
+
+
 def _space_units(rows):
     """A None (blank row) before each top-level unit: a root with parts, or the
     first root after one."""
@@ -1671,7 +2440,7 @@ def _guides(rows):
     guides = [None] * len(rows)
     later = []              # later[k]: rows below reach depth k before anything shallower
     for y in range(len(rows) - 1, -1, -1):
-        if rows[y] is None:
+        if not isinstance(rows[y], TreeRow):    # a blank row or a banner
             continue
         d = rows[y].depth
         if d:
@@ -1696,22 +2465,37 @@ class _Outline:
     node: dict                                  # node id → its node (first row's)
 
 
-def _draw_outline(cv: Canvas, rows, idx: dict, show_tags: bool = True) -> _Outline:
-    """The outline: rails, relation, label, #N tag and (for a state) the triggers
-    that lead into it, one row each."""
+def _draw_outline(cv: Canvas, rows, idx: dict, show_tags: bool = True, x0: int = 0,
+                  extra: dict | None = None) -> _Outline:
+    """The outline from column x0: rails, relation, label, #N tag, the extra runs
+    a node carries (modifiers, a writer badge, a branch arm's label) and (for a
+    state) the triggers that lead into it, one row each. A banner row (a section
+    divider, a block's header) is drawn as its runs; a block header inside a
+    unit sits at its next row's label column, the rails it interrupts bridged."""
     out = _Outline([], {}, {}, {}, {})
     stack = []
-    for y, (row, guide) in enumerate(zip(rows, _guides(rows))):
+    guides = _guides(rows)
+    extra, extra_done, bridges = extra or {}, set(), []
+    for y, (row, guide) in enumerate(zip(rows, guides)):
         if row is None:
             out.ends.append(0)
+            continue
+        if isinstance(row, Banner):
+            x = x0
+            if row.kind == "block":
+                nxt = next((guides[j] for j in range(y + 1, len(rows))
+                            if isinstance(rows[j], TreeRow)), "")
+                x = x0 + (len(nxt) + 2 if nxt else 0)
+                bridges.append((y, x))
+            out.ends.append(_put_runs(cv, x, y, row.runs))
             continue
         n, rel = row.node, row.rel
         stack = stack[:row.depth] + [n.name]
         out.chain_at[y] = tuple(stack)
-        x = 0
+        x = x0
         if row.depth:
-            cv.put(0, y, guide, TREE_STYLE)
-            x = len(guide)
+            cv.put(x0, y, guide, TREE_STYLE)
+            x = x0 + len(guide)
             if rel and rel != "─":
                 cv.put(x, y, rel, REL_STYLE)
                 x += len(rel)
@@ -1734,6 +2518,9 @@ def _draw_outline(cv: Canvas, rows, idx: dict, show_tags: bool = True) -> _Outli
                 tx += len(run)
             x += len(tag)
             out.tagged[n.id] = y
+        if n.id in extra and n.id not in extra_done:    # on the node's first row
+            extra_done.add(n.id)
+            x = _put_runs(cv, x, y, extra[n.id])
         if n.kind == "state":                   # the triggers that lead into this state
             into = sorted({e.label for e in row.graph.edges if e.dst == n.id and e.label})
             if into:
@@ -1742,6 +2529,19 @@ def _draw_outline(cv: Canvas, rows, idx: dict, show_tags: bool = True) -> _Outli
         out.ends.append(x)
         out.by_id.setdefault(n.id, []).append(y)
         out.node.setdefault(n.id, n)
+
+    def rail(y, step):
+        while 0 <= y < len(rows) and isinstance(rows[y], Banner):
+            y += step
+        return y if 0 <= y < len(rows) and isinstance(rows[y], TreeRow) else None
+
+    for y, text_x in bridges:                   # rails run on through a block header
+        above, below = rail(y - 1, -1), rail(y + 1, 1)
+        if above is None or below is None:
+            continue
+        for x in range(x0, text_x):
+            if (cv.cell(x, above)[0] in "│├" and cv.cell(x, below)[0] in "│├└"):
+                cv.put(x, y, "│", TREE_STYLE)
     return out
 
 
@@ -1833,14 +2633,60 @@ def _draw_lanes(cv: Canvas, placed, ends):
         cv.put(x, y, ch, st)
 
 
-def _payload_of(g) -> dict:
-    """(src, dst, kind) → the payload its flow carries, across g and its expansions."""
+def _payload_of(g, payloads: bool = True, mods: bool = False) -> dict:
+    """(src, dst, kind) → the chip text its flow carries — its payload, and with
+    `mods` its modifiers (`payload ┆ @timeout 30s ×3`) — across g and its expansions."""
     out = {}
     for sub in _walk(g):
         for e in sub.edges:
-            if e.payload:
-                out.setdefault((e.src, e.dst, e.kind), e.payload)
+            text = chip_text(*chip_parts(e, payloads, mods))
+            if text:
+                out.setdefault((e.src, e.dst, e.kind), text)
     return out
+
+
+def _tree_extras(g, access: bool, mods: bool, arms: dict) -> dict:
+    """{node id: runs} drawn after a node's label in the tree: its modifiers (m),
+    its writer badge (a), the branch arms it is the entry of (‹read›)."""
+    extra = {}
+    for cur in _walk(g):
+        for nid, n in cur.nodes.items():
+            text = mods_text(n.mods) if mods else ""
+            if text and nid not in extra:
+                extra[nid] = [(" ", None)] + mod_runs(text)
+        if access:
+            for sid, badge in writer_badges(cur).items():
+                extra.setdefault(sid, []).append((" " + badge, (EDGE_COLOR["access"], None, True)))
+    for nid, labels in arms.items():
+        extra.setdefault(nid, []).extend(
+            (f" ‹{label}›", (EDGE_COLOR["arm"], None, True)) for label in labels)
+    return extra
+
+
+def _join_marks(g) -> dict:
+    """(src, dst, kind) → {"src" | "dst": join label}: the flows that leave or
+    enter a drawn join (`&` `&?` `/`), across g and its expansions."""
+    out = {}
+    for cur in _walk(g):
+        for e in cur.edges:
+            for side in ("src", "dst"):
+                idx = drawn_join(cur, e, side)
+                if idx is not None:
+                    out.setdefault((e.src, e.dst, e.kind), {})[side] = cur.joins[idx].kind
+    return out
+
+
+def _draw_join_taps(cv: Canvas, lanes, ends, joins: dict):
+    """A joined flow's label on its taps, beside the row's label: `◀&` where a
+    fork's branch arrives, `─&` where a fan-in's source leaves."""
+    for _lo, _hi, src, dst, kind, sy, dy in lanes:
+        mark = joins.get((src, dst, kind))
+        if not mark:
+            continue
+        for side, ys in (("dst", dy), ("src", sy)):
+            if side in mark:
+                for y in ys:
+                    cv.put(ends[y] + 2, y, mark[side], LABEL_STYLE)
 
 
 def _trailing_notes(idx: dict) -> dict:
@@ -2020,6 +2866,18 @@ def doc_title(text: str) -> str:
     return ""
 
 
+def doc_mode(text: str) -> str:
+    """The document's mode line (`#!sketch`, `#!craft`, …): its first `#!` line
+    before any statement; "" when it has none."""
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("#!"):
+            return line.split()[0]
+        if line and not line.startswith("#"):
+            return ""
+    return ""
+
+
 def _call(fn, text, dialect):
     return fn(text, dialect=dialect) if dialect is not None else fn(text)
 
@@ -2082,22 +2940,24 @@ def row_len(row) -> int:
 def once(path: Path, depth: int, payloads: bool, do_lint: bool,
          dialect=None, colour: bool = False, tree: bool = False,
          triggers: bool = True, spaced: bool = True, notes: str = "off",
-         width: int | None = None) -> int:
+         width: int | None = None, access: bool = False, mods: bool = False) -> int:
     """Print the drawing once. `width`: the columns to fit it to (None: its
-    natural width); the legend wraps at the narrower of that and LEGEND_WIDTH."""
+    natural width); the legend wraps at the narrower of that and LEGEND_WIDTH.
+    The summary line ends with the document's `#!mode`, when it has one."""
     use_dialect(dialect)
     text = path.read_text()
     g = _call(render.parse_document, text, dialect)
-    rows, _w = (compose_tree(g, depth, triggers, spaced, notes, payloads, width) if tree
-                else compose(g, depth, payloads, notes, triggers, width))
+    rows, _w = (compose_tree(g, depth, triggers, spaced, notes, payloads, width, access, mods)
+                if tree else compose(g, depth, payloads, notes, triggers, width, access, mods))
     out = [ansi(r, colour) for r in rows]
     if tree:
         legend_w = LEGEND_WIDTH if width is None else min(LEGEND_WIDTH, width)
-        out += [""] + [ansi(ln, colour) for r in tree_legend(triggers, payloads)
+        out += [""] + [ansi(ln, colour) for r in tree_legend(triggers, payloads, access, mods)
                        for ln in wrap_legend(r, legend_w)]
     out.append("")
+    mode = doc_mode(text)
     out.append(f"{path.name}: {len(g.nodes)} nodes, {len(g.edges)} edges, "
-               f"{len(g.expansions)} expansions")
+               f"{len(g.expansions)} expansions" + (f" · {mode}" if mode else ""))
     status = 0
     if do_lint:
         diags = run_lint(text, dialect)
@@ -2126,8 +2986,12 @@ READ_BYTES = 64                                 # bytes per key read
 class ViewState:
     def __init__(self, path: Path, depth: int = 1, payloads: bool = False,
                  do_lint: bool = True, dialect=None, tree: bool = False,
-                 triggers: bool = True, spaced: bool = True, notes: str = "off"):
+                 triggers: bool = True, spaced: bool = True, notes: str = "off",
+                 access: bool = False, mods: bool = False):
         self.path = path
+        self.show_access = access
+        self.show_mods = mods
+        self.mode = ""
         self.tree = tree
         self.notes = notes
         self.show_triggers = triggers
@@ -2168,6 +3032,7 @@ class ViewState:
             return False
         self.text = text
         self.title = doc_title(text)
+        self.mode = doc_mode(text)
         try:
             self.graph = _call(render.parse_document, text, self.dialect)
             self.error = None
@@ -2187,9 +3052,10 @@ class ViewState:
             return [], 0
         if self.tree:
             return compose_tree(self.graph, self.depth, self.show_triggers, self.spaced,
-                                self.notes, self.payloads, width)
+                                self.notes, self.payloads, width, self.show_access,
+                                self.show_mods)
         return compose(self.graph, self.depth, self.payloads, self.notes,
-                       self.show_triggers, width)
+                       self.show_triggers, width, self.show_access, self.show_mods)
 
     def fitted(self, cols: int):
         """(rows, width): the drawing rearranged to fit `cols` columns when it can
@@ -2223,6 +3089,12 @@ class ViewState:
             self._recompose()
         elif k == "p":
             self.payloads = not self.payloads
+            self._recompose()
+        elif k == "a":
+            self.show_access = not self.show_access
+            self._recompose()
+        elif k == "m":
+            self.show_mods = not self.show_mods
             self._recompose()
         elif k == "l":
             self.show_lint = not self.show_lint
@@ -2268,8 +3140,10 @@ class ViewState:
             if len(self.diags) > len(shown):
                 rows[-1] = [(f"… {len(self.diags) - len(shown) + 1} more (view.py --once)",
                              (GREY["mid"], None, False))]
-        legend = (tree_legend(self.show_triggers, self.payloads) if self.tree
-                  else [graph_legend(self.show_triggers, self.payloads)])
+        legend = (tree_legend(self.show_triggers, self.payloads, self.show_access,
+                              self.show_mods) if self.tree
+                  else [graph_legend(self.show_triggers, self.payloads, self.show_access,
+                                     self.show_mods)])
         rows[0:0] = [ln for r in legend + [keys_legend(self)] for ln in wrap_legend(r, cols)]
         rows.insert(0, self._legend_rule(cols))
         return [clip(r, 0, cols) for r in rows]
@@ -2291,6 +3165,8 @@ class ViewState:
         n_err = sum(1 for x in self.diags if x.severity == "error")
         n_warn = sum(1 for x in self.diags if x.severity == "warn")
         left = [(f" {self.path.name} ", BAR_NAME_STYLE)]
+        if self.mode:
+            left.append((f"{self.mode} ", MODE_STYLE))
         if self.title:
             left.append((f" {self.title} ·", BAR_NAME_STYLE))
         view = "tree" if self.tree else "graph"
@@ -2447,6 +3323,10 @@ def main() -> int:
     ap.add_argument("--no-triggers", action="store_true",
                     help="hide event → state triggers (dashed edges in the graph view, "
                          "lanes in the tree view)")
+    ap.add_argument("--access", action="store_true",
+                    help="draw the permission graph: principal → store, headed r / w / b")
+    ap.add_argument("--mods", action="store_true",
+                    help="draw modifiers: chips on edges, after node labels")
     ap.add_argument("--tree", action="store_true",
                     help="tree + wires: the composition tree as an outline, flows as lanes")
     ap.add_argument("--width", type=_width_arg, default=None, metavar="N",
@@ -2476,9 +3356,9 @@ def main() -> int:
         colour = a.color == "always" or (a.color == "auto" and tty_out)
         width = a.width or (shutil.get_terminal_size().columns if tty_out else ONCE_WIDTH)
         return once(a.file, a.depth, a.payloads, not a.no_lint, dialect, colour, a.tree,
-                    not a.no_triggers, not a.compact, a.notes, width)
+                    not a.no_triggers, not a.compact, a.notes, width, a.access, a.mods)
     tui(ViewState(a.file, a.depth, a.payloads, not a.no_lint, dialect, a.tree,
-                  not a.no_triggers, not a.compact, a.notes))
+                  not a.no_triggers, not a.compact, a.notes, a.access, a.mods))
     return 0
 
 
