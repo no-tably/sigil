@@ -700,6 +700,12 @@ the triggers that enter it):
 - **The error path is an event too.** `[Payments] !> <Declined>` keeps the failure
   on the error arrow, and the state blocks still react to it by name.
 
+**Simulated** (`view.py FILE --once --sim NAME`; `x` live): the document has two
+scenarios. `happy` places the order (`{Order} + -<Placed>-> Open`, `[Checkout] Idle
+-<Placed>-> Busy`), then `<Paid>` settles it and frees the checkout. `Payments:fails`
+takes the `!>` route instead: `[Payments] failed → <Declined>`, and both machines end
+where the prose says — `{Order}` in `Cancelled`, `[Checkout]` back in `Idle`.
+
 ---
 
 ## Example O: Fan-out, failover, weighted routing and alarms — a search and payments front (prose → Sigil)

@@ -63,11 +63,75 @@ All tools are Python 3 standard library only.
 | Tool | Does |
 | --- | --- |
 | `lint.py FILE\|-` | Validates a document. One `severity:line:rule: message` per issue; exit 0 clean, 1 warnings, 2 errors. |
-| `view.py FILE` | Live terminal view of the graph that redraws on every save. `--once` prints the drawing plus a lint summary and exits (1 on lint error); `--depth N\|all` opens `X := { … }` expansions; `--payloads` shows flow payloads (chips on their edges in the graph view, a list in the tree view); `--no-lint` skips lint; `--tree` (or `t` live) shows the composition tree as an outline with every flow as a lane beside it; `--compact` starts without the blank row between top-level units; `--no-triggers` starts with event ⇢ state triggers hidden; `--events land\|nodes` draws a pass-through event where it lands (each emitter wired straight to each destination, the event named there) or as a node of its own (defaults: tree `land`, graph `nodes`); `--notes markers\|callouts` shows comments as `#N` tags with a notes list, or as boxes in a left margin tied to their rows (tree view); `--mods` shows modifiers (`@timeout 30s ×3`, `^10k drop`, `!`) as chips on edges and after node labels; `--access` draws the permission graph (`@read` / `@write` / `@borrow`: dotted principal → store edges headed `r` / `w` / `b`, stores badged `1w` / `Nw` writers). Both views also draw control blocks (graph: titled frames `↺ loop …`, `∥ parallel …`, `◇ branch on …` with a decision node and arm chips, `□ scope`; tree: brackets in a left gutter), `&` / `&?` / `/` joins, `--- section ---` dividers, `[[alias]]` nodes, and the `#!mode` in the status bar. Live keys: `t` tree/graph · `x` sim mode (in it: space play / pause, `,` `.` step, `[` `]` scenario, `-` `+` speed) · `n` notes · `e` triggers · `v` events (where they land / as nodes, per view) · `s` spacing · `f` fit to the window / natural layout with free pan · `d` depth · `p` payloads · `m` modifiers · `a` access · `l` lint · arrows / `h` `j` `k` `L` pan · `c` centre · `g` home · `r` reload · `q` quit; drag with the mouse to pan, the wheel scrolls (shift+wheel: across). |
+| `view.py FILE` | Live terminal view of the graph that redraws on every save. `--once` prints the drawing plus a lint summary and exits (1 on lint error); `--depth N\|all` opens `X := { … }` expansions; `--payloads` shows flow payloads (chips on their edges in the graph view, a list in the tree view); `--no-lint` skips lint; `--tree` (or `t` live) shows the composition tree as an outline with every flow as a lane beside it; `--compact` starts without the blank row between top-level units; `--no-triggers` starts with event ⇢ state triggers hidden; `--events land\|nodes` draws a pass-through event where it lands (each emitter wired straight to each destination, the event named there) or as a node of its own (defaults: tree `land`, graph `nodes`); `--notes markers\|callouts` shows comments as `#N` tags with a notes list, or as boxes in a left margin tied to their rows (tree view); `--mods` shows modifiers (`@timeout 30s ×3`, `^10k drop`, `!`) as chips on edges and after node labels; `--access` draws the permission graph (`@read` / `@write` / `@borrow`: dotted principal → store edges headed `r` / `w` / `b`, stores badged `1w` / `Nw` writers); `--sim SCENARIO` runs one pathway of the design and draws its last frame (see [Simulation](#simulation)). Both views also draw control blocks (graph: titled frames `↺ loop …`, `∥ parallel …`, `◇ branch on …` with a decision node and arm chips, `□ scope`; tree: brackets in a left gutter), `&` / `&?` / `/` joins, `--- section ---` dividers, `[[alias]]` nodes, and the `#!mode` in the status bar. Live keys: `t` tree/graph · `x` sim mode (in it: space play / pause, `,` `.` step, `[` `]` scenario, `-` `+` speed) · `n` notes · `e` triggers · `v` events (where they land / as nodes, per view) · `s` spacing · `f` fit to the window / natural layout with free pan · `d` depth · `p` payloads · `m` modifiers · `a` access · `l` lint · arrows / `h` `j` `k` `L` pan · `c` centre · `g` home · `r` reload · `q` quit; drag with the mouse to pan, the wheel scrolls (shift+wheel: across). |
 | `render.py FILE\|- [--depth N\|all] [--composition MODE]` | Emits a Mermaid `flowchart TD` for docs (GitHub, Obsidian, mermaid.live, …). Composition trees draw as nested subgraphs (`subgraphs`, the default), as labelled dotted edges (`edges`), or not at all (`none`). |
 | `themes.py [NAME\|PATH]` | Loads a colour theme from `themes/<name>.yaml` (prints it resolved; `--list` lists them). `view.py --theme NAME` or `SIGIL_THEME=NAME` picks one; the web page reads the same files. |
 | `dialects.py` | Loads a dialect (`--dialect NAME` or `SIGIL_DIALECT`) that extends the linter and renderer. |
 | `highlight/` | Syntax highlighting for bat, nvim, VS Code, Sublime/TextMate. |
+
+## Simulation
+
+Sigil does not execute, but the viewer can *walk* a design: `sim.py` reads it as
+tokens moving along its flows, so you can watch the happy path, each failure
+route, each branch arm, race and alternative play out over the same drawing — in
+the graph view and the tree view alike. No values are computed and nothing is
+random; the run is a function of the design and the chosen **scenario**.
+
+- **Scenarios** are the design's pathways, each with a stable name: `happy` (every
+  default: calls succeed, `?>` not taken, the first member of a race / alternative /
+  branch wins), then one per deviation — `API.charge:fails` (an op call fails:
+  `Caller.verb:fails`, or `:fallback` when it falls back), `API->Payments:fails` (a
+  plain call with `×N` / `@timeout` / `@fallback` / a `!>` route fails),
+  `Risk?>Review` (a conditional taken), `Payments:fails` (a node with a `!>` route
+  fails), `Api&?PspB` (another race winner), `Api/Err` (another alternative), a
+  branch arm, … Join two with `a+b`. An unknown name prints the known ones (exit 2).
+- **What moves:** `->` calls wait for their return, `~>` forks without waiting,
+  `*>` and `&` fork to all and wait for all, `!>` fires only on failure, retries
+  count their attempts, events drive the state machines that name them (each
+  machine's current state is marked `◉`), loops and recursion are bounded.
+- **The marks:** `●` a token going out, `○` a return or fallback, `✕` a failure (in
+  the failure colour), `⊘` cancelled; lit wires in full colour, untouched ones
+  muted; `…` waiting, `×n` spawned instances, `↻k` recursion depth.
+
+Live, `x` enters sim mode: space plays and pauses, `,` / `.` step, `[` / `]` pick the
+scenario (named in the status bar), `-` / `+` set the speed. For agents and CI,
+`--once --sim SCENARIO` prints the run's last frame, the outcome and its log (here
+[`examples/checkout.sigil`](https://no-tably.github.io/sigil/examples/checkout.sigil)
+with its card charge failing; legend and lint summary left out):
+
+```sh
+view.py checkout.sigil --once --tree --sim 'API.charge:fails'
+```
+
+```
+── checkout ──────────────────────────────
+  (Shopper) ✕ ───────────────●
+  [API] ✕ ◀──────────────────┴═●═✖═●═›═›═›
+  [Payments] ✕ ◀───────────────┘ │ │ ║ ║ ║
+  <PaymentFailed> ◀──────────────┘ │ ║ ║ ║
+  |Orders| ◀───────────────────────┘ ║ ║ ║
+  [Email] <OrderPlaced> ◀════════════╝ ║ ║
+  [Shipping] <OrderPlaced> ◀═══════════╝ ║
+  |Ledger| <OrderPlaced> ◀═══════════════╝
+
+sim API.charge:fails (charge fails 4×, no fallback): failed · 31 frames
+t000 conventions: written order; entries one after another; ?> not taken by default; the first member wins a race / alternative / branch
+t000 episode 1: (Shopper)
+t000 (Shopper) -> [API] : {Cart}
+t005 [API] -> [Payments] : charge(total) attempt 1/4
+t009 attempt 1/4 failed
+t010 [API] -> [Payments] : charge(total) attempt 2/4
+t014 attempt 2/4 failed
+t015 [API] -> [Payments] : charge(total) attempt 3/4
+t019 attempt 3/4 failed
+t020 [API] -> [Payments] : charge(total) attempt 4/4
+t024 attempt 4/4 failed
+t025 [API] failed: charge(total) failed after 4 attempts
+t025 [API] failed → <PaymentFailed>
+t030 (Shopper) failed: {Cart}
+t030 episode 1 failed
+t030 done: failed
+```
 
 ## Install as an agent skill
 
@@ -176,7 +240,8 @@ Canonical packaging sources — edit these, never `dist/`:
 - `plugin/commands/*.md` — commands, using `$1` / `$ARGUMENTS` and the
   `@SCRIPTS@` placeholder for the skill's scripts directory.
 
-`build.py` copies `lint.py`, `render.py`, `view.py`, `dialects.py` and `themes.py`
+`build.py` copies `lint.py`, `render.py`, the viewer (`view.py` with `viewkit.py`,
+`view_graph.py`, `view_tree.py`, `scene.py` and `sim.py`), `dialects.py` and `themes.py`
 (with `themes/*.yaml`) into `skills/sigil/scripts/` and `language.md` / `examples.md` into
 `skills/sigil/references/`, then writes each agent's manifests. Archives are
 deterministic. CI (`.github/workflows/ci.yml`) tests, builds and validates on

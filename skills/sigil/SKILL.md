@@ -57,6 +57,7 @@ All scripts are Python 3 standard library only. Write the document to a file
 | Show comments | `python3 scripts/view.py FILE --once --notes markers` (`--notes callouts` in `--tree`) | commented nodes tagged `#N`, notes listed (or drawn as margin boxes) |
 | Hierarchy + wiring | `python3 scripts/view.py FILE --once --tree [--compact]` | composition tree as an outline, each flow as a lane (`●` source, `◀` targets) + legend; `--compact` drops the blank row between top-level units |
 | Live view for a human | `python3 scripts/view.py FILE` | full-screen view that redraws on every save (tell the user to run it in their own terminal); keys: `t` tree/graph, `x` sim mode (in it: space play / pause, `,` `.` step, `[` `]` scenario, `-` `+` speed), `n` notes, `e` triggers, `v` events (where they land / as nodes), `s` spacing, `f` fit to the window / natural layout with free pan, `d` depth, `p` payloads, `m` modifiers, `a` access, `l` lint, arrows / `h j k L` or mouse drag / wheel pan, `c` centre, `g` home, `r` reload, `q` quit |
+| Walk a pathway | `python3 scripts/view.py FILE --once --tree --sim SCENARIO` | the run's last frame over the drawing (`✕` failed, `◉` a machine's state, lit vs muted wires), then `sim NAME (label): ok\|failed\|cut · N frames` and the run's log, one `tNNN …` line per step; exit 2 for an unknown scenario, listing the known ones |
 | Mermaid diagram | `python3 scripts/render.py FILE [--depth N\|all] [--composition subgraphs\|edges\|none]` | `flowchart TD` source; present it in a fenced `mermaid` block. Composition trees draw as subgraphs by default |
 
 `--depth 0` shows the top level only, `1` (default) opens direct `:=` expansions,
@@ -129,6 +130,33 @@ you check the same drawing with `python3 scripts/view.py FILE --once` before rep
 Run `python3 scripts/lint.py FILE`. Report each diagnostic with a suggested fix
 (the rule ID and message explain the problem; `references/language.md` has the
 rule). Surface issues before rewriting — let the user decide.
+
+### simulate — walk the pathways
+Sigil does not execute; `view.py --sim` is the viewer's reading of a design — tokens
+moving along its flows, deterministic, no values computed. Use it to check that a
+design does what the prose says: that each failure ends somewhere, a fan-out reaches
+everyone, events move each state machine where they should.
+1. List the scenarios: `python3 scripts/view.py FILE --once --sim list` (an unknown
+   name prints `known: happy, …` and exits 2). `happy` takes every default (calls
+   succeed, `?>` skipped, the first member of a race / alternative / branch wins); each
+   other name is one deviation — `Caller.verb:fails` / `:fallback`, `Src->Dst:fails`,
+   `Node:fails`, `Src?>Dst`, `Src&?Member`, `Src/Member`, `header=arm`. `a+b` combines two.
+2. Run `happy`, then each failure / branch scenario that matters, with
+   `--once --tree --sim NAME` (the tree view is the compact one; drop `--tree` for the
+   graph). Read the summary line's outcome and the log.
+3. Report what the run shows in the design's own terms: a failure with no `!>` route
+   (`failed` with nothing lit after it), a state machine that ends in an unexpected
+   state, a `*>` or `&` target never reached, a bound hit — the log says
+   `base case: X at depth n`, `spawn cap reached`, `visit limit: X` or
+   `cut: … limit` (outcome `cut`): a recursion, spawn or cycle the design leaves open.
+   A loop only logs `iteration k/n`, where n is its `@times` count capped at the
+   simulator's bound (2 by default): nothing marks a capped loop, so `iteration 2/2`
+   on a loop with no `@times` (or a larger one) means the bound stopped it.
+   Then propose the Sigil fix; the simulator's choices (bounds, written order) are not
+   part of the design, so do not present them as the design's behaviour.
+
+The user can watch the same runs live: `python3 scripts/view.py FILE`, then `x`
+(space play / pause, `[` `]` scenario).
 
 ### view / render — show the shape
 For a quick look in the conversation, run `python3 scripts/view.py FILE --once` and show

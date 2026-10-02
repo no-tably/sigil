@@ -273,6 +273,9 @@ class TestSimMode(_Doc):
         self.assertIn("● out", text)
         self.assertNotIn("▸ active", text)
         self.assertIn("✕ failed", text)
+        for tree in (False, True):                      # token and badge share one entry
+            row = "".join(t for t, _ in view.sim_legend(tree=tree))
+            self.assertEqual(row.count("✕ failed"), 1, row)
         self.assertIn("⊘ cancelled", text)
         self.assertIn("◉ State its owner's", text)
         st.key("t")                                     # the tree: its own row of marks

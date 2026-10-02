@@ -283,9 +283,10 @@ def sim_legend(tree: bool = False) -> list:
     """The legend row of the simulation overlay's marks, one row for both views so
     the two can't drift apart: tokens (● out in its wire's colour, ○ a return or
     fallback, ✕ failed, a muted ⊘ cancelled — view_graph.sim_look and
-    view_tree's lanes draw them alike), wires lit or untouched, the badges after a
-    label and the drawn machine's current state. `tree`: adds the tree view's own
-    entry, `▸` an active row."""
+    view_tree's lanes draw them alike; a failed node's badge shares the token's ✕
+    and its meaning, so it is listed once, here), wires lit or untouched, the other
+    badges after a label (… waiting, ×n, ↻k) and the drawn machine's current
+    state. `tree`: adds the tree view's own entry, `▸` an active row."""
     dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
     wire = (kit.EDGE_DEFAULT, None, True)
     quiet = (kit.muted(kit.EDGE_DEFAULT), None, False)
@@ -298,7 +299,7 @@ def sim_legend(tree: bool = False) -> list:
              ("✕", fail), (" failed  ", mid), (vtree.CANCELLED_MARK, quiet), (" cancelled  ", mid),
              ("─", wire), (" lit  ", mid), ("─", quiet), (" untouched (muted)  ", mid)]
             + active
-            + [("…", light), (" waiting  ", mid), ("✕", fail), (" failed  ", mid),
+            + [("…", light), (" waiting  ", mid),
                ("×n", light), (" instances  ", mid), ("↻k", light), (" recursion  ", mid),
                ("◉", state), (" current state  ", mid), ("◉ State", state),
                (" its owner's, machine not drawn", mid)])

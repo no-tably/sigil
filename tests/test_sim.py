@@ -2,7 +2,7 @@
 
 Covers:
   1. scenario lists of the examples and fixtures (names, order, combination);
-  2. the worked traces of sim.md §8 (01-checkout, 04-orders): frame counts,
+  2. worked traces (01-checkout, 04-orders): frame counts,
      outcomes, the fan-out forking, failure routes, machine states;
   3. calls (executions fixture): recursion bounded and unwound, aliases as
      entries, loops, external ops failing, fallbacks;
@@ -119,6 +119,11 @@ class TestScenarioLists(unittest.TestCase):
         self.assertIn("4×", s.label)
         self.assertIsNone(s.entries)
 
+    def test_call_label_names_the_callee_by_its_display_name(self):
+        s = sim.scenario(load("coverage.sigil"), "Customer->Api:fails")
+        self.assertIn("Api fails", s.label)
+        self.assertNotIn("_service", s.label)
+
     def test_unknown_name_lists_the_known(self):
         with self.assertRaises(KeyError) as cm:
             sim.scenario(load("01-checkout.sigil"), "nope")
@@ -142,7 +147,7 @@ class TestScenarioLists(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# 2. The worked traces (sim.md §8)
+# 2. Worked traces
 # ---------------------------------------------------------------------------
 
 class TestCheckout(unittest.TestCase):

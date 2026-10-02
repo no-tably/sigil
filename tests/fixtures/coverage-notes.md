@@ -11,7 +11,7 @@ Runs (all exit 0, no crash; `--color never` so strokes are judged without colour
 `--depth 0`; plus `render.py` (Mermaid). Footer: `121 nodes, 76 edges, 7 expansions` at the
 audit; `127 nodes, 74 edges, 7 expansions` after the render.py model fixes.
 The default graph was **392 columns wide** for this document; split into its sections and
-block frames it is now **227**.
+block frames it is now **228** (227 before the self-call stubs).
 
 Grades: **DRAWN** works · **WEAK** there but ambiguous, toggle-only or text-only · **LOST**
 nothing in the drawing · **WRONG** the drawing misleads (phantom node, wrong edge). "mono" =
@@ -61,9 +61,34 @@ wires view, re-graded below from `view.py --once` runs with `--color never`):
 - **Aliases**: `[[walk]]`, in their own theme colour (`kinds.alias`).
 - **Mermaid**: node ids are unique per expansion path (`Core_service__Handler_service`).
 
-Still open: self-loop payloads and op-call targets (`[Worker] -> run() @deadline(2s)`,
-`[Tree.walk] -> [Tree.walk] : child` — rows 31, 48), stream / role shapes (11, 83),
-`@borrow(read)`'s narrowing (28), block-comment anchoring (85), external-op chips (47).
+Still open after that pass: self-loop payloads and op-call targets (rows 31, 48),
+stream / role shapes (11, 83), `@borrow(read)`'s narrowing (28), block-comment anchoring
+(85), external-op chips (47).
+
+## Status after the scene-sim campaign (2026-10-02)
+
+Both views now draw from one shared model (`scene.py`: wires, colours, notes, joins,
+triggers), so a construct reads the same in the graph and the tree. Re-graded from
+`view.py --once --color never` runs (with `--payloads --mods` for the chip rows):
+
+- **Colour policy** (one rule for both views): a wire takes its arrow's colour when it
+  has one (`!>`, `?>`, `~>`, triggers, access, emits), else its source's kind colour —
+  graph default edges are no longer grey. Mono grades are unchanged by this.
+- **Events toggle** (`v`, `--events land|nodes`): a pass-through event drawn where it
+  lands (the tree's default) or as a node (the graph's default), in either view.
+- **Executions** (rows 31, 41, 47, 48, 49, 67, 68): a self-call keeps its op on a stub
+  chip under its box (graph) / on its row (tree), `↺ run()`; recursion reads `↻`
+  (`[Tree.walk] ↻`, `┆ ↻ child ┆`); a call's return reads `↩` (`┆ charge(amount) ↩
+  {Receipt} ┆`); a host-provided op reads `┆ ⇱ http.get(${url}) ┆` and badges its
+  target `(Web) ⇱`; two flows into one target keep a chip each. Legend: `↺ self-call
+  ↻ recursion ⇱ host-provided (opaque) ↩ returns`.
+- **Simulation** (`x`, `--sim`): not a drawing grade — see "Simulation over this
+  fixture" below.
+
+Still open: stream / role shapes (11, 83), `@borrow(read)`'s narrowing (28),
+block-comment anchoring (85), which of two chips on one tree row is the error path
+without colour (49), the block-string's content (45), expansion vs contains in the
+tree (51), the `\-_` group (76), path chips in the graph (81).
 
 ## Construct table
 
@@ -99,7 +124,7 @@ Still open: self-loop payloads and op-call targets (`[Worker] -> run() @deadline
 | 28 | `@borrow` / `@borrow(read)` | `[Helper] @borrow \|Directives\|` | DRAWN | DRAWN | with `a`: dotted access edges `[Helper] ┄┄b` into `\|Directives\|` and `\|Results\|` (graph); `[Helper] ┄┄b┄b` lanes (tree). The narrowing `(read)` is not shown — both read `b` | done (view.py) | KEPT: `Graph.access` mode "borrow", `narrow` |
 | 29 | `@timeout` (flow) | `… : score({Cart}) @timeout(30s) ×3 @fallback(0)` | DRAWN | DRAWN | with `m`: `┆ score({Cart}) ┆ @timeout 30s ×3 @fallback 0 ┆` (payload, then the modifiers) | done (view.py) | KEPT: edge mods timeout / × / fallback |
 | 30 | `@after` | `[Retry] @after(exp-backoff, cap=1min)` | DRAWN | DRAWN | with `m`: `[Retry] @after exp-backoff, cap=…`, `[[retry]] @after …` | done (view.py) | KEPT: node mod ("after", …) |
-| 31 | `@deadline` | `[Worker] -> run() @deadline(2s)` | WEAK | WEAK | the **whole flow** is dropped (target `run()` is not a glyph) | draw op-call targets as a chip on a self-stub `[Worker] ─▸ run()` | FIXED: the flow is a self-edge, `target_op` "run()", edge mod ("deadline", "2s") |
+| 31 | `@deadline` | `[Worker] -> run() @deadline(2s)` | DRAWN | DRAWN | graph: `[Worker] ↺` with a stub under the box, `└─● ┆ ↺ run() ┆ @deadline 2s ┆` (`p`, `m`); tree: `[Worker] ↺` and the chip `┆ ↺ run() ┆ @deadline 2s ┆` on its row | done (scene + views) | FIXED: the flow is a self-edge, `target_op` "run()", edge mod ("deadline", "2s") |
 | 32 | `@fallback` | `… op http.get(${url}) @timeout(5s) @fallback(${cache})` | DRAWN | DRAWN | with `m`: `┆ op http.get(${url}) ┆ @timeout 5s @fallback ${cache} ┆` | done (view.py) | KEPT: edge mod ("fallback", "${cache}") |
 | 33 | `@grants` / `@requires` | `[AuthSvc] @grants(session)`, `\|PaymentDB\| @requires(write, pci)` | DRAWN | DRAWN | with `m`: `[AuthSvc] @grants session`, `\|PaymentDB\| @requires write, pci` | done (view.py) | KEPT: node mods grants / requires |
 | 34 | `@loc` | `[Gateway] @loc(us-east)`, `[Cache<K,V>] @loc(eu-west)` | DRAWN | DRAWN | with `m`: `[Gateway] @loc us-east`, `[Cache<K,V>] @loc eu-west` | done (view.py) | KEPT: node mod ("loc", …) |
@@ -109,15 +134,15 @@ Still open: self-loop payloads and op-call targets (`[Worker] -> run() @deadline
 | 38 | `×N` / `xN` on a flow | `[Api] -> [Shard] ×4`, `[Api] -> [Replica] x2`, `[Router] -> [Handler]×N` | DRAWN | DRAWN | with `m`: chips `┆ ×4 ┆`, `┆ ×2 ┆`, `┆ ×N ┆` (`[Router] → [Handler]`) | done (view.py) | KEPT: edge mods ("×", "4") / ("×", "2") / ("×", "N") |
 | 39 | `×N` / mods on a transition | `_ -<cancel>-> Cancelled ×3`, `Open -<Paid>-> Settled @timeout(1d)` | DRAWN | DRAWN | with `m`: modifier chips `┆ ×3 ┆`, `┆ @timeout 1d ┆` (the payload copy of the same text is dropped when `m` is on); with only `p`, payload chips as before | done (view.py) | KEPT: transition `Edge.mods` |
 | 40 | payload: entity glyph | `: {creds}` | DRAWN | DRAWN | with `p`: `┆ {creds} ┆` chip on the edge / `┄┆ {creds} ┆` on the target row | — | — |
-| 41 | payload: internal op-call | `: charge(amount) => {Receipt}` | DRAWN | DRAWN | `┆ charge(amount) => {Receipt} ┆` | — | — |
+| 41 | payload: internal op-call | `: charge(amount) => {Receipt}` | DRAWN | DRAWN | `┆ charge(amount) ↩ {Receipt} ┆` — the return after `↩` | — | — |
 | 42 | payload: value literals | `: false`, `: "ack"`, `: 0.5`, `: null` | DRAWN | DRAWN | `┆ false ┆`, `┆ "ack" ┆`, `┆ 0.5 ┆`, `┆ null ┆` | — | — |
 | 43 | payload: `${ref}` | `: ${state.count} + 1` | DRAWN | DRAWN | raw text in the chip | optional: tint `${…}` in the chip | — |
 | 44 | payload: map / list | `: {retries: 3, mode: "x"}`, `: [1, 2, 3]` | DRAWN | DRAWN | `┆ {retries: 3, mode: "x"} ┆`, `┆ [1, 2, 3] ┆` (not mistaken for a `{X}` node) | — | — |
 | 45 | payload: `"""…"""` block string | `[Grader] -> ~\|Sys\| : """ … """` | WEAK | WEAK | placeholder chip `┆ "block-string" ┆`; content gone (no phantom nodes, good) | first line + `…` (`"You are a strict rubric…"`), full text in a notes-style list | — |
 | 46 | payload: value operators | `${state.history} ++ [${out}]`, `${a} \|\| {b: 1}`, `${n} * 2 - ${m} / 4` | DRAWN | DRAWN | raw text in chips | — | — |
-| 47 | payload: external `op ns.verb` | `: op http.get(${url})` | WEAK | WEAK | `┆ op http.get(${url}) ┆` — same chip as an internal op; target `(Web)` not marked as host-provided/opaque | distinct chip edge (`╭⇱ http.get ╮`) or a dashed "outside" border on the far node | — |
-| 48 | payload on a self-loop | `[Tree.walk] -> [Tree.walk] : child` | LOST | WEAK | graph: `[Tree.walk] ↺`, no chip even with `p`. Tree: only in a footer `── payloads ──  [Tree.walk] -> [Tree.walk] : child` | chip beside the `↺` | — |
-| 49 | payloads of several edges to one target | `reserve => {Hold}` + `!> … : release({Hold})` | WEAK | WEAK | merged into one chip `┆ release({Hold}) · reserve => {Hold} ┆` — the error-path payload looks like part of the call | one chip per edge kind, in the edge's stroke | — |
+| 47 | payload: external `op ns.verb` | `: op http.get(${url})` | DRAWN | DRAWN | `┆ ⇱ http.get(${url}) ┆` (no `op ` keyword) and the target badged `(Web) ⇱`; legend `⇱ host-provided (opaque)` | done (scene + views) | — |
+| 48 | payload on a self-loop | `[Tree.walk] -> [Tree.walk] : child` | DRAWN | DRAWN | graph: `[Tree.walk] ↻` with a stub chip `└─● ┆ ↻ child ┆` (`p`); tree: `[Tree.walk] ↻ ┄┄┄ ┆ ↻ child ┆` on its own row (no longer only in a footer) | done (scene + views) | — |
+| 49 | payloads of several edges to one target | `reserve => {Hold}` + `!> … : release({Hold})` | DRAWN | WEAK | a chip per flow: `┆ reserve => {Hold} ┆   ┆ release({Hold}) ┆`. Graph: each on its own edge (the `release` one on the `✖` edge). Tree: both on the `[Inventory]` row, each in its wire's colour — without colour, nothing says which is the error path | tree: a `✖` lead on an error-path chip | — |
 | 50 | alias `name := expr` | `retry := @after(…)`, `walk := [Node] -> walk(.children)` | DRAWN | DRAWN | alias nodes in their own brackets and colour: `[[retry]]`, `[[walk]] ▾` with its `[[walk]] := { … }` section (`[Node] ↺`) | done (view.py) | FIXED: `retry`, `walk` are `alias` nodes (mods / expansion = the definition) |
 | 51 | expansion `X := { … }` | `[Core] := { [Router] -> [Handler]×N … }` | DRAWN | WEAK | graph: `── [Core] := { … } ──` section, `[Core] ▾` / `▸` at depth 0. Tree: children nested as `├── [Router]` — same `──` as the `\->` "contains" relation | tree: a distinct marker for internals (`├┄ [Router]` or `╞═`), as Mermaid's "internals" subgraph | — |
 | 52 | expansion holding only aliases | `[Handler] := { ingress := {Req} => {Ctx} … }` | DRAWN | DRAWN | graph: a header `── [Handler] := { … } ──` with **nothing under it**, and `[Handler] ▾` promises content. Tree: nothing. (Mermaid: an empty `subgraph Handler_service` that collides with the `Handler_service` node inside `Core`) | render aliases (#50) inside the section; else drop the `▾` | FIXED: the section holds the alias nodes `ingress` / `process` / `egress`, each expandable |
@@ -135,8 +160,8 @@ Still open: self-loop payloads and op-call targets (`[Worker] -> run() @deadline
 | 64 | `parallel @all/@any/@none` | `parallel @all { [Api] -> [Inventory] … }` | DRAWN | DRAWN | graph frames `∥ parallel @all` / `@any` / `@none`; tree brackets `├─ ∥ parallel @all` … | done (view.py) | KEPT: `Block(kind="parallel")`, modifiers [("all", None)] |
 | 65 | `!>` after a block (compensation) | `}` / `!> [Inventory] : release({Hold})` | DRAWN | DRAWN | inside the `∥ parallel @all` frame: `[Api]` → `[Inventory]` twice, `▼` (`->`) beside `✖` (the `!>` after `}`), each its own stroke; tree `[Api] ✖` lane into `[Inventory]` | done (view.py) | FIXED: `[Api] !> [Inventory]` from the block's subject; `Block.after` |
 | 66 | `branch on X { arm => … }` | `read => [Reader] -> \|DB\|` … `_ => <Rejected>` | DRAWN | DRAWN | graph: a frame `◇ branch on {Request}.kind` holding a decision node `╱──╲ │ ◇ {Request}.kind │ ╲──╱` with dotted arm edges through arm chips `┆ read ┆`, `┆ write ┆`, `┆ admin ┆`, `┆ _ ┆` to each arm's entry; tree: bracket `┌─ ◇ branch on {Request}.kind`, `[Reader] ‹read›`, `[Writer] ‹write›`, `[AdminSvc] ‹admin›`, `<Rejected> ‹_›` | done (view.py) | FIXED: `Block(kind="branch")` arms + `refs` [`{Request}`]; no phantom chain; Mermaid draws `{Request} -. read .-> [Reader]` |
-| 67 | recursion: self-arrow | `[Tree.walk] -> [Tree.walk] : child` | DRAWN | DRAWN | `│ [Tree.walk] ↺ │` | — | — |
-| 68 | recursion: self-referential alias | `walk := [Node] -> walk(.children)` | DRAWN | DRAWN | `[[walk]] ▾` and its section `[[walk]] := { … }` drawing `[Node] ↺` (tree: `[[walk]]` / `└── [Node] ↺`) | done (view.py) | FIXED: `walk` alias node, expansion `[Node] -> [Node]` (`target_op` "walk(.children)") |
+| 67 | recursion: self-arrow | `[Tree.walk] -> [Tree.walk] : child` | DRAWN | DRAWN | `│ [Tree.walk] ↻ │` (`↻` recursion, `↺` a plain self-call) | — | — |
+| 68 | recursion: self-referential alias | `walk := [Node] -> walk(.children)` | DRAWN | DRAWN | `[[walk]] ▾` and its section `[[walk]] := { … }` drawing `[Node] ↻` with `┆ ↻ walk(.children) ┆` (tree: `[[walk]]` / `└── [Node] ↻`) | done (view.py) | FIXED: `walk` alias node, expansion `[Node] -> [Node]` (`target_op` "walk(.children)") |
 | 69 | `\->` contains | `\-> [Hull]` | LOST | DRAWN | graph (by design, flows only): `[Ship]`, `[Hull]` … sit in the orphan strip as if unconnected. Tree: `├── [Hull]` | graph: optional faint nesting (`d`-style toggle) or `⊂Ship` tag on child boxes | — |
 | 70 | `\-&` has | `\-& {Transform}` | LOST | DRAWN | tree `├─& {Transform}` | — (graph as #69) | — |
 | 71 | `\-?` when + `{cond}-` | `\-{shattered}-? [Shard]` | LOST | DRAWN | tree `├─{shattered}? [Shard]` | — | — |
@@ -163,16 +188,46 @@ as DRAWN when the toggle draws them clearly, as payload chips always have.
 
 | | Graph | Tree | Total |
 |---|---|---|---|
-| DRAWN | 64 | 74 | 138 |
-| WEAK | 10 | 12 | 22 |
-| LOST | 12 | 0 | 12 |
+| DRAWN | 68 | 77 | 145 |
+| WEAK | 7 | 9 | 16 |
+| LOST | 11 | 0 | 11 |
 | WRONG | 0 | 0 | 0 |
 
 (Composition rows #69–80 are LOST in the graph on purpose — language.md: "The default
-graph view shows the flows alone." — 11 of the 12 graph LOST; the other is #48, a
-self-loop's payload.) Before this view.py pass (after the render.py model fixes):
-DRAWN 31/42, WEAK 18/19, LOST 37/25; before those: DRAWN 27/38, WEAK 13/15, LOST 38/26,
-WRONG 8/7.
+graph view shows the flows alone." — all 11 graph LOST.) Before the scene-sim campaign
+(graph/tree): DRAWN 64/74, WEAK 10/12, LOST 12/0; before the view.py drawing pass (after
+the render.py model fixes): DRAWN 31/42, WEAK 18/19, LOST 37/25; before those: DRAWN
+27/38, WEAK 13/15, LOST 38/26, WRONG 8/7.
+
+## Simulation over this fixture
+
+`view.py tests/fixtures/coverage.sigil --once --sim NAME` (no crash in any scenario).
+`happy` runs 20 episodes (one per entry, written order) to `ok` in 802 frames. 14
+scenarios: `happy`, `Customer->Api:fails`, `Auth:fails`, `Api?>Fraud`, `Api&?PspB`,
+`Api.score:fallback`, `Api.http.get:fallback`, `Worker.run:fails`, `Api->Shard:fails`,
+`Api->Replica:fails`, `Enriched:fails`, `Api/Err`, `Api@any=MirrorB`,
+`Router->Handler:fails`.
+
+What the `happy` log shows per construct group:
+
+- **Calls / returns / resilience:** `[Inventory] ↩ {Hold}`; `[Api] -> [Replica]
+  attempt 1/3`; `[Api] <-> [Cache<K,V>]` then `[Cache<K,V>] replies`; `@owns` acquires
+  and releases (`acquire |Conn|` … `release |Conn|`). The `[Core]` internals
+  (`[Router] -> [Handler]` attempts 1/3 … 3/3) show up only in the
+  `Router->Handler:fails` scenario.
+- **Joins / races:** `parallel @any` logs `race lost: [Api] -> [MirrorB]`; the
+  alternative `[Api] => {Resp} / {Err}` takes `{Resp}` (`Api/Err` the other).
+- **Recursion:** `[Tree.walk] ↻ child` twice, then `base case: [Tree.walk] at depth 3`.
+- **Loops:** `iteration 1/2`, `iteration 2/2` (bounded at 2 per loop).
+- **Composition:** a `setup:` line counts the instances (`[Bullet] ×2`, `[Shard] ×0`).
+- **State machines:** `{Order} + -<Placed>-> Open`, `[Checkout] Idle -<Placed>-> Busy`,
+  `|Queue| Empty -<push>-> Full`. `<Paid>` is logged `ignored: <Paid> — {Order} in +`:
+  `[Payments]` (episode 12) is an entry written before `[Checkout]` (episode 13), so
+  entries run in written order and `<Paid>` arrives before `<Placed>` — the fixture's
+  order, not a design statement.
+- **Not reached:** the `branch on {Request}.kind` block — `{Request}` is not an entry
+  and nothing flows into it, so its arms never run and it lists no `Request.kind=…`
+  scenarios.
 
 ## Crashes and phantom nodes
 

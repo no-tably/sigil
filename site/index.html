@@ -153,10 +153,29 @@
       <pre class="snippet cmd">view.py design.sigil --tree --notes callouts</pre>
     </article>
   </div>
-  <p class="keys"><kbd>t</kbd> tree/graph <kbd>d</kbd> depth <kbd>n</kbd> notes
-  <kbd>e</kbd> triggers <kbd>s</kbd> spacing <kbd>p</kbd> payloads <kbd>l</kbd> lint
-  <kbd>q</kbd> quit · <code>--once</code> prints a frame for agents and CI ·
-  <code>--theme</code> picks the same YAML themes as this page.</p>
+  <div class="cards two">
+    <article class="card">
+      <h3>simulate</h3>
+      <p>Walk the design: tokens travel its flows in either view — the happy path, each
+      failure route, branch arm and race, one named scenario at a time. Calls wait for
+      their return, <code class="hl">!&gt;</code> fires only on failure, events move the
+      state machines. No values are computed: it walks the wiring, not your code.</p>
+      <pre class="snippet cmd">view.py design.sigil --once --tree --sim happy</pre>
+    </article>
+    <article class="card">
+      <h3>calls</h3>
+      <p>Who runs what, and what comes back: <code>↺</code> a self-call,
+      <code>↻</code> recursion, <code>↩</code> a call's return, <code>⇱</code> an op the
+      host provides — opaque, and it may fail. The <em>executions.sigil</em> example above shows
+      them all.</p>
+      <pre class="snippet cmd">view.py site/examples/05-executions.sigil --payloads</pre>
+    </article>
+  </div>
+  <p class="keys"><kbd>t</kbd> tree/graph <kbd>x</kbd> simulate <kbd>d</kbd> depth
+  <kbd>n</kbd> notes <kbd>e</kbd> triggers <kbd>v</kbd> events <kbd>s</kbd> spacing
+  <kbd>p</kbd> payloads <kbd>m</kbd> modifiers <kbd>a</kbd> access <kbd>f</kbd> fit
+  <kbd>l</kbd> lint <kbd>q</kbd> quit · drag to pan · <code>--once</code> prints a frame
+  for agents and CI · <code>--theme</code> picks the same YAML themes as this page.</p>
 </section>
 
 <section id="skill" class="panel">

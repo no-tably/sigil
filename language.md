@@ -234,6 +234,10 @@ The principle: sigil (and whatever consumes it) certifies the **wiring**, not th
   suggests for a glyph that plays two parts); it implies no edge to `[Tree]` —
   write that flow if it exists.
 
+Viewers mark these on the payload chips (`p`): `↺ plan({Seed})` a self-call, `↻` a
+recursive one, `↩ {Plan}` what a call returns, `⇱ http.get(…)` a host-provided op —
+whose target is badged `(Web) ⇱`, opaque.
+
 ## Permission graph
 
 A system of components communicating through **shared persistent state** is a
@@ -461,8 +465,10 @@ state [Checkout] {
 Here `<Paid>` settles the order *and* frees the checkout. Viewers draw the link:
 `view.py` draws a dashed edge from `<Paid>` to each owner it drives (and lists the
 transitions under "triggers"), `view.py --tree` draws `<Paid>` where it lands — a lane
-from whoever emits it (`›`) into each state it enters (`e` toggles both) — and Mermaid
-gets a dotted `triggers` edge. A trigger with no matching event is still valid — it
+from whoever emits it (`›`) into each state it enters (`e` toggles both; `v` /
+`--events land|nodes` switches either view between an event drawn where it lands and
+an event drawn as a node of its own) — and Mermaid gets a dotted `triggers` edge.
+`view.py --sim` runs the machines: each event moves its owners' current state (`◉`). A trigger with no matching event is still valid — it
 names a cause outside the document.
 
 **Narrowing: aim an event at one owner.** By default an event drives every machine
@@ -542,7 +548,7 @@ walk := [Node] -> walk(.children)
 A self-arrow (or an alias whose body calls its own name) is a recursive call. Sigil
 does not state the recursion's depth or base case — those are the callee's
 internals (see "What Sigil deliberately doesn't do"); a consumer that runs the
-design bounds the depth itself.
+design bounds the depth itself (`view.py --sim` stops at depth 3 and logs a base case).
 
 ---
 
@@ -1132,7 +1138,11 @@ GLYPH ∈ `{ [ ( { < | }`, matched by its closing counterpart.
 ## What Sigil deliberately doesn't do
 
 - **No algorithm or data-structure notation.** Sigil describes wiring between components, not what happens *inside* one. A component `[QuickSort]` is a valid glyph; its recursion depth, partition strategy, or complexity bound is not Sigil's concern. If the user asks to encode an algorithm, direct them to prose or code — Sigil stays language-agnostic by keeping implementation internals opaque.
-- **No execution semantics** (no runtime, no types beyond declaration).
+- **No execution semantics** (no runtime, no types beyond declaration). `view.py --sim`
+  walks a design's pathways for a reader — tokens along the flows, one scenario at a
+  time (happy path, each failure route, branch arm, race) — but its choices (written
+  order, bounded loops and recursion, the first member wins by default) are the
+  viewer's reading, not part of the language.
 - **No schema syntax for data *entities*** — a `{X}` entity payload is named, not schema'd; expand it elsewhere if you need a full record shape. (A payload *may* carry a concrete **value** — a literal/ref from the closed value vocabulary; see "Payloads & values". That is a value, not an entity schema.)
 - **No absolute layout / visual coordinates** — Sigil is textual; placement is the renderer's concern. (A dialect may describe **relational** layout intent; none names coordinates or pixel sizes.)
 - **No module/import system** — use `:=` expansions and section headers for scoping.

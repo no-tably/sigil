@@ -9,7 +9,10 @@ regen_docs.py — regenerate the drawings embedded in the docs from view.py.
   block just above it (`view.py --once --tree --no-lint --width 200`, the drawing
   part only — no legend or summary);
 - README.md: the drawing after "`view.py` draws it in the terminal:" is redrawn
-  from the README's first ```sigil block (`view.py --once`, summary included).
+  from the README's first ```sigil block (`view.py --once`, summary included);
+- README.md: the block after the `--sim` command in "Simulation" is the real run of
+  that command on site/examples/01-checkout.sigil (published as checkout.sigil):
+  the drawing, then the `sim …` summary and log (legend and lint summary left out).
 
 Standard library only.
 """
@@ -23,6 +26,9 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+SIM_EXAMPLE = ROOT / "site" / "examples" / "01-checkout.sigil"
 
 
 def run(src: str, *args: str) -> str:
@@ -71,10 +77,36 @@ def readme(text: str) -> tuple[str, int]:
     return text.replace(old.group(0), old.group(0).replace(old.group(1), new)), 1
 
 
+def sim_excerpt(out: str) -> str:
+    """A `--once --tree --sim` run's drawing and its sim summary + log."""
+    lines = out.split("\n")
+    cut = next((i for i, ln in enumerate(lines) if ln.startswith("tree ")), len(lines))
+    sim = next((i for i, ln in enumerate(lines) if ln.startswith("sim ")), len(lines))
+    return tidy("\n".join(lines[:cut])) + "\n" + tidy("\n".join(lines[sim:]))
+
+
+def readme_sim(text: str) -> tuple[str, int]:
+    old = re.search(r"```sh\nview.py checkout.sigil (--once --tree --sim '([^']+)')\n```"
+                    r"\n\n```\n(.*?)```", text, re.S)
+    if not old:
+        return text, 0
+    src = SIM_EXAMPLE.read_text(encoding="utf-8")
+    new = sim_excerpt(run(src, "--tree", "--sim", old.group(2)))
+    if new == old.group(3):
+        return text, 0
+    return text.replace(old.group(0), old.group(0).replace(old.group(3), new)), 1
+
+
+def readme_all(text: str) -> tuple[str, int]:
+    text, a = readme(text)
+    text, b = readme_sim(text)
+    return text, a + b
+
+
 def main() -> int:
     check = "--check" in sys.argv[1:]
     stale = 0
-    for name, fn in (("examples.md", examples), ("README.md", readme)):
+    for name, fn in (("examples.md", examples), ("README.md", readme_all)):
         path = ROOT / name
         text = path.read_text(encoding="utf-8")
         new, changed = fn(text)

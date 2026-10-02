@@ -5,8 +5,8 @@ Not a command: the views and the app load it. Sigil has no execution semantics
 of its own; this is the simulator's reading of a design — tokens moving along
 Scene wires so a reader sees the happy path, each failure route, each branch,
 race and alternative. No values are computed, nothing is evaluated, no time
-passes except ticks. The semantics, construct by construct, are in the
-campaign note `sim.md`; this docstring is the contract the views rely on.
+passes except ticks. This docstring is the contract the views rely on; the
+construct-by-construct rules are stated here and on the functions that apply them.
 
     from sim import scenarios, simulate, project
     for sc in scenarios(scene):
@@ -46,9 +46,21 @@ view draws (events drawn where they land, a shallower depth).
   runs them: on `~>` forked unawaited.
   A failure stops the activation it reaches, fires its routes (those guarded
   by the failed block first, else its unguarded ones), ends it failed and
-  unwinds the sync stack. Resilience (`×N` `@timeout` `@deadline`
-  `@fallback`), loops, parallel / branch blocks, triggers and state machines,
-  expansions, aliases, recursion and composition instances: see sim.md §3.
+  unwinds the sync stack.
+
+  Resilience: a failing call makes attempts() tries, then `@fallback(x)` returns
+  x and the caller goes on as ok; `!` critical ends the run. A self-call is a
+  one-tick pulse; recursion stops at Limits.depth (the base case). An external
+  op's far node is opaque. Blocks: `loop` repeats its region (`@times N`, capped
+  by Limits.iterations), `parallel` forks it (@all waits, @any races, @none
+  doesn't wait), `branch` runs the chosen arm only; a block repeats or forks only
+  on its outermost entry on a task. State machines start in `+` (or the source of
+  their first written transition); an event delivers its triggers, then runs its
+  body. An expansion is a closer reading of the same node: its entries run first,
+  then the node's body minus its summary wires. An alias runs when called by name.
+  Composition children are instances: static ones once per parent (×N
+  multiplies), dynamic ones Limits.spawn per parent, a `=>` into one spawns
+  another. Declarations (`@read`, `@inv`, `@sla`, notes, …) do not affect a run.
 
 SCENARIOS
 
@@ -120,7 +132,7 @@ kit = scene_mod.kit
 # ---------------------------------------------------------------------------
 
 class Limits(NamedTuple):
-    """The bounds that make every run end (sim.md §5). `depth` is checked at every
+    """The bounds that make every run end. `depth` is checked at every
     arrival (the base case: nothing runs); `activations`, `stack` and `frames` end
     the run with outcome "cut" — `stack` keeps a long sync chain inside Python's
     recursion limit (each activation nests a few generator frames)."""
@@ -418,7 +430,7 @@ def _flat(items) -> list:
 
 
 def _unit_entries(prog: Program, ui: int, wires: list) -> tuple:
-    """A unit's entries (sim.md §1.3): nodes with work and either actors or with no
+    """A unit's entries: nodes with work and either actors or with no
     incoming flow in the unit (self-edges aside), minus arm entries; branches with
     no header glyph at their position — ordered by line."""
     u = prog.units[ui]
@@ -457,7 +469,8 @@ def _pseudo(units: list, nid: str) -> Optional[str]:
 
 
 def _machines(sc, units: list) -> dict:
-    """{owner: Machine} of every state unit (initial state per sim.md §3.8)."""
+    """{owner: Machine} of every state unit (initial state: `+` when the machine has a creation
+    transition, else the source of its first written transition that is not `_`)."""
     out = {}
     idents = {id(w.edge): w.ident for w in sc.wires if w.role == "flow"}
     for u in units:
@@ -518,7 +531,8 @@ def resilient(w) -> bool:
 
 
 def attempts(w, limits: Limits) -> int:
-    """How many attempts a failing call makes (sim.md §3.2)."""
+    """How many attempts a failing call makes: 1 + N for `×N` retries (a symbolic N
+    counts Limits.spawn), cut to floor(deadline / timeout) when both parse."""
     n = mod(w, "×")
     retries = (int(n) if n and n.isdigit() else limits.spawn) if n is not None else 0
     a = 1 + retries
@@ -529,7 +543,7 @@ def attempts(w, limits: Limits) -> int:
 
 
 def returned(w) -> Optional[str]:
-    """What comes back on a call wire (sim.md §2.2): the Call's return, the text
+    """What comes back on a call wire: the Call's return, the text
     after ` => ` in a non-op payload, "" for a bare `<->` reply, else None."""
     if w.call is not None and w.call.returns and not w.call.self_call:
         return w.call.returns
@@ -922,7 +936,7 @@ class _Run:
 
     def _run(self, task: _Task, act: _Act, arm, alias: Optional[tuple] = None):
         """An activation's work — its own body, or the alias (ui, alias node) a call
-        named (sim.md §3.1) — then its pop; a failure fires its routes and travels
+        named (an op whose verb names an alias) — then its pop; a failure fires its routes and travels
         on to the caller."""
         node = self.prog.scene.nodes[act.node].node if act.node in self.prog.scene.nodes else None
         try:
@@ -958,7 +972,7 @@ class _Run:
                 yield from self._branch(task, act.ui, bi, act.node)
 
     def _fire_routes(self, task: _Task, act: _Act, f: _Fail):
-        """The failed activation's routes, in written order (sim.md §3.5): those
+        """The failed activation's routes, in written order: those
         guarded by what failed, else the unguarded ones. A route target's own
         failure ends that route only; the remaining routes still fire."""
         routes = self.prog.routes.get((act.ui, act.node), ())
@@ -1118,7 +1132,7 @@ class _Run:
         raise _Fail(("call", w.ident))
 
     def _self_call(self, task: _Task, w):
-        """A self-call (sim.md §3.2): a one-tick pulse; an alias body or a
+        """A self-call: a one-tick pulse; an alias body or a
         recursion runs as its work; a target op's `=>` wires are its return."""
         call = w.call
         alias = self._alias_of(w)
@@ -1258,7 +1272,7 @@ class _Run:
         self._resume_caller(task)
 
     def _region(self, task: _Task, r: Region, arm):
-        """A control block's part of a body (sim.md §3.7). Only the outermost entry
+        """A control block's part of a body. Only the outermost entry
         into a block on a task repeats or forks it (and keeps its iteration): a node
         called from inside the block runs its own part of it as a plain scope. A
         failure leaving the block is the block's (guard ("block", index)), so the
@@ -1409,7 +1423,8 @@ def _loop_count(b, limits: Limits) -> int:
 
 
 def _setup_instances(prog: Program, limits: Limits) -> list:
-    """Instance count per composition entry (prog.tree order), sim.md §3.9."""
+    """Instance count per composition entry (prog.tree order): static children once per
+    parent occurrence (×N multiplies), dynamic ones Limits.spawn, `\\-?` ones 0."""
     counts = []
     for idx, (ui, k, t) in enumerate(prog.tree):
         if t.parent is None:
@@ -1554,7 +1569,7 @@ def _take_branch(prog: Program, ui: int, bi: int, take, queue: list) -> None:
 
 
 def choice_points(prog: Program, limits: Limits = Limits()) -> list:
-    """The reachable choice points (sim.md §4.1), ordered by line, then wire order."""
+    """The reachable choice points, ordered by line, then wire order."""
     wires, nodes, regions = _reachable(prog)
     order = prog.order
     name = lambda nid: _part(prog.scene.nodes[nid].node.name) if nid in prog.scene.nodes else nid
@@ -1576,7 +1591,7 @@ def choice_points(prog: Program, limits: Limits = Limits()) -> list:
             fails = "fallback" if mod(w, "fallback") is not None else "fails"
             text = f"{base}:{fails}"
             points.append(ChoicePoint(("call", w.ident), w.line, order[id(w)], ("ok", "fails"),
-                                      ("", text), ("", _call_label(w, limits))))
+                                      ("", text), ("", _call_label(w, limits, name))))
         if w.kind == "?>":
             text = f"{name(w.src)}?>{name(w.dst)}"
             points.append(ChoicePoint(("cond", w.ident), w.line, order[id(w)], ("skip", "take"),
@@ -1598,9 +1613,11 @@ def choice_points(prog: Program, limits: Limits = Limits()) -> list:
     return _dedup(points)
 
 
-def _call_label(w, limits: Limits) -> str:
+def _call_label(w, limits: Limits, name) -> str:
+    """A failing call's scenario label: what fails (the op verb, else the callee's
+    display name), its attempt count and its fallback."""
     a = attempts(w, limits)
-    verb = scene_mod.op_verb(w.call.op) if w.call is not None and w.call.op else w.dst
+    verb = scene_mod.op_verb(w.call.op) if w.call is not None and w.call.op else name(w.dst)
     fb = mod(w, "fallback")
     tail = f"falls back to {fb}" if fb is not None else "no fallback"
     return f"{verb} fails {a}×, {tail}"
@@ -1793,7 +1810,7 @@ def _view_index(view) -> tuple:
 
 def ident_map(canon, view) -> dict:
     """{canonical ident: ((view ident, offset, scale), …)}: a token at `at` on the
-    canonical wire sits at offset + scale·at on each view wire (sim.md §7.3)."""
+    canonical wire sits at offset + scale·at on each view wire."""
     by_edge, by_trig, in_legs, out_legs, idents = _view_index(view)
     sigs = _edge_sigs(canon)
     out = {}
