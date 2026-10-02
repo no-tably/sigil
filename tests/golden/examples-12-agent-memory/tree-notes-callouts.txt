@@ -1,32 +1,34 @@
-                                         ── agent-memory ───────────────────────────────────────
-╭ core read/write loop ·        ╮ ────#> |PROV| ◀──────────────────────●─────────┬─○─┐
-│ summary materialization (out- │  ┌──#> [MCP.r] ◀─────────────────────┴─●       │ ╎ │
-╰ of-loop) · global invariants  ╯  │     {Payload} ◀─────────────────────┴─●┄┄┄┄┄│┄╎┄│┄┄┄┄┄┄┄┆a┆
-                                   │ ┌#> [Agent] ◀─────────────────────›───┴╍○╍○╍│╍╎╍│╍›╍›╍›
-│ hydration policy (on [MCP.r]) │ ─┘ │   [MCP.w] <Activity> ◀──────────┴─────╎─╎─● ╎ │ ╏ ╏ ╏
-                                     │   <Unroll> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘┄╎┄┄┄╎┄│┄╏┄╏┄╏┄┆b┆
-╭ aliases · mutation surface    ╮ ───┘   <Verify> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘┄┄┄╎┄│┄╏┄╏┄╏┄┆c┆
-╰ (agent-visible events)        ╯        <ΔHash> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘ │ ╏ ╏ ╏
-                                         {Concept} ────────────────────●             │ ╏ ╏ ╏
-                                         [Renderer] ◀──────────────────┴━◆           │ ╏ ╏ ╏
-                                         {Summary} ◀━━━━━━━━━━━━━━━━━━━━━┻───────────● ╏ ╏ ╏
-                                                                                       ╏ ╏ ╏
-│ entity lifecycle              │ ────#> {Entity}                                      ╏ ╏ ╏
-                                         ├─· ● ────────────────────────●               ╏ ╏ ╏
-                                         ├─· live <assert> <resolve> ◀─┴─●─┬─●───●     ╏ ╏ ╏
-                                         ├─· disputed <dispute> ◀────────┴─●╍│╍╍╍│╍╍╍╍╍┘┄╏┄╏┄┆d┆
-                                         ├─· superseded <supersede> ◀────────┴─●╍│╍╍╍╍╍╍╍┘┄╏┄┆e┆
-                                         ├─· retracted <retract> ◀─────●───────│─┴╍╍╍╍╍╍╍╍╍┘┄┆f┆
-                                         └─· ◉ <archive> ◀─────────────┴───────┘
+                                         ── agent-memory ────────────────────────────────────────
+╭ core read/write loop ·        ╮ ────#> |PROV| ◀───────────────────────●─────────┬─○─┐
+│ summary materialization (out- │  ┌──#> [MCP.r] ◀──────────────────────┴─●       │ ╎ │
+╰ of-loop) · global invariants  ╯  │     {Payload} ◀──────────────────────┴─●┄┄┄┄┄│┄╎┄│┄┄┄┄┄┄┄┆a┆
+                                   │ ┌#> [Agent] ◀──────────────────────›───┴╍○╍○╍│╍╎╍│╍›╍›╍›
+│ hydration policy (on [MCP.r]) │ ─┘ │   [MCP.w] <Activity> ◀───────────┴─────╎─╎─● ╎ │ ╏ ╏ ╏
+                                     │   <Unroll> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘┄╎┄┄┄╎┄│┄╏┄╏┄╏┄┆b┆
+╭ aliases · mutation surface    ╮ ───┘   <Verify> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘┄┄┄╎┄│┄╏┄╏┄╏┄┆c┆
+╰ (agent-visible events)        ╯        <ΔHash> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘ │ ╏ ╏ ╏
+                                         {Concept} ─────────────────────●             │ ╏ ╏ ╏
+                                         [Renderer] ◀───────────────────┴━◆           │ ╏ ╏ ╏
+                                         {Summary} ◀━━━━━━━━━━━━━━━━━━━━━━┻───────────● ╏ ╏ ╏
+                                                                                        ╏ ╏ ╏
+                                         ── {Entity} state machine ──────────────────────────────
+│ entity lifecycle              │ ────#> {Entity}                                       ╏ ╏ ╏
+                                         ├─· ● ─────────────────────────●               ╏ ╏ ╏
+                                         ├─· live <assert> <resolve> ◀──┴─●─┬─●───●     ╏ ╏ ╏
+                                         ├─· disputed <dispute> ◀─────────┴─●╍│╍╍╍│╍╍╍╍╍┘┄╏┄╏┄┆d┆
+                                         ├─· superseded <supersede> ◀─────────┴─●╍│╍╍╍╍╍╍╍┘┄╏┄┆e┆
+                                         ├─· retracted <retract> ◀──────●───────│─┴╍╍╍╍╍╍╍╍╍┘┄┆f┆
+                                         └─· ◉ <archive> ◀──────────────┴───────┘
 
+                                         ── agent-memory ────────────────────────────────────────
                                          {Fact}
 
-                                                             ┆a┆ # staged delivery
-                                                             ┆b┆ # walk wasDerivedFrom backward
-                                                             ┆c┆ # unroll + re-check antecedents
-                                                             ┆d┆ # reversible flag
-                                                             ┆e┆ # new entity + wasRevisionOf
-                                                             ┆f┆ # withdraw, no replacement
+                                                              ┆a┆ # staged delivery
+                                                              ┆b┆ # walk wasDerivedFrom backward
+                                                              ┆c┆ # unroll + re-check antecedents
+                                                              ┆d┆ # reversible flag
+                                                              ┆e┆ # new entity + wasRevisionOf
+                                                              ┆f┆ # withdraw, no replacement
 
 tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
        (N) weight  

@@ -161,3 +161,27 @@ class TestAnnotations(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestMachineRules(unittest.TestCase):
+    """A top-level state machine gets its own title rule, as in the graph view."""
+
+    DOC = ("--- shop ---\n(User) -> [Cart] ~> <Placed>\n"
+           "state {Order} {\n  + -<Placed>-> Open\n}\n"
+           "state [Cart] {\n  Idle -<Placed>-> Busy\n}\n[Ledger] ~> <Placed>\n")
+
+    def titles(self, text, **kw):
+        return [ln.strip(" ─") for ln in plain(tree(text, **kw)) if ln.startswith("── ")]
+
+    def test_rule_above_each_machine_and_section_resumes(self):
+        # rows of the section after a machine: the section's rule comes back
+        self.assertEqual(self.titles(self.DOC), [
+            "shop", "[Cart] state machine", "shop", "{Order} state machine"])
+
+    def test_back_to_back_machines_have_no_section_rule_between(self):
+        text = (_DIR / "site" / "examples" / "04-orders.sigil").read_text()
+        self.assertEqual(self.titles(text), [
+            "orders", "[Checkout] state machine", "{Order} state machine", "orders"])
+
+    def test_collapsed_machine_has_no_rule(self):
+        self.assertEqual(self.titles(self.DOC, depth=0), ["shop"])

@@ -348,11 +348,44 @@ class _Bracket(NamedTuple):
     members: list
 
 
+def _machine_banners(rows, g, secs) -> list:
+    """Pending section banners for each top-level state machine drawn open: a
+    `── {Trip} state machine ──` rule above its owner (the graph view's title for
+    it), and — when more top-level rows of the same `--- section ---` follow the
+    machine — that section's rule again after it, so they don't read as part of
+    the machine."""
+    out = []
+    est = kit.node_lines(g) if secs else {}
+    top = [i for i, r in enumerate(rows) if isinstance(r, TreeRow) and r.graph is g
+           and r.depth == 0]
+
+    def machine(i):
+        sub = g.expansions.get(rows[i].node.id)
+        return not rows[i].collapsed and getattr(sub, "role", "") == "state"
+
+    for n, i in enumerate(top):
+        r = rows[i]
+        if not machine(i):
+            continue
+        out.append((i, (1, 1), Banner("section", kit.section_rule(
+            f"{kit.node_label(r.node)} state machine")), None))
+        nxt = top[n + 1] if n + 1 < len(top) else None
+        if nxt is None or machine(nxt):         # a machine's own rule follows
+            continue
+        here = kit.section_of(secs, est.get(r.node.id, 0)) if secs else -1
+        after = kit.section_of(secs, est.get(rows[nxt].node.id, 0)) if secs else -1
+        if after == here:                       # else that section's own rule follows
+            name = kit.section_name(secs[here]) if here >= 0 else ""
+            out.append((nxt, (0, 0), Banner("section", kit.section_rule(name)), None))
+    return out
+
+
 def _tree_banners(rows, g):
     """rows with banners inserted: a section divider before the first top-level
-    unit of each `--- section ---`, and each control block's header — before the
-    first member row the block introduces (else after its last member row).
-    Returns (rows, brackets)."""
+    unit of each `--- section ---`, a `── X state machine ──` divider above each
+    top-level state machine drawn open (_machine_banners), and each control
+    block's header — before the first member row the block introduces (else after
+    its last member row). Returns (rows, brackets)."""
     first = {}
     for i, r in enumerate(rows):
         if isinstance(r, TreeRow):
@@ -368,6 +401,7 @@ def _tree_banners(rows, g):
                     cur = k
                     pending.append((i, (1, 0), Banner("section", kit.section_rule(
                         kit.section_name(secs[k]))), None))
+    pending += _machine_banners(rows, g, secs)
     seen_graphs = {id(r.graph): r.graph for r in rows if isinstance(r, TreeRow)}
     for G in seen_graphs.values():
         blocks = getattr(G, "blocks", None) or []

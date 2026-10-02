@@ -1,17 +1,20 @@
-                              ── orders ────────────────────────────────────────────────────────────
-                              (Shopper) ───────────────────────●
-                                                               │
-╭ the checkout is busy   ╮ #> [Checkout] ◀─────────────────────┴─›─●╍›
-│ while a payment is in  │    ├─· Idle <Declined> <Paid> ◀─●─┬╍╍╍╏╍│╍╏╍┐┄# card refused or timed out
-╰ flight                 ╯    └─· Busy <Placed> ◀──────────┴─●╍╍╍┘ │ ╏ ╏
-                                                                   │ ╏ ╏
-╭ an order settles or is ╮ #> {Order} ◀────────────────────────────┘ ╏ ╏
-╰ cancelled, never both  ╯    ├─· ● ───────────────────────●         ╏ ╏
-                              ├─· Open <Placed> ◀──────────┴─●─●╍╍╍╍╍┘ ╏
-                              ├─· Settled <Paid> ◀───────────┴╍│╍┐     ╏
-                              └─· Cancelled <Declined> ◀───┬───┘┄╏┄┄┄┄┄╏┄# card refused or timed out
+                          ── orders ────────────────────────────────────────────────────────────────
+                          (Shopper) ─────────────────────────────●
+                                                                 │
+                          ── [Checkout] state machine ──────────────────────────────────────────────
+╭ the checkout is    ╮ #> [Checkout] ◀─────────────────────────›─┴─●╍›
+│ busy while a       │    ├─· Idle <Declined> <Paid> ◀─────●─┬╍╏╍╍╍│╍╏╍┐┄# card refused or timed out
+│ payment is in      │    └─· Busy <Placed> ◀──────────────┴─●╍┘   │ ╏ ╏
+╰ flight             ╯                                             │ ╏ ╏
+                          ── {Order} state machine ─────────────────────────────────────────────────
+╭ an order settles   ╮ #> {Order} ◀────────────────────────────────┘ ╏ ╏
+│ or is cancelled,   │    ├─· ● ───────────────────────────●         ╏ ╏
+╰ never both         ╯    ├─· Open <Placed> ◀──────────────┴─●─●╍╍╍╍╍┘ ╏
+                          ├─· Settled <Paid> ◀───────────────┴╍│╍┐     ╏
+                          └─· Cancelled <Declined> ◀───────┬───┘┄╏┄┄┄┄┄╏┄# card refused or timed out
                                                            ╏     ╏     ╏
-                              [Payments] ╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍›╍╍╍╍╍›╍╍╍╍╍›
+                          ── orders ────────────────────────────────────────────────────────────────
+                          [Payments] ╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍›╍╍╍╍╍›╍╍╍╍╍›
 
 tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
        (N) weight  
