@@ -17,7 +17,10 @@ What it does:
       view.py — the tree view and the graph view after each typed line — into
       frames.json, which the page's background plays back in step with the
       typing. Colours are stored as theme roles (e.g. "kinds-service"), so the
-      background follows a theme change like everything else.
+      background follows a theme change like everything else;
+    - copies the playground's Python into py/ — the repo's own view.py, lint.py,
+      sim.py and the rest, byte for byte, plus frames.py and playground.py — for
+      Pyodide to run in the browser (loaded only when the playground opens).
 
 --out is wiped and rebuilt, so it must be empty, missing, or a previous build
 (frames.json or .nojekyll present), and never this directory or a parent of it.
@@ -41,6 +44,12 @@ SITE = Path(__file__).resolve().parent
 ROOT = SITE.parent
 PAGE = "index.html"                  # the one file with {{placeholders}}
 ASSETS = ["site.css", "site.js"]     # copied verbatim
+# The playground's Python, copied verbatim into py/ (manifest.json lists them):
+# the repo's own tools, then the two site helpers — the browser runs these files,
+# never a port of them.
+PY_TOOLS = ["render.py", "lint.py", "themes.py", "viewkit.py", "view_graph.py",
+            "view_tree.py", "scene.py", "sim.py", "view.py"]
+PY_SITE = ["frames.py", "playground.py"]
 PLACEHOLDER_REPO = "OWNER/sigil"
 MAX_DEPTH = 99                       # expand every := block in the frames
 PLACEHOLDER_RE = re.compile(r"\{\{\w+\}\}")
@@ -63,6 +72,8 @@ def _load(name: str, path: Path) -> ModuleType:
 
 view = _load("sigil_view", ROOT / "view.py")
 themes = _load("sigil_site_themes", ROOT / "themes.py")
+frames_mod = _load("sigil_site_frames", SITE / "frames.py")
+autoclose, Styles, pack_rows = frames_mod.autoclose, frames_mod.Styles, frames_mod.pack_rows
 
 
 # ---------------------------------------------------------------------------
@@ -110,91 +121,6 @@ def theme_index(names: list[str]) -> str:
 # ---------------------------------------------------------------------------
 # Frames: each example rendered after every typed line
 # ---------------------------------------------------------------------------
-
-_STRING_RE = re.compile(r'"(?:[^"\\]|\\.)*"?')
-_INNER_BRACES_RE = re.compile(r"\{[^{}]*\}")
-
-
-def _code(line: str) -> str:
-    """The line without a trailing # comment and with "…" strings blanked to
-    spaces (same length), so neither a # nor a brace inside a string counts.
-    Mode lines (#!…) have no code."""
-    if line.lstrip().startswith("#!"):
-        return ""
-    blanked = _STRING_RE.sub(lambda m: " " * len(m.group()), line)
-    m = re.search(r"(^|\s)#", blanked)
-    return blanked[:m.start()] if m else blanked
-
-
-def autoclose(lines: list[str]) -> str:
-    """The prefix as a document: close any `{` blocks still open, so a half-typed
-    expansion already draws. Braces are counted structurally: after dropping
-    balanced {…} runs on a line (data glyphs, \\-{cond}- relations, one-line
-    blocks), each `{` left opens a block and each `}` closes one — so `X := {`,
-    `state X {`, `[A] @owns |S| {`, `} @inv …` and `}}` all count."""
-    depth = 0
-    for ln in lines:
-        code, prev = _code(ln), None
-        while code != prev:
-            prev, code = code, _INNER_BRACES_RE.sub("", code)
-        for ch in code:
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth = max(depth - 1, 0)
-    return "\n".join(lines + ["}"] * depth) + "\n"
-
-
-StyleKey = tuple  # (fg role/hex | None, bg role/hex | None, bold)
-
-
-class Styles:
-    """Interns (fg, bg, bold) styles as compact role/hex triples."""
-
-    def __init__(self) -> None:
-        self.table: list[list] = []
-        self.index: dict[StyleKey, int] = {}
-
-    @staticmethod
-    def _colour(c) -> str | None:
-        """A colour as its theme role (e.g. "kinds-service") when it has one, else hex."""
-        if not c:
-            return None
-        role = getattr(c, "role", "")
-        return role or str(c)
-
-    def intern(self, style) -> int:
-        """The table index of a view.py (fg, bg, bold) style, adding it if new."""
-        if style is None:
-            style = (None, None, False)
-        fg, bg, bold = style
-        key = (self._colour(fg), self._colour(bg), bool(bold))
-        if key not in self.index:
-            self.index[key] = len(self.table)
-            self.table.append(list(key))
-        return self.index[key]
-
-
-def pack_rows(rows, styles: Styles) -> list:
-    """Rows of (text, style) runs -> [[text, style id], …] with equal neighbours
-    merged; trailing blank runs and rows are dropped (a run with a background
-    colour is kept — it is visible)."""
-    out = []
-    for row in rows:
-        packed: list = []
-        for text, st in row:
-            sid = styles.intern(st)
-            if packed and packed[-1][1] == sid:
-                packed[-1][0] += text
-            else:
-                packed.append([text, sid])
-        while packed and not packed[-1][0].strip() and not styles.table[packed[-1][1]][1]:
-            packed.pop()
-        out.append(packed)
-    while out and not out[-1]:
-        out.pop()
-    return out
-
 
 def title_of(lines: list[str], fallback: str) -> str:
     """The first `--- section ---` name in an example, else the fallback."""
@@ -343,6 +269,14 @@ def build(out: Path, logo: str) -> None:
     (out / "examples").mkdir()
     for p in example_paths():
         shutil.copyfile(p, out / "examples" / public_name(p))
+    (out / "py").mkdir()
+    for name in PY_TOOLS:
+        shutil.copyfile(ROOT / name, out / "py" / name)
+    for name in PY_SITE:
+        shutil.copyfile(SITE / name, out / "py" / name)
+    (out / "py" / "manifest.json").write_text(
+        json.dumps({"files": PY_TOOLS + PY_SITE, "themes": [f"{n}.yaml" for n in names]}),
+        encoding="utf-8")
     (out / "frames.json").write_text(
         json.dumps(frames, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     (out / ".nojekyll").write_text("", encoding="utf-8")

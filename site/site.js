@@ -1,4 +1,5 @@
-/* Sigil site — themes from YAML, the live-coding editor and the 3D background.
+/* Sigil site — themes from YAML, the live-coding editor, the 3D background and
+   the playground (the repo's own Python, run by Pyodide).
    No dependencies. The background frames are view.py's own output (frames.json,
    made by build_site.py), coloured by theme role so they follow a theme change. */
 (() => {
@@ -21,7 +22,7 @@
   // Symbols Departure Mono lacks: they fall back to another font inside a fixed
   // 1ch cell (.fb), so a row's columns stay aligned. index.html loads the fallback
   // font for exactly these characters.
-  const FALLBACK = /[↺↻⇱↩⇢∗▸▾◀▶◆◇◉○◎●✖✱◦✦]/g;
+  const FALLBACK = /[↺↻⇱↩⇢∗▸▾◀▶◆◇◉○◎●✖✱◦✦∥⊘✕]/g;
   const wrapFallback = (html) => html.replace(FALLBACK, '<span class="fb">$&</span>');
 
   const store = {
@@ -760,6 +761,322 @@
     select(0);
   }
 
+  // ------------------------------------------------------------------ playground
+  // The repo's own Python (copied byte for byte into py/ by build_site.py) run by
+  // Pyodide: playground.py asks view.py / lint.py / sim.py for a drawing and packs
+  // it the way frames.json is packed. Nothing about the notation is decided here.
+
+  const PYODIDE = "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/";
+  const SHARE = "play=";
+  const SIM_FPS = 8;
+
+  const b64url = {
+    encode(text) {
+      let bin = "";
+      for (const b of new TextEncoder().encode(text)) bin += String.fromCharCode(b);
+      return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    },
+    decode(s) {
+      const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/"));
+      return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+    },
+  };
+
+  function sharedText() {
+    const h = location.hash.slice(1);
+    if (!h.startsWith(SHARE)) return null;
+    try { return b64url.decode(h.slice(SHARE.length)); } catch { return null; }
+  }
+
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const el = document.createElement("script");
+      el.src = src;
+      el.onload = resolve;
+      el.onerror = () => reject(new Error(`could not load ${src}`));
+      document.head.append(el);
+    });
+  }
+
+  function initPlayground(examples) {
+    const root = $("#pg");
+    if (!root) return;
+    const el = {
+      go: $("#pg-go"), msg: $("#pg-msg"), app: $("#pg-app"), example: $("#pg-example"),
+      tree: $("#pg-tree"), graph: $("#pg-graph"), share: $("#pg-share"),
+      src: $("#pg-src"), hl: $("#pg-hl"), draw: $("#pg-draw"), legend: $("#pg-legend"),
+      scenario: $("#pg-scenario"), back: $("#pg-back"), play: $("#pg-play"), fwd: $("#pg-fwd"),
+      scrub: $("#pg-scrub"), tick: $("#pg-tick"), lint: $("#pg-lint"), count: $("#pg-count"),
+      diags: $("#pg-diags"), log: $("#pg-log"),
+    };
+    const st = { view: "tree", scenario: "", frame: 0, last: 0, playing: false,
+      timer: null, typing: null, styles: 0, api: null, booting: false };
+
+    el.example.innerHTML = examples.map((e, i) =>
+      `<option value="${i}">${esc(e.file)}</option>`).join("");
+
+    // frame styles: ids are stable for the session; add the ones not seen yet
+    const sheet = document.createElement("style");
+    document.head.append(sheet);
+    function addStyles(table) {
+      let css = "";
+      for (; st.styles < table.length; st.styles++) {
+        const [fg, bg, bold] = table[st.styles];
+        const parts = [];
+        const fgCss = roleCss(fg), bgCss = roleCss(bg);
+        if (fgCss) parts.push(`color:${fgCss}`);
+        if (bgCss) parts.push(`background:${bgCss}`);
+        if (bold) parts.push("font-weight:700");
+        if (parts.length) css += `.p${st.styles}{${parts.join(";")}}\n`;
+      }
+      if (css) sheet.append(css);
+    }
+    const rowsHtml = (rows) => rows.map((row) => row.map(([text, sid]) =>
+      `<span class="p${Number(sid)}">${wrapFallback(esc(String(text)))}</span>`).join("")).join("\n");
+
+    function say(text, bad = false) {
+      el.msg.textContent = text;
+      el.msg.classList.toggle("bad", bad);
+    }
+
+    async function boot() {
+      if (st.booting || st.api) return;
+      st.booting = true;
+      el.go.disabled = true;
+      root.dataset.state = "loading";
+      try {
+        say("loading Python (Pyodide)…");
+        if (!window.loadPyodide) await loadScript(`${PYODIDE}pyodide.js`);
+        const py = await window.loadPyodide({ indexURL: PYODIDE });
+        say("loading sigil…");
+        const res = await fetch("py/manifest.json");
+        if (!res.ok) throw new Error(`py/manifest.json: HTTP ${res.status}`);
+        const man = await res.json();
+        py.FS.mkdirTree("/sigil/themes");
+        const get = async (url) => {
+          const r = await fetch(url);
+          if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+          return r.text();
+        };
+        await Promise.all([
+          ...man.files.map(async (f) => py.FS.writeFile(`/sigil/${f}`, await get(`py/${f}`))),
+          ...man.themes.map(async (f) => py.FS.writeFile(`/sigil/themes/${f}`, await get(`themes/${f}`))),
+        ]);
+        py.runPython("import sys; sys.path.insert(0, '/sigil')");
+        st.api = py.pyimport("playground");
+        root.dataset.state = "ready";
+        el.app.hidden = false;
+        say("");
+        const shared = sharedText();
+        setText(shared ?? examples[0]?.lines.join("\n") ?? "#!sketch\n[A] -> [B]\n");
+        if (shared === null) el.example.value = "0";
+        refresh();
+      } catch (err) {
+        console.error(err);
+        root.dataset.state = "idle";
+        el.go.disabled = false;
+        say(`the playground could not start: ${err.message || err}`, true);
+      } finally {
+        st.booting = false;
+      }
+    }
+
+    function call(fn, req) {
+      try {
+        return JSON.parse(st.api[fn](JSON.stringify(req)));
+      } catch (err) {
+        const text = String(err.message || err).trim().split("\n").pop();
+        return { error: text };
+      }
+    }
+
+    // the editor: a transparent textarea over its highlighted copy
+    function paint() {
+      el.hl.innerHTML = el.src.value.split("\n").map(highlight).join("\n") + "\n";
+      syncScroll();
+    }
+    function syncScroll() {
+      el.hl.scrollTop = el.src.scrollTop;
+      el.hl.scrollLeft = el.src.scrollLeft;
+    }
+    function setText(text) {
+      el.src.value = text.replace(/\n$/, "");
+      paint();
+    }
+
+    function cols() {
+      const probe = document.createElement("span");
+      probe.textContent = "0".repeat(20);
+      probe.style.visibility = "hidden";
+      el.draw.append(probe);
+      const ch = probe.getBoundingClientRect().width / 20 || 8;
+      probe.remove();
+      return Math.max(30, Math.floor((el.draw.clientWidth - 16) / ch));
+    }
+
+    const request = () => ({ text: el.src.value, view: st.view, width: cols() });
+
+    function showDrawing(r) {
+      addStyles(r.styles);
+      el.draw.innerHTML = rowsHtml(r.rows);
+      el.legend.innerHTML = rowsHtml(r.legend || []);
+    }
+
+    // a fresh draw: lint, counts and the scenario list follow the text
+    function refresh() {
+      const r = call("draw", request());
+      if (r.error) {
+        el.lint.textContent = `python: ${r.error}`;
+        el.lint.className = "bad";
+        return;
+      }
+      showDrawing(r);
+      const errs = r.lint.filter((d) => d.severity === "error").length;
+      const warns = r.lint.filter((d) => d.severity === "warn").length;
+      el.lint.textContent = `lint: ${errs || warns ? `${errs}E ${warns}W` : "OK"}`;
+      el.lint.className = errs || warns ? "bad" : "ok";
+      el.count.textContent = `${r.nodes} nodes · ${r.edges} edges`;
+      el.diags.innerHTML = r.lint.map((d, i) =>
+        `<li class="${esc(d.severity)}"><button type="button" data-i="${i}">` +
+        `${esc(d.severity)}:${d.line}:${esc(d.rule)}</button> ${esc(d.message)}</li>`).join("");
+      el.diags.onclick = (e) => {
+        const b = e.target.closest("button[data-i]");
+        if (b) goToLine(r.lint[Number(b.dataset.i)].line);
+      };
+      const keep = r.scenarios.some((s) => s.name === st.scenario) ? st.scenario : "";
+      el.scenario.innerHTML = `<option value="">— off —</option>` + r.scenarios.map((s) =>
+        `<option value="${esc(s.name)}">${esc(s.name)}${s.label ? ` · ${esc(s.label)}` : ""}</option>`).join("");
+      el.scenario.value = keep;
+      st.scenario = keep;
+      if (keep) frame(0);
+      else simOff();
+    }
+
+    function goToLine(n) {
+      const lines = el.src.value.split("\n");
+      const k = Math.max(1, Math.min(n || 1, lines.length));
+      const start = lines.slice(0, k - 1).reduce((a, l) => a + l.length + 1, 0);
+      el.src.focus();
+      el.src.setSelectionRange(start, start + lines[k - 1].length);
+    }
+
+    function simOff() {
+      stop();
+      st.frame = st.last = 0;
+      el.scrub.max = "0";
+      el.scrub.value = "0";
+      el.tick.textContent = "";
+      el.log.hidden = true;
+      root.classList.remove("running");
+      [el.back, el.play, el.fwd, el.scrub].forEach((b) => { b.disabled = true; });
+    }
+
+    function frame(k) {
+      const r = call("sim", { ...request(), scenario: st.scenario, frame: k });
+      if (r.error) {
+        el.tick.textContent = r.error;
+        stop();
+        return;
+      }
+      showDrawing(r);
+      root.classList.add("running");
+      [el.back, el.play, el.fwd, el.scrub].forEach((b) => { b.disabled = false; });
+      st.frame = r.frame;
+      st.last = r.last;
+      el.scrub.max = String(r.last);
+      el.scrub.value = String(r.frame);
+      el.tick.textContent = `t${r.tick}/${r.ticks}` + (r.outcome ? ` · ${r.outcome}` : "");
+      el.log.hidden = false;
+      el.log.textContent = r.log.join("\n");
+      el.log.scrollTop = el.log.scrollHeight;
+      if (r.frame >= r.last) stop();
+    }
+
+    function stop() {
+      clearInterval(st.timer);
+      st.timer = null;
+      st.playing = false;
+      el.play.textContent = "play";
+      el.play.title = "Play";
+    }
+    function play() {
+      if (!st.scenario) return;
+      if (st.frame >= st.last) frame(0);
+      st.playing = true;
+      el.play.textContent = "pause";
+      el.play.title = "Pause";
+      st.timer = setInterval(() => frame(st.frame + 1), 1000 / SIM_FPS);
+    }
+
+    function setView(v) {
+      st.view = v;
+      el.tree.setAttribute("aria-pressed", String(v === "tree"));
+      el.graph.setAttribute("aria-pressed", String(v === "graph"));
+      if (st.scenario) frame(st.frame);
+      else refresh();
+    }
+
+    el.go.addEventListener("click", boot);
+    el.src.addEventListener("input", () => {
+      paint();
+      stop();
+      clearTimeout(st.typing);
+      st.typing = setTimeout(refresh, 180);
+    });
+    el.src.addEventListener("scroll", syncScroll);
+    el.src.addEventListener("keydown", (e) => {
+      if (e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();                        // Esc, then Tab, leaves the editor
+        if (!document.execCommand("insertText", false, "  ")) {
+          const { selectionStart: a, selectionEnd: b, value } = el.src;
+          el.src.value = value.slice(0, a) + "  " + value.slice(b);
+          el.src.selectionStart = el.src.selectionEnd = a + 2;
+          el.src.dispatchEvent(new Event("input"));
+        }
+      } else if (e.key === "Escape") {
+        el.src.blur();
+      }
+    });
+    el.example.addEventListener("change", () => {
+      const ex = examples[Number(el.example.value)];
+      if (!ex) return;
+      setText(ex.lines.join("\n"));
+      st.scenario = "";
+      refresh();
+    });
+    el.tree.addEventListener("click", () => setView("tree"));
+    el.graph.addEventListener("click", () => setView("graph"));
+    el.scenario.addEventListener("change", () => {
+      st.scenario = el.scenario.value;
+      stop();
+      if (st.scenario) frame(0);
+      else refresh();
+    });
+    el.play.addEventListener("click", () => (st.playing ? stop() : play()));
+    el.back.addEventListener("click", () => { stop(); frame(Math.max(0, st.frame - 1)); });
+    el.fwd.addEventListener("click", () => { stop(); frame(Math.min(st.last, st.frame + 1)); });
+    el.scrub.addEventListener("input", () => { stop(); frame(Number(el.scrub.value)); });
+    el.share.addEventListener("click", async () => {
+      const url = `${location.origin}${location.pathname}#${SHARE}${b64url.encode(el.src.value)}`;
+      history.replaceState(null, "", url);
+      let ok = true;
+      try { await navigator.clipboard.writeText(url); } catch { ok = false; }
+      el.share.textContent = ok ? "link copied" : "link in the address bar";
+      setTimeout(() => { el.share.textContent = "share"; }, 1800);
+    });
+    let resizeTimer = null;
+    addEventListener("resize", () => {
+      if (!st.api) return;
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => (st.scenario ? frame(st.frame) : refresh()), 200);
+    });
+    simOff();
+    if (sharedText() !== null) {
+      $("#playground").scrollIntoView();
+      boot();
+    }
+  }
+
   // ------------------------------------------------------------------ brand
   // The name unpacks on hover / focus: each glyph's letter grows into its word
   // (Sigil → Symbolic Intent Glyph Intermediate Language, see language.md "On
@@ -914,13 +1231,16 @@
     initInstall();
     initThemes();
     const views = buildScene();
+    let examples = [];
     try {
       const data = await loadFrames();
+      examples = data.examples;
       installFrameStyles(data.styles);
       player(data, views);
     } catch (err) {
       editorUnavailable(views, err);
     }
+    initPlayground(examples);
   }
 
   main();

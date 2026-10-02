@@ -9,7 +9,10 @@ Covers:
   - the YAML subset: tests/fixtures/yaml_cases.json (the contract written in
     themes.py's docstring) holds for themes.parse and, with node available, for
     site.js parseYaml; both parse every shipped theme identically;
-  - with node available: site.js highlights Sigil into the theme's syntax roles.
+  - with node available: site.js highlights Sigil into the theme's syntax roles;
+  - the playground: py/ holds the repo's tools byte for byte (the browser runs
+    them, never a port), the manifest is complete (playground.py runs from py/
+    alone, in a fresh interpreter), and what it draws is what view.py draws.
 
 Run:  python3 -m unittest discover tests
 """
@@ -120,10 +123,65 @@ class TestBuild(unittest.TestCase):
                     self.assertIn(c.removeprefix("tint:").removeprefix("muted:"), defined, c)
 
 
+    def test_playground_ships_the_tools_verbatim(self):
+        man = json.loads((self.out / "py" / "manifest.json").read_text())
+        self.assertEqual(man["files"], site.PY_TOOLS + site.PY_SITE)
+        for name in site.PY_TOOLS:
+            self.assertEqual((self.out / "py" / name).read_bytes(), (_DIR / name).read_bytes(), name)
+        for name in site.PY_SITE:
+            self.assertEqual((self.out / "py" / name).read_bytes(), (SITE / name).read_bytes(), name)
+        for t in man["themes"]:
+            self.assertTrue((self.out / "themes" / t).is_file(), t)
+
+    def test_playground_runs_from_the_manifest_alone(self):
+        # The browser's file system: py/* and themes/* in one directory, nothing else.
+        with tempfile.TemporaryDirectory() as tmp:
+            man = json.loads((self.out / "py" / "manifest.json").read_text())
+            (Path(tmp) / "themes").mkdir()
+            for f in man["files"]:
+                shutil.copyfile(self.out / "py" / f, Path(tmp) / f)
+            for f in man["themes"]:
+                shutil.copyfile(self.out / "themes" / f, Path(tmp) / "themes" / f)
+            text = (SITE / "examples" / "01-checkout.sigil").read_text()
+            code = ("import json, sys; sys.path.insert(0, '.'); import playground as p\n"
+                    "t = sys.stdin.read()\n"
+                    "d = json.loads(p.draw(json.dumps({'text': t, 'view': 'graph'})))\n"
+                    "n = d['scenarios'][-1]['name']\n"
+                    "s = json.loads(p.sim(json.dumps({'text': t, 'scenario': n, 'frame': 10**6})))\n"
+                    "print(json.dumps([len(d['rows']), n, s['outcome'], sorted(sys.modules)]))")
+            run = subprocess.run([sys.executable, "-I", "-c", code], cwd=tmp, input=text,
+                                 capture_output=True, text=True, timeout=120)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            rows, name, outcome, mods = json.loads(run.stdout)
+            self.assertGreater(rows, 5)
+            self.assertEqual(name, "API.charge:fails")
+            self.assertEqual(outcome, "failed")
+            self.assertNotIn("termios", mods)          # no terminal in a browser
+
+    def test_playground_draws_what_view_draws(self):
+        pg = _load("sigil_playground_t", SITE / "playground.py")
+        view = pg.view
+        text = (SITE / "examples" / "04-orders.sigil").read_text()
+        g = view.render.parse_document(text)
+        for tree in (True, False):
+            with self.subTest(tree=tree):
+                got = json.loads(pg.draw(json.dumps({"text": text,
+                                                     "view": "tree" if tree else "graph"})))
+                rows, _w = view.compose_view(
+                    g, tree, depth=pg.MAX_DEPTH, payloads=True,
+                    notes="callouts" if tree else "markers", triggers=True, spaced=True,
+                    width=None, access=False, mods=False,
+                    events=view.DEFAULT_EVENTS[view.view_name(tree)])
+                want = ["".join(t for t, _s in r).rstrip() for r in rows]
+                drawn = ["".join(t for t, _s in r).rstrip() for r in got["rows"]]
+                while want and not want[-1]:
+                    want.pop()
+                self.assertEqual(drawn, want)
+
     def test_symbols_outside_the_font_get_a_fixed_cell(self):
-        # Departure Mono 1.500 lacks these viewer symbols (checked with fontTools);
+        # Departure Mono 1.500 lacks these viewer and simulation symbols (fontTools);
         # site.js must wrap each in a 1ch fallback cell or frame columns drift.
-        missing = "↺⇢∗▸▾◀◆◇◉○◎●✖✱"
+        missing = "↺↻⇱↩⇢∗∥⊘▶▸▾◀◆◇◉○◎●✕✖✱"
         js = (SITE / "site.js").read_text()
         pattern = re.search(r"const FALLBACK = /\[(.*?)\]/g", js).group(1)
         for ch in missing:

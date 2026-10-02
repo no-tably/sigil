@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <!-- the fallback font, only for the symbols Departure Mono lacks (site.js FALLBACK) -->
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400&text=%E2%86%BA%E2%86%BB%E2%87%B1%E2%86%A9%E2%87%A2%E2%88%97%E2%96%B8%E2%96%BE%E2%97%80%E2%96%B6%E2%97%86%E2%97%87%E2%97%89%E2%97%8B%E2%97%8E%E2%97%8F%E2%9C%96%E2%9C%B1%E2%97%A6%E2%9C%A6&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400&text=%E2%86%BA%E2%86%BB%E2%87%B1%E2%86%A9%E2%87%A2%E2%88%97%E2%96%B8%E2%96%BE%E2%97%80%E2%96%B6%E2%97%86%E2%97%87%E2%97%89%E2%97%8B%E2%97%8E%E2%97%8F%E2%9C%96%E2%9C%B1%E2%97%A6%E2%9C%A6%E2%88%A5%E2%8A%98%E2%9C%95&display=swap">
 <link rel="stylesheet" href="theme.css">
 <link rel="stylesheet" href="site.css">
 </head>
@@ -21,6 +21,7 @@
      data-expand="Symbolic Intent Glyph Intermediate Language"><span class="brand-text" aria-hidden="true"><span class="g-service">[</span>S<span class="g-service">]</span><span class="g-data">{</span>I<span class="g-data">}</span><span class="g-event">&lt;</span>G<span class="g-event">&gt;</span><span class="g-actor">(</span>I<span class="g-actor">)</span><span class="g-store">|</span>L<span class="g-store">|</span></span></a>
   <nav aria-label="Sections">
     <a href="#language">language</a>
+    <a href="#playground">playground</a>
     <a href="#viewer">viewer</a>
     <a href="#skill">skill</a>
     <a href="#install">install</a>
@@ -133,6 +134,55 @@
   </div>
 </section>
 
+<section id="playground" class="panel">
+  <h2><span class="sec-rail">---</span> playground <span class="sec-rail">---</span></h2>
+  <p>Write a design and watch it draw, lint and run. This is not a copy of the tools:
+  the repository's own <code>view.py</code>, <code>lint.py</code> and <code>sim.py</code>
+  run in your browser on <a href="https://pyodide.org">Pyodide</a> (Python compiled to
+  WebAssembly — about 10&nbsp;MB, fetched once when you start).</p>
+  <div class="pg" id="pg" data-state="idle">
+    <div class="pg-start">
+      <button type="button" class="pg-go" id="pg-go">start the playground</button>
+      <span class="pg-msg" id="pg-msg" role="status" aria-live="polite"></span>
+    </div>
+    <div class="pg-app" id="pg-app" hidden>
+      <div class="pg-bar">
+        <label>example <select id="pg-example" aria-label="Load an example"></select></label>
+        <div class="seg" role="group" aria-label="View">
+          <button type="button" id="pg-tree" aria-pressed="true">tree</button>
+          <button type="button" id="pg-graph" aria-pressed="false">graph</button>
+        </div>
+        <button type="button" id="pg-share" title="Copy a link to this design">share</button>
+      </div>
+      <div class="pg-panes">
+        <div class="pg-edit">
+          <pre class="pg-hl" id="pg-hl" aria-hidden="true"></pre>
+          <textarea id="pg-src" spellcheck="false" autocapitalize="off" autocomplete="off"
+            autocorrect="off" aria-label="Sigil source" wrap="off"></textarea>
+        </div>
+        <div class="pg-out">
+          <pre class="pg-draw" id="pg-draw" tabindex="0" aria-label="Drawing"></pre>
+          <pre class="pg-legend" id="pg-legend"></pre>
+        </div>
+      </div>
+      <div class="pg-sim">
+        <label>simulate <select id="pg-scenario" aria-label="Scenario"></select></label>
+        <div class="pg-transport" role="group" aria-label="Run">
+          <button type="button" id="pg-back" title="Step back" aria-label="Step back">‹</button>
+          <button type="button" id="pg-play" title="Play">play</button>
+          <button type="button" id="pg-fwd" title="Step forward" aria-label="Step forward">›</button>
+        </div>
+        <input type="range" id="pg-scrub" min="0" max="0" value="0" aria-label="Frame">
+        <span class="pg-tick" id="pg-tick"></span>
+      </div>
+      <div class="pg-status">
+        <span id="pg-lint"></span><span id="pg-count"></span>
+      </div>
+      <ol class="pg-diags" id="pg-diags"></ol>
+      <pre class="pg-log" id="pg-log" hidden></pre>
+    </div>
+  </div>
+</section>
 <section id="viewer" class="panel">
   <h2><span class="sec-rail">---</span> viewer <span class="sec-rail">---</span></h2>
   <p>Keep a design open in one pane and <code>view.py</code> in another: it redraws on every

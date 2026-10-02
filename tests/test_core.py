@@ -337,7 +337,7 @@ class TestStandalone(unittest.TestCase):
             self.assertNotRegex(src, r"(?m)^\s*(import|from)\s+\S*merlang", f)
 
     BANNED = re.compile(
-        r"merlang|weaver|\bcure\b|heartstone|WAML|CAML|UAML|triplet|spell|keystone"
+        r"merlang|weaver|\bcure\b|heartstone|WAML|CAML|UAML|triplet|spell(?!check)|keystone"
         r"|harness|elbow|concern"
         r"|\bT\d{1,3}\b|\bO\d{2}\b|subagent|INBOX|OUTBOX|orchestrator", re.I)
     # vocab-check: word list end

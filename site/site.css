@@ -412,6 +412,135 @@ table.ref td:last-child { color: var(--muted); }
 .t-punct { color: var(--syntax-punct); }
 .t-tag { color: var(--syntax-tag); }
 
+/* ---------------------------------------------------------------- playground */
+
+.pg { margin-top: 1.2rem; }
+.pg-start { display: flex; flex-wrap: wrap; gap: 0.6em 1.2em; align-items: center; }
+.pg[data-state="ready"] .pg-start { display: none; }
+.pg-go {
+  font: inherit;
+  color: var(--strong);
+  background: var(--raised);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 0.45em 1.1em;
+  cursor: pointer;
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+.pg-go:hover:not(:disabled) { color: var(--accent); }
+.pg-go:disabled { opacity: 0.6; cursor: progress; }
+.pg-msg { color: var(--dim); font-size: var(--fs-s); }
+.pg-msg.bad { color: var(--ui-error); }
+.pg-app {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.pg-bar, .pg-sim {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5em 1em;
+  padding: 0.45em 0.8em;
+  background: var(--raised);
+  color: var(--muted);
+  font-size: var(--fs-s);
+}
+.pg-bar { border-bottom: 1px solid var(--line); }
+.pg-sim { border-top: 1px solid var(--line); }
+.pg-bar label, .pg-sim label { display: flex; gap: 0.5em; align-items: center; min-width: 0; }
+.pg-bar select, .pg-sim select { font-size: var(--fs-s); max-width: 100%; min-width: 0; }
+.pg-sim label { flex: 1 1 16rem; }
+.pg-sim select { flex: 1; text-overflow: ellipsis; }
+.pg button:not(.pg-go):not(.pg-diags button) {
+  font: inherit;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 0.2em 0.7em;
+  cursor: pointer;
+}
+.pg button:not(.pg-go):hover:not(:disabled) { color: var(--accent); }
+.pg button:disabled { opacity: 0.4; cursor: default; }
+.seg { display: flex; }
+.seg button { border-radius: 0 !important; }
+.seg button:first-child { border-radius: 5px 0 0 5px !important; }
+.seg button:last-child { border-radius: 0 5px 5px 0 !important; border-left: 0 !important; }
+.seg button[aria-pressed="true"] { color: var(--strong) !important; box-shadow: inset 0 -2px 0 var(--accent); }
+#pg-share { margin-left: auto; }
+.pg-transport { display: flex; gap: 0.3em; }
+.pg-sim input[type="range"] { flex: 1 1 8rem; min-width: 6rem; accent-color: var(--accent); }
+.pg-tick { color: var(--text); white-space: nowrap; }
+.pg.running .pg-tick { color: var(--accent); }
+
+.pg-panes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); }
+@media (max-width: 900px) { .pg-panes { grid-template-columns: minmax(0, 1fr); } }
+.pg-edit { display: grid; border-right: 1px solid var(--line); min-width: 0; }
+@media (max-width: 900px) { .pg-edit { border-right: 0; border-bottom: 1px solid var(--line); } }
+.pg-edit > * {
+  grid-area: 1 / 1;
+  margin: 0;
+  padding: 0.8rem 1rem;
+  border: 0;
+  font: var(--fs-s)/1.5 var(--font-mono);
+  font-variant-ligatures: none;
+  letter-spacing: normal;
+  white-space: pre;
+  tab-size: 2;
+  min-height: 24rem;
+  max-height: 36rem;
+  overflow: auto;
+}
+.pg-hl { color: var(--syntax-tag); overflow: hidden; pointer-events: none; }
+.pg-edit textarea {
+  background: transparent;
+  color: transparent;
+  caret-color: var(--accent);
+  resize: none;
+  outline: none;
+}
+.pg-edit textarea::selection { background: var(--accent-ring); color: transparent; }
+.pg-edit:focus-within { box-shadow: inset 0 0 0 1px var(--accent-ring); }
+.pg-out { min-width: 0; display: flex; flex-direction: column; }
+.pg-draw, .pg-legend, .pg-log {
+  margin: 0;
+  padding: 0.8rem 1rem;
+  font: var(--fs-s)/1.22 var(--font-mono);
+  white-space: pre;
+  overflow: auto;
+}
+.pg-draw { flex: 1; min-height: 16rem; max-height: 36rem; color: var(--text); }
+.pg-legend { border-top: 1px solid var(--hairline); color: var(--dim); }
+.pg-legend:empty { display: none; }
+.pg-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em 1.4em;
+  padding: 0.35em 0.8em;
+  border-top: 1px solid var(--line);
+  background: var(--raised);
+  color: var(--dim);
+  font-size: var(--fs-s);
+}
+.pg-status .ok { color: var(--ui-ok); }
+.pg-status .bad { color: var(--ui-warn); }
+.pg-diags {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: var(--fs-s);
+  max-height: 9rem;
+  overflow: auto;
+  color: var(--muted);
+}
+.pg-diags li { padding: 0.25em 0.8em; border-top: 1px solid var(--hairline); }
+.pg-diags button { font: inherit; background: none; border: 0; padding: 0; cursor: pointer; color: var(--ui-warn); }
+.pg-diags li.error button { color: var(--ui-error); }
+.pg-diags li.info button { color: var(--dim); }
+.pg-log { max-height: 9rem; border-top: 1px solid var(--line); color: var(--muted); }
+
 /* ---------------------------------------------------------------- install */
 
 .pending {
@@ -464,16 +593,42 @@ body[data-released="true"] .pending { display: none; }
 /* ---------------------------------------------------------------- small screens */
 
 @media (max-width: 640px) {
+  /* phones: a smaller body size (1.25 × the 11px pixel grid) and less nesting
+     padding, so prose and tables get the width */
+  :root { --fs-m: 13.75px; --gutter: 12px; }
   h1 { font-size: var(--fs-l); }
-  .nav { gap: 0.6rem; flex-wrap: wrap; }
-  .nav nav { order: 3; width: 100%; margin: 0; gap: 0.8rem; }
+  h2 { font-size: var(--fs-m); }
+  .hero { padding-top: 1.2rem; }
+  .nav { gap: 0.4rem 0.6rem; flex-wrap: wrap; padding-top: 0.6rem; padding-bottom: 0.6rem; }
+  .nav nav { order: 3; width: 100%; margin: 0; gap: 0.3rem 0.9rem; font-size: var(--fs-s); }
   .theme-pick { margin-left: auto; }
-  .code { font-size: var(--fs-s); --code-rows: 18; }
+  .editor-bar { flex-wrap: wrap; }
+  .editor-bar .tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; width: 100%; }
+  .editor-bar .tabs button { white-space: nowrap; }
+  .controls { margin-left: auto; }
+  .code { font-size: var(--fs-s); --code-rows: 18; padding: 0.7rem 0.6rem; }
   .code .ln { width: 2em; }
   .controls button, .tabs button { padding: 0.5em 0.6em; }
-  .editor-status { gap: 0.8em; }
+  .editor-status { flex-wrap: wrap; gap: 0.2em 0.8em; padding: 0.35em 0.7em; }
+  .editor-status span { white-space: nowrap; }
   .plane.view { opacity: 0.4; }
   .hero-text { text-shadow: 0 0 12px var(--bg), 0 0 4px var(--bg); }
+  .panel { padding: 1rem 0.8rem; margin-bottom: 2.5rem; }
+  .card { padding: 0.8rem 0.75rem; }
+  .cards { gap: 0.7rem; margin: 1rem 0; }
+  /* reference tables: the notation on its own line, the meaning under it */
+  table.ref, table.ref tbody, table.ref tr, table.ref td { display: block; }
+  table.ref tr { padding: 0.3em 0; }
+  table.ref tr + tr { border-top: 1px solid var(--hairline); }
+  table.ref td { padding: 0; }
+  table.ref td:first-child { white-space: normal; padding: 0; }
+  table.ref td:last-child { font-size: var(--fs-s); padding-left: 1.5ch; }
+  .snippet { font-size: var(--fs-s); }
+  .install pre.cmd { padding-right: 1em; padding-top: 2.2em; }
+  .keys { line-height: 1.9; font-size: var(--fs-s); }
+  .pg-edit > * { min-height: 16rem; max-height: 22rem; padding: 0.7rem 0.6rem; }
+  .pg-draw { min-height: 12rem; max-height: 28rem; padding: 0.7rem 0.6rem; }
+  .pg-sim label { flex-basis: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -207,6 +207,15 @@ The format is a small YAML subset (nested maps, scalars, `#` comments) that
 typing step through `view.py` into `frames.json` and turns the theme YAML into CSS
 variables; `.github/workflows/pages.yml` publishes it with GitHub Pages.
 
+The **playground** runs the tools themselves in the browser: the build copies
+`view.py`, `lint.py`, `sim.py` and the modules they load into `py/` byte for byte, and
+[Pyodide](https://pyodide.org) runs them when a visitor presses *start*
+(`site/playground.py` is the thin JSON layer the page calls). Write a design, switch
+views, read the lint, pick a scenario and step through its run; *share* puts the
+document in the link. Nothing about the notation is re-implemented in JavaScript, so
+the page cannot drift from the CLI (`tests/test_site.py` checks the copies and that
+the playground draws what `view.py` draws).
+
 ```sh
 python3 site/build_site.py --out _site && python3 -m http.server -d _site 8000
 ```
