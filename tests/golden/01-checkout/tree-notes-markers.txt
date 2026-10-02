@@ -1,0 +1,24 @@
+── checkout ───────────────────────────────
+(Shopper) #1 ──────────────●
+[API] #3 ◀─────────────────┴═●═✖═●═›═›═›
+[Payments] ◀─────────────────┘┄│┄│┄║┄║┄║┄#2
+<PaymentFailed> ◀──────────────┘ │ ║ ║ ║
+|Orders| ◀───────────────────────┘ ║ ║ ║
+[Email] <OrderPlaced> ◀════════════╝ ║ ║
+[Shipping] <OrderPlaced> ◀═══════════╝ ║
+|Ledger| <OrderPlaced> ◀═══════════════╝
+
+── notes ──
+
+#1 guests and signed-in shoppers share one path
+#2 retried, idempotent
+#3 fan-out: each consumer keeps its own pace
+
+tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
+       (N) weight  
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
+       ── ── section
+
+01-checkout.sigil: 9 nodes, 8 edges, 0 expansions · #!sketch

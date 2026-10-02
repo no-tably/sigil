@@ -1,0 +1,15 @@
+[Ingest] ───────────────────›
+[Parse] *<Raw> ◀────────────┴─›
+[Enrich] *<Parsed> ◀──────────┴═›═›─✖
+|Warehouse| *<Enriched> ◀═══════╝ ║ │
+|RealtimeIdx| *<Enriched> ◀═══════╝ │
+|DLQ| *<Enriched> ◀─────────────────┘
+
+tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
+       (N) weight  
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
+       ── ── section
+
+examples-04.sigil: 9 nodes, 8 edges, 0 expansions · #!spec

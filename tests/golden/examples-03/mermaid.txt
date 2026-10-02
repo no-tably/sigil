@@ -1,0 +1,33 @@
+flowchart TD
+    subgraph Job_data["Job"]
+        direction TB
+        Job_state_start(["●"])
+        Job_state_Pending(["Pending"])
+        Job_state_Running(["Running"])
+        Job_state_Done(["Done"])
+        Job_state_Retryable(["Retryable"])
+        Job_state_Dead(["Dead"])
+        Job_state_end(["◉"])
+        Job_state_any(["∗ any"])
+        Job_state_Cancelled(["Cancelled"])
+        Job_state_start -- "&lt;submit&gt;" --> Job_state_Pending
+        Job_state_Pending -- "&lt;pick&gt;" --> Job_state_Running
+        Job_state_Running -- "&lt;ok&gt;" --> Job_state_Done
+        Job_state_Running -- "&lt;fail&gt;" --> Job_state_Retryable
+        Job_state_Retryable -- "&lt;retry&gt;" --> Job_state_Pending
+        Job_state_Retryable -- "&lt;exhaust&gt;" --> Job_state_Dead
+        Job_state_Done -- "&lt;archive&gt;" --> Job_state_end
+        Job_state_any -- "&lt;cancel&gt;" --> Job_state_Cancelled
+        Job_state_Cancelled -- "&lt;archive&gt;" --> Job_state_end
+        class Job_state_start,Job_state_Pending,Job_state_Running,Job_state_Done,Job_state_Retryable,Job_state_Dead,Job_state_end,Job_state_any,Job_state_Cancelled state
+    end
+    class Job_data data
+
+    classDef service fill:#E3F2FD,stroke:#1976D2,color:#0D47A1
+    classDef data    fill:#F3E5F5,stroke:#7B1FA2,color:#4A148C
+    classDef event   fill:#FFF3E0,stroke:#F57C00,color:#E65100
+    classDef actor   fill:#E8F5E9,stroke:#388E3C,color:#1B5E20
+    classDef store   fill:#FFF9C4,stroke:#F9A825,color:#F57F17
+    classDef state   fill:#E0F2F1,stroke:#00897B,color:#004D40
+    classDef hole    stroke-dasharray:5 5,opacity:0.7
+    classDef mutable stroke-width:3px

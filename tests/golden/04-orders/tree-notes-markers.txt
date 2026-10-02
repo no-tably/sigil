@@ -1,0 +1,29 @@
+── orders ───────────────────────────────────
+(Shopper) ───────────────────────●
+                                 │
+[Checkout] #3 ◀──────────────────┴─›─●╍›
+├─· Idle <Declined> <Paid> ◀─●─┬╍╍╍╏╍│╍╏╍┐┄#1
+└─· Busy <Placed> ◀──────────┴─●╍╍╍┘ │ ╏ ╏
+                                     │ ╏ ╏
+{Order} #2 ◀─────────────────────────┘ ╏ ╏
+├─· ● ───────────────────────●         ╏ ╏
+├─· Open <Placed> ◀──────────┴─●─●╍╍╍╍╍┘ ╏
+├─· Settled <Paid> ◀───────────┴╍│╍┐     ╏
+└─· Cancelled <Declined> ◀───┬───┘┄╏┄┄┄┄┄╏┄#1
+                             ╏     ╏     ╏
+[Payments] ╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍›╍╍╍╍╍›╍╍╍╍╍›
+
+── notes ──
+
+#1 card refused or timed out
+#2 an order settles or is cancelled, never both
+#3 the checkout is busy while a payment is in flight
+
+tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
+       (N) weight  
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
+       ── ── section
+
+04-orders.sigil: 7 nodes, 5 edges, 2 expansions · #!sketch

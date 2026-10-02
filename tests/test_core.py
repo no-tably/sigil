@@ -296,7 +296,8 @@ class TestExamplesLintClean(unittest.TestCase):
 # The core tools stand alone
 # ---------------------------------------------------------------------------
 
-_CORE_FILES = ("lint.py", "render.py", "dialects.py", "themes.py")
+_CORE_FILES = ("lint.py", "render.py", "dialects.py", "themes.py",
+               "view.py", "viewkit.py", "view_graph.py", "view_tree.py")
 # Directories whose every text file must also be free of dialect/host vocabulary.
 _SCANNED_DIRS = ("highlight", "tests", "site", "themes")
 _WORDLIST_BEGIN = "# vocab-check: word list begin"

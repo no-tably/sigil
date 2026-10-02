@@ -1,0 +1,20 @@
+{Job}
+├─· ● ─────────────────────────●
+├─· Pending <retry> <submit> ◀─┴─●─────┐
+├─· Running <pick> ◀─────────────┴─●─● │
+├─· Done <ok> ◀────────────────────┴─│─│─●
+├─· Retryable <fail> ◀─────────●─────┴─● │
+├─· Dead <exhaust> ◀───────────┘         │
+├─· ◉ <archive> ◀────────────────┬───────┘
+├─· ∗ any ─────────────────────● │
+└─· Cancelled <cancel> ◀───────┴─●
+
+tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
+       (N) weight  
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  r┄ reads  w┄ writes  
+       b┄ borrows  1w writers  
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
+       ── ── section
+
+examples-03.sigil: 1 nodes, 0 edges, 1 expansions

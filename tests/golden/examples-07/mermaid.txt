@@ -1,0 +1,28 @@
+flowchart TD
+    Customer_actor(("Customer"))
+    StorefrontAPI_service["StorefrontAPI"]
+    LoginService_service["LoginService"]
+    Users_store[("Users")]
+    SessionToken_data{{"SessionToken"}}
+    SignIn_event>"SignIn"]
+    Audit_store[("Audit")]
+    Customer_actor --> StorefrontAPI_service
+    StorefrontAPI_service --> LoginService_service
+    LoginService_service --> Users_store
+    Users_store ==> SessionToken_data
+    LoginService_service -.-> SignIn_event
+    SignIn_event --> Audit_store
+    class StorefrontAPI_service,LoginService_service service
+    class SessionToken_data data
+    class SignIn_event event
+    class Customer_actor actor
+    class Users_store,Audit_store store
+
+    classDef service fill:#E3F2FD,stroke:#1976D2,color:#0D47A1
+    classDef data    fill:#F3E5F5,stroke:#7B1FA2,color:#4A148C
+    classDef event   fill:#FFF3E0,stroke:#F57C00,color:#E65100
+    classDef actor   fill:#E8F5E9,stroke:#388E3C,color:#1B5E20
+    classDef store   fill:#FFF9C4,stroke:#F9A825,color:#F57F17
+    classDef state   fill:#E0F2F1,stroke:#00897B,color:#004D40
+    classDef hole    stroke-dasharray:5 5,opacity:0.7
+    classDef mutable stroke-width:3px

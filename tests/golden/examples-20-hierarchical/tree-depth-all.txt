@@ -1,0 +1,14 @@
+── hierarchical ────────
+[Boss] ──────────────●
+|Directives| ◀───────┘
+[Worker] ──────────────●
+|Results| ◀────────────┘
+
+tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
+       (N) weight  
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
+       ── ── section
+
+examples-20-hierarchical.sigil: 4 nodes, 2 edges, 0 expansions · #!spec

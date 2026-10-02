@@ -1,0 +1,29 @@
+flowchart TD
+    Client_actor(("Client"))
+    Edge_service["Edge"]
+    Data_service["Data"]
+    subgraph Core_service["Core"]
+        direction TB
+        LB_service["LB"]
+        App_service["App"]
+        Cache_service["Cache"]
+        Core_service__Data_service["Data"]
+        LB_service --> App_service
+        App_service <--> Cache_service
+        App_service --> Core_service__Data_service
+        class LB_service,App_service,Cache_service,Core_service__Data_service service
+    end
+    Client_actor --> Edge_service
+    Edge_service --> Core_service
+    Core_service --> Data_service
+    class Edge_service,Core_service,Data_service service
+    class Client_actor actor
+
+    classDef service fill:#E3F2FD,stroke:#1976D2,color:#0D47A1
+    classDef data    fill:#F3E5F5,stroke:#7B1FA2,color:#4A148C
+    classDef event   fill:#FFF3E0,stroke:#F57C00,color:#E65100
+    classDef actor   fill:#E8F5E9,stroke:#388E3C,color:#1B5E20
+    classDef store   fill:#FFF9C4,stroke:#F9A825,color:#F57F17
+    classDef state   fill:#E0F2F1,stroke:#00897B,color:#004D40
+    classDef hole    stroke-dasharray:5 5,opacity:0.7
+    classDef mutable stroke-width:3px

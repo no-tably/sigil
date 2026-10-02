@@ -1,0 +1,32 @@
+── agent-memory ───────────────────────────────────
+|PROV| ◀──────────────────────●─────────┬─○─┐
+[MCP.r] ◀─────────────────────┴─●       │ ╎ │
+{Payload} ◀─────────────────────┴─●     │ ╎ │
+[Agent] ◀─────────────────────›───┴╍○╍○╍│╍╎╍│╍›╍›╍›
+[MCP.w] <Activity> ◀──────────┴─────╎─╎─● ╎ │ ╏ ╏ ╏
+<Unroll> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘ ╎   ╎ │ ╏ ╏ ╏
+<Verify> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘   ╎ │ ╏ ╏ ╏
+<ΔHash> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘ │ ╏ ╏ ╏
+{Concept} ────────────────────●             │ ╏ ╏ ╏
+[Renderer] ◀──────────────────┴━◆           │ ╏ ╏ ╏
+{Summary} ◀━━━━━━━━━━━━━━━━━━━━━┻───────────● ╏ ╏ ╏
+                                              ╏ ╏ ╏
+{Entity}                                      ╏ ╏ ╏
+├─· ● ────────────────────────●               ╏ ╏ ╏
+├─· live <assert> <resolve> ◀─┴─●─┬─●───●     ╏ ╏ ╏
+├─· disputed <dispute> ◀────────┴─●╍│╍╍╍│╍╍╍╍╍┘ ╏ ╏
+├─· superseded <supersede> ◀────────┴─●╍│╍╍╍╍╍╍╍┘ ╏
+├─· retracted <retract> ◀─────●───────│─┴╍╍╍╍╍╍╍╍╍┘
+└─· ◉ <archive> ◀─────────────┴───────┘
+
+{Fact}
+
+tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
+       (N) weight  
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  r┄ reads  w┄ writes  
+       b┄ borrows  1w writers  
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
+       ── ── section
+
+examples-12-agent-memory.sigil: 17 nodes, 16 edges, 1 expansions · #!spec

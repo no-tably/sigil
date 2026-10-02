@@ -1,0 +1,50 @@
+flowchart TD
+    Shopper_actor(("Shopper"))
+    Placed_event>"Placed"]
+    Payments_service["Payments"]
+    Paid_event>"Paid"]
+    Declined_event>"Declined"]
+    subgraph Checkout_service["Checkout"]
+        direction TB
+        Checkout_state_Idle(["Idle"])
+        Checkout_state_Busy(["Busy"])
+        Checkout_state_Idle -- "&lt;Placed&gt;" --> Checkout_state_Busy
+        Checkout_state_Busy -- "&lt;Paid&gt;" --> Checkout_state_Idle
+        Checkout_state_Busy -- "&lt;Declined&gt;" --> Checkout_state_Idle
+        class Checkout_state_Idle,Checkout_state_Busy state
+    end
+    subgraph Order_data["Order"]
+        direction TB
+        Order_state_start(["●"])
+        Order_state_Open(["Open"])
+        Order_state_Settled(["Settled"])
+        Order_state_Cancelled(["Cancelled"])
+        Order_state_start -- "&lt;Placed&gt;" --> Order_state_Open
+        Order_state_Open -- "&lt;Paid&gt;" --> Order_state_Settled
+        Order_state_Open -- "&lt;Declined&gt;" --> Order_state_Cancelled
+        class Order_state_start,Order_state_Open,Order_state_Settled,Order_state_Cancelled state
+    end
+    Shopper_actor --> Checkout_service
+    Checkout_service --> Order_data
+    Checkout_service -.-> Placed_event
+    Payments_service -.-> Paid_event
+    Payments_service -- "!" --> Declined_event
+    class Checkout_service,Payments_service service
+    class Order_data data
+    class Placed_event,Paid_event,Declined_event event
+    class Shopper_actor actor
+    Placed_event -. "triggers" .-> Order_state_Open
+    Paid_event -. "triggers" .-> Order_state_Settled
+    Declined_event -. "triggers" .-> Order_state_Cancelled
+    Placed_event -. "triggers" .-> Checkout_state_Busy
+    Paid_event -. "triggers" .-> Checkout_state_Idle
+    Declined_event -. "triggers" .-> Checkout_state_Idle
+
+    classDef service fill:#E3F2FD,stroke:#1976D2,color:#0D47A1
+    classDef data    fill:#F3E5F5,stroke:#7B1FA2,color:#4A148C
+    classDef event   fill:#FFF3E0,stroke:#F57C00,color:#E65100
+    classDef actor   fill:#E8F5E9,stroke:#388E3C,color:#1B5E20
+    classDef store   fill:#FFF9C4,stroke:#F9A825,color:#F57F17
+    classDef state   fill:#E0F2F1,stroke:#00897B,color:#004D40
+    classDef hole    stroke-dasharray:5 5,opacity:0.7
+    classDef mutable stroke-width:3px

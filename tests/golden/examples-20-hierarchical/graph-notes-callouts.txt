@@ -1,0 +1,20 @@
+── hierarchical ────────────────────────────────────────────────────────────
+
+    ┌────────┐          ┌──────────┐
+    │ [Boss] │          │ [Worker] │
+    └────────┘          └──────────┘
+         │                    │
+         ▼                    ▼
+┌─────────────────┐   ┌──────────────┐
+│ |Directives| #1 │   │ |Results| #2 │
+└─────────────────┘   └──────────────┘
+
+── notes ───────────────────────────────────────────────────────────────────
+
+#1 a DOWN store: Boss is the SOLE writer (cardinality 1 ⇒ single-owner),
+   Worker reads.
+#2 an UP store: Worker writes, only Boss reads. The Worker @borrows the down
+   store's read access rather than re-declaring it (effective access ⊆ the
+   lender's).
+
+examples-20-hierarchical.sigil: 4 nodes, 2 edges, 0 expansions · #!spec

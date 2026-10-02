@@ -1,0 +1,38 @@
+                                         ── agent-memory ───────────────────────────────────────
+╭ core read/write loop ·        ╮ ────#> |PROV| ◀──────────────────────●─────────┬─○─┐
+│ summary materialization (out- │  ┌──#> [MCP.r] ◀─────────────────────┴─●       │ ╎ │
+╰ of-loop) · global invariants  ╯  │     {Payload} ◀─────────────────────┴─●┄┄┄┄┄│┄╎┄│┄┄┄┄┄┄┄┆a┆
+                                   │ ┌#> [Agent] ◀─────────────────────›───┴╍○╍○╍│╍╎╍│╍›╍›╍›
+│ hydration policy (on [MCP.r]) │ ─┘ │   [MCP.w] <Activity> ◀──────────┴─────╎─╎─● ╎ │ ╏ ╏ ╏
+                                     │   <Unroll> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘┄╎┄┄┄╎┄│┄╏┄╏┄╏┄┆b┆
+╭ aliases · mutation surface    ╮ ───┘   <Verify> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘┄┄┄╎┄│┄╏┄╏┄╏┄┆c┆
+╰ (agent-visible events)        ╯        <ΔHash> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘ │ ╏ ╏ ╏
+                                         {Concept} ────────────────────●             │ ╏ ╏ ╏
+                                         [Renderer] ◀──────────────────┴━◆           │ ╏ ╏ ╏
+                                         {Summary} ◀━━━━━━━━━━━━━━━━━━━━━┻───────────● ╏ ╏ ╏
+                                                                                       ╏ ╏ ╏
+│ entity lifecycle              │ ────#> {Entity}                                      ╏ ╏ ╏
+                                         ├─· ● ────────────────────────●               ╏ ╏ ╏
+                                         ├─· live <assert> <resolve> ◀─┴─●─┬─●───●     ╏ ╏ ╏
+                                         ├─· disputed <dispute> ◀────────┴─●╍│╍╍╍│╍╍╍╍╍┘┄╏┄╏┄┆d┆
+                                         ├─· superseded <supersede> ◀────────┴─●╍│╍╍╍╍╍╍╍┘┄╏┄┆e┆
+                                         ├─· retracted <retract> ◀─────●───────│─┴╍╍╍╍╍╍╍╍╍┘┄┆f┆
+                                         └─· ◉ <archive> ◀─────────────┴───────┘
+
+                                         {Fact}
+
+                                                             ┆a┆ # staged delivery
+                                                             ┆b┆ # walk wasDerivedFrom backward
+                                                             ┆c┆ # unroll + re-check antecedents
+                                                             ┆d┆ # reversible flag
+                                                             ┆e┆ # new entity + wasRevisionOf
+                                                             ┆f┆ # withdraw, no replacement
+
+tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
+       (N) weight  
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
+       ── ── section
+
+examples-12-agent-memory.sigil: 17 nodes, 16 edges, 1 expansions · #!spec

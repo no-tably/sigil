@@ -1,0 +1,31 @@
+flowchart TD
+    Shopper_actor(("Shopper"))
+    API_service["API"]
+    Payments_service["Payments"]
+    PaymentFailed_event>"PaymentFailed"]
+    Orders_store[("Orders")]
+    OrderPlaced_event>"OrderPlaced"]
+    Email_service["Email"]
+    Shipping_service["Shipping"]
+    Ledger_store[("Ledger")]
+    Shopper_actor --> API_service
+    API_service --> Payments_service
+    API_service -- "!" --> PaymentFailed_event
+    API_service --> Orders_store
+    API_service -.-> OrderPlaced_event
+    OrderPlaced_event --> Email_service
+    OrderPlaced_event --> Shipping_service
+    OrderPlaced_event --> Ledger_store
+    class API_service,Payments_service,Email_service,Shipping_service service
+    class PaymentFailed_event,OrderPlaced_event event
+    class Shopper_actor actor
+    class Orders_store,Ledger_store store
+
+    classDef service fill:#E3F2FD,stroke:#1976D2,color:#0D47A1
+    classDef data    fill:#F3E5F5,stroke:#7B1FA2,color:#4A148C
+    classDef event   fill:#FFF3E0,stroke:#F57C00,color:#E65100
+    classDef actor   fill:#E8F5E9,stroke:#388E3C,color:#1B5E20
+    classDef store   fill:#FFF9C4,stroke:#F9A825,color:#F57F17
+    classDef state   fill:#E0F2F1,stroke:#00897B,color:#004D40
+    classDef hole    stroke-dasharray:5 5,opacity:0.7
+    classDef mutable stroke-width:3px

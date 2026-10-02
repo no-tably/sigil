@@ -1,0 +1,30 @@
+flowchart TD
+    Ingest_service["Ingest"]
+    Raw_event>"*Raw"]
+    Parse_service["Parse"]
+    Parsed_event>"*Parsed"]
+    Enrich_service["Enrich"]
+    Enriched_event>"*Enriched"]
+    Warehouse_store[("Warehouse")]
+    RealtimeIdx_store[("RealtimeIdx")]
+    DLQ_store[("DLQ")]
+    Ingest_service ==> Raw_event
+    Raw_event --> Parse_service
+    Parse_service ==> Parsed_event
+    Parsed_event --> Enrich_service
+    Enrich_service ==> Enriched_event
+    Enriched_event --> Warehouse_store
+    Enriched_event --> RealtimeIdx_store
+    Enriched_event -- "!" --> DLQ_store
+    class Ingest_service,Parse_service,Enrich_service service
+    class Raw_event,Parsed_event,Enriched_event event
+    class Warehouse_store,RealtimeIdx_store,DLQ_store store
+
+    classDef service fill:#E3F2FD,stroke:#1976D2,color:#0D47A1
+    classDef data    fill:#F3E5F5,stroke:#7B1FA2,color:#4A148C
+    classDef event   fill:#FFF3E0,stroke:#F57C00,color:#E65100
+    classDef actor   fill:#E8F5E9,stroke:#388E3C,color:#1B5E20
+    classDef store   fill:#FFF9C4,stroke:#F9A825,color:#F57F17
+    classDef state   fill:#E0F2F1,stroke:#00897B,color:#004D40
+    classDef hole    stroke-dasharray:5 5,opacity:0.7
+    classDef mutable stroke-width:3px

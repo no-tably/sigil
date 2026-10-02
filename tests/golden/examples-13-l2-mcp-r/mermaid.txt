@@ -1,0 +1,24 @@
+flowchart TD
+    subgraph MCP_r_service["MCP.r"]
+        direction TB
+        Surface_service["Surface"]
+        Hydrator_service["Hydrator"]
+        Materializer_service["Materializer"]
+        class Surface_service,Hydrator_service,Materializer_service service
+    end
+    subgraph MCP_w_service["MCP.w"]
+        direction TB
+        MCP_w_service__Surface_service["Surface"]
+        Validator_service["Validator"]
+        class MCP_w_service__Surface_service,Validator_service service
+    end
+    class MCP_r_service,MCP_w_service service
+
+    classDef service fill:#E3F2FD,stroke:#1976D2,color:#0D47A1
+    classDef data    fill:#F3E5F5,stroke:#7B1FA2,color:#4A148C
+    classDef event   fill:#FFF3E0,stroke:#F57C00,color:#E65100
+    classDef actor   fill:#E8F5E9,stroke:#388E3C,color:#1B5E20
+    classDef store   fill:#FFF9C4,stroke:#F9A825,color:#F57F17
+    classDef state   fill:#E0F2F1,stroke:#00897B,color:#004D40
+    classDef hole    stroke-dasharray:5 5,opacity:0.7
+    classDef mutable stroke-width:3px

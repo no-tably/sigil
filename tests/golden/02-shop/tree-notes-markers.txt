@@ -1,0 +1,36 @@
+── shop ─────────────────────────────────────
+(Shopper) #1 ────────────────●
+[Edge] ◀─────────────────────┴─●
+                               │
+[Shop] ◀───────────────────────┴═●═══›═══›
+├── [Cart] ──────────────────●   │   ║   ║
+├── [Checkout] ◀─────────────┴═●═│═›═║═› ║
+├── [Payments] ▸ ◀─────────────┘┄│┄║┄║┄║┄║┄#3
+└── <OrderPlaced>                │ ║ ║ ║ ║
+                                 │ ║ ║ ║ ║
+|Catalog| ◀──────────────────────┘ ║ ║ ║ ║
+                                   ║ ║ ║ ║
+[Fulfilment] <OrderPlaced> ◀═══════╩═╝┄║┄║┄#2
+├── [Picker] ────────────────●         ║ ║
+├── [Packer] ◀───────────────┴─●       ║ ║
+└── (Courier) ◀────────────────┘       ║ ║
+                                       ║ ║
+|Ledger| <OrderPlaced> ◀═══════════════╩═╝┄#2
+
+── notes ──
+
+#1 anonymous or signed-in; the edge does TLS, auth and rate limits
+#2 the ledger is append-only
+#3 3 retries, idempotent key
+#4 one PSP active at a time; failover is manual
+#5 only above the risk threshold
+#6 retrained weekly
+
+tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
+       (N) weight  
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
+       ── ── section
+
+02-shop.sigil: 7 nodes, 6 edges, 2 expansions · #!sketch

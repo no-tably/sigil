@@ -1,0 +1,15 @@
+(Customer) ────────●
+[StorefrontAPI] ◀──┴─●
+[LoginService] ◀─────┴─●─›
+|Users| ◀──────────◆───┘ │
+{SessionToken} ◀━━━┛     │
+|Audit| <SignIn> ◀───────┘
+
+tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
+       (N) weight  
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  ┆@… ×N┆ modifiers
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
+       ── ── section
+
+examples-07.sigil: 7 nodes, 6 edges, 0 expansions

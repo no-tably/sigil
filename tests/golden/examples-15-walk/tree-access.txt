@@ -1,0 +1,18 @@
+   ── walk ────────────────────
+┌─ ↺ loop @while node
+├─ ~|node| ◀━━━━━━━━━━━━━━━━━━┓
+├─ *|visited| ◀━━━━━━━━━━━━━┓ ┃
+├─ [Walker] ────────────●   ┃ ┃
+└─ [Planner] ◀──────────┴━━━◆━◆
+   [Fetcher] ─────────────●
+   [Web] ◀────────────────┘
+
+tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
+       (N) weight  
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  r┄ reads  w┄ writes  
+       b┄ borrows  1w writers  
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
+       ── ── section
+
+examples-15-walk.sigil: 6 nodes, 4 edges, 0 expansions · #!spec

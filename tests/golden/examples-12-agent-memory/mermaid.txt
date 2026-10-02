@@ -1,0 +1,66 @@
+flowchart TD
+    PROV_store[("PROV")]
+    MCP_r_service["MCP.r"]
+    Payload_data{{"Payload"}}
+    Agent_service["Agent"]
+    Activity_event>"Activity"]
+    MCP_w_service["MCP.w"]
+    Unroll_event>"Unroll"]
+    Verify_event>"Verify"]
+    Dispute_event>"Dispute"]
+    Supersede_event>"Supersede"]
+    Retract_event>"Retract"]
+    _Hash_event>"ΔHash"]
+    Concept_data{{"Concept"}}
+    Renderer_service["Renderer"]
+    Summary_data{{"Summary"}}
+    Fact_data{{"Fact"}}
+    subgraph Entity_data["Entity"]
+        direction TB
+        Entity_state_start(["●"])
+        Entity_state_live(["live"])
+        Entity_state_disputed(["disputed"])
+        Entity_state_superseded(["superseded"])
+        Entity_state_retracted(["retracted"])
+        Entity_state_end(["◉"])
+        Entity_state_start -- "&lt;assert&gt;" --> Entity_state_live
+        Entity_state_live -- "&lt;dispute&gt;" --> Entity_state_disputed
+        Entity_state_disputed -- "&lt;resolve&gt;" --> Entity_state_live
+        Entity_state_live -- "&lt;supersede&gt;" --> Entity_state_superseded
+        Entity_state_live -- "&lt;retract&gt;" --> Entity_state_retracted
+        Entity_state_superseded -- "&lt;archive&gt;" --> Entity_state_end
+        Entity_state_retracted -- "&lt;archive&gt;" --> Entity_state_end
+        class Entity_state_start,Entity_state_live,Entity_state_disputed,Entity_state_superseded,Entity_state_retracted,Entity_state_end state
+    end
+    PROV_store --> MCP_r_service
+    MCP_r_service --> Payload_data
+    Payload_data --> Agent_service
+    Agent_service -.-> Activity_event
+    Activity_event --> MCP_w_service
+    MCP_w_service --> PROV_store
+    MCP_r_service --> Payload_data
+    Agent_service -.-> Unroll_event
+    Agent_service -.-> Verify_event
+    Agent_service -.-> Dispute_event
+    Agent_service -.-> Supersede_event
+    Agent_service -.-> Retract_event
+    PROV_store -.-> _Hash_event
+    Concept_data --> Renderer_service
+    Renderer_service ==> Summary_data
+    Summary_data --> PROV_store
+    class MCP_r_service,Agent_service,MCP_w_service,Renderer_service service
+    class Payload_data,Concept_data,Summary_data,Entity_data,Fact_data data
+    class Activity_event,Unroll_event,Verify_event,Dispute_event,Supersede_event,Retract_event,_Hash_event event
+    class PROV_store store
+    Dispute_event -. "triggers" .-> Entity_state_disputed
+    Supersede_event -. "triggers" .-> Entity_state_superseded
+    Retract_event -. "triggers" .-> Entity_state_retracted
+
+    classDef service fill:#E3F2FD,stroke:#1976D2,color:#0D47A1
+    classDef data    fill:#F3E5F5,stroke:#7B1FA2,color:#4A148C
+    classDef event   fill:#FFF3E0,stroke:#F57C00,color:#E65100
+    classDef actor   fill:#E8F5E9,stroke:#388E3C,color:#1B5E20
+    classDef store   fill:#FFF9C4,stroke:#F9A825,color:#F57F17
+    classDef state   fill:#E0F2F1,stroke:#00897B,color:#004D40
+    classDef hole    stroke-dasharray:5 5,opacity:0.7
+    classDef mutable stroke-width:3px

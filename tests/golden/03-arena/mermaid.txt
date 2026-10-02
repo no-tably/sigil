@@ -1,0 +1,43 @@
+flowchart TD
+    Physics_service["Physics"]
+    Homing_service["Homing"]
+    Combat_service["Combat"]
+    Destroyed_event>"Destroyed"]
+    Spawner_service["Spawner"]
+    subgraph Ship_service["Ship"]
+        direction TB
+        Ship_service__Transform_data{{"Transform"}}
+        Ship_service__Health_data{{"Health"}}
+        subgraph Ship_service__Bullet_service["Bullet"]
+            direction TB
+            Ship_service__Bullet_service__Transform_data{{"Transform"}}
+            Ship_service__Bullet_service__Damage_data{{"Damage"}}
+        end
+    end
+    subgraph Asteroid_service["Asteroid"]
+        direction TB
+        Asteroid_service__Transform_data{{"Transform"}}
+        Asteroid_service__Shard_service["Shard"]
+    end
+    Physics_service --> Ship_service__Transform_data
+    Physics_service --> Ship_service__Bullet_service__Transform_data
+    Physics_service --> Asteroid_service__Transform_data
+    Homing_service --> Ship_service__Bullet_service__Transform_data
+    Ship_service__Bullet_service__Damage_data --> Combat_service
+    Combat_service --> Ship_service__Health_data
+    Combat_service -.-> Destroyed_event
+    Destroyed_event --> Spawner_service
+    Spawner_service ==> Asteroid_service__Shard_service
+    class Physics_service,Homing_service,Combat_service,Spawner_service service
+    class Destroyed_event event
+    class Ship_service__Transform_data,Ship_service__Health_data,Ship_service__Bullet_service__Transform_data,Ship_service__Bullet_service__Damage_data,Asteroid_service__Transform_data data
+    class Ship_service__Bullet_service,Ship_service,Asteroid_service__Shard_service,Asteroid_service service
+
+    classDef service fill:#E3F2FD,stroke:#1976D2,color:#0D47A1
+    classDef data    fill:#F3E5F5,stroke:#7B1FA2,color:#4A148C
+    classDef event   fill:#FFF3E0,stroke:#F57C00,color:#E65100
+    classDef actor   fill:#E8F5E9,stroke:#388E3C,color:#1B5E20
+    classDef store   fill:#FFF9C4,stroke:#F9A825,color:#F57F17
+    classDef state   fill:#E0F2F1,stroke:#00897B,color:#004D40
+    classDef hole    stroke-dasharray:5 5,opacity:0.7
+    classDef mutable stroke-width:3px

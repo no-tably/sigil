@@ -1,0 +1,24 @@
+── L1 · System ──────────────
+(Client) ───────────●
+[Edge] ◀────────────┴─●
+                      │
+[Core] ◀──────────────┴─────●
+├── [LB] ───────────●       │
+├── [App] ◀─────────┴─▶───● │
+├── [Cache] ◀─────────┘   │ │
+└── [Data] ◀──────────────┼─┤
+   ├── [Primary] ───○─●   │ │
+   ├── [Replica] ◀╌╌┴─│─● │ │
+   ├── |OLTP| ◀───────┘ │ │ │
+   └── |OLTP-RO| ◀──────┘ │ │
+                          │ │
+[Data] ◀──────────────────┴─┘
+
+tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
+       (N) weight  
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
+       ── ── section
+
+examples-05-l1-system.sigil: 4 nodes, 3 edges, 1 expansions · #!sketch

@@ -1,0 +1,45 @@
+── agent-memory ───────────────────────────────────────
+|PROV| #3 ◀───────────────────●─────────┬─○─┐
+[MCP.r] #4 ◀──────────────────┴─●       │ ╎ │
+{Payload} ◀─────────────────────┴─●┄┄┄┄┄│┄╎┄│┄┄┄┄┄┄┄#5
+[Agent] #1 ◀──────────────────›───┴╍○╍○╍│╍╎╍│╍›╍›╍›
+[MCP.w] <Activity> ◀──────────┴─────╎─╎─● ╎ │ ╏ ╏ ╏
+<Unroll> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘┄╎┄┄┄╎┄│┄╏┄╏┄╏┄#6
+<Verify> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘┄┄┄╎┄│┄╏┄╏┄╏┄#7
+<ΔHash> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘ │ ╏ ╏ ╏
+{Concept} ────────────────────●             │ ╏ ╏ ╏
+[Renderer] ◀──────────────────┴━◆           │ ╏ ╏ ╏
+{Summary} ◀━━━━━━━━━━━━━━━━━━━━━┻───────────● ╏ ╏ ╏
+                                              ╏ ╏ ╏
+{Entity} #2                                   ╏ ╏ ╏
+├─· ● ────────────────────────●               ╏ ╏ ╏
+├─· live <assert> <resolve> ◀─┴─●─┬─●───●     ╏ ╏ ╏
+├─· disputed <dispute> ◀────────┴─●╍│╍╍╍│╍╍╍╍╍┘┄╏┄╏┄#8
+├─· superseded <supersede> ◀────────┴─●╍│╍╍╍╍╍╍╍┘┄╏┄#9
+├─· retracted <retract> ◀─────●───────│─┴╍╍╍╍╍╍╍╍╍┘┄#10
+└─· ◉ <archive> ◀─────────────┴───────┘
+
+{Fact}
+
+── notes ──
+
+#1 aliases · mutation surface (agent-visible events)
+#2 entity lifecycle
+#3 core read/write loop · summary materialization (out-of-loop) · global
+   invariants
+#4 hydration policy (on [MCP.r])
+#5 staged delivery
+#6 walk wasDerivedFrom backward
+#7 unroll + re-check antecedents
+#8 reversible flag
+#9 new entity + wasRevisionOf
+#10 withdraw, no replacement
+
+tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
+       (N) weight  
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
+       ── ── section
+
+examples-12-agent-memory.sigil: 17 nodes, 16 edges, 1 expansions · #!spec

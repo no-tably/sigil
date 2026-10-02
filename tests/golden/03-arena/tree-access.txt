@@ -1,0 +1,27 @@
+── arena ─────────────────────────
+[Ship]
+├─& {Transform} ◀────────┐
+├─& {Health} ◀───────────│───────┐
+└─* [Bullet]             │       │
+   ├─& {Transform} ◀─────┼───┐   │
+   └─& {Damage} ─────────│───│─● │
+                         │   │ │ │
+[Asteroid]               │   │ │ │
+├─& {Transform} ◀────────┤   │ │ │
+└─{shattered}? [Shard] ◀━│━┓ │ │ │
+                         │ ┃ │ │ │
+── systems ───────────────────────
+[Physics] ───────────────● ┃ │ │ │
+[Homing] ──────────────────┃─● │ │
+[Combat] ◀───────────────›─┃───┴─●
+[Spawner] <Destroyed> ◀──┴━◆
+
+tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
+       (N) weight  
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  r┄ reads  w┄ writes  
+       b┄ borrows  1w writers  
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
+       ── ── section
+
+03-arena.sigil: 12 nodes, 7 edges, 0 expansions · #!sketch

@@ -1,0 +1,25 @@
+── judge-loop ─────────────────────────────────────────────────────
+[Loop] ────────────●
+~|running| ◀───────┴─┐┄┄┄┄┄┄┄┆ true · false ┆
+<stop> ──────────────●
+[Judge] ───────────●─────●─●
+[Scorer] ◀─────────┘┄┄┄┄┄│┄│┄┆ score({Draft}) => <rated> ┆
+<rated> ─────────────●   │ │
+~|history| ◀─────────┘┄┄┄│┄│┄┆ ${state.history} ++ [${out.score}] ┆
+~|total|                 │ │
+[Cfg] ─────────────●─●─● │ │
+~|rubric| ◀────────┘┄│┄│┄│┄│┄┆ "clarity, correctness, concision" ┆
+~|opts| ◀────────────┘┄│┄│┄│┄┆ {retries: 3, mode: "strict"} ┆
+~|policy| ◀────────────┘┄│┄│┄┆ "block-string" ┆
+|Scores| ◀───────────────┘┄│┄┆ op db.insert(${out.score}) ┆
+[Index] ◀──────────────────┘┄┆ op mcp.search(${query}) ┆
+
+tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
+       (N) weight  
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  
+       ┄┆{…}┆ payload, on its target row
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
+       ── ── section
+
+examples-14-judge-loop.sigil: 14 nodes, 9 edges, 0 expansions · #!spec

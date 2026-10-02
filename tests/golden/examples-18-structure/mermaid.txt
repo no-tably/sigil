@@ -1,0 +1,49 @@
+flowchart TD
+    User_actor(("User"))
+    Hits_data{{"Hits"}}
+    Primary_store[("Primary")]
+    OnCall_actor(("OnCall"))
+    subgraph Router_service["Router"]
+        direction TB
+        Router_service__ZoneA_service["ZoneA"]
+        Router_service__ZoneB_service["ZoneB"]
+    end
+    subgraph Search_service["Search"]
+        direction TB
+        Search_service__ShardQuery_service["ShardQuery"]
+    end
+    subgraph Replica_store["Replica"]
+        direction TB
+        Replica_store__LagAlarm_event>"LagAlarm"]
+    end
+    subgraph Payments_service["Payments"]
+        direction TB
+        Payments_service__PrimaryPsp_service["PrimaryPsp"]
+        Payments_service__StandbyPsp_service["StandbyPsp"]
+    end
+    User_actor --> Router_service
+    Router_service__ZoneA_service --> Search_service
+    Router_service__ZoneB_service --> Search_service
+    Search_service --> Search_service__ShardQuery_service
+    Search_service__ShardQuery_service ==> Hits_data
+    Search_service__ShardQuery_service --> Replica_store
+    Primary_store -.-> Replica_store
+    Replica_store__LagAlarm_event -.-> OnCall_actor
+    User_actor --> Payments_service
+    Payments_service --> Payments_service__PrimaryPsp_service
+    Payments_service --> Payments_service__StandbyPsp_service
+    class Hits_data data
+    class User_actor,OnCall_actor actor
+    class Primary_store store
+    class Router_service__ZoneA_service,Router_service__ZoneB_service,Router_service,Search_service__ShardQuery_service,Search_service,Payments_service__PrimaryPsp_service,Payments_service__StandbyPsp_service,Payments_service service
+    class Replica_store__LagAlarm_event event
+    class Replica_store store
+
+    classDef service fill:#E3F2FD,stroke:#1976D2,color:#0D47A1
+    classDef data    fill:#F3E5F5,stroke:#7B1FA2,color:#4A148C
+    classDef event   fill:#FFF3E0,stroke:#F57C00,color:#E65100
+    classDef actor   fill:#E8F5E9,stroke:#388E3C,color:#1B5E20
+    classDef store   fill:#FFF9C4,stroke:#F9A825,color:#F57F17
+    classDef state   fill:#E0F2F1,stroke:#00897B,color:#004D40
+    classDef hole    stroke-dasharray:5 5,opacity:0.7
+    classDef mutable stroke-width:3px

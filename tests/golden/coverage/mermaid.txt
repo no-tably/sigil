@@ -1,0 +1,298 @@
+flowchart TD
+    Cache_K_V__service["Cache&lt;K,V&gt;"]
+    List_T__data{{"List&lt;T&gt;"}}
+    Msg_T__event>"Msg&lt;T&gt;"]
+    Session_data{{"~Session"}}
+    Counter_store[("~Counter")]
+    AuditLog_store[("*AuditLog")]
+    __service1["?"]
+    __data2{{"?"}}
+    __event3>"?"]
+    __store4[("?")]
+    __actor5(("?"))
+    Customer_actor(("Customer"))
+    Api_service["Api"]
+    Auth_service["Auth"]
+    UserDB_store[("UserDB")]
+    Unauthorized_event>"Unauthorized"]
+    OrderPlaced_event>"OrderPlaced"]
+    Fraud_service["Fraud"]
+    Shipping_service["Shipping"]
+    Email_service["Email"]
+    Ledger_store[("Ledger")]
+    PspA_service["PspA"]
+    PspB_service["PspB"]
+    Stock_service["Stock"]
+    Tax_service["Tax"]
+    Ghost_service["Ghost"]
+    __service6["?"]
+    Payment_service["Payment"]
+    Scorer_service["Scorer"]
+    Web_actor(("Web"))
+    Stop_event>"Stop"]
+    Cfg_service["Cfg"]
+    Opts_store[("~Opts")]
+    Limits_store[("~Limits")]
+    Ratio_store[("~Ratio")]
+    Last_store[("~Last")]
+    Tick_event>"Tick"]
+    History_store[("~History")]
+    Total_store[("~Total")]
+    Merged_store[("~Merged")]
+    Scaled_store[("~Scaled")]
+    Grader_service["Grader"]
+    Sys_store[("~Sys")]
+    User_data{{"User"}}
+    Worker_service["Worker"]
+    Retry_service["Retry"]
+    AuthSvc_service["AuthSvc"]
+    PaymentDB_store[("PaymentDB")]
+    Replica_service["Replica"]
+    Gateway_service["Gateway"]
+    Ingest_service["Ingest"]
+    Raw_event>"*Raw"]
+    Parse_service["Parse"]
+    Parsed_event>"*Parsed"]
+    Enrich_service["Enrich"]
+    Enriched_event>"*Enriched"]
+    Warehouse_store[("Warehouse")]
+    RealtimeIdx_store[("RealtimeIdx")]
+    DLQ_store[("DLQ")]
+    Rows_data{{"*Rows"}}
+    Sink_service["Sink"]
+    Resp_data{{"Resp"}}
+    Err_data{{"Err"}}
+    Cart_service["Cart"]
+    Tree_walk_service["Tree.walk"]
+    Boss_service["Boss"]
+    Worker_N__service["Worker&lt;N&gt;"]
+    Auditor_actor(("Auditor"))
+    Directives_store[("Directives")]
+    Results_store[("Results")]
+    Helper_service["Helper"]
+    Handler_service["Handler"]
+    Conn_store[("Conn")]
+    Payments_service["Payments"]
+    Paid_event>"Paid"]
+    Placed_event>"Placed"]
+    Push_event>"Push"]
+    Items_data{{"Items"}}
+    Q_store[("Q")]
+    metric_event>"metric"]
+    Obs_store[("Obs")]
+    Job_data{{"Job"}}
+    Poller_service["Poller"]
+    Pinger_service["Pinger"]
+    Peer_actor(("Peer"))
+    Inventory_service["Inventory"]
+    MirrorA_service["MirrorA"]
+    MirrorB_service["MirrorB"]
+    Metrics_service["Metrics"]
+    Request_data{{"Request"}}
+    Reader_service["Reader"]
+    DB_store[("DB")]
+    Writer_service["Writer"]
+    WAL_store[("WAL")]
+    AdminSvc_service["AdminSvc"]
+    Rejected_event>"Rejected"]
+    Physics_service["Physics"]
+    Homing_service["Homing"]
+    Combat_service["Combat"]
+    Health_data{{"Health"}}
+    Client_actor(("Client"))
+    retry_alias[["retry"]]
+    subgraph Checkout_service["Checkout"]
+        direction TB
+        Checkout_state_Idle(["Idle"])
+        Checkout_state_Busy(["Busy"])
+        Checkout_state_Idle -- "&lt;Placed&gt;" --> Checkout_state_Busy
+        Checkout_state_Busy -- "&lt;Paid&gt;" --> Checkout_state_Idle
+        class Checkout_state_Idle,Checkout_state_Busy state
+    end
+    subgraph Order_data["Order"]
+        direction TB
+        Order_state_start(["●"])
+        Order_state_Open(["Open"])
+        Order_state_Settled(["Settled"])
+        Order_state_end(["◉"])
+        Order_state_any(["∗ any"])
+        Order_state_Cancelled(["Cancelled"])
+        Order_state_start -- "&lt;Placed&gt;" --> Order_state_Open
+        Order_state_Open -- "&lt;Paid&gt;" --> Order_state_Settled
+        Order_state_Settled -- "&lt;ship&gt;" --> Order_state_end
+        Order_state_any -- "&lt;cancel&gt;" --> Order_state_Cancelled
+        class Order_state_start,Order_state_Open,Order_state_Settled,Order_state_end,Order_state_any,Order_state_Cancelled state
+    end
+    subgraph Queue_store["Queue"]
+        direction TB
+        Queue_state_Empty(["Empty"])
+        Queue_state_Full(["Full"])
+        Queue_state_Empty -- "&lt;push&gt;" --> Queue_state_Full
+        class Queue_state_Empty,Queue_state_Full state
+    end
+    subgraph Core_service["Core"]
+        direction TB
+        Router_service["Router"]
+        Core_service__Handler_service["Handler"]
+        Cache_store[("Cache")]
+        AuditEvt_event>"AuditEvt"]
+        Log_store[("Log")]
+        Router_service --> Core_service__Handler_service
+        Core_service__Handler_service <--> Cache_store
+        Core_service__Handler_service -.-> AuditEvt_event
+        AuditEvt_event --> Log_store
+        class Router_service,Core_service__Handler_service service
+        class AuditEvt_event event
+        class Cache_store,Log_store store
+    end
+    subgraph walk_alias["walk"]
+        direction TB
+        Node_service["Node"]
+        Node_service -- "walk(.children)" --> Node_service
+        class Node_service service
+    end
+    subgraph Signal_event["Signal"]
+        direction TB
+        Signal_state_Up(["Up"])
+        Signal_state_Down(["Down"])
+        Signal_state_Up -- "&lt;drop&gt;" --> Signal_state_Down
+        class Signal_state_Up,Signal_state_Down state
+    end
+    subgraph Courier_actor["Courier"]
+        direction TB
+        Courier_state_Free(["Free"])
+        Courier_state_Away(["Away"])
+        Courier_state_Free -- "&lt;assign&gt;" --> Courier_state_Away
+        class Courier_state_Free,Courier_state_Away state
+    end
+    subgraph Ship_service["Ship"]
+        direction TB
+        Ship_service__Transform_data{{"Transform"}}
+        Ship_service__Hull_service["Hull"]
+        subgraph Ship_service__Bullet_service["Bullet"]
+            direction TB
+            Ship_service__Bullet_service__Transform_data{{"Transform"}}
+            Ship_service__Bullet_service__Damage_data{{"Damage"}}
+        end
+        Ship_service__ShardQuery_service["ShardQuery"]
+        Ship_service__Drone_service["Drone"]
+    end
+    subgraph Asteroid_service["Asteroid"]
+        direction TB
+        Asteroid_service__Shard_service["Shard"]
+        Asteroid_service__Row_service["Row"]
+        Asteroid_service__Tracer_service["Tracer"]
+        Asteroid_service__LagAlarm_event>"LagAlarm"]
+        Asteroid_service__PrimaryPsp_service["PrimaryPsp"]
+        Asteroid_service__StandbyPsp_service["StandbyPsp"]
+        Asteroid_service__ZoneA_service["ZoneA"]
+        Asteroid_service__ZoneB_service["ZoneB"]
+    end
+    subgraph Log_service["Log"]
+        direction TB
+        Log_service__Scrollable_data{{"Scrollable"}}
+    end
+    Customer_actor --> Api_service
+    Api_service --> Auth_service
+    Auth_service --> UserDB_store
+    Auth_service ==> Session_data
+    Auth_service -- "!" --> Unauthorized_event
+    Api_service -.-> OrderPlaced_event
+    Api_service <--> Cache_K_V__service
+    Api_service -. "?" .-> Fraud_service
+    OrderPlaced_event --> Shipping_service
+    OrderPlaced_event --> Email_service
+    OrderPlaced_event --> Ledger_store
+    Api_service --> PspA_service
+    Api_service --> PspB_service
+    Api_service --> Stock_service
+    Api_service --> Tax_service
+    Api_service --> Ghost_service
+    Ghost_service --> __service6
+    Api_service --> Payment_service
+    Api_service --> Scorer_service
+    Api_service --> Web_actor
+    Stop_event --> Counter_store
+    Cfg_service --> Opts_store
+    Api_service --> Customer_actor
+    Cfg_service --> Limits_store
+    Cfg_service --> Ratio_store
+    Cfg_service --> Last_store
+    Tick_event --> History_store
+    Tick_event --> Total_store
+    Cfg_service --> Merged_store
+    Cfg_service --> Scaled_store
+    Grader_service --> Sys_store
+    Worker_service -- "run()" --> Worker_service
+    Api_service --> Asteroid_service__Shard_service
+    Api_service --> Replica_service
+    Gateway_service --> Api_service
+    Ingest_service ==> Raw_event
+    Raw_event --> Parse_service
+    Parse_service ==> Parsed_event
+    Parsed_event --> Enrich_service
+    Enrich_service ==> Enriched_event
+    Enriched_event --> Warehouse_store
+    Enriched_event --> RealtimeIdx_store
+    Enriched_event -- "!" --> DLQ_store
+    Rows_data --> Sink_service
+    Api_service ==> Resp_data
+    Api_service ==> Err_data
+    Cart_service --> Api_service
+    Tree_walk_service --> Tree_walk_service
+    Handler_service --> Conn_store
+    Payments_service -.-> Paid_event
+    Checkout_service -.-> Placed_event
+    Paid_event --> Order_data
+    Push_event --> Queue_store
+    Worker_service --> Q_store
+    Worker_service -.-> metric_event
+    metric_event --> Obs_store
+    Poller_service --> Api_service
+    Pinger_service --> Peer_actor
+    Api_service --> Inventory_service
+    Api_service --> Fraud_service
+    Api_service -- "!" --> Inventory_service
+    Api_service --> MirrorA_service
+    Api_service --> MirrorB_service
+    Api_service -.-> Metrics_service
+    Reader_service --> DB_store
+    Writer_service --> DB_store
+    DB_store --> WAL_store
+    Physics_service --> Ship_service__Transform_data
+    Physics_service --> Ship_service__Bullet_service__Transform_data
+    Homing_service --> Ship_service__Bullet_service__Transform_data
+    Ship_service__Bullet_service__Damage_data --> Combat_service
+    Combat_service --> Health_data
+    Client_actor --> Gateway_service
+    Gateway_service --> Core_service
+    Core_service --> DB_store
+    Request_data -. "read" .-> Reader_service
+    Request_data -. "write" .-> Writer_service
+    Request_data -. "admin" .-> AdminSvc_service
+    Request_data -. "_" .-> Rejected_event
+    class Cache_K_V__service,__service1,Api_service,Auth_service,Fraud_service,Shipping_service,Email_service,PspA_service,PspB_service,Stock_service,Tax_service,Ghost_service,__service6,Payment_service,Scorer_service,Cfg_service,Grader_service,Worker_service,Retry_service,AuthSvc_service,Replica_service,Gateway_service,Ingest_service,Parse_service,Enrich_service,Sink_service,Cart_service,Tree_walk_service,Boss_service,Worker_N__service,Helper_service,Handler_service,Payments_service,Checkout_service,Poller_service,Pinger_service,Inventory_service,MirrorA_service,MirrorB_service,Metrics_service,Reader_service,Writer_service,AdminSvc_service,Physics_service,Homing_service,Combat_service,Core_service service
+    class List_T__data,Session_data,__data2,User_data,Rows_data,Resp_data,Err_data,Order_data,Items_data,Job_data,Request_data,Health_data data
+    class Msg_T__event,__event3,Unauthorized_event,OrderPlaced_event,Stop_event,Tick_event,Raw_event,Parsed_event,Enriched_event,Paid_event,Placed_event,Push_event,metric_event,Rejected_event,Signal_event event
+    class __actor5,Customer_actor,Web_actor,Auditor_actor,Peer_actor,Client_actor,Courier_actor actor
+    class Counter_store,AuditLog_store,__store4,UserDB_store,Ledger_store,Opts_store,Limits_store,Ratio_store,Last_store,History_store,Total_store,Merged_store,Scaled_store,Sys_store,PaymentDB_store,Warehouse_store,RealtimeIdx_store,DLQ_store,Directives_store,Results_store,Conn_store,Queue_store,Q_store,Obs_store,DB_store,WAL_store store
+    class retry_alias,walk_alias alias
+    class __service1,__data2,__event3,__store4,__actor5,__service6 hole
+    class Session_data,Counter_store,Opts_store,Limits_store,Ratio_store,Last_store,History_store,Total_store,Merged_store,Scaled_store,Sys_store mutable
+    class Ship_service__Transform_data,Ship_service__Bullet_service__Transform_data,Ship_service__Bullet_service__Damage_data,Log_service__Scrollable_data data
+    class Ship_service__Hull_service,Ship_service__Bullet_service,Ship_service__ShardQuery_service,Ship_service__Drone_service,Ship_service,Asteroid_service__Shard_service,Asteroid_service__Row_service,Asteroid_service__Tracer_service,Asteroid_service__PrimaryPsp_service,Asteroid_service__StandbyPsp_service,Asteroid_service__ZoneA_service,Asteroid_service__ZoneB_service,Asteroid_service,Log_service service
+    class Asteroid_service__LagAlarm_event event
+    Placed_event -. "triggers" .-> Order_state_Open
+    Paid_event -. "triggers" .-> Order_state_Settled
+    Placed_event -. "triggers" .-> Checkout_state_Busy
+    Push_event -. "triggers" .-> Queue_state_Full
+
+    classDef service fill:#E3F2FD,stroke:#1976D2,color:#0D47A1
+    classDef data    fill:#F3E5F5,stroke:#7B1FA2,color:#4A148C
+    classDef event   fill:#FFF3E0,stroke:#F57C00,color:#E65100
+    classDef actor   fill:#E8F5E9,stroke:#388E3C,color:#1B5E20
+    classDef store   fill:#FFF9C4,stroke:#F9A825,color:#F57F17
+    classDef state   fill:#E0F2F1,stroke:#00897B,color:#004D40
+    classDef hole    stroke-dasharray:5 5,opacity:0.7
+    classDef mutable stroke-width:3px
+    classDef alias   fill:#ECEFF1,stroke:#546E7A,color:#263238
