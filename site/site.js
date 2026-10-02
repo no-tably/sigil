@@ -21,7 +21,7 @@
   // Symbols Departure Mono lacks: they fall back to another font inside a fixed
   // 1ch cell (.fb), so a row's columns stay aligned. index.html loads the fallback
   // font for exactly these characters.
-  const FALLBACK = /[↺⇢∗▸▾◀▶◆◇◉○◎●✖✱◦✦]/g;
+  const FALLBACK = /[↺↻⇱↩⇢∗▸▾◀▶◆◇◉○◎●✖✱◦✦]/g;
   const wrapFallback = (html) => html.replace(FALLBACK, '<span class="fb">$&</span>');
 
   const store = {

@@ -1,0 +1,48 @@
+#!spec
+# executions — every call-like construct in one realistic design: a site crawler.
+# Design note: .claude/campaigns/scene-sim/executions.md (one row per construct, E1–E12).
+
+--- L1: crawl ---
+
+# E1 a call carrying an internal op-call: the scheduler asks, the target runs start()
+(Operator) -> [Scheduler] : start({Seed})
+# E2 an op-call as the TARGET: the scheduler runs plan() itself and gets {Plan} back
+[Scheduler] -> plan({Seed}) => {Plan}
+# E3 a call that returns: the scheduler waits until the crawler hands back {Site}
+[Scheduler] -> [Crawler] : crawl({Plan}) => {Site}
+# E4 a self-call bounded as a whole: every attempt of throttle() fits in 2s
+[Crawler] -> throttle(${host}) @deadline(2s)
+# E5 call resilience: bound one attempt, retry, then recover with the cached page
+[Crawler] -> [Fetcher] : fetch(${url}) @timeout(10s) ×3 @fallback(${cached})
+# E6 an external op: the far side is host-provided and opaque; it may fail
+[Fetcher] -> (Web) : op http.get(${url}) @timeout(5s)
+          !> <FetchFailed>
+# E7 a request and its reply in one stroke
+[Fetcher] <-> |Robots| : allowed(${url})
+# E8 fire-and-forget: the crawler does not wait for the count
+[Crawler] ~> [Metrics] : count(${host})
+[Crawler] -> [Parser] : parse({Page}) => {Doc}
+
+# E9 recursion through a method-style glyph: one call per child, depth unstated
+[Parser] -> [Doc.walk] : {Doc}
+[Doc.walk] -> [Doc.walk] : child
+# E10 recursion through an alias: follow() calls itself on every outgoing link
+follow := [Crawler] -> follow(.links)
+
+# E11 several calls into one target: reserve, then write; on failure release
+[Indexer] -> |Index| : reserve(${shard}) => {Lease}
+[Indexer] -> |Index| : write({Doc}, {Lease}) @fallback(skip())
+          !> |Index| : release({Lease})
+# a call repeated once per page
+loop @each page of {Site}.pages {
+  [Indexer] -> [Parser] : parse({Page}) => {Doc}
+}
+# E12 an external op as the target: the notifier reaches the host, far side unnamed
+[Notifier] -> op mail.send(${report}) @timeout(5s)
+
+--- L2: [Parser] ---
+
+[Parser] := {
+  [Lexer] -> [Builder] : build(tokens) => {Doc}
+  [Builder] -> [Builder] : nest({Node})   # the builder recurses into nested blocks
+}

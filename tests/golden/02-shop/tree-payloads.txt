@@ -1,14 +1,14 @@
-── shop ─────────────────────────────────────────────────────────────────
+── shop ────────────────────────────────────────────────────────────────
 (Shopper) ───────────────────●
 [Edge] ◀─────────────────────┴─●
                                │
 [Shop] ◀───────────────────────┴═●═══›═══›┄┆ {Request} ┆
 ├── [Cart] ──────────────────●   │   ║   ║
 ├── [Checkout] ◀─────────────┴═●═│═›═║═›┄║┄┆ {Cart} ┆
-├── [Payments] ▸ ◀─────────────┘┄│┄║┄║┄║┄║┄┆ charge(total) => {Receipt} ┆
+├── [Payments] ▸ ◀─────────────┘┄│┄║┄║┄║┄║┄┆ charge(total) ↩ {Receipt} ┆
 └── <OrderPlaced>                │ ║ ║ ║ ║
                                  │ ║ ║ ║ ║
-|Catalog| ◀──────────────────────┘┄║┄║┄║┄║┄┆ lookup(sku) => {Item} ┆
+|Catalog| ◀──────────────────────┘┄║┄║┄║┄║┄┆ lookup(sku) ↩ {Item} ┆
                                    ║ ║ ║ ║
 [Fulfilment] <OrderPlaced> ◀═══════╩═╝ ║ ║
 ├── [Picker] ────────────────●         ║ ║
@@ -25,7 +25,7 @@
 tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
        (N) weight  
 wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
-       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  ↩ returns  
        ┄┆{…}┆ payload, on its target row
 blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
        ── ── section

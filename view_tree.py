@@ -3,8 +3,9 @@ view_tree.py — the tree view of view.py: the composition tree as an outline,
 every flow as a lane in a gutter beside it.
 
 Not a command: view.py loads it. Outline rows (`\\-` branches and `:=`
-expansions), lanes packed into the gutter, block brackets, join taps, the right
-margin (payloads, modifiers, inline notes), margin callouts and the tree legend.
+expansions) with their call marks (`↺` / `↻` / `⇱`), lanes packed into the
+gutter, block brackets, join taps, the right margin (a chip per call or payload,
+modifiers, inline notes), margin callouts and the tree legend.
 compose_tree() returns the rows view.py prints. What is wired to what, in which
 colour, with which payload, notes and join marks — and where an event is drawn —
 comes from the Scene (scene.py); this module only lays it out. Drawing
@@ -122,13 +123,16 @@ def _tree_rows(g, depth: int, level: int = 0, base: int = 0, rows=None):
 
 
 def tree_legend(triggers: bool = True, payloads: bool = False, access: bool = False,
-                mods: bool = False, events: str = "land"):
+                mods: bool = False, events: str = "land", calls: frozenset = frozenset()):
     """Legend rows for the tree + wires view: relations, then lanes by arrow type,
     then the structure marks (blocks, joins, sections). Each arrow's sample is in
     its own colour (scene.arrow_colour); markers whose lanes take their source's
     colour are drawn neutral. `events`: the `›` emits entry shows only in "land"
-    mode — in "nodes" mode an event is a row with lanes in and out. Raises
-    ValueError for an unknown events mode."""
+    mode — in "nodes" mode an event is a row with lanes in and out. `calls`: the
+    call marks the drawing shows (view.drawn_call_marks) — an entry is listed for
+    each of `↺` self-call, `↻` recursion, `⇱` host-provided and `↩` a call's
+    return only when its mark is in the set. Raises ValueError for an unknown
+    events mode."""
     if events not in scene.EVENTS:
         raise ValueError(f"events must be one of {', '.join(scene.EVENTS)}, not {events!r}")
     dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
@@ -154,6 +158,12 @@ def tree_legend(triggers: bool = True, payloads: bool = False, access: bool = Fa
         wires += [("r┄", acc), (" reads  ", mid), ("w┄", acc), (" writes  ", mid),
                   ("b┄", acc), (" borrows  ", mid),
                   ("1w", (kit.EDGE_COLOR["access"], None, True)), (" writers  ", mid)]
+    call = (kit.EDGE_DEFAULT, None, False)
+    for mark, word, style in (("↺", "self-call", call), ("↻", "recursion", call),
+                              (EXTERNAL_MARK, "host-provided (opaque)", call),
+                              ("↩", "returns", kit.PAYLOAD_STYLE)):
+        if mark in calls:
+            wires += [(mark, style), (f" {word}  ", mid)]
     if payloads:
         wires += [("┄┆{…}┆", dim), (" payload, on its target row", mid)]
     if mods:
@@ -180,7 +190,11 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     commented rows `#N` and lists the notes below; "callouts" draws them as boxes in
     a left margin, each tied to its row by a leader. `payloads`: draw each flow's
     payload as a chip in a right margin, on its target row (the mirror of the
-    callouts); any that can't be placed are listed below.
+    callouts) — one chip per call, never merged, each in its wire's stroke; a
+    self-call's chip on its subject's row (`↺ plan({Seed}) ↩ {Plan}`); any that
+    can't be placed are listed below. Whatever the options, a row whose node
+    calls itself carries the call's mark after its label (`↺` a self-call, `↻`
+    recursion, `⇱` a host op), and the far node of an external op call `⇱`.
 
     `width`: the columns to fit (None: the natural width). When the drawing is
     wider, the margins give way — the outline and lanes never change shape: the
@@ -209,13 +223,17 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     rows, brackets = _tree_banners(rows, g)
     xs, x0 = _bracket_cols(brackets)
     after_label = _tree_extras(scn, mods)
+    calls = _self_call_rows(scn, rows)
+    marks = _call_marks(scn, rows, calls)
     joins = scene.join_marks(scn)
     # Block notes are about a component: tagged on its row, called out on the
     # left. Inline notes are about their line: they trail it on the right, after
     # the payload the line carries — as in the source.
     blocks = {nid: [e for e in es if e[2] == "block"] for nid, es in idx.items()}
     blocks = {nid: es for nid, es in blocks.items() if es}
-    payload_of = scene.chip_texts(scn, payloads, mods) if (payloads or mods) else {}
+    chipped = payloads or mods
+    chip_lists = scene.chip_lists(scn, payloads, mods) if chipped else {}
+    self_chips = _self_call_chips(calls, payloads, mods) if chipped else {}
     trailing = scene.wire_notes(scn) if notes != "off" else {}
     bases = {}
 
@@ -225,13 +243,14 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
         if (left, right) not in bases:
             cv = kit.Canvas()
             out = _draw_outline(cv, rows, blocks, show_tags=notes != "callouts" or left,
-                                x0=x0, extra=after_label)
+                                x0=x0, extra=after_label, marks=marks)
             _draw_brackets(cv, brackets, xs, x0)
             lanes = _pack_lanes(_collect_lanes(cv, wires, out), max(out.ends) + 3)
             _draw_lanes(cv, lanes, out.ends)
             _draw_join_taps(cv, lanes, out.ends, joins)
             moved = [] if right else None
-            drawn = _draw_right_margin(cv, lanes, out, payload_of, trailing, notes, moved)
+            chips, drawn = _row_chips(lanes, chip_lists, self_chips)
+            _draw_right_margin(cv, lanes, out, chips, trailing, notes, moved)
             for y, row in enumerate(rows):      # section rules run the full width
                 if isinstance(row, Banner) and row.kind == "section" and out.ends[y] < cv.w:
                     cv.put(out.ends[y], y, "─" * (cv.w - out.ends[y]), kit.SECTION_STYLE)
@@ -270,7 +289,7 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     extra = _extras(g, idx, notes, payloads, drawn,
                     kit.NOTE_WIDTH if width is None else min(kit.NOTE_WIDTH, width))
     if width is not None and right and moved:
-        items = [(kit._chip_marker(letter), ([(" · ".join(chips), "code")] if chips else [])
+        items = [(kit._chip_marker(letter), [(text, "code") for text in chips]
                   + [(f"# {text}", "inline") for _num, text in notes_])
                  for letter, chips, notes_ in moved]
         out_rows = kit._fit_panel(out_rows, lambda t: kit._panel_rows(items, t), width, "br",
@@ -417,10 +436,11 @@ class _Outline:
 
 
 def _draw_outline(cv: kit.Canvas, rows, idx: dict, show_tags: bool = True, x0: int = 0,
-                  extra: dict | None = None) -> _Outline:
-    """The outline from column x0: rails, relation, label, #N tag, the extra runs
-    a node carries (modifiers, a writer badge, a branch arm's label) and (for a
-    state) the triggers that lead into it, one row each. A banner row (a section
+                  extra: dict | None = None, marks: dict | None = None) -> _Outline:
+    """The outline from column x0: rails, relation, label, the row's call marks
+    (marks: {row: runs}, _call_marks), #N tag, the extra runs a node carries
+    (modifiers, a writer badge, a branch arm's label) and (for a state) the
+    triggers that lead into it, one row each. A banner row (a section
     divider, a block's header) is drawn as its runs; a block header inside a
     unit sits at its next row's label column, the rails it interrupts bridged."""
     out = _Outline([], {}, {}, {})
@@ -459,6 +479,8 @@ def _draw_outline(cv: kit.Canvas, rows, idx: dict, show_tags: bool = True, x0: i
         kit._put_runs(cv, x, y, kit.label_runs(n) + ([(" ▸", (text[0], None, True))]
                                              if row.collapsed else []))
         x += len(label)
+        if marks and y in marks:
+            x = kit._put_runs(cv, x, y, marks[y])
         if n.id in idx and n.id not in out.tagged and not show_tags:
             out.tagged[n.id] = y                # callouts point here with `#>` instead
         if n.id in idx and n.id not in out.tagged:  # `#N` on the node's first row
@@ -502,10 +524,12 @@ def _lane_wires(scn) -> list:
     """The Scene's wires the gutter draws, one per stroke — flows, triggers, emits
     (the first of a key: one stroke per emitter → destination), permissions —
     keyed by (key, qualified ends); an emit wire takes the place of a flow it
-    coincides with (the event is what that stroke carries)."""
+    coincides with (the event is what that stroke carries). A self-call is no
+    lane: its row carries it (_self_call_rows)."""
     out, emitted = {}, set()
     for w in scn.wires:
-        if w.role not in LANE_ROLES or (w.role == "emit" and w.key in emitted):
+        if (w.role not in LANE_ROLES or (w.role == "emit" and w.key in emitted)
+                or _is_self_call(w)):
             continue
         if w.role == "emit":
             emitted.add(w.key)
@@ -513,6 +537,100 @@ def _lane_wires(scn) -> list:
         else:
             out.setdefault((w.key, w.paths), w)
     return list(out.values())
+
+
+EXTERNAL_MARK = "⇱"      # a host-provided far node (opaque), after its label
+
+
+def _is_self_call(w) -> bool:
+    """A self-call drawn on its subject's row (not a qualified-path self-edge,
+    which is a lane between two rows)."""
+    return w.call is not None and w.call.self_call and not any(w.paths)
+
+
+def _self_call_rows(scn, rows) -> dict:
+    """{row index: [self-call wire]}: the self-calls of each outline row's node
+    written in the unit the row is drawn from — a node drawn in two units shows
+    each unit's own — in written order."""
+    owner = {id(u.graph): u.owner for u in scn.units}
+    by_unit = {}                                # (unit owner, node id) → wires
+    for nid, ws in scene.self_calls(scn).items():
+        for w in ws:
+            if _is_self_call(w):
+                by_unit.setdefault((w.owner, nid), []).append(w)
+    out = {}
+    for y, r in enumerate(rows):
+        if isinstance(r, TreeRow):
+            ws = by_unit.get((owner.get(id(r.graph)), r.node.id))
+            if ws:
+                out[y] = ws
+    return out
+
+
+def _call_marks(scn, rows, calls: dict) -> dict:
+    """{row index: runs} after a row's label: its self-calls' mark (scene.self_mark:
+    `↻` recursion, `↺` a self-call, `⇱` only host ops) in its first call's stroke,
+    then `⇱` on the far node of an external op call, in that call's stroke.
+    calls: _self_call_rows."""
+    far = {}
+    for w in scn.wires:
+        if w.call is not None and w.call.external and not w.call.self_call:
+            far.setdefault(w.dst, w)
+    marks = {}
+    for y, r in enumerate(rows):
+        if not isinstance(r, TreeRow):
+            continue
+        runs = []
+        if y in calls:
+            mark = scene.self_mark([w.call for w in calls[y]])
+            runs.append((" " + mark, scene.wire_style(calls[y][0])))
+        if r.node.id in far:
+            runs.append((" " + EXTERNAL_MARK, scene.wire_style(far[r.node.id])))
+        if runs:
+            marks[y] = runs
+    return marks
+
+
+def _self_call_chips(calls: dict, payloads: bool, mods: bool) -> dict:
+    """{row index: [(wire, chip text)]}: each self-call's chip on its subject's row
+    (`↺ plan({Seed}) ↩ {Plan}`, scene.chip_text), those with nothing to show left
+    out. calls: _self_call_rows."""
+    out = {}
+    for y, ws in calls.items():
+        chips = [(w, text) for w in ws for text in [scene.chip_text(w, payloads, mods)] if text]
+        if chips:
+            out[y] = chips
+    return out
+
+
+def _row_chips(lanes, chip_lists: dict, self_chips: dict) -> tuple:
+    """({row index: [(chip text, stroke style)]}, {key}): each row's chips in
+    order — its own self-calls' (_self_call_chips), then every chip
+    (scene.chip_lists) of each lane it is the target of, one per call, never
+    merged — each in its wire's stroke. A chip is one call, not one text: two
+    calls with equal text both show, while the same call reaching a row twice
+    (two lanes of one stroke) shows once. The keys are the strokes whose chips
+    were placed."""
+    chips, seen, drawn = {}, set(), set()
+
+    def add(y, ident, text, style):
+        if (y, ident) not in seen:
+            seen.add((y, ident))
+            chips.setdefault(y, []).append((text, style))
+
+    for y, pairs in self_chips.items():
+        for w, text in pairs:
+            add(y, ("self", id(w)), text, scene.wire_style(w))
+            drawn.add(w.key)
+    for ln in lanes:
+        key = ln.wire.key
+        texts = chip_lists.get(key, ())
+        for y in ln.dy:
+            for i, text in enumerate(texts):
+                add(y, ("lane", key, i), text, ln.style)
+        if texts:
+            drawn.add(key)
+    return chips, drawn
 
 
 class _Lane(NamedTuple):
@@ -529,7 +647,8 @@ class _Lane(NamedTuple):
 
 def _collect_lanes(cv: kit.Canvas, wires, out: _Outline) -> list:
     """One _Lane per wire, over every row where either end occurs, shortest
-    first; a self-loop is marked ↺ on its row instead."""
+    first; a self-loop that is no call (a state's self-transition) is marked ↺
+    on its row instead."""
     def at(nid, path):
         ys = out.by_id.get(nid, [])
         if path:
@@ -670,36 +789,31 @@ def _draw_join_taps(cv: kit.Canvas, lanes, ends, joins: dict):
                     cv.put(ends[y] + 2, y, mark[side], kit.LABEL_STYLE)
 
 
-def _draw_right_margin(cv: kit.Canvas, lanes, out: _Outline, payload_of: dict,
-                       trailing: dict, notes: str, moved: list | None = None) -> set:
-    """The right margin, the mirror of the note callouts: on each flow's target row
-    the payload it carries (a ┆chip┆) and the inline comment from its line; on a
-    node's row the inline comment of the line that placed it. A dotted leader ties
-    each to the row's rightmost tap, hopping (┄│┄) over lanes it crosses. Comments
-    show as `#N` (markers) or their text (callouts). Returns the flow keys whose
-    payloads were drawn. With `moved` (a list), a row's payloads and comment text
-    are relocated instead: the row ends in a `┆a┆` marker and moved gets
-    (letter, payloads, [(number, text)]); `#N` markers stay on the row."""
+def _draw_right_margin(cv: kit.Canvas, lanes, out: _Outline, chips: dict,
+                       trailing: dict, notes: str, moved: list | None = None) -> None:
+    """The right margin, the mirror of the note callouts: on each row its chips
+    (chips: {row: [(text, style)]}, _row_chips — each its own ┆chip┆ in its
+    wire's stroke) and the inline comment from each line it is the target of;
+    on a node's row the inline comment of the line that placed it. A dotted
+    leader ties them to the row's rightmost tap, hopping (┄│┄) over lanes it
+    crosses. Comments show as `#N` (markers) or their text (callouts). With
+    `moved` (a list), a row's payloads and comment text are relocated instead:
+    the row ends in a `┆a┆` marker and moved gets (letter, [chip text],
+    [(number, text)]); `#N` markers stay on the row."""
     margin = max([ln.x for ln in lanes] + [max(out.ends) - 1]) + 3
-    rightmost, chips, notes_at, drawn = {}, {}, {}, set()
+    rightmost, notes_at = {}, {}
     for ln in lanes:
         for y in list(ln.sy) + list(ln.dy):
             rightmost[y] = max(rightmost.get(y, 0), ln.x)
-        key = ln.wire.key
-        text = payload_of.get(key)
         for y in ln.dy:
-            if text and text not in chips.setdefault(y, []):
-                chips[y].append(text)
-            for note in trailing.get(key, ()):
+            for note in trailing.get(ln.wire.key, ()):
                 if note not in notes_at.setdefault(y, []):
                     notes_at[y].append(note)
-        if text:
-            drawn.add(key)
     for key, notes_ in trailing.items():         # lines that only placed a node
         if isinstance(key, str) and key in out.by_id:
             y = out.by_id[key][0]
             notes_at.setdefault(y, []).extend(n for n in notes_ if n not in notes_at[y])
-    leader, border = (kit.GREY["dim"], None, False), (kit.GREY["dim"], None, False)
+    leader = (kit.GREY["dim"], None, False)
     for y in sorted(set(chips) | set(notes_at)):
         if not chips.get(y) and not notes_at.get(y):
             continue
@@ -712,7 +826,7 @@ def _draw_right_margin(cv: kit.Canvas, lanes, out: _Outline, payload_of: dict,
             row_notes = sorted(notes_at.get(y, ()))
             go = [] if notes == "markers" else row_notes
             if chips.get(y) or go:                # the same content shares a letter
-                item = (chips.get(y, []), go)
+                item = ([text for text, _style in chips.get(y, [])], go)
                 letter = next((m[0] for m in moved if m[1:] == item), None)
                 if letter is None:
                     letter = kit._letter(len(moved))
@@ -723,17 +837,13 @@ def _draw_right_margin(cv: kit.Canvas, lanes, out: _Outline, payload_of: dict,
                     cv.put(x, y, f"#{num}", kit.NOTE_STYLE["inline"])
                     x += len(f"#{num}") + 2
             continue
-        if chips.get(y):
-            body = " · ".join(chips[y])
-            cv.put(x, y, "┆ ", border)
-            x = kit._put_runs(cv, x + 2, y, kit.payload_runs(body))
-            cv.put(x, y, " ┆", border)
-            x += 3
+        for text, style in chips.get(y, ()):
+            x = kit._put_runs(cv, x, y, [("┆ ", style)] + kit.payload_runs(text)
+                              + [(" ┆", style)]) + 1
         for num, text in sorted(notes_at.get(y, ())):
             note = f"#{num}" if notes == "markers" else f"# {text}"
             cv.put(x, y, note, kit.NOTE_STYLE["inline"])
             x += len(note) + 2
-    return drawn
 
 
 def _extras(g, idx: dict, notes: str, payloads: bool, drawn: frozenset = frozenset(),

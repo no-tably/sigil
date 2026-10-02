@@ -54,7 +54,7 @@ Flows are written in source-to-sink order. There is no reverse arrow.
 | Token    | Meaning                       |
 | -------- | ----------------------------- |
 | `: {X}`  | typed payload (data)          |
-| `: verb(args)` | internal operation invocation |
+| `: verb(args)` | internal operation invocation (the target runs it) |
 | `: op <ns>.<verb>(args)` | external (host-provided) op-call |
 | `: <value>` | value payload — a literal, a `${ref}`, a `{k: v}` map, a `[…]` list, or a `"""…"""` block-string (see "Payloads & values") |
 | `.field` | field accessor                |
@@ -213,6 +213,26 @@ By contrast, an **internal** dispatch stays a bare op-call `: verb(args)` (no
 
 The principle: sigil (and whatever consumes it) certifies the **wiring**, not the
 **world**. An API/DB/tool reach is just another host-provided op.
+
+### Calls — who runs an op, and what comes back
+
+- **The target runs a payload op.** In `[API] -> [Payments] : charge(total)`,
+  `[API]` calls and `[Payments]` runs `charge`. A `->` call waits until the op
+  returns or fails; a `~>` call does not wait; `<->` is the call and its reply in
+  one stroke.
+- **`=> X` after an op is what the call returns** to the caller:
+  `[Shop] -> |Catalog| : lookup(sku) => {Item}` hands `{Item}` back to `[Shop]`.
+- **An op-call written as the target is a self-call:** `[Worker] -> run()` — the
+  subject runs that op itself, no other glyph is involved, and
+  `[Sched] -> plan({Seed}) => {Plan}` returns `{Plan}` to `[Sched]`. With `op`
+  (`[Notifier] -> op mail.send(${report})`) the subject reaches a host-provided op
+  whose far side is left unnamed (opaque, as above).
+- **Each flow line is its own call.** Two lines with the same endpoints and arrow
+  (`: reserve(…)` and `: write(…)` into one `|Index|`) are two calls, not one.
+- **A dotted glyph name is one glyph.** `[Tree.walk]` names the `walk` role or
+  operation of `Tree` by convention (like the `.read` / `.write` role names lint
+  suggests for a glyph that plays two parts); it implies no edge to `[Tree]` —
+  write that flow if it exists.
 
 ## Permission graph
 
@@ -519,6 +539,11 @@ walk := [Node] -> walk(.children)
 [Tree.walk] -> [Tree.walk] : child
 ```
 
+A self-arrow (or an alias whose body calls its own name) is a recursive call. Sigil
+does not state the recursion's depth or base case — those are the callee's
+internals (see "What Sigil deliberately doesn't do"); a consumer that runs the
+design bounds the depth itself.
+
 ---
 
 ## Streams, generators, backpressure
@@ -748,6 +773,9 @@ one policy and read left-to-right:
 #   one attempt ≤ 30s; up to 3 retries; on final failure yield 0 instead of erroring
 [Svc] -> [Web] : op http.get(${url})  @timeout(5s) @fallback(${cache})
 ```
+
+`@deadline(t)` bounds the **whole** call — every attempt and the waits between
+them; past it the call has finally failed (and yields its `@fallback`, if any).
 
 This is **distinct** from the `!>` error *path* (which routes a failure to
 another flow) and `@after` (a backoff schedule): `@timeout`/`×N`/`@fallback`
@@ -1010,7 +1038,8 @@ note        := '#' char*                              # inline / whole-line comm
 flow        := src arrow dst (':' payload)? (mod)*
              | arrow dst ...              # continuation (inherits subject only)
 src         := entity | path              # a bare name = every occurrence; a path = the
-dst         := entity | path              # occurrences it matches
+dst         := entity | path | op-target  # occurrences it matches
+op-target   := int-op-call | ext-op-call  # a self-call: the subject runs the op itself
 arrow       := '->' | '~>' | '<->' | '=>' | '!>' | '?>' | '*>' | '→'
 
 mod         := '@' name ('(' arg (',' arg)* ')')?     # @inv @sla @cap @grants @requires
@@ -1027,7 +1056,7 @@ fallback-mod:= '@fallback' '(' (value | int-op-call | ext-op-call) ')'
 # A payload is structural (an entity or internal op-call) or a value.
 payload     := structural | value-payload
 structural  := entity | int-op-call               # entity glyph or internal op-call
-int-op-call := name '(' arg (',' arg)* ')'         # bare verb — internal dispatch
+int-op-call := name '(' (arg (',' arg)*)? ')'      # bare verb — internal dispatch
 value-payload := value | ext-op-call
 ext-op-call := 'op' dotted-name '(' (arg (',' arg)*)? ')' # external, host-provided
 dotted-name := name ('.' name)+                    # host-provided op ns.verb

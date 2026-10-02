@@ -6,7 +6,7 @@ golden.py — golden outputs: every input drawn every way, kept under tests/gold
     tools/golden.py --check --diff     # … and print a unified diff of each difference
     tools/golden.py --update           # rewrite tests/golden/ from the current code
 
-Inputs: `site/examples/*.sigil`, `tests/fixtures/coverage.sigil`, and every Sigil
+Inputs: `site/examples/*.sigil`, the FIXTURES under `tests/fixtures/`, and every Sigil
 block of examples.md (each fenced block that isn't a ```text drawing), named
 `examples-NN[-slug]` in document order (the slug from the block's first
 `--- name ---` header).
@@ -52,6 +52,8 @@ ALL_DEPTH = "all"
 # Set iteration order (string hashing) must not change a drawing; pinning the seed
 # keeps the goldens stable while a drawing that still depends on it gets fixed.
 HASH_SEED = "0"
+# Fixtures drawn alongside the site examples (by stem, so each names its own directory).
+FIXTURES = ("coverage.sigil", "executions.sigil")
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +128,7 @@ def examples_inputs(markdown: str) -> list[Input]:
 def collect_inputs(root: Path) -> list[Input]:
     """Every golden input under the repo `root`. Raises ValueError on a name clash."""
     files = sorted((root / "site" / "examples").glob("*.sigil"))
-    files.append(root / "tests" / "fixtures" / "coverage.sigil")
+    files += [root / "tests" / "fixtures" / name for name in FIXTURES]
     inputs = [Input(p.stem, p.read_text(encoding="utf-8")) for p in files]
     inputs += examples_inputs((root / "examples.md").read_text(encoding="utf-8"))
     names = [i.name for i in inputs]

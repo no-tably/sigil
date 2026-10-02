@@ -1,0 +1,63 @@
+flowchart TD
+    Operator_actor(("Operator"))
+    Scheduler_service["Scheduler"]
+    Plan_data{{"Plan"}}
+    Crawler_service["Crawler"]
+    Fetcher_service["Fetcher"]
+    Web_actor(("Web"))
+    FetchFailed_event>"FetchFailed"]
+    Robots_store[("Robots")]
+    Metrics_service["Metrics"]
+    Doc_walk_service["Doc.walk"]
+    Indexer_service["Indexer"]
+    Index_store[("Index")]
+    Site_data{{"Site"}}
+    Notifier_service["Notifier"]
+    subgraph Parser_service["Parser"]
+        direction TB
+        Lexer_service["Lexer"]
+        Builder_service["Builder"]
+        Lexer_service --> Builder_service
+        Builder_service --> Builder_service
+        class Lexer_service,Builder_service service
+    end
+    subgraph follow_alias["follow"]
+        direction TB
+        follow_alias__Crawler_service["Crawler"]
+        follow_alias__Crawler_service -- "follow(.links)" --> follow_alias__Crawler_service
+        class follow_alias__Crawler_service service
+    end
+    Operator_actor --> Scheduler_service
+    Scheduler_service -- "plan({Seed})" --> Scheduler_service
+    Scheduler_service ==> Plan_data
+    Scheduler_service --> Crawler_service
+    Crawler_service -- "throttle(${host})" --> Crawler_service
+    Crawler_service --> Fetcher_service
+    Fetcher_service --> Web_actor
+    Fetcher_service -- "!" --> FetchFailed_event
+    Fetcher_service <--> Robots_store
+    Crawler_service -.-> Metrics_service
+    Crawler_service --> Parser_service
+    Parser_service --> Doc_walk_service
+    Doc_walk_service --> Doc_walk_service
+    Indexer_service --> Index_store
+    Indexer_service --> Index_store
+    Indexer_service -- "!" --> Index_store
+    Indexer_service --> Parser_service
+    Notifier_service -- "op mail.send(${report})" --> Notifier_service
+    class Scheduler_service,Crawler_service,Fetcher_service,Metrics_service,Parser_service,Doc_walk_service,Indexer_service,Notifier_service service
+    class Plan_data,Site_data data
+    class FetchFailed_event event
+    class Operator_actor,Web_actor actor
+    class Robots_store,Index_store store
+    class follow_alias alias
+
+    classDef service fill:#E3F2FD,stroke:#1976D2,color:#0D47A1
+    classDef data    fill:#F3E5F5,stroke:#7B1FA2,color:#4A148C
+    classDef event   fill:#FFF3E0,stroke:#F57C00,color:#E65100
+    classDef actor   fill:#E8F5E9,stroke:#388E3C,color:#1B5E20
+    classDef store   fill:#FFF9C4,stroke:#F9A825,color:#F57F17
+    classDef state   fill:#E0F2F1,stroke:#00897B,color:#004D40
+    classDef hole    stroke-dasharray:5 5,opacity:0.7
+    classDef mutable stroke-width:3px
+    classDef alias   fill:#ECEFF1,stroke:#546E7A,color:#263238

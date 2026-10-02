@@ -11,8 +11,8 @@
 ~|rubric| ◀────────┘ │ │ │ │
 ~|opts| ◀────────────┘ │ │ │
 ~|policy| ◀────────────┘ │ │
-|Scores| ◀───────────────┘ │
-[Index] ◀──────────────────┘
+|Scores| ⇱ ◀─────────────┘ │
+[Index] ⇱ ◀────────────────┘
 
 tree   ─ contains  & has  * spawns  ? when  $ from data  
        @ attached  ! alerts  = gathers  _ one of  
@@ -20,6 +20,7 @@ tree   ─ contains  & has  * spawns  ? when  $ from data
 wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  
        ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  ›─ emits  
        ◀ target  ─│─ crossing  ■ lane: its source's colour  
+       ⇱ host-provided (opaque)  
 blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  
        □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
        ── ── section

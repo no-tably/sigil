@@ -207,7 +207,8 @@ _PAYLOAD_TAIL_RE = re.compile(r"(?:\s*×\s*\w+|\s+x(?:\d+|N)\b|(?<=[\s>])\^\w+|\
 # "30s"), `@inv >= 0` → ("inv", ">= 0")); `×N` / `xN` → ("×", "N"); a stream
 # bound `^10k@drop` → ("^", "10k@drop"); `!` critical → ("!", None); `?`
 # optional → ("?", None); `.field` → (".", "field"). Placement: a modifier
-# written between a glyph and the next arrow is that glyph's node's; a
+# written between a glyph and the next arrow is that glyph's node's (after an
+# op-call target, that self-call edge's: `-> plan() @deadline(2s) => {P}`); a
 # statement's trailing modifiers belong to its final link's edges, or to its last
 # glyph when the statement draws no edge. Declarations about an entity always go
 # on the node: @loc @read @write @borrow @owns @grants @requires and `^N@policy`.
@@ -789,7 +790,7 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
                 links.append(pending)
                 prev = groups[-1]
                 cur = {"nodes": prev["nodes"], "join": None, "join_idx": prev["join_idx"],
-                       "op": tok}
+                       "op": tok, "col": _c}
             pending = None
             joining = None
         elif kind == "glyph":
@@ -828,6 +829,7 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
     # Fan every arrow out across both endpoints (`[A] & [B] -> [C] & [D]` is 4 edges).
     new_edges = []
     final = []
+    op_edges = {}             # an op-call target's column → the self-edges it made
     for k, arrow in enumerate(links):
         if arrow is None:
             continue
@@ -840,6 +842,7 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
                                  src_path=sp, dst_path=sp,
                                  src_join=src["join_idx"], target_op=dst["op"],
                                  line=line_no))
+            op_edges[dst["col"]] = made
         else:
             dpaths = dst.get("paths") or [None] * len(dst["nodes"])
             for s, sp in zip(src["nodes"], spaths):
@@ -856,9 +859,10 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
             e.payload = f"{e.target_op} : {payload}" if e.target_op else payload
     graph.edges.extend(new_edges)
 
-    # Modifiers: between a glyph and the next arrow → that glyph's node; trailing
-    # the statement → the final link's edges (or the last glyph without one);
-    # entity declarations (_NODE_MODS) always on the node.
+    # Modifiers: between a glyph and the next arrow → that glyph's node; between
+    # an op-call target and the next arrow → that self-call's edges; trailing the
+    # statement → the final link's edges (or the last glyph without one); entity
+    # declarations (_NODE_MODS) always on the node.
     glyph_at = [(c, graph.nodes[t.id]) for kind, t, c in tokens
                 if kind == "glyph" and t.id in graph.nodes]
     arrow_cols = [c for kind, _t, c in tokens if kind == "arrow"]
@@ -869,8 +873,12 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
         if after and before and any(before[-1][0] < a < col for a in arrow_cols):
             owner = after[0]                    # between an arrow and its target
         trailing = not any(a > col for a in arrow_cols)
+        op_col = _op_before(tokens, col)
         if payload_span[0] <= col < payload_span[1] and final:
             for e in final:                     # a bound on the payload's stream
+                _add_mod(e.mods, pair)
+        elif op_col in op_edges and pair[0] not in _NODE_MODS:
+            for e in op_edges[op_col]:          # `-> plan() @deadline(2s) => {P}`
                 _add_mod(e.mods, pair)
         elif pair[0] in _NODE_MODS or not trailing or not final:
             if owner is not None:
@@ -888,6 +896,14 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
         return last_src
     return Subject(tuple(n.id for n in head["nodes"]), head["join_idx"],
                    tuple(head.get("paths") or ()))
+
+
+def _op_before(tokens: list, col: int) -> Optional[int]:
+    """The column of the op-call target a modifier at `col` follows (no glyph or
+    arrow between them), or None."""
+    before = [(c, kind) for kind, _t, c in tokens
+              if c < col and kind in ("glyph", "op", "arrow")]
+    return before[-1][0] if before and before[-1][1] == "op" else None
 
 
 def _access(graph: Graph, owner: Node, pair: tuple, line_no: int, layer: str):

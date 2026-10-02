@@ -1,0 +1,34 @@
+   ── L1 · crawl ─────────────────────────────────────────
+   (Operator) ─────────────────────────●
+   [Scheduler] ↺ ◀─────────────────────┴━◆───────────●┄┆a┆
+   {Plan} ◀━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛           │
+   [Crawler] ↺ ◀───────────────────────────────●─○─●─┤┄┆b┆           ┆a┆ ↺ plan({Seed}) ↩ {Plan}
+   [Fetcher] ◀─────────────────────────●─✖─▶───┤┄╎┄│┄│┄┆c┆               start({Seed})
+   (Web) ⇱ ◀───────────────────────────┘┄│┄│┄┄┄│┄╎┄│┄│┄┆d┆           ┆b┆ ↺ throttle(${host})
+   <FetchFailed> ◀───────────────────────┘ │   │ ╎ │ │                   crawl({Plan}) ↩ {Site}
+   |Robots| ◀──────────────────────────────┘┄┄┄│┄╎┄│┄│┄┆e┆           ┆c┆ fetch(${url})
+   [Metrics] ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│╌┤┄│┄│┄┆f┆           ┆d┆ ⇱ http.get(${url})
+                                               │ ╎ │ │               ┆e┆ allowed(${url})
+┌─ [Parser] ◀──────────────────────────────●─┬─│─╎─┤┄│┄┆g┆           ┆f┆ count(${host})
+│  ├── [Lexer] ────────────────────────●   │ │ │ ╎ │ │               ┆g┆ parse({Page}) ↩ {Doc}
+│  └── [Builder] ↻ ◀───────────────────┘┄┄┄│┄│┄│┄╎┄│┄│┄┆h┆               parse({Page}) ↩ {Doc}
+│                                          │ │ │ ╎ │ │               ┆h┆ ↻ nest({Node})
+│  [Doc.walk] ↻ ◀──────────────────────────┘┄│┄│┄╎┄│┄│┄┆i┆               build(tokens) ↩ {Doc}
+├─ [Indexer] ──────────────────────────●─✖───● │ ╎ │ │               ┆i┆ ↻ child
+└─ ↺ loop @each page of {Site}.pages   │ │     │ ╎ │ │                   {Doc}
+   |Index| ◀───────────────────────────┴─┘┄┄┄┄┄│┄╎┄│┄│┄┆j┆           ┆j┆ reserve(${shard}) ↩ {Lease}
+   {Site}                                      │ ╎ │ │                   write({Doc}, {Lease})
+   [Notifier] ⇱ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄│┄╎┄│┄│┄┆k┆               release({Lease})
+                                               │ ╎ │ │               ┆k┆ ⇱ mail.send(${report})
+   [[follow]]                                  │ ╎ │ │               ┆l┆ ↻ follow(.links)
+   └── [Crawler] ↻ ◀───────────────────────────●─○─●─┘┄┆l┆               crawl({Plan}) ↩ {Site}
+
+tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
+       (N) weight  
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  ↺ self-call  ↻ recursion  
+       ⇱ host-provided (opaque)  ↩ returns  ┄┆{…}┆ payload, on its target row
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
+       ── ── section
+
+executions.sigil: 16 nodes, 18 edges, 2 expansions · #!spec

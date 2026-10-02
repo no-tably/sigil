@@ -67,7 +67,7 @@ class TestLayout(unittest.TestCase):
 
     def test_self_loop_marked_on_node(self):
         out = draw("[A] -> [A]\n[A] -> [B]\n")
-        self.assertIn("[A] ↺", out)
+        self.assertIn("[A] ↻", out)
 
     def test_holes_drawn_dashed_and_separate(self):
         out = draw("#!sketch\n[?] -> [X]\n[?] -> [Y]\n")

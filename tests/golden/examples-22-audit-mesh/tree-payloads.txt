@@ -1,6 +1,6 @@
-── audit-mesh ──────────────────────
+── audit-mesh ──────────────────────────────────
 [ServiceA] ────────●
-*|EventLog| ◀──────┴─┬─┐┄┆ <Event> ┆
+*|EventLog| ◀──────┴─┬─┐┄┆ <Event> ┆ ┆ <Event> ┆
 [ServiceB] ──────────● │
 (Auditor) ─────────────●
 

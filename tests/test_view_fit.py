@@ -204,7 +204,7 @@ class TestGraphRelocation(unittest.TestCase):
     def test_wide_chips_become_markers_with_a_panel(self):
         g = parse(WIDE_CHIPS)
         natural, nat_w = view.compose(g, 1, True, notes="markers")
-        self.assertIn("transform(alpha, beta, gamma) => {Intermediate}",
+        self.assertIn("transform(alpha, beta, gamma) ↩ {Intermediate}",
                       "\n".join(text_rows(natural)))
         rows, w = view.compose(g, 1, True, notes="markers", width=60)
         lines = text_rows(rows)

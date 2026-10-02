@@ -50,14 +50,19 @@ Keys (live view):
     t  toggle graph / tree + wires   e  triggers (event ⇢ the state it drives)
     s  spacing between units      v  events: where they land / as nodes (per view)
     n  notes: off → #N markers + list → margin callouts (tree view)
-    arrows / h j k L scroll   pgup / pgdn / space page   g home   c  re-centre   q  quit
+    f  fit to the window (rearranged, centred) / the natural layout, free to pan
+    arrows / h j k L pan   pgup / pgdn / space page   g home   c  re-centre   q  quit
+    mouse: drag to pan; wheel scrolls (shift+wheel or a sideways wheel: across)
 
 Zero dependencies: python3 standard library only. The graph comes from
 render.parse_document (the same parse render.py turns into Mermaid), laid out
 top-down in layers (cycle breaking, longest-path layering, barycenter ordering,
 block-merged x placement, one track per fan-out) and drawn with box-drawing
-characters. The live view is a plain alternate-screen terminal loop that keeps
-the drawing centred in the pane while it fits, and scrolls when it doesn't.
+characters. The live view is a plain alternate-screen terminal loop. Fitted
+(f, the default) it shows the drawing rearranged to the pane's width, centred while
+it fits and scrolled when it doesn't; natural (f again) it shows the drawing as
+--once without --width would and pans freely in x and y — keys, mouse drag, the
+wheel — clamped so part of it always stays on screen. The status bar says which.
 
 Fitting: a drawing wider than the window (the live pane, or --width) is
 rearranged, never squashed — boxes, lanes and the outline keep their shapes.
@@ -100,12 +105,14 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import os
+import re
 import select
 import shutil
 import signal
 import sys
 import time
 from pathlib import Path
+from typing import NamedTuple
 
 
 _HERE = Path(__file__).resolve().parent
@@ -192,9 +199,26 @@ def wrap_legend(row, cols: int):
 
 
 KEY_LEGEND = (("t", "tree/graph"), ("n", "notes"), ("e", "triggers"), ("v", "events"),
-              ("s", "spacing"),
+              ("s", "spacing"), ("f", "fit"),
               ("d", "depth"), ("p", "payloads"), ("m", "mods"), ("a", "access"),
               ("l", "lint"), ("c", "centre"), ("g", "home"), ("r", "reload"), ("q", "quit"))
+
+
+def drawn_call_marks(graph, depth: int, payloads: bool) -> frozenset:
+    """The call marks the drawing of `graph` to `depth` shows — the tree legend
+    lists only these: each call wire's mark (scene.call_mark: `↻`, `⇱`, `↺`),
+    `⇱` for an external op's far node, and `↩` when a call returns something and
+    payloads are on. A missing graph (a parse error) shows none."""
+    if graph is None:
+        return frozenset()
+    scn = scene.build_scene(graph, depth=depth)
+    calls = [w.call for w in scn.wires if w.call is not None]
+    marks = {scene.call_mark(c) for c in calls}
+    if any(n.external for n in scn.nodes.values()):
+        marks.add("⇱")
+    if payloads and any(c.returns for c in calls):
+        marks.add("↩")
+    return frozenset(marks - {""})
 
 
 def keys_legend(state):
@@ -203,7 +227,7 @@ def keys_legend(state):
     dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
     on = {"t": state.tree, "e": state.show_triggers, "s": state.spaced,
           "p": state.payloads, "l": state.show_lint, "n": state.notes != "off",
-          "m": state.show_mods, "a": state.show_access}
+          "m": state.show_mods, "a": state.show_access, "f": state.fit}
     row = [("keys   ", dim)]
     for key, word in KEY_LEGEND:
         bright = on.get(key)
@@ -244,7 +268,8 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
     out = [kit.ansi(r, colour) for r in rows]
     if tree:
         legend_w = LEGEND_WIDTH if width is None else min(LEGEND_WIDTH, width)
-        legend = vtree.tree_legend(triggers, payloads, access, mods, events)
+        legend = vtree.tree_legend(triggers, payloads, access, mods, events,
+                                   calls=drawn_call_marks(g, depth, payloads))
         out += [""] + [kit.ansi(ln, colour) for r in legend for ln in wrap_legend(r, legend_w)]
     out.append("")
     mode = kit.doc_mode(text)
@@ -269,10 +294,58 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
 
 DEPTHS = (0, 1, kit.ALL_DEPTH)
 LINT_ROWS = 8
-SCROLL_X = 4                                    # columns per left / right key
+SCROLL_X = 4                                    # columns per left / right key / wheel notch
+WHEEL_Y = 3                                     # rows per wheel notch
 POLL_S = 0.3                                    # how often to stat the file
 TICK_S = 0.1                                    # key wait per loop turn
-READ_BYTES = 64                                 # bytes per key read
+READ_BYTES = 1024                               # bytes per input read (mouse drags are chatty)
+MOUSE_ON = "\x1b[?1002h\x1b[?1006h"            # report button drags + wheel, SGR encoded
+MOUSE_OFF = "\x1b[?1006l\x1b[?1002l"
+
+
+# -- placing the drawing in the viewport: one axis at a time. An origin is the
+#    drawing cell at the viewport's first cell; negative = blank lead-in. --------
+
+def home_origin(size: int, view: int) -> int:
+    """Where a drawing opens: centred while it fits, else at its start."""
+    return -((view - size) // 2) if size <= view else 0
+
+
+def centre_origin(size: int, view: int) -> int:
+    """The drawing's middle on the viewport's middle."""
+    return home_origin(size, view) if size <= view else (size - view) // 2
+
+
+def pan_bounds(size: int, view: int, fit: bool) -> tuple[int, int]:
+    """(lowest, highest) origin. Fitted: pinned centred while the drawing fits,
+    else scrolled within it. Natural (free pan): anywhere that keeps at least half
+    the viewport (or all of a smaller drawing) on screen."""
+    if fit:
+        if size <= view:
+            return (home_origin(size, view),) * 2
+        return 0, size - view
+    keep = min(size, max(view // 2, 1))
+    return keep - view, size - keep
+
+
+def place(size: int, view: int, origin: int, fit: bool, request: str | None) -> int:
+    """The origin to draw at: `request` ("home" | "centre" | None: keep `origin`),
+    clamped to pan_bounds."""
+    if request == "home":
+        origin = home_origin(size, view)
+    elif request == "centre":
+        origin = centre_origin(size, view)
+    lo, hi = pan_bounds(size, view, fit)
+    return max(lo, min(origin, hi))
+
+
+def wheel_step(code: int) -> tuple[int, int]:
+    """(dx, dy) of a wheel notch from its SGR button code: up / down scroll rows,
+    a sideways wheel or shift+wheel scrolls columns."""
+    sign = -1 if code & 1 == 0 else 1          # 64 up / 66 left: back; 65 / 67: on
+    if code & 2 or code & 4:
+        return sign * SCROLL_X, 0
+    return 0, sign * WHEEL_Y
 
 
 class ViewState:
@@ -303,8 +376,10 @@ class ViewState:
         self.diags = []
         self.updated = ""
         self.title = ""
-        self.sx = self.sy = 0          # scroll offsets (only used when it overflows)
-        self._recentre = False         # centre the overflowing drawing on the next frame
+        self.fit = True                # f: fitted to the window, else natural + free pan
+        self.sx = self.sy = 0          # the origin: drawing cell at the viewport's top-left
+        self._place = "home"           # a pending "home" / "centre", resolved by frame()
+        self._drag = None              # (x, y, sx, sy) where a mouse drag started
         self._vh = 1                   # viewport height of the last frame (a page)
         self._rows, self._width = [], 0  # the drawing at its natural width
         self._fit = None               # (cols, rows, width): the drawing fitted to cols
@@ -376,8 +451,7 @@ class ViewState:
             self._recompose()
         elif k == "t":
             self.tree = not self.tree
-            self.sx = self.sy = 0
-            self._recentre = False
+            self._place = "home"
             self._recompose()
         elif k == "n":
             self.notes = NOTE_MODES[(NOTE_MODES.index(self.notes) + 1) % len(NOTE_MODES)]
@@ -418,13 +492,35 @@ class ViewState:
             self.sy -= page
         elif k in ("pgdn", " "):
             self.sy += page
+        elif k == "f":                 # keeps the origin; frame() re-clamps it
+            self.fit = not self.fit
         elif k in ("home", "g"):
-            self.sx = self.sy = 0
-            self._recentre = False
+            self._place = "home"
         elif k == "c":
-            self._recentre = True
+            self._place = "centre"
         else:
             return False
+        return True
+
+    def mouse(self, ev: Mouse) -> bool:
+        """Apply a mouse report: a left-button drag pans (the drawing follows the
+        pointer), the wheel scrolls. Returns True when the view changed."""
+        if ev.code & 64:
+            dx, dy = wheel_step(ev.code)
+            self.sx, self.sy = self.sx + dx, self.sy + dy
+            return True
+        if ev.release:
+            self._drag = None
+            return False
+        if ev.code & 3 != 0:           # middle / right button: not ours
+            return False
+        if not ev.code & 32:           # press: anchor the drag
+            self._drag = (ev.x, ev.y, self.sx, self.sy)
+            return False
+        if self._drag is None:
+            return False
+        x0, y0, sx0, sy0 = self._drag
+        self.sx, self.sy = sx0 - (ev.x - x0), sy0 - (ev.y - y0)
         return True
 
     # -- frame ---------------------------------------------------------------
@@ -447,7 +543,9 @@ class ViewState:
                 rows[-1] = [(f"… {len(self.diags) - len(shown) + 1} more (view.py --once)",
                              (kit.GREY["mid"], None, False))]
         legend = (vtree.tree_legend(self.show_triggers, self.payloads, self.show_access,
-                                    self.show_mods, self.events_mode) if self.tree
+                                    self.show_mods, self.events_mode,
+                                    calls=drawn_call_marks(self.graph, self.depth,
+                                                             self.payloads)) if self.tree
                   else [vgraph.graph_legend(self.show_triggers, self.payloads, self.show_access,
                                             self.show_mods, self.events_mode)])
         rows[0:0] = [ln for r in legend + [keys_legend(self)] for ln in wrap_legend(r, cols)]
@@ -465,6 +563,8 @@ class ViewState:
         return row
 
     def _bar(self, cols: int):
+        """The status bar: file, #!mode, view · fit / pan, title, counts, depth, time,
+        lint counts."""
         d = "all" if self.depth >= kit.ALL_DEPTH else str(self.depth)
         g = self.graph
         summary = f"{len(g.nodes)} nodes · {len(g.edges)} edges" if g is not None else "no graph"
@@ -473,10 +573,11 @@ class ViewState:
         left = [(f" {self.path.name} ", kit.BAR_NAME_STYLE)]
         if self.mode:
             left.append((f"{self.mode} ", kit.MODE_STYLE))
+        placing = "fit" if self.fit else "pan"     # before the title: never clipped off
+        left.append((f"· {view_name(self.tree)} · {placing} ·", kit.BAR_STYLE))
         if self.title:
             left.append((f" {self.title} ·", kit.BAR_NAME_STYLE))
-        view = view_name(self.tree)
-        left.append((f" {summary} · {view} · depth {d} · {self.updated} ", kit.BAR_STYLE))
+        left.append((f" {summary} · depth {d} · {self.updated} ", kit.BAR_STYLE))
         if n_err or n_warn:
             left.append((f"{n_err}E {n_warn}W ", (kit.SEVERITY_COLOR["error" if n_err else "warn"],
                                                   kit.BAR_STYLE[1], True)))
@@ -484,36 +585,32 @@ class ViewState:
 
     def frame(self, cols: int, rows: int):
         """Exactly `rows` rows of styled runs for a cols×rows terminal: the status bar,
-        the drawing (rearranged to fit `cols` when it is wider — see fitted(); centred
-        while it fits, scrolled when it still doesn't), the footer."""
+        the drawing, the footer. Fitted (self.fit): the drawing rearranged to fit
+        `cols` when it is wider (see fitted()), centred while it fits, scrolled when
+        it still doesn't. Natural: the drawing as composed, panned freely (see
+        pan_bounds). Resolves a pending home / centre and clamps the origin."""
         footer = self._footer_rows(cols)
         vh = self._vh = max(rows - 1 - len(footer), 1)
-        body, W = self.fitted(cols)
+        body, W = self.fitted(cols) if self.fit else (self._rows, self._width)
         H = len(body)
         if self.graph is None and not self.error:
             body = [[("waiting for " + str(self.path), (kit.GREY["mid"], None, False))]]
             W, H = kit.row_len(body[0]), 1
+        self.sx = place(W, cols, self.sx, self.fit, self._place)
+        self.sy = place(H, vh, self.sy, self.fit, self._place)
+        self._place = None
+        return ([self._bar(cols)] + viewport(body, self.sx, self.sy, cols, vh) + footer)[:rows]
 
-        def axis(size, view, off):
-            if size <= view:
-                return (view - size) // 2, 0
-            if self._recentre:
-                off = (size - view) // 2
-            return 0, max(0, min(off, size - view))
 
-        pad_x, self.sx = axis(W, cols, self.sx)
-        pad_y, self.sy = axis(H, vh, self.sy)
-        self._recentre = False
-        out = [self._bar(cols)]
-        for y in range(vh):
-            src = y - pad_y + self.sy
-            if 0 <= src < H:
-                row = kit.clip(body[src], self.sx, cols - pad_x)
-                out.append(([(" " * pad_x, None)] if pad_x and row else []) + row)
-            else:
-                out.append([])
-        out += footer
-        return out[:rows]
+def viewport(body, ox: int, oy: int, cols: int, vh: int):
+    """`vh` rows of `body` seen through a cols-wide window whose top-left is drawing
+    cell (ox, oy); a negative origin leaves blank lead-in."""
+    pad = max(-ox, 0)
+    out = []
+    for y in range(oy, oy + vh):
+        row = kit.clip(body[y], max(ox, 0), cols - pad) if 0 <= y < len(body) else []
+        out.append(([(" " * pad, None)] if pad and row else []) + row)
+    return out
 
 
 _ESCAPES = {
@@ -523,7 +620,31 @@ _ESCAPES = {
 }
 
 
+class Mouse(NamedTuple):
+    """An SGR (1006) mouse report: `code` the button code (0 left, 1 middle,
+    2 right; +4 shift, +8 meta, +16 ctrl, +32 motion, 64-67 wheel up / down /
+    left / right), `x` / `y` the 1-based cell, `release` a button let go."""
+    code: int
+    x: int
+    y: int
+    release: bool
+
+
+_SGR_MOUSE = re.compile(r"\x1b\[<(\d+);(\d+);(\d+)([Mm])")
+_CSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")           # any complete CSI sequence
+_CSI_OPEN = re.compile(r"\x1b(\[[0-?]*[ -/]*)?\Z")      # one cut off by the read
+
+
+def split_input(data: str) -> tuple[str, str]:
+    """(complete, rest): `data` with an escape sequence cut off at its end (a read
+    ended mid-sequence) moved to `rest`, to be read again with the next bytes."""
+    m = _CSI_OPEN.search(data)
+    return (data[:m.start()], data[m.start():]) if m else (data, "")
+
+
 def parse_keys(data: str):
+    """Yield the keys in `data`: a key name ("up", "pgdn", …; "quit" for q), a
+    character, or a Mouse report. Unknown escape sequences are dropped whole."""
     i = 0
     while i < len(data):
         for seq, name in _ESCAPES.items():
@@ -532,11 +653,16 @@ def parse_keys(data: str):
                 i += len(seq)
                 break
         else:
-            ch = data[i]
-            i += 1
-            if ch == "\x1b":
-                continue               # a lone / unknown escape
-            yield "quit" if ch == "q" else ch
+            if m := _SGR_MOUSE.match(data, i):
+                yield Mouse(int(m[1]), int(m[2]), int(m[3]), m[4] == "m")
+                i = m.end()
+            elif m := _CSI.match(data, i):
+                i = m.end()            # an unknown sequence: none of its bytes are keys
+            else:
+                ch = data[i]
+                i += 1
+                if ch != "\x1b":      # a lone escape
+                    yield "quit" if ch == "q" else ch
 
 
 def tui(state: ViewState) -> None:
@@ -555,9 +681,9 @@ def tui(state: ViewState) -> None:
                                               lambda *_: resized.__setitem__(0, True))
     try:
         tty.setcbreak(fd)
-        out.write("\x1b[?1049h\x1b[?25l")
+        out.write("\x1b[?1049h\x1b[?25l" + MOUSE_ON)
         state.reload(force=True)
-        dirty, last_poll = True, 0.0
+        dirty, last_poll, pending = True, 0.0, ""
         while True:
             now = time.monotonic()
             if now - last_poll >= POLL_S:
@@ -573,15 +699,17 @@ def tui(state: ViewState) -> None:
                 dirty = False
             ready, _, _ = select.select([fd], [], [], TICK_S)
             if ready:
-                for k in parse_keys(os.read(fd, READ_BYTES).decode(errors="ignore")):
+                data, pending = split_input(pending + os.read(fd, READ_BYTES)
+                                            .decode(errors="ignore"))
+                for k in parse_keys(data):
                     if k == "quit":
                         return
-                    dirty |= state.key(k)
+                    dirty |= state.mouse(k) if isinstance(k, Mouse) else state.key(k)
     except KeyboardInterrupt:
         pass
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
-        out.write("\x1b[0m\x1b[?25h\x1b[?1049l")
+        out.write(MOUSE_OFF + "\x1b[0m\x1b[?25h\x1b[?1049l")
         out.flush()
         for sig, handler in previous.items():
             signal.signal(sig, handler)

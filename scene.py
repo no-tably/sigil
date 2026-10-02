@@ -43,6 +43,9 @@ SceneNode
   badges      writer badges (`1w` / `Nw`, the access option only)
   arms        branch-arm labels it is the entry of (`‹read›`)
   landed      the event nodes that land on it (events="land")
+  external    the far node of an external op call (`-> (Web) : op http.get(…)`):
+              host-provided, opaque. A self-call's subject is never marked (its
+              Call says the op is external)
 
 Wire
   src, dst    node ids. An arm starting at a branch with no glyph in its header
@@ -57,7 +60,12 @@ Wire
               arm      a branch → the entry of one arm (label; alt = the branch)
               compose  a composition parent → child (`\\-`), spawn for `*-`
   key         (src, dst, kind): the model's edge key, what a view draws as one
-              stroke and what notes / payloads / joins are keyed by
+              stroke and what notes / payloads / joins are keyed by. Two calls
+              written with one key share it: chip_lists keeps their chips apart
+              and ident tells the wires apart
+  ident       key + (n,): the wire's own identity, n counting the wires of its
+              key in wire order — unique in the Scene and stable across builds
+              of one document (what a simulation trace names a wire by)
   colour      a theme role, per the colour policy (wire_colour); resolve it with
               colour_of() or style a stroke with wire_style()
   payload     the `: payload` text (flows); None for the rest
@@ -79,6 +87,36 @@ Wire
   legs        emit: (the wire into the event, the wire out of it)
   spawn       compose: `*-` (instances spawned at runtime)
   edge        the render.Edge a flow wire comes from (None for the rest)
+  call        flow: the Call it makes (see CALLS); None when it is no call
+  returns_of  flow: the `=>` wire of an op-call target's return
+              (`[S] -> plan() => {Plan}`): the call wire it returns from
+
+CALLS
+
+A flow wire is a call when its target is an op-call (`[S] -> plan({Seed})`, a
+self-call), it is a glyph self-edge (`[Doc.walk] -> [Doc.walk] : child`,
+recursion; its payload is what each call carries), or its payload is an
+op-call (`: crawl({Plan}) => {Site}`). A state machine's self-transition is no
+call. Call (the payload text is parsed here, once — render.py keeps it whole):
+
+  op          the op text without the `op ` keyword and without the return
+              ("crawl({Plan})"); None for a glyph self-edge
+  carries     what each call carries besides its op: a target op's payload
+              (`[W] -> run() : {Job}` → "{Job}"), a glyph self-edge's payload
+              ("child"); None
+  external    `op …`: a host-provided op (opaque; it may fail)
+  returns     what comes back: the payload's `=> X` text, or the glyph(s) of a
+              target op's `=>` edge(s) (`{Plan}`, `{A} / {B}`); None
+  return_nodes  the node ids of those `=>` edges' glyphs (a target op only)
+  self_call   the subject runs the op itself (a self-edge)
+  recursive   a glyph self-edge, or a target op naming the alias whose body it
+              is in (`follow := [Crawler] -> follow(.links)`)
+
+Marks (call_mark; the chip text, call_text, leads with it): `↻` recursive,
+`⇱` external, `↺` any other self-call; `↩ X` the return. What a call carries
+follows its op as written: `↺ run() : {Job}`. Each flow line is its
+own call (language.md "Calls — who runs an op"): two calls into one target
+keep two chips.
 
 THE COLOUR POLICY (one rule for every view)
 
@@ -98,6 +136,7 @@ later still reaches a built Scene.
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -138,6 +177,7 @@ kit = _sibling("sigil_viewkit", "viewkit.py")
 ROLES = ("flow", "emit", "trigger", "access", "arm", "compose")
 EVENTS = ("land", "nodes")          # an event drawn where it lands, or as a node
 STATES = ("plain", "active", "inactive", "failed")     # wire_style overlays
+ANY_UNIT = object()     # a `unit` filter's default: the wires of every unit
 
 
 class SceneOptions(NamedTuple):
@@ -151,6 +191,17 @@ class Unit(NamedTuple):
     owner: Optional[str]            # the node the expansion hangs off; None: the document
     level: int
     graph: object                   # render.Graph
+
+
+class Call(NamedTuple):
+    """What a call wire runs (Wire.call; see CALLS in the module docstring)."""
+    op: Optional[str]
+    external: bool = False
+    returns: Optional[str] = None
+    return_nodes: tuple = ()
+    self_call: bool = False
+    recursive: bool = False
+    carries: Optional[str] = None
 
 
 class BlockRef(NamedTuple):
@@ -169,6 +220,7 @@ class SceneNode:
     badges: list = field(default_factory=list)
     arms: list = field(default_factory=list)
     landed: list = field(default_factory=list)
+    external: bool = False
 
 
 @dataclass
@@ -195,6 +247,9 @@ class Wire:
     legs: tuple = ()
     spawn: bool = False
     edge: object = None
+    call: Optional[Call] = None
+    returns_of: Optional["Wire"] = None
+    ident: tuple = ()
 
 
 @dataclass
@@ -237,7 +292,10 @@ def build_scene(graph, *, events: str = "nodes", triggers: bool = True,
         _badge(nodes, graph)
     wires += [w for u in units for w in arm_wires(u)]
     wires += [w for u in units for w in compose_wires(u, nodes)]
+    _number(wires)
     _annotate(nodes, graph, units, idx, collapsed)
+    for nid in external_targets(wires):
+        nodes[nid].external = True
     blocks = [BlockRef(u.owner, bi, b) for u in units
               for bi, b in enumerate(getattr(u.graph, "blocks", None) or [])]
     return Scene(graph, options, units, nodes, wires,
@@ -354,19 +412,32 @@ def _badge(nodes: dict, g) -> None:
 # ---------------------------------------------------------------------------
 
 def unit_wires(u: Unit, inline: dict, nodes: dict) -> list:
-    """A flow wire per edge of the unit graph, in document order."""
+    """A flow wire per edge of the unit graph, in document order, each call with
+    its Call (none in a state machine) and an op-call target's return linked."""
     g = u.graph
     eb = kit.edge_blocks(g)
+    alias = _alias_of(u, nodes)
+    calls = getattr(g, "role", "") != "state"
     out = []
     for k, e in enumerate(g.edges):
         w = Wire(e.src, e.dst, e.kind, "flow", (e.src, e.dst, e.kind),
                  payload=e.payload, mods=list(e.mods), notes=tuple(inline.get(e.key, ())),
                  join=_joins_of(g, e), block=eb.get(k), paths=(e.src_path, e.dst_path),
                  alt=_alt_group(u, e), line=e.line, owner=u.owner, level=u.level,
-                 label=e.label, edge=e)
+                 label=e.label, edge=e, call=edge_call(e, alias) if calls else None)
         w.colour = wire_colour(w, _kind_of(nodes, e.src))
         out.append(w)
+    _link_returns(out, nodes)
     return out
+
+
+def _number(wires: list) -> None:
+    """Give each wire its ident: its key and its ordinal among the wires of that key."""
+    seen = {}
+    for w in wires:
+        n = seen.get(w.key, 0)
+        seen[w.key] = n + 1
+        w.ident = w.key + (n,)
 
 
 def _joins_of(g, e) -> dict:
@@ -459,6 +530,143 @@ def _kind_of(nodes: dict, nid: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Calls — what a flow runs, what comes back, what leaves the system
+# ---------------------------------------------------------------------------
+
+_RETURN_RE = re.compile(r"\s*=>\s*(\S.*?)\s*")
+_EXTERNAL_RE = re.compile(r"op\s+")
+
+
+def split_op(text: str) -> Optional[tuple]:
+    """(op, external, returns) of an op-call text — `verb(args)`, `op ns.verb(args)`,
+    either followed by `=> X` — with the `op ` keyword and the return taken off
+    the op; None when the text is no op-call (`{Doc}`, `child`, `"hi"`)."""
+    text = text.strip()
+    m = kit.render.OP_TARGET_RE.match(text)
+    if not m:
+        return None
+    rest = text[m.end():]
+    ret = _RETURN_RE.fullmatch(rest)
+    if rest.strip() and not ret:
+        return None
+    ext = _EXTERNAL_RE.match(m.group(0))
+    op = m.group(0)[ext.end():] if ext else m.group(0)
+    return op, bool(ext), ret.group(1) if ret else None
+
+
+def op_verb(op: str) -> str:
+    """The op's name, without its arguments: `follow(.links)` → `follow`."""
+    return op.split("(", 1)[0].strip()
+
+
+def target_op_payload(target_op: str, payload: Optional[str]) -> Optional[str]:
+    """The payload a target-op edge carries besides its op: render writes it
+    `target_op : payload` (`run() : {Job}` → "{Job}"); None when there is none."""
+    prefix = f"{target_op} : "
+    if payload and payload.startswith(prefix):
+        return payload[len(prefix):].strip() or None
+    return None
+
+
+def edge_call(e, alias: Optional[str] = None) -> Optional[Call]:
+    """The Call a flow edge makes, or None when it makes none (see CALLS).
+    `alias`: the name of the alias whose body holds the edge — a target op of
+    that name recurses. A target op's return is linked later (_link_returns)."""
+    if e.target_op:
+        op, external, _ret = split_op(e.target_op)
+        return Call(op, external, self_call=True,
+                    recursive=not external and op_verb(op) == alias,
+                    carries=target_op_payload(e.target_op, e.payload))
+    parsed = split_op(e.payload or "")
+    if e.src == e.dst:
+        if parsed is None:
+            return Call(None, self_call=True, recursive=True, carries=e.payload or None)
+        op, external, returns = parsed
+        return Call(op, external, returns, self_call=True, recursive=True)
+    if parsed is None:
+        return None
+    op, external, returns = parsed
+    return Call(op, external, returns)
+
+
+def _alias_of(u: Unit, nodes: dict) -> Optional[str]:
+    """The name of the alias a unit is the body of (`follow := …`), else None."""
+    sn = nodes.get(u.owner)
+    return sn.node.name if sn and sn.node.kind == "alias" else None
+
+
+def _link_returns(wires: list, nodes: dict) -> None:
+    """Link each op-call target to the `=>` wires after it on its line from its
+    subject (`[S] -> plan() => {Plan}`): the call's returns / return_nodes name
+    their glyphs (joined ` / ` for alternatives, ` & ` otherwise) and each `=>`
+    wire's returns_of is the call wire."""
+    open_calls = {}                         # (line, subject) → the call wire
+    for w in wires:
+        at = (w.line, w.src)
+        if w.call is not None and w.edge is not None and w.edge.target_op:
+            open_calls[at] = w
+        elif w.kind == "=>" and at in open_calls:
+            call = open_calls[at]
+            glyph = kit.node_label(nodes[w.dst].node)
+            sep = " / " if w.alt else " & "
+            returns = f"{call.call.returns}{sep}{glyph}" if call.call.returns else glyph
+            call.call = call.call._replace(returns=returns,
+                                           return_nodes=call.call.return_nodes + (w.dst,))
+            w.returns_of = call
+
+
+def external_targets(wires: list) -> list:
+    """The far nodes of the external op calls (not a self-call's subject), in wire
+    order, once each."""
+    return list(dict.fromkeys(w.dst for w in wires if w.call is not None
+                              and w.call.external and not w.call.self_call))
+
+
+def call_mark(call: Call) -> str:
+    """A call's mark: `↻` recursive, `⇱` external, `↺` another self-call, else ""."""
+    if call.recursive:
+        return "↻"
+    if call.external:
+        return "⇱"
+    return "↺" if call.self_call else ""
+
+
+def call_text(call: Call) -> str:
+    """A call as its chip shows it: mark, op, what it carries (after ` : ` when
+    there is an op), `↩` return — `↺ plan({Seed}) ↩ {Plan}`, `⇱ http.get(${url})`,
+    `crawl({Plan}) ↩ {Site}`, `↺ run() : {Job}`, `↻ child`."""
+    carried = call.carries or ""
+    if call.op and carried:
+        carried = ": " + carried
+    parts = [call_mark(call), call.op or "", carried]
+    if call.returns:
+        parts += ["↩", call.returns]
+    return " ".join(p for p in parts if p)
+
+
+def self_mark(calls: list) -> str:
+    """The mark a node's box / row carries for its self-calls (Calls, any
+    order): `↻` when one recurses, `↺` when one runs an internal op, else `⇱`
+    (only external ops); "" for none."""
+    if any(c.recursive for c in calls):
+        return "↻"
+    if any(not c.external for c in calls):
+        return "↺"
+    return "⇱" if calls else ""
+
+
+def self_calls(scene: "Scene", unit=ANY_UNIT) -> dict:
+    """{node id: [call wire]}: each node's self-calls in written order; with
+    `unit` (a unit owner, None: the document), only those drawn in that unit."""
+    out = {}
+    for w in scene.wires:
+        if (w.call is not None and w.call.self_call
+                and (unit is ANY_UNIT or w.owner == unit)):
+            out.setdefault(w.src, []).append(w)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # The events transform — an event drawn where it lands
 # ---------------------------------------------------------------------------
 
@@ -536,29 +744,43 @@ def trailing_notes(idx: dict) -> dict:
 
 def chip_text(w: Wire, payloads: bool, mods: bool) -> str:
     """The chip a wire carries: its payload (payloads) and modifiers (mods),
-    `payload ┆ mods`; an emit wire's legs' chips joined ` · `."""
+    `payload ┆ mods` — a call's payload as call_text shows it; an emit wire's
+    legs' chips joined ` · `."""
     if w.role == "emit":
         return " · ".join(t for t in (chip_text(leg, payloads, mods) for leg in w.legs) if t)
-    return kit.chip_text(*kit.chip_parts(w, payloads, mods))
+    payload, mtext = kit.chip_parts(w, payloads, mods)
+    if payload and w.call is not None:
+        payload = call_text(w.call)
+    return kit.chip_text(payload, mtext)
 
 
-def _keyed(scene: Scene, value) -> dict:
-    """{key: value(wire)} over the flow wires (an emit's legs included, collapsed
-    or not) then the emit wires; the first non-empty value of a key wins."""
+def _keyed_all(scene: Scene, value, unit=ANY_UNIT) -> dict:
+    """{key: [value(wire), …]} over the flow wires (an emit's legs included,
+    collapsed or not, each once) then the emit wires, in that order; empty
+    values are left out. `unit`: only the wires drawn in that unit."""
     flows = [w for w in scene.wires if w.role == "flow"]
-    flows += [leg for w in scene.wires if w.role == "emit" for leg in w.legs
-              if leg.role == "flow"]
+    legs = [leg for w in scene.wires if w.role == "emit" for leg in w.legs
+            if leg.role == "flow"]
+    flows += list({id(leg): leg for leg in legs}.values())
     out = {}
     for w in flows + [w for w in scene.wires if w.role == "emit"]:
-        v = value(w)
-        if v and w.key not in out:
-            out[w.key] = v
+        v = value(w) if unit is ANY_UNIT or w.owner == unit else None
+        if v:
+            out.setdefault(w.key, []).append(v)
     return out
 
 
-def chip_texts(scene: Scene, payloads: bool, mods: bool) -> dict:
-    """{key: chip text} for every flow and emit stroke that carries one."""
-    return _keyed(scene, lambda w: chip_text(w, payloads, mods))
+def _keyed(scene: Scene, value) -> dict:
+    """{key: value(wire)}, the first non-empty value of a key (_keyed_all's order)."""
+    return {key: vs[0] for key, vs in _keyed_all(scene, value).items()}
+
+
+def chip_lists(scene: Scene, payloads: bool, mods: bool, unit=ANY_UNIT) -> dict:
+    """{key: [chip text, …]} for every flow and emit stroke that carries one:
+    every call on the stroke its own chip, in written order — several payloads
+    into one target kept apart, never merged. `unit` (a unit owner, None: the
+    document): only the strokes drawn in that unit."""
+    return _keyed_all(scene, lambda w: chip_text(w, payloads, mods), unit)
 
 
 def wire_notes(scene: Scene) -> dict:
@@ -615,9 +837,6 @@ def with_trigger_sources(scene: Scene, machine, owner: str):
         new_nodes.setdefault(src, scene.nodes[src].node)
         edges.append(kit.render.Edge(src=src, dst=dst, kind="trigger"))
     return replace(machine, nodes=new_nodes, edges=edges)
-
-
-ANY_UNIT = object()     # access_edges: wires of every unit
 
 
 def access_edges(scene: Scene, nodes, unit=ANY_UNIT) -> list:

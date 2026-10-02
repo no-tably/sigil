@@ -1,0 +1,17 @@
+#!sketch
+# calls: who runs what, what comes back, what leaves the system
+
+--- crawler ---
+
+# the scheduler plans on its own, then waits for the crawl
+(Operator) -> [Scheduler] : start({Seed})
+[Scheduler] -> plan({Seed}) => {Plan}
+[Scheduler] -> [Crawler] : crawl({Plan}) => {Site}
+# each fetch leaves the system: host-provided, and it may fail
+[Crawler] -> (Web) : op http.get(${url}) @timeout(5s) ×3 @fallback(${cached})
+          !> <FetchFailed>
+[Crawler] -> [Crawler.follow] : {Page}
+[Crawler] -> |Index| : reserve(shard) => {Lease}
+[Crawler] -> |Index| : write({Page}, {Lease})
+# links are followed recursively, one call per link
+[Crawler.follow] -> [Crawler.follow] : link

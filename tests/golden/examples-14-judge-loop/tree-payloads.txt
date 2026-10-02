@@ -1,9 +1,9 @@
 ── judge-loop ─────────────────────────────────────────────────────
 [Loop] ────────────●
-~|running| ◀───────┴─┐┄┄┄┄┄┄┄┆ true · false ┆
+~|running| ◀───────┴─┐┄┄┄┄┄┄┄┆ true ┆ ┆ false ┆
 <stop> ──────────────●
 [Judge] ───────────●─────●─●
-[Scorer] ◀─────────┘┄┄┄┄┄│┄│┄┆ score({Draft}) => <rated> ┆
+[Scorer] ◀─────────┘┄┄┄┄┄│┄│┄┆ score({Draft}) ↩ <rated> ┆
 <rated> ─────────────●   │ │
 ~|history| ◀─────────┘┄┄┄│┄│┄┆ ${state.history} ++ [${out.score}] ┆
 ~|total|                 │ │
@@ -11,14 +11,14 @@
 ~|rubric| ◀────────┘┄│┄│┄│┄│┄┆ "clarity, correctness, concision" ┆
 ~|opts| ◀────────────┘┄│┄│┄│┄┆ {retries: 3, mode: "strict"} ┆
 ~|policy| ◀────────────┘┄│┄│┄┆ "block-string" ┆
-|Scores| ◀───────────────┘┄│┄┆ op db.insert(${out.score}) ┆
-[Index] ◀──────────────────┘┄┆ op mcp.search(${query}) ┆
+|Scores| ⇱ ◀─────────────┘┄│┄┆ ⇱ db.insert(${out.score}) ┆
+[Index] ⇱ ◀────────────────┘┄┆ ⇱ mcp.search(${query}) ┆
 
 tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
        (N) weight  
 wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
-       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  
-       ┄┆{…}┆ payload, on its target row
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  ⇱ host-provided (opaque)  
+       ↩ returns  ┄┆{…}┆ payload, on its target row
 blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
        ── ── section
 

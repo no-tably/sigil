@@ -1,0 +1,22 @@
+                                  ── crawler ─────────────────────
+╭ the scheduler plans on   ╮ ──#> (Operator) ──────────●
+│ its own, then waits for  │      [Scheduler] ↺ ◀──────┴━◆─●
+╰ the crawl                ╯      {Plan} ◀━━━━━━━━━━━━━━━┛ │
+                              ┌#> [Crawler] ◀──────────●───┴─✖─●─●
+╭ each fetch leaves the    ╮ ─┘   (Web) ⇱ ◀────────────┘     │ │ │
+│ system: host-provided,   │      <FetchFailed> ◀────────────┘ │ │
+╰ and it may fail          ╯  ┌#> [Crawler.follow] ↻ ◀─────────┘ │
+                              │   |Index| ◀──────────────────────┘
+╭ links are followed       ╮ ─┘
+│ recursively, one call    │
+╰ per link                 ╯
+
+tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
+       (N) weight  
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  ↺ self-call  ↻ recursion  
+       ⇱ host-provided (opaque)  
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
+       ── ── section
+
+05-executions.sigil: 8 nodes, 10 edges, 0 expansions · #!sketch

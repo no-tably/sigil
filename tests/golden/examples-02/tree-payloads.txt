@@ -1,7 +1,7 @@
-   (User) ◀───────────────────●─┬─┐┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┆ <CheckoutFailed> · {Confirmation} ┆
+   (User) ◀───────────────────●─┬─┐┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┆ <CheckoutFailed> ┆ ┆ {Confirmation} ┆
 ┌─ [API] ◀────────────────────┴═✖═●═●═✖═●═●═›═›═›┄┆ {Cart} ┆
 ├─ ∥ parallel @all                  │ │ │ │ ║ ║ ║
-├─ [Inventory] ◀────────────────────┴─┘┄│┄│┄║┄║┄║┄┆ reserve => {Hold} · release({Hold}) ┆
+├─ [Inventory] ◀────────────────────┴─┘┄│┄│┄║┄║┄║┄┆ reserve => {Hold} ┆ ┆ release({Hold}) ┆
 ├─ [Payment] ◀──────────────────────────┘┄│┄║┄║┄║┄┆ charge ┆
 └─ [Fraud] ◀──────────────────────────────┘┄║┄║┄║┄┆ score ┆
    [Shipping] <OrderPlaced> ◀═══════════════╝ ║ ║

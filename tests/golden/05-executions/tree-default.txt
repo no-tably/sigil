@@ -1,0 +1,20 @@
+── crawler ─────────────────────
+(Operator) ──────────●
+[Scheduler] ↺ ◀──────┴━◆─●
+{Plan} ◀━━━━━━━━━━━━━━━┛ │
+[Crawler] ◀──────────●───┴─✖─●─●
+(Web) ⇱ ◀────────────┘     │ │ │
+<FetchFailed> ◀────────────┘ │ │
+[Crawler.follow] ↻ ◀─────────┘ │
+|Index| ◀──────────────────────┘
+
+tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
+       (N) weight  
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  ↺ self-call  ↻ recursion  
+       ⇱ host-provided (opaque)  
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
+       ── ── section
+
+05-executions.sigil: 8 nodes, 10 edges, 0 expansions · #!sketch
+info:17:SGL070: glyph [Crawler.follow] appears twice on one flow line. If it plays two roles, consider role-qualified names (e.g. [Crawler.follow.read] / [Crawler.follow.write]) or expand at L2 with `:= { ... }`.

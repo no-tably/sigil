@@ -13,7 +13,11 @@ Covers:
      carrying its legs';
   5. the colour policy and the simulation overlays;
   6. graph-view wiring (trigger / access edges, a machine's trigger sources);
-  7. determinism, and a Scene for every golden input.
+  7. calls: op-call payloads and targets, self-calls and recursion, external
+     ops and their far nodes, a target op's return, what a call carries
+     (a target op's payload, in both views), several calls into one target
+     kept apart (idents, chip lists);
+  8. determinism, and a Scene for every golden input.
 
 Run:  python3 -m unittest discover tests
 """
@@ -251,18 +255,18 @@ class Events(unittest.TestCase):
 
 
 class Annotations(unittest.TestCase):
-    def test_chip_texts(self):
+    def test_chip_lists(self):
         sc = build("[A] -> [B] : {Order} @timeout(2s)\n")
         key = ("A_service", "B_service", "->")
-        self.assertEqual(scene.chip_texts(sc, True, False), {key: "{Order}"})
-        self.assertEqual(scene.chip_texts(sc, True, True), {key: "{Order} ┆ @timeout 2s"})
-        self.assertEqual(scene.chip_texts(sc, False, False), {})
+        self.assertEqual(scene.chip_lists(sc, True, False), {key: ["{Order}"]})
+        self.assertEqual(scene.chip_lists(sc, True, True), {key: ["{Order} ┆ @timeout 2s"]})
+        self.assertEqual(scene.chip_lists(sc, False, False), {})
 
     def test_an_emit_carries_its_legs(self):
         sc = build(RELAY, events="land")
-        chips = scene.chip_texts(sc, True, False)
-        self.assertEqual(chips[("Api_service", "Mailer_service", "->")], "{Receipt} · {Mail}")
-        self.assertEqual(chips[("Api_service", "Ledger_service", "->")], "{Receipt}")
+        chips = scene.chip_lists(sc, True, False)
+        self.assertEqual(chips[("Api_service", "Mailer_service", "->")], ["{Receipt} · {Mail}"])
+        self.assertEqual(chips[("Api_service", "Ledger_service", "->")], ["{Receipt}"])
         notes = scene.wire_notes(sc)
         self.assertEqual(notes[("Api_service", "Ledger_service", "->")], [(1, "emitted")])
 
@@ -409,6 +413,135 @@ class LandedDrivers(unittest.TestCase):
         self.assertFalse([w for w in build(RELAY, events="land").wires if w.machine])
 
 
+EXEC = (_DIR / "tests" / "fixtures" / "executions.sigil").read_text()
+
+
+class Calls(unittest.TestCase):
+    def calls(self, text, **options):
+        return [w.call for w in build(text, **options).wires if w.role == "flow"]
+
+    def test_split_op(self):
+        cases = {
+            "crawl({Plan}) => {Site}": ("crawl({Plan})", False, "{Site}"),
+            "op http.get(${url})": ("http.get(${url})", True, None),
+            "run()": ("run()", False, None),
+            "op db.put(f(x)) => <Saved>": ("db.put(f(x))", True, "<Saved>"),
+            "{Doc}": None, "child": None, '"hi"': None, "run() and more": None,
+        }
+        for text, want in cases.items():
+            with self.subTest(text):
+                self.assertEqual(scene.split_op(text), want)
+
+    def test_payload_op_calls(self):
+        got = self.calls("[A] -> [B] : crawl({P}) => {S}\n[A] -> (Web) : op http.get(u)\n"
+                         "[A] -> [C] : {Doc}\n")
+        self.assertEqual(got, [scene.Call("crawl({P})", False, "{S}"),
+                               scene.Call("http.get(u)", True),
+                               None])
+
+    def test_self_calls_and_recursion(self):
+        got = self.calls("[W] -> run()\n[T.walk] -> [T.walk] : child\n"
+                         "[N] -> op mail.send(r)\n[L] -> [L]\n")
+        self.assertEqual(got, [scene.Call("run()", self_call=True),
+                               scene.Call(None, self_call=True, recursive=True,
+                                          carries="child"),
+                               scene.Call("mail.send(r)", True, self_call=True),
+                               scene.Call(None, self_call=True, recursive=True)])
+
+    def test_a_target_op_keeps_its_payload(self):
+        got = self.calls("[W] -> run() : {Job}\n[N] -> op mail.send(r) : {Report}\n"
+                         "[S] -> plan() => {P}\n")
+        self.assertEqual(got[:2], [scene.Call("run()", self_call=True, carries="{Job}"),
+                                   scene.Call("mail.send(r)", True, self_call=True,
+                                              carries="{Report}")])
+        self.assertIsNone(got[2].carries)
+
+    def test_call_text_shows_what_a_call_carries(self):
+        sc = build("[W] -> run() : {Job}\n[T.walk] -> [T.walk] : child\n[L] -> [L]\n")
+        flows = [w for w in sc.wires if w.role == "flow"]
+        self.assertEqual([scene.chip_text(w, True, False) for w in flows],
+                         ["↺ run() : {Job}", "↻ child", ""])
+
+    def test_a_target_op_payload_reaches_both_views(self):
+        vtree = _load("sigil_view_tree_scene_test", _DIR / "view_tree.py")
+        vgraph = _load("sigil_view_graph_scene_test", _DIR / "view_graph.py")
+        g = render.parse_document("[W] -> run() : {Job}\n")
+        for name, rows in (
+                ("tree", vtree.compose_tree(g, 1, payloads=True)[0]),
+                ("graph", vgraph.compose(g, 1, True, "off", True, None, False, False)[0])):
+            text = "\n".join("".join(t for t, _ in r) for r in rows)
+            with self.subTest(name):
+                self.assertIn("↺ run() : {Job}", text)
+
+    def test_recursion_through_an_alias(self):
+        sc = build("follow := [Crawler] -> follow(.links)\nother := [C] -> follow(x)\n",
+                   depth=kit.ALL_DEPTH)
+        self.assertEqual([(w.owner, w.call.recursive) for w in sc.wires if w.call],
+                         [("follow_alias", True), ("other_alias", False)])
+
+    def test_a_self_transition_is_no_call(self):
+        sc = build("state {Job} {\n  idle -<Tick>-> idle\n}\n", depth=1)
+        self.assertFalse([w for w in sc.wires if w.call])
+
+    def test_a_target_ops_return(self):
+        sc = build("[S] -> plan({Seed}) => {Plan}\n[S] -> run() => {A} / {B}\n")
+        flows = [w for w in sc.wires if w.role == "flow"]
+        plan, ret, run = flows[0], flows[1], flows[2]
+        self.assertEqual((plan.call.returns, plan.call.return_nodes), ("{Plan}", ("Plan_data",)))
+        self.assertIs(ret.returns_of, plan)
+        self.assertIsNone(plan.returns_of)
+        self.assertEqual((run.call.returns, run.call.return_nodes),
+                         ("{A} / {B}", ("A_data", "B_data")))
+        self.assertEqual([w.returns_of for w in flows[3:]], [run, run])
+
+    def test_a_modifier_after_a_target_op_is_the_calls(self):
+        sc = build("[S] -> plan() @deadline(2s) => {Plan}\n")
+        self.assertEqual(sc.wires[0].mods, [("deadline", "2s")])
+        self.assertEqual(sc.nodes["Plan_data"].node.mods, [])
+
+    def test_external_far_node(self):
+        sc = build(EXEC)
+        self.assertEqual([nid for nid, sn in sc.nodes.items() if sn.external], ["Web_actor"])
+
+    def test_several_calls_into_one_target_kept_apart(self):
+        sc = build(EXEC)
+        key = ("Indexer_service", "Index_store", "->")
+        self.assertEqual([w.ident for w in sc.wires if w.key == key], [key + (0,), key + (1,)])
+        chips = scene.chip_lists(sc, True, False)
+        self.assertEqual(chips[key], ["reserve(${shard}) ↩ {Lease}", "write({Doc}, {Lease})"])
+        self.assertEqual(chips[("Indexer_service", "Index_store", "!>")], ["release({Lease})"])
+
+    def test_chip_lists_of_one_unit(self):
+        sc = build(EXEC, depth=kit.ALL_DEPTH)
+        key = ("Crawler_service", "Crawler_service", "->")
+        self.assertEqual(scene.chip_lists(sc, True, False)[key],
+                         ["↺ throttle(${host})", "↻ follow(.links)"])
+        self.assertEqual(scene.chip_lists(sc, True, False, unit=None)[key],
+                         ["↺ throttle(${host})"])
+        self.assertEqual(scene.chip_lists(sc, True, False, unit="follow_alias")[key],
+                         ["↻ follow(.links)"])
+
+    def test_call_chips(self):
+        chips = scene.chip_lists(build(EXEC), True, True)
+        self.assertEqual(chips[("Scheduler_service", "Scheduler_service", "->")],
+                         ["↺ plan({Seed}) ↩ {Plan}"])
+        self.assertEqual(chips[("Fetcher_service", "Web_actor", "->")],
+                         ["⇱ http.get(${url}) ┆ @timeout 5s"])
+        self.assertEqual(chips[("Doc_walk_service", "Doc_walk_service", "->")], ["↻ child"])
+        self.assertEqual(chips[("Parser_service", "Doc_walk_service", "->")], ["{Doc}"])
+        self.assertFalse([c for c in chips.values() if " => " in c])
+
+    def test_self_calls_and_their_mark(self):
+        sc = build(EXEC, depth=kit.ALL_DEPTH)
+        marks = {nid: scene.self_mark([w.call for w in ws])
+                 for nid, ws in scene.self_calls(sc, unit=None).items()}
+        self.assertEqual(marks, {"Scheduler_service": "↺", "Crawler_service": "↺",
+                                 "Doc_walk_service": "↻", "Notifier_service": "⇱"})
+        inner = scene.self_calls(sc, unit="follow_alias")
+        self.assertEqual(scene.self_mark([w.call for w in inner["Crawler_service"]]), "↻")
+        self.assertEqual(scene.self_mark([]), "")
+
+
 class EveryInput(unittest.TestCase):
     """A Scene for every golden input, every way, deterministically."""
 
@@ -423,9 +556,11 @@ class EveryInput(unittest.TestCase):
             for events in scene.EVENTS:
                 with self.subTest(inp.name, events=events):
                     sc = scene.build_scene(g, events=events, access=True, depth=kit.ALL_DEPTH)
+                    self.assertEqual(len({w.ident for w in sc.wires}), len(sc.wires))
                     for w in sc.wires:
                         self.assertIn(w.role, scene.ROLES)
                         self.assertEqual(w.key, (w.src, w.dst, w.kind))
+                        self.assertEqual(w.ident[:3], w.key)
                         self.assertTrue(w.colour)
                         self.assertNotIn(w.src, sc.collapsed)
                         self.assertNotIn(w.dst, sc.collapsed)
@@ -436,8 +571,8 @@ class EveryInput(unittest.TestCase):
             with self.subTest(inp.name):
                 a = scene.build_scene(g, events="land", access=True)
                 b = scene.build_scene(g, events="land", access=True)
-                self.assertEqual([(w.key, w.role, w.colour, w.via) for w in a.wires],
-                                 [(w.key, w.role, w.colour, w.via) for w in b.wires])
+                self.assertEqual([(w.ident, w.role, w.colour, w.via, w.call) for w in a.wires],
+                                 [(w.ident, w.role, w.colour, w.via, w.call) for w in b.wires])
 
 
 if __name__ == "__main__":
