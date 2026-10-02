@@ -43,6 +43,11 @@ Options:
                      dotted edges principal → store headed r / w / b (tree: lanes
                      whose source is marked r / w / b), a store badged with its
                      writers, `1w` (one owns it) or `Nw` (shared). Off by default.
+    --sim SCENARIO   Simulate a pathway of the design (sim.py): `happy` (every
+                     default), a scenario's name (an unknown one lists them all),
+                     or `a+b` to combine two. With --once: the final frame of the
+                     run drawn over the view, the sim legend, then the outcome and
+                     the run's log. Live: start in sim mode on that scenario.
 
 Keys (live view):
     d  cycle depth (0 → 1 → all)   p  payloads   m  modifiers   a  access
@@ -53,6 +58,11 @@ Keys (live view):
     f  fit to the window (rearranged, centred) / the natural layout, free to pan
     arrows / h j k L pan   pgup / pgdn / space page   g home   c  re-centre   q  quit
     mouse: drag to pan; wheel scrolls (shift+wheel or a sideways wheel: across)
+    x  sim mode: play the chosen scenario's run over the drawing (both views play
+       the same run). In sim mode: space play / pause   , .  step back / on
+       [ ]  previous / next scenario (named in the status bar; which of how many
+       and what it is in the sim keys row)   - +  speed (frames a second; a slow
+       drawing skips frames to keep the pace)
 
 Zero dependencies: python3 standard library only. The graph comes from
 render.parse_document (the same parse render.py turns into Mermaid), laid out
@@ -93,6 +103,15 @@ Structure:     ── L2 · Payments ──── a `--- section ---`: its flows
                (‹read›), a joined flow's taps marked (◀& ◀&? ◀/), sections a
                divider row, `<->` lanes ◀──▶.
 The status bar shows the document's `#!mode`.
+
+Simulation (x, --sim): the run's tokens travel the drawn wires — ● out (bold,
+in the wire's colour), ○ a return or fallback, ✕ a failure (edges.fail), a muted
+⊘ cancelled; lit wires in full colour, untouched boxes and wires muted; a node
+running is bold (▸ in the tree); after a label … waiting, ✕ failed, ×n spawned
+instances, ↻k recursion depth, `◉ State` on a machine's owner when the machine
+is not drawn; ◉ before a drawn machine's current state. The status bar shows
+`sim <scenario> ▶ <speed> · t<tick>/<last> · episode <k>: <entry>` (the outcome
+on the last frame) and the bottom row the run's latest log line.
 
 Modules: this file is the app (the --once printer, the live view, the CLI). The
 drawing lives beside it — viewkit.py (styles, canvas, runs, notes, fit panels),
@@ -143,6 +162,7 @@ kit = _sibling("sigil_viewkit", "viewkit.py")
 vgraph = _sibling("sigil_view_graph", "view_graph.py")
 vtree = _sibling("sigil_view_tree", "view_tree.py")
 scene = _sibling("sigil_scene", "scene.py")
+simulator = _sibling("sigil_sim", "sim.py")
 
 
 def __getattr__(name: str):
@@ -198,8 +218,8 @@ def wrap_legend(row, cols: int):
     return out
 
 
-KEY_LEGEND = (("t", "tree/graph"), ("n", "notes"), ("e", "triggers"), ("v", "events"),
-              ("s", "spacing"), ("f", "fit"),
+KEY_LEGEND = (("t", "tree/graph"), ("x", "sim"), ("n", "notes"), ("e", "triggers"),
+              ("v", "events"), ("s", "spacing"), ("f", "fit"),
               ("d", "depth"), ("p", "payloads"), ("m", "mods"), ("a", "access"),
               ("l", "lint"), ("c", "centre"), ("g", "home"), ("r", "reload"), ("q", "quit"))
 
@@ -225,7 +245,7 @@ def keys_legend(state):
     """The hotkeys row for a ViewState; toggles that are on are shown bright (the
     events mode: when the active view's differs from its default)."""
     dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
-    on = {"t": state.tree, "e": state.show_triggers, "s": state.spaced,
+    on = {"t": state.tree, "x": state.sim_on, "e": state.show_triggers, "s": state.spaced,
           "p": state.payloads, "l": state.show_lint, "n": state.notes != "off",
           "m": state.show_mods, "a": state.show_access, "f": state.fit}
     row = [("keys   ", dim)]
@@ -244,32 +264,259 @@ def keys_legend(state):
     return row
 
 
+SIM_KEYS = (("space", "play/pause"), (", .", "step"), ("[ ]", "scenario"), ("- +", "speed"))
+
+
+def sim_keys_legend(player=None):
+    """The sim-mode hotkeys row (shown while sim mode is on); with a SimPlayer, the
+    scenario entry says which of how many is chosen and what it is
+    (`[ ] scenario 2/14 · Auth fails → Unauthorized`)."""
+    row = [("sim    ", (kit.GREY["dim"], None, False))]
+    for key, word in SIM_KEYS:
+        if key == "[ ]" and player is not None:
+            word = player.choice()
+        row += [(key, kit.KEY_STYLE), (f" {word}  ", (kit.GREY["mid"], None, False))]
+    return row
+
+
+def sim_legend(tree: bool = False) -> list:
+    """The legend row of the simulation overlay's marks, one row for both views so
+    the two can't drift apart: tokens (● out in its wire's colour, ○ a return or
+    fallback, ✕ failed, a muted ⊘ cancelled — view_graph.sim_look and
+    view_tree's lanes draw them alike), wires lit or untouched, the badges after a
+    label and the drawn machine's current state. `tree`: adds the tree view's own
+    entry, `▸` an active row."""
+    dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
+    wire = (kit.EDGE_DEFAULT, None, True)
+    quiet = (kit.muted(kit.EDGE_DEFAULT), None, False)
+    fail = (scene.colour_of("edges-fail"), None, True)
+    light = (kit.GREY["light"], None, False)
+    state = (kit.kind_color("state"), None, True)
+    active = [("▸", (kit.GREY["light"], None, True)), (" active  ", mid)] if tree else []
+    return ([("run    ", dim),
+             ("●", wire), (" out  ", mid), ("○", wire), (" return / fallback  ", mid),
+             ("✕", fail), (" failed  ", mid), (vtree.CANCELLED_MARK, quiet), (" cancelled  ", mid),
+             ("─", wire), (" lit  ", mid), ("─", quiet), (" untouched (muted)  ", mid)]
+            + active
+            + [("…", light), (" waiting  ", mid), ("✕", fail), (" failed  ", mid),
+               ("×n", light), (" instances  ", mid), ("↻k", light), (" recursion  ", mid),
+               ("◉", state), (" current state  ", mid), ("◉ State", state),
+               (" its owner's, machine not drawn", mid)])
+
+
+# ---------------------------------------------------------------------------
+# Simulation — one document's run and the controls over it (sim.py does the
+# running; the views draw a Frame). Pure: the clock comes in as `now`.
+# ---------------------------------------------------------------------------
+
+SIM_KEY_NAMES = (" ", ",", ".", "[", "]", "-", "+", "=")   # = is + without shift
+SIM_SPEEDS = (1, 2, 4, 8, 16, 32)               # frames per second, - / + steps
+SIM_SPEED = 3                                   # the starting speed: 8 frames a second
+
+
+class UnknownScenario(LookupError):
+    """A scenario name the document doesn't have; the message lists the known ones."""
+
+
+class SimPlayer:
+    """The simulator's controls over one parsed document: its scenarios, the
+    chosen one's Trace (on the canonical scene), the frame shown, play / pause
+    and speed. shown(options) is the run named as a view drawn with those
+    SceneOptions draws it (sim.project, cached per options); `at` the frame shown.
+
+    `name`: the scenario to start on (None: `happy`; `a+b` combines two and is
+    added to the list). Raises UnknownScenario for an unknown name."""
+
+    def __init__(self, graph, name: str | None = None):
+        self.graph = graph
+        self.canon = simulator.canonical(graph)
+        self.scenarios = simulator.scenarios(self.canon)
+        names = [sc.name for sc in self.scenarios]
+        if name is not None and name not in names:
+            try:
+                self.scenarios.append(simulator.scenario(self.canon, name))
+            except KeyError as exc:
+                raise UnknownScenario(exc.args[0]) from None
+            names.append(name)
+        self.index = names.index(name) if name is not None else 0
+        self.playing = False
+        self.speed = SIM_SPEED
+        self.due = 0.0                  # when (monotonic seconds) the next frame shows
+        self._run()
+
+    def _run(self) -> None:
+        """Simulate the chosen scenario and show its first frame."""
+        self.trace = simulator.simulate(self.canon, self.scenarios[self.index])
+        self.at = 0
+        self._shown = {}                # SceneOptions → the trace projected onto them
+
+    @property
+    def scenario(self):
+        return self.scenarios[self.index]
+
+    @property
+    def last(self) -> int:
+        """The index of the run's final frame."""
+        return len(self.trace.frames) - 1
+
+    def rebuilt(self, graph) -> "SimPlayer":
+        """A player on a re-parsed document keeping this one's scenario (when it
+        still exists, else `happy`), position (clamped), play state and speed."""
+        try:
+            new = SimPlayer(graph, self.scenario.name)
+        except UnknownScenario:
+            new = SimPlayer(graph)
+        new.at = min(self.at, new.last)
+        new.playing, new.speed, new.due = self.playing, self.speed, self.due
+        return new
+
+    # -- controls (each returns True when the shown frame changed) -------------
+
+    def choose(self, delta: int) -> bool:
+        """The previous (-1) / next (+1) scenario, wrapping; its run from the start."""
+        self.index = (self.index + delta) % len(self.scenarios)
+        self._run()
+        return True
+
+    def step(self, delta: int) -> bool:
+        """Pause and move `delta` frames, clamped to the run."""
+        self.playing = False
+        at = max(0, min(self.at + delta, self.last))
+        changed, self.at = at != self.at, at
+        return changed
+
+    def toggle(self, now: float) -> bool:
+        """Play / pause; playing from the final frame starts the run over."""
+        self.playing = not self.playing
+        changed = self.playing and self.at == self.last
+        if changed:
+            self.at = 0
+        self.due = now + self.interval
+        return changed
+
+    def faster(self, delta: int) -> None:
+        """Speed up (+1) / slow down (-1) a step, clamped to SIM_SPEEDS."""
+        self.speed = max(0, min(self.speed + delta, len(SIM_SPEEDS) - 1))
+
+    @property
+    def interval(self) -> float:
+        return 1.0 / SIM_SPEEDS[self.speed]
+
+    def advance(self, now: float) -> bool:
+        """Playing and due by `now`: show the next frame (pausing on the last) —
+        or a later one when drawing has fallen behind the speed, so a run plays
+        in the same time however slow its frames are to draw."""
+        if not self.playing or now < self.due:
+            return False
+        behind = int((now - self.due) / self.interval)   # frames already overdue
+        self.at = min(self.at + 1 + behind, self.last)
+        self.due = now + self.interval
+        self.playing = self.at < self.last
+        return True
+
+    def wait(self, now: float) -> float | None:
+        """Seconds until the next frame is due (None: paused)."""
+        return max(self.due - now, 0.0) if self.playing else None
+
+    # -- what is shown -------------------------------------------------------
+
+    def shown(self, options):
+        """The run (a Trace) named as a view drawn with `options`
+        (scene.SceneOptions) draws it."""
+        if options not in self._shown:
+            view = scene.build_scene(self.graph, **options._asdict())
+            self._shown[options] = simulator.project(self.trace, view)
+        return self._shown[options]
+
+    def choice(self) -> str:
+        """`scenario <k>/<n> · <label>` — the chosen scenario among them all."""
+        sc = self.scenario
+        text = f"scenario {self.index + 1}/{len(self.scenarios)}"
+        return text + (f" · {sc.label}" if sc.label else "")
+
+    def status(self) -> str:
+        """`sim <scenario> ▶ <speed>/s · t<tick>/<last> · episode <k>: <entry>`,
+        then the outcome on the final frame."""
+        f = self.trace.frames[self.at]
+        mark = "▶" if self.playing else "❚❚"
+        text = (f"sim {self.scenario.name} {mark} {SIM_SPEEDS[self.speed]}/s · "
+                f"t{f.tick}/{self.trace.frames[-1].tick}")
+        if f.entry is not None:
+            text += f" · episode {f.episode}: {self.node_name(f.entry)}"
+        return text + (f" · {self.trace.outcome}" if self.at == self.last else "")
+
+    def node_name(self, nid: str) -> str:
+        """A node id of the run as the document writes it (`(Shopper)`)."""
+        sn = self.canon.nodes.get(nid)
+        return kit.node_label(sn.node) if sn is not None else nid
+
+    def log_line(self) -> str:
+        """The run's latest log line at the shown frame ("" before any)."""
+        return next((f.log[-1] for f in reversed(self.trace.frames[:self.at + 1]) if f.log), "")
+
+
+def sim_report(player: SimPlayer) -> list[str]:
+    """The text --once --sim prints under the drawing: the scenario, its outcome
+    and length, then the run's whole log."""
+    sc, trace = player.scenario, player.trace
+    head = f"sim {sc.name}" + (f" ({sc.label})" if sc.label else "")
+    head += f": {trace.outcome} · {len(trace.frames)} frames"
+    return [head] + list(trace.end["log"])
+
+
 # ---------------------------------------------------------------------------
 # --once
 # ---------------------------------------------------------------------------
+
+def compose_view(g, tree: bool, *, depth: int, payloads: bool, notes: str, triggers: bool,
+                 spaced: bool, width: int | None, access: bool, mods: bool, events: str,
+                 trace=None, tick: int = 0):
+    """(rows, width): the drawing of `g` in the tree or the graph view (see
+    compose_tree / compose). `trace`, `tick`: a simulation run drawn over it at
+    frame `tick`, named as this view's scene names it (SimPlayer.shown — the same
+    Trace object for every frame, so the graph view's per-trace badge slots are
+    worked out once), or None."""
+    if tree:
+        return vtree.compose_tree(g, depth, triggers, spaced, notes, payloads, width, access,
+                                  mods, events, trace=trace, tick=tick)
+    return vgraph.compose(g, depth, payloads, notes, triggers, width, access, mods, events,
+                          trace=trace, tick=tick)
+
 
 def once(path: Path, depth: int, payloads: bool, do_lint: bool,
          dialect=None, colour: bool = False, tree: bool = False,
          triggers: bool = True, spaced: bool = True, notes: str = "off",
          width: int | None = None, access: bool = False, mods: bool = False,
-         events: str | None = None) -> int:
+         events: str | None = None, sim: str | None = None) -> int:
     """Print the drawing once. `width`: the columns to fit it to (None: its
     natural width); the legend wraps at the narrower of that and LEGEND_WIDTH.
     `events`: "land" | "nodes" (None: the view's default, DEFAULT_EVENTS).
+    `sim`: a scenario name — the run's final frame is drawn over the view and its
+    legend, outcome and log printed after the summary (raises UnknownScenario
+    for an unknown one).
     The summary line ends with the document's `#!mode`, when it has one."""
     kit.use_dialect(dialect)
     text = path.read_text()
     g = kit._call(kit.render.parse_document, text, dialect)
     events = events or DEFAULT_EVENTS[view_name(tree)]
-    rows, _w = (vtree.compose_tree(g, depth, triggers, spaced, notes, payloads, width, access,
-                                   mods, events)
-                if tree else vgraph.compose(g, depth, payloads, notes, triggers, width, access,
-                                            mods, events))
+    player = shown = None
+    if sim is not None:
+        player = SimPlayer(g, sim)
+        player.at = player.last
+        shown = player.shown(scene.SceneOptions(events, triggers, access, depth))
+    rows, _w = compose_view(g, tree, depth=depth, payloads=payloads, notes=notes,
+                            triggers=triggers, spaced=spaced, width=width, access=access,
+                            mods=mods, events=events, trace=shown,
+                            tick=player.at if player else 0)
     out = [kit.ansi(r, colour) for r in rows]
     if tree:
-        legend_w = LEGEND_WIDTH if width is None else min(LEGEND_WIDTH, width)
         legend = vtree.tree_legend(triggers, payloads, access, mods, events,
                                    calls=drawn_call_marks(g, depth, payloads))
+    else:
+        legend = []
+    legend += [sim_legend(tree)] if player is not None else []
+    if legend:
+        legend_w = LEGEND_WIDTH if width is None else min(LEGEND_WIDTH, width)
         out += [""] + [kit.ansi(ln, colour) for r in legend for ln in wrap_legend(r, legend_w)]
     out.append("")
     mode = kit.doc_mode(text)
@@ -283,6 +530,8 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
         else:
             out.append("lint: OK")
         status = 1 if any(d.severity == "error" for d in diags) else 0
+    if player is not None:
+        out += [""] + sim_report(player)
     print("\n".join(out))
     return status
 
@@ -352,9 +601,11 @@ class ViewState:
     def __init__(self, path: Path, depth: int = 1, payloads: bool = False,
                  do_lint: bool = True, dialect=None, tree: bool = False,
                  triggers: bool = True, spaced: bool = True, notes: str = "off",
-                 access: bool = False, mods: bool = False, events: str | None = None):
+                 access: bool = False, mods: bool = False, events: str | None = None,
+                 sim: str | None = None):
         """`events`: the events mode both views start in (None: each view's
-        default, DEFAULT_EVENTS); each view then keeps its own (key v)."""
+        default, DEFAULT_EVENTS); each view then keeps its own (key v). `sim`: a
+        scenario to start in sim mode on (None: sim mode off until x)."""
         self.path = path
         self.show_access = access
         self.show_mods = mods
@@ -381,8 +632,12 @@ class ViewState:
         self._place = "home"           # a pending "home" / "centre", resolved by frame()
         self._drag = None              # (x, y, sx, sy) where a mouse drag started
         self._vh = 1                   # viewport height of the last frame (a page)
-        self._rows, self._width = [], 0  # the drawing at its natural width
+        self._natural = None           # (rows, width): the drawing at its natural width
         self._fit = None               # (cols, rows, width): the drawing fitted to cols
+        self.sim_on = sim is not None  # x: the run drawn over the view
+        self.player = None             # SimPlayer, made on the first sim mode with a graph
+        self.sim_error = None          # why the simulator could not run (a footer row)
+        self._sim_name = sim           # the scenario that player starts on
 
     @property
     def events_mode(self) -> str:
@@ -415,23 +670,79 @@ class ViewState:
             self.error = f"parse failed: {type(exc).__name__}: {exc}"
         self.diags = kit.run_lint(text, self.dialect)
         self.updated = time.strftime("%H:%M:%S")
+        if self.error is None and self.player is not None:
+            self.player = self._sim(self.player.rebuilt, self.graph)
         self._recompose()
         return True
 
+    def _sim(self, make, *args):
+        """make(*args) — a SimPlayer — or None with sim_error saying why not (the
+        live view keeps running when the simulator can't). UnknownScenario passes
+        through for the caller to handle."""
+        try:
+            player = make(*args)
+        except UnknownScenario:
+            raise
+        except Exception as exc:
+            self.sim_error = f"sim failed: {type(exc).__name__}: {exc}"
+            return None
+        self.sim_error = None
+        return player
+
+    def _ensure_player(self) -> None:
+        """Sim mode with a graph and no player yet: make one on the requested
+        scenario (an unknown name: the error shown, `happy` played)."""
+        if not self.sim_on or self.player is not None or self.graph is None:
+            return
+        name, self._sim_name = self._sim_name, None
+        try:
+            self.player = self._sim(SimPlayer, self.graph, name)
+        except UnknownScenario as exc:  # say so, play `happy`
+            self.player = self._sim(SimPlayer, self.graph)
+            self.sim_error = f"sim: {exc}"
+
+    def _scene_options(self):
+        """The SceneOptions the active view is drawn with."""
+        return scene.SceneOptions(self.events_mode, self.show_triggers, self.show_access,
+                                  self.depth)
+
+    def sim_trace(self):
+        """The run named as the active view draws it (None: sim mode is off or
+        has no run); the frame shown is self.player.at."""
+        if not self.sim_on or self.player is None:
+            return None
+        return self.player.shown(self._scene_options())
+
     def _recompose(self):
+        """Something drawn changed: drop the composed drawings (frame() composes
+        the one it shows, natural or fitted, when it needs it)."""
+        self._ensure_player()
         self._fit = None
-        self._rows, self._width = self._compose(None)
+        self._natural = None
+
+    def natural(self):
+        """(rows, width): the drawing at its natural width; cached until the view
+        changes."""
+        if self._natural is None:
+            self._natural = self._compose(None)
+        return self._natural
+
+    @property
+    def _rows(self):
+        return self.natural()[0]
+
+    @property
+    def _width(self) -> int:
+        return self.natural()[1]
 
     def _compose(self, width: int | None):
         if self.graph is None:
             return [], 0
-        if self.tree:
-            return vtree.compose_tree(self.graph, self.depth, self.show_triggers, self.spaced,
-                                      self.notes, self.payloads, width, self.show_access,
-                                      self.show_mods, self.events_mode)
-        return vgraph.compose(self.graph, self.depth, self.payloads, self.notes,
-                              self.show_triggers, width, self.show_access, self.show_mods,
-                              self.events_mode)
+        return compose_view(self.graph, self.tree, depth=self.depth, payloads=self.payloads,
+                            notes=self.notes, triggers=self.show_triggers, spaced=self.spaced,
+                            width=width, access=self.show_access, mods=self.show_mods,
+                            events=self.events_mode, trace=self.sim_trace(),
+                            tick=self.player.at if self.player else 0)
 
     def fitted(self, cols: int):
         """(rows, width): the drawing rearranged to fit `cols` columns when it can
@@ -442,11 +753,19 @@ class ViewState:
 
     # -- keys ----------------------------------------------------------------
 
-    def key(self, k: str, page: int | None = None) -> bool:
+    def key(self, k: str, page: int | None = None, now: float = 0.0) -> bool:
         """Apply a key. Returns True when the view changed. Paging moves by
-        `page` rows (default: the last frame's viewport height)."""
+        `page` rows (default: the last frame's viewport height). `now`: the
+        monotonic clock, for play (sim mode's keys take precedence)."""
         page = self._vh if page is None else page
-        if k == "d":                   # the next larger depth, wrapping to the first
+        if self.sim_on and self.player is not None and k in SIM_KEY_NAMES:
+            return self._sim_key(k, now)
+        if k == "x":                   # off pauses the run: it resumes paused where it was
+            self.sim_on = not self.sim_on
+            if self.player is not None:
+                self.player.playing = False
+            self._recompose()
+        elif k == "d":                 # the next larger depth, wrapping to the first
             self.depth = next((d for d in DEPTHS if d > self.depth), DEPTHS[0])
             self._recompose()
         elif k == "t":
@@ -502,6 +821,34 @@ class ViewState:
             return False
         return True
 
+    def _sim_key(self, k: str, now: float) -> bool:
+        """Apply a sim-mode key (SIM_KEY_NAMES); the status bar always changes."""
+        p = self.player
+        if k == " ":
+            changed = p.toggle(now)
+        elif k in (",", "."):
+            changed = p.step(1 if k == "." else -1)
+        elif k in ("[", "]"):
+            changed = p.choose(1 if k == "]" else -1)
+        else:
+            p.faster(-1 if k == "-" else 1)
+            changed = False
+        if changed:
+            self._recompose()
+        return True
+
+    def tick(self, now: float) -> bool:
+        """Playing: show the run's next frame when it is due by `now`. Returns
+        True when the view changed."""
+        if not self.sim_on or self.player is None or not self.player.advance(now):
+            return False
+        self._recompose()
+        return True
+
+    def wait(self, now: float) -> float | None:
+        """Seconds until tick() has a frame to show (None: nothing is playing)."""
+        return self.player.wait(now) if self.sim_on and self.player is not None else None
+
     def mouse(self, ev: Mouse) -> bool:
         """Apply a mouse report: a left-button drag pans (the drawing follows the
         pointer), the wheel scrolls. Returns True when the view changed."""
@@ -526,11 +873,15 @@ class ViewState:
     # -- frame ---------------------------------------------------------------
 
     def _footer_rows(self, cols: int):
-        """Everything under the drawing: the kind-legend rule, the view's legend,
-        the keys, then the parse error and lint panel."""
+        """Everything under the drawing: the kind-legend rule, the view's legend
+        (and the sim legend), the keys (and the sim keys), then the parse error,
+        the simulator's error and the lint panel; in sim mode the run's latest
+        log line last."""
         rows = []
         if self.error:
             rows.append([(self.error, (kit.SEVERITY_COLOR["error"], None, True))])
+        if self.sim_on and self.sim_error:
+            rows.append([(self.sim_error, (kit.SEVERITY_COLOR["error"], None, True))])
         if self.show_lint:
             if not self.diags:
                 rows.append([("lint: OK", (kit.OK_COLOR, None, False))])
@@ -542,14 +893,20 @@ class ViewState:
             if len(self.diags) > len(shown):
                 rows[-1] = [(f"… {len(self.diags) - len(shown) + 1} more (view.py --once)",
                              (kit.GREY["mid"], None, False))]
-        legend = (vtree.tree_legend(self.show_triggers, self.payloads, self.show_access,
-                                    self.show_mods, self.events_mode,
-                                    calls=drawn_call_marks(self.graph, self.depth,
-                                                             self.payloads)) if self.tree
-                  else [vgraph.graph_legend(self.show_triggers, self.payloads, self.show_access,
-                                            self.show_mods, self.events_mode)])
-        rows[0:0] = [ln for r in legend + [keys_legend(self)] for ln in wrap_legend(r, cols)]
+        if self.tree:
+            legend = vtree.tree_legend(self.show_triggers, self.payloads, self.show_access,
+                                       self.show_mods, self.events_mode,
+                                       calls=drawn_call_marks(self.graph, self.depth,
+                                                              self.payloads))
+        else:
+            legend = [vgraph.graph_legend(self.show_triggers, self.payloads, self.show_access,
+                                          self.show_mods, self.events_mode)]
+        legend += [sim_legend(self.tree)] if self.sim_on else []
+        keys = [keys_legend(self)] + ([sim_keys_legend(self.player)] if self.sim_on else [])
+        rows[0:0] = [ln for r in legend + keys for ln in wrap_legend(r, cols)]
         rows.insert(0, self._legend_rule(cols))
+        if self.sim_on and self.player is not None:
+            rows.append([(self.player.log_line(), (kit.GREY["light"], None, False))])
         return [kit.clip(r, 0, cols) for r in rows]
 
     def _legend_rule(self, cols: int):
@@ -575,6 +932,8 @@ class ViewState:
             left.append((f"{self.mode} ", kit.MODE_STYLE))
         placing = "fit" if self.fit else "pan"     # before the title: never clipped off
         left.append((f"· {view_name(self.tree)} · {placing} ·", kit.BAR_STYLE))
+        if self.sim_on and self.player is not None:   # before the title: never clipped off
+            left.append((f" {self.player.status()} ·", kit.BAR_NAME_STYLE))
         if self.title:
             left.append((f" {self.title} ·", kit.BAR_NAME_STYLE))
         left.append((f" {summary} · depth {d} · {self.updated} ", kit.BAR_STYLE))
@@ -591,7 +950,7 @@ class ViewState:
         pan_bounds). Resolves a pending home / centre and clamps the origin."""
         footer = self._footer_rows(cols)
         vh = self._vh = max(rows - 1 - len(footer), 1)
-        body, W = self.fitted(cols) if self.fit else (self._rows, self._width)
+        body, W = self.fitted(cols) if self.fit else self.natural()
         H = len(body)
         if self.graph is None and not self.error:
             body = [[("waiting for " + str(self.path), (kit.GREY["mid"], None, False))]]
@@ -691,20 +1050,23 @@ def tui(state: ViewState) -> None:
                 dirty |= state.reload()
             if resized[0]:
                 resized[0], dirty = False, True
+            dirty |= state.tick(now)
             cols, rows = shutil.get_terminal_size()
             if dirty:
                 frame = state.frame(cols, rows)
                 out.write("\x1b[H" + "\r\n".join(kit.ansi(r) + "\x1b[K" for r in frame) + "\x1b[J")
                 out.flush()
                 dirty = False
-            ready, _, _ = select.select([fd], [], [], TICK_S)
+            due = state.wait(time.monotonic())
+            ready, _, _ = select.select([fd], [], [], TICK_S if due is None else min(due, TICK_S))
             if ready:
                 data, pending = split_input(pending + os.read(fd, READ_BYTES)
                                             .decode(errors="ignore"))
                 for k in parse_keys(data):
                     if k == "quit":
                         return
-                    dirty |= state.mouse(k) if isinstance(k, Mouse) else state.key(k)
+                    dirty |= (state.mouse(k) if isinstance(k, Mouse)
+                              else state.key(k, now=time.monotonic()))
     except KeyboardInterrupt:
         pass
     finally:
@@ -770,6 +1132,9 @@ def main() -> int:
     ap.add_argument("--width", type=_width_arg, default=None, metavar="N",
                     help="--once: fit the drawing to N columns (default: the terminal's "
                          f"width, or {ONCE_WIDTH} when stdout is not a terminal)")
+    ap.add_argument("--sim", default=None, metavar="SCENARIO",
+                    help="simulate a pathway: happy, a scenario's name, or a+b (--once: "
+                         "the run's final frame, outcome and log; live: start in sim mode)")
     ap.add_argument("--color", choices=("auto", "always", "never"), default="auto")
     ap.add_argument("--theme", default=None,
                     help="colour theme: a name in themes/ or a .yaml path (default: $SIGIL_THEME or sigil)")
@@ -793,11 +1158,16 @@ def main() -> int:
     if a.once or not tty_out or not sys.stdin.isatty():
         colour = a.color == "always" or (a.color == "auto" and tty_out)
         width = a.width or (shutil.get_terminal_size().columns if tty_out else ONCE_WIDTH)
-        return once(a.file, a.depth, a.payloads, not a.no_lint, dialect, colour, a.tree,
-                    not a.no_triggers, not a.compact, a.notes, width, a.access, a.mods,
-                    a.events)
+        try:
+            return once(a.file, a.depth, a.payloads, not a.no_lint, dialect, colour, a.tree,
+                        not a.no_triggers, not a.compact, a.notes, width, a.access, a.mods,
+                        a.events, a.sim)
+        except UnknownScenario as exc:     # the message lists the known ones
+            print(f"view.py: --sim: {exc}", file=sys.stderr)
+            return 2
     tui(ViewState(a.file, a.depth, a.payloads, not a.no_lint, dialect, a.tree,
-                  not a.no_triggers, not a.compact, a.notes, a.access, a.mods, a.events))
+                  not a.no_triggers, not a.compact, a.notes, a.access, a.mods, a.events,
+                  a.sim))
     return 0
 
 

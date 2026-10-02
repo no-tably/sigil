@@ -6,7 +6,9 @@ Not a command: view.py loads it. The layered layout (cycle breaking,
 longest-path layering, barycenter ordering, block-merged x placement, one track
 per fan-out) and its drawing, chips on edges, control-block frames, `:=`
 expansions and `--- section ---`s as stacked sections, triggers, notes and the
-graph legend. compose() returns the rows view.py prints. What is wired to what,
+graph legend, and a simulation run drawn over it all at one frame (sim_look;
+compose's `trace` / `tick`; sim_focus says where that frame's action is drawn).
+compose() returns the rows view.py prints. What is wired to what,
 in which colour, and where an event is drawn comes from the Scene (scene.py);
 this module only lays it out. Drawing primitives and styles come from
 viewkit.py (read as kit.NAME, so a theme change reaches them).
@@ -99,6 +101,8 @@ class _Layout:
     dup_track: dict = field(default_factory=dict)
     stubs: dict = field(default_factory=dict)       # node id → [_Stub] hanging under its box
     drops: list = field(default_factory=list)       # per layer: rows its stubs take under it
+    sim: Optional["SimLook"] = None                 # a simulation frame drawn over it
+    marked: set = field(default_factory=set)        # node ids whose box ends in a self mark
 
     def centre(self, vid):
         v = self.V[vid]
@@ -144,13 +148,17 @@ def _break_cycles(ids, succ):
 
 
 def layout(g, expanded: set, collapsed: set, tags: dict | None = None,
-           styles: dict | None = None, selfs: dict | None = None) -> kit.Canvas:
+           styles: dict | None = None, selfs: dict | None = None,
+           sim: Optional["SimLook"] = None) -> kit.Canvas:
     """g drawn as boxes and edges. `tags`: runs after a box's label (node id) or
     beside an edge's head (its wire key); `styles`: each wire key's stroke style
     (_wire_styles), an edge without one drawn in its arrow's style; `selfs`:
     each node's self-calls (_self_calls) — its box mark and the stubs under it
-    (a self-edge without an entry is marked ↺)."""
-    lay = _prepare(g, expanded, collapsed, tags, styles, selfs or {})
+    (a self-edge without an entry is marked ↺). `sim` (sim_look): a simulation
+    frame over the drawing — boxes styled by status, a state machine's states
+    led by their ◉ slot, tokens on the edges' cells (styles then come from it
+    too, an edge without one muted)."""
+    lay = _prepare(g, expanded, collapsed, tags, styles, selfs or {}, sim)
     _layer(lay)
     _order(lay)
     _place_x(lay)
@@ -159,12 +167,14 @@ def layout(g, expanded: set, collapsed: set, tags: dict | None = None,
     return _draw(lay)
 
 
-def _prepare(g, expanded, collapsed, tags, styles, selfs) -> _Layout:
-    """Box labels (with #N tags, ▾ / ▸ and a self-call mark ↺ ↻ ⇱), the distinct
-    edges, the self-call stubs, and the nodes no edge touches."""
-    labels = {}
+def _prepare(g, expanded, collapsed, tags, styles, selfs, sim) -> _Layout:
+    """Box labels (a sim lead, then the label with #N tags, ▾ / ▸ and a
+    self-call mark ↺ ↻ ⇱), the distinct edges, the self-call stubs, and the
+    nodes no edge touches."""
+    labels, marked = {}, set()
     for nid in g.nodes:
-        lab = kit.node_label(g.nodes[nid])
+        lab = "".join(text for text, _style in sim.lead.get(nid, ())) if sim else ""
+        lab += kit.node_label(g.nodes[nid])
         if tags and nid in tags:
             lab += "".join(text for text, _style in tags[nid])
         if nid in expanded:
@@ -180,6 +190,7 @@ def _prepare(g, expanded, collapsed, tags, styles, selfs) -> _Layout:
             if e.src not in stubs:
                 mark, stubs[e.src] = selfs.get(e.src, _Selfs("↺", []))
                 labels[e.src] = labels[e.src] + " " + mark
+                marked.add(e.src)
             continue
         key = (e.src, e.dst, e.kind)
         if key not in seen and e.src in g.nodes and e.dst in g.nodes:
@@ -191,7 +202,8 @@ def _prepare(g, expanded, collapsed, tags, styles, selfs) -> _Layout:
     linked = {e.src for e in edges} | {e.dst for e in edges}
     return _Layout(g, labels, edges, ids=[i for i in g.nodes if i in linked],
                    isolated=[i for i in g.nodes if i not in linked], tags=tags or {},
-                   styles=styles or {}, stubs={nid: st for nid, st in stubs.items() if st})
+                   styles=styles or {}, stubs={nid: st for nid, st in stubs.items() if st},
+                   sim=sim, marked=marked)
 
 
 def _layer(lay: _Layout) -> None:
@@ -449,7 +461,7 @@ def _free_port(v, x: int, k: int, used: set) -> int:
 
 def _draw(lay: _Layout) -> kit.Canvas:
     """Edges, then boxes over them, then edge labels where they fit, then the
-    grid of unconnected nodes."""
+    grid of unconnected nodes, then a sim frame's tokens over it all."""
     V, top, g = lay.V, lay.top, lay.g
     cv = kit.Canvas()
 
@@ -463,8 +475,8 @@ def _draw(lay: _Layout) -> kit.Canvas:
     traces = []        # per chain: _Trace, for the shared-cell colour rule
     for ci, (e, rev, chain) in enumerate(lay.chains):
         key = _wire_key(g, e)
-        style = lay.styles.get(key) or kit.edge_style(e.kind)
-        trace = _Trace(style, rev, e.kind == "<->")
+        style = lay.styles.get(key) or _unkeyed_style(e.kind, lay.sim is not None)
+        trace = _Trace(style, rev, e.kind == "<->", edge=e)
         traces.append(trace)
 
         def path(pts):
@@ -528,6 +540,7 @@ def _draw(lay: _Layout) -> kit.Canvas:
     for x, y, ch, st in heads:
         cv.put(x, y, ch, st)
 
+    spots = _SelfSpots({}, {})          # where a self-call's token sits
     for vid, v in V.items():
         if v.dummy:
             continue
@@ -535,9 +548,7 @@ def _draw(lay: _Layout) -> kit.Canvas:
             _draw_join(cv, v, top[v.layer], lay.labels[vid], set(lay.in_port[vid].values()),
                        set(lay.out_port[vid].values()), *bar_style.get(vid, (None, "->")))
             continue
-        _draw_box(cv, v.x, top[v.layer], v.w, lay.labels[vid], g.nodes[vid])
-        _colour_tags(cv, v.x, top[v.layer], g.nodes[vid], lay.tags.get(vid))
-        _draw_stubs(cv, v.x, top[v.layer], v.w, g.nodes[vid], lay.stubs.get(vid, ()), lay.styles)
+        _place_box(cv, lay, vid, v.x, top[v.layer], v.w, spots)
 
     # Edge labels (e.g. state-machine triggers) beside their arrowhead, right side
     # first, then left; skipped where they would overwrite anything.
@@ -561,22 +572,49 @@ def _draw(lay: _Layout) -> kit.Canvas:
             stubs = lay.stubs.get(vid, ())
             if x and x + _reach(w, stubs) > wrap:
                 x, y, row_h = 0, y + row_h, BOX_H
-            _draw_box(cv, x, y, w, lay.labels[vid], g.nodes[vid])
-            _draw_stubs(cv, x, y, w, g.nodes[vid], stubs, lay.styles)
+            _place_box(cv, lay, vid, x, y, w, spots)
             row_h = max(row_h, BOX_H + len(stubs))
             x += _reach(w, stubs) + 1
+    if lay.sim is not None:
+        _draw_tokens(cv, lay.sim.tokens, [tr.route() for tr in traces], spots)
     return cv
+
+
+def _place_box(cv: kit.Canvas, lay: _Layout, vid, x, y, w, spots: "_SelfSpots") -> None:
+    """A node's box at (x, y), w wide, as lay draws it: its look under a sim
+    frame (an active box's border a _Probe style in a probe drawing), its tags
+    re-coloured, its self-call stubs; where its self-calls' tokens sit goes
+    into spots."""
+    n, label = lay.g.nodes[vid], lay.labels[vid]
+    lead = lay.sim.lead.get(vid, []) if lay.sim else []
+    look = _box_look(n, lay.sim) if lay.sim else None
+    if look is None and lay.sim is not None and vid in lay.sim.probe:
+        border, text = kit.node_styles(n)           # drawn as ever, its border findable
+        look = _BoxLook(_Probe(border), text, None, True)
+    _draw_box(cv, x, y, w, label, n, look, lead)
+    _colour_tags(cv, x + kit.row_len(lead), y, n, lay.tags.get(vid))
+    spots.stubs.update(_draw_stubs(cv, x, y, w, n, lay.stubs.get(vid, ()), lay.styles))
+    if vid in lay.marked:
+        spots.marks[vid] = (x + 2 + len(label) - 1, y + 1)
 
 
 @dataclass
 class _Trace:
     """The cells one drawn chain passes through, in drawing order, with its
-    style, whether it is drawn reversed (its head at the start) and whether it
-    is a `<->` (a head at both ends)."""
+    style, whether it is drawn reversed (its head at the start), whether it
+    is a `<->` (a head at both ends) and the drawn edge it is."""
     style: object
     rev: bool
     both: bool
+    edge: object = None
     cells: list = field(default_factory=list)
+
+    def route(self) -> "_Route":
+        """The chain as a token travels it: its drawn ends and its cells from
+        its source to its destination, each once."""
+        cells = list(dict.fromkeys(self.cells))
+        return _Route(self.edge.src, self.edge.dst, self.edge.kind,
+                      cells[::-1] if self.rev else cells)
 
     def to_head(self, cell) -> int:
         """How many cells from `cell` (its first pass) to this chain's nearest head."""
@@ -682,18 +720,26 @@ def _border(n) -> tuple:
     return "┌", "┐", "└", "┘", "─", "│"
 
 
-def _draw_box(cv: kit.Canvas, x, y, w, label, n):
+def _draw_box(cv: kit.Canvas, x, y, w, label, n, look: Optional["_BoxLook"] = None,
+              lead: list = ()):
+    """A node's box: `label` (its lead's text first) in its border; `look`
+    (_box_look) a sim frame's styles for it, else its kind's; `lead` runs
+    drawn before the label."""
     tl, tr, bl, br, h, s = _border(n)
-    border, text = kit.node_styles(n)
+    border, text = look[:2] if look else kit.node_styles(n)
     cv.put(x, y, tl + h * (w - 2) + tr, border)
     cv.put(x, y + 1, s + " ", border)
     cv.put(x + 2, y + 1, label.ljust(w - 4), text)
-    if n.kind == kit.CHIP and "text" in n.attrs:    # a flow's chip: scene.chip_text (_chip_runs)
-        kit._put_runs(cv, x + 2, y + 1, _chip_runs(n.attrs["text"], n.attrs["mods"]))
+    lx = kit._put_runs(cv, x + 2, y + 1, lead)
+    if look and look.runs is not None:              # one run in the look's colour
+        kit._put_runs(cv, lx, y + 1, look.runs)
+    elif n.kind == kit.CHIP and "text" in n.attrs:  # a flow's chip: scene.chip_text (_chip_runs)
+        kit._put_runs(cv, lx, y + 1, _chip_runs(n.attrs["text"], n.attrs["mods"]))
     elif n.kind == kit.CHIP:                        # a payload reads as the code it is
-        kit._put_runs(cv, x + 2, y + 1, kit.chip_runs(n))
+        kit._put_runs(cv, lx, y + 1, kit.chip_runs(n))
     else:                                       # brackets in colour, name off-white
-        kit._put_runs(cv, x + 2, y + 1, kit.label_runs(n, bg=text[1]))
+        bold = look.bold if look else True
+        kit._put_runs(cv, lx, y + 1, kit.label_runs(n, bold=bold, bg=text[1]))
     cv.put(x + w - 2, y + 1, " " + s, border)
     cv.put(x, y + 2, bl + h * (w - 2) + br, border)
 
@@ -733,12 +779,14 @@ def _reach(w: int, stubs) -> int:
     return max([w] + [w - 1 + st.width() for st in stubs])
 
 
-def _draw_stubs(cv: kit.Canvas, x, y, w, n, stubs, styles: dict) -> None:
+def _draw_stubs(cv: kit.Canvas, x, y, w, n, stubs, styles: dict) -> dict:
     """The stubs of the box at (x, y), w wide, one row each under it: a line
     from its bottom-right corner, the arrow's source mark, then the chip —
-    in the self-edge's stroke style (styles, else its arrow's)."""
+    in the self-edge's stroke style (styles, else its arrow's). Returns
+    {self-call wire ident: the cell of its source mark}."""
     if not stubs:
-        return
+        return {}
+    spots = {}
     corner = _border(n)[3]
     cv.put(x + w - 1, y + BOX_H - 1, _TEE.get(corner, "┤"), kit.node_styles(n)[0])
     dim = (kit.GREY["dim"], None, False)
@@ -748,8 +796,10 @@ def _draw_stubs(cv: kit.Canvas, x, y, w, n, stubs, styles: dict) -> None:
         bend = "└" if k == len(stubs) - 1 else "├"
         sx, sy = x + w - 1, y + BOX_H + k
         cv.put(sx, sy, bend + "─" + kit.SOURCE_MARK.get(e.kind, "●"), style)
+        spots[e.ident] = (sx + 2, sy)
         cx = kit._put_runs(cv, sx + 4, sy, [("┆ ", dim)] + st.runs)
         cv.put(cx, sy, " ┆", dim)
+    return spots
 
 
 _CALL_MARK = re.compile(r"^[↺↻⇱] | ↩ ")              # a call chip's marks (scene.call_text)
@@ -1038,7 +1088,7 @@ def _stack(main: "kit.Canvas", frames: list) -> "kit.Canvas":
 def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None = None,
              payloads: bool = False, scn=None, fit: int | None = None,
              marks: list | None = None, mods: bool = False, _secs=None, _level=None,
-             _owner: Optional[str] = None):
+             _owner: Optional[str] = None, sim: Optional[SimLook] = None):
     """Yield (title, graph, canvas) for the graph and its expansions up to depth.
     `scn`: the document's Scene (scene.build_scene; None: built without triggers
     or permissions) — what drives each machine draws as a dashed edge into it,
@@ -1051,7 +1101,9 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
 
     A top-level graph with `--- sections ---` yields one part per section (its
     title a Rule); control blocks are drawn as titled frames under their part's
-    flows. `mods` puts modifiers on chips (edges) and after labels (nodes)."""
+    flows. `mods` puts modifiers on chips (edges) and after labels (nodes).
+    `sim` (sim_look over scn): a simulation frame drawn over every part —
+    strokes, boxes and tokens (its badges come in `tags`)."""
     if scn is None:
         scn = scene.build_scene(g, triggers=False, depth=depth)
     g = _landed(g, scn, _owner)
@@ -1065,13 +1117,13 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
                                          and (e.src != e.dst or e.src in calls)
                                          for e in g.edges)
     drivers = _drivers(scn) if g.role != "state" else None    # a machine has its own
-    styles = _wire_styles(scn)
+    styles = sim.styles if sim is not None else _wire_styles(scn)
 
     def draw_all(part, chip_marks):
         def draw(sub):
             gc = with_chips(sub, payloads, scn, chip_marks, mods, chips)
             return layout(gc, show, collapsed, tags, styles,
-                          _self_calls(sub, calls, payloads, mods, chip_marks))
+                          _self_calls(sub, calls, payloads, mods, chip_marks), sim)
         main = draw(part.graph) if part.graph.nodes else kit.Canvas()
         frames = [_framed(_frame_content(g, bi, eb, draw), kit.block_title_runs(g.blocks[bi]))
                   for bi in part.blocks]
@@ -1101,7 +1153,7 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
             if getattr(sub, "role", "") == "state":
                 sub = scene.with_trigger_sources(scn, sub, nid)
             yield from sections(sub, depth, sub_title, level + 1, tags, payloads, scn,
-                                fit, marks, mods, secs, zoom or _level, nid)
+                                fit, marks, mods, secs, zoom or _level, nid, sim)
 
 
 def _drivers(scn) -> dict:
@@ -1162,6 +1214,326 @@ def _landed_tags(scn) -> dict:
             for key, evs in names.items()}
 
 
+# ---------------------------------------------------------------------------
+# Simulation overlay — a sim Frame (sim.py, projected onto the Scene this
+# drawing is built from: sim.project) drawn over the graph (sim.md §7): each
+# stroke by its wire's state (scene.wire_style), tokens on the edges' cells,
+# boxes by their node's status with badges (… ✕ ×n ↻k), a drawn state
+# machine's current state led by ◉ (a machine not drawn: `◉ State` after its
+# owner). Badges are padded to a slot (badge_slots, worked out once per trace:
+# _trace_slots) so a box keeps its width from frame to frame and the layout
+# holds still while a run plays. sim_focus finds a frame's action in the
+# finished drawing: a probe drawing marks its tokens' and active boxes' styles
+# (_Probe), and the marked cells are read back out of the rows.
+# ---------------------------------------------------------------------------
+
+_STATE_RANK = {"inactive": 0, "plain": 1, "active": 2, "failed": 3}
+_STATUS_LOOK = {"active": "active", "waiting": "plain", "visited": "plain",
+                "opaque": "plain", "failed": "failed", "cancelled": "muted"}
+TOKEN_MARK = {"out": "●", "back": "○", "failed": "✕", "cancelled": "⊘"}
+
+
+class SimLook(NamedTuple):
+    """One sim frame as the graph view draws it (sim_look)."""
+    styles: dict    # wire key → stroke style (the state of its busiest wire)
+    states: dict    # wire key → "active" | "plain" | "inactive" | "failed"
+    tokens: tuple   # _Token, task order (a later one drawn over an earlier)
+    looks: dict     # node id → "active" | "plain" | "failed" | "muted"
+    badges: dict    # node id → runs after its label, padded to its slot
+    lead: dict      # node id → runs before its label: a drawn machine's ◉ slot
+    probe: frozenset = frozenset()  # node ids whose borders are _Probe styles (sim_focus)
+
+
+class _Probe(tuple):
+    """A style that draws exactly like the (fg, bg, bold) it wraps but equals
+    only another _Probe, so Canvas.rows never merges it into a plain run and
+    the cells drawn in it can be found in the finished rows (_probed_box)."""
+    __slots__ = ()
+
+    def __eq__(self, other):
+        return isinstance(other, _Probe) and tuple.__eq__(self, other)
+
+    def __ne__(self, other):
+        return not self == other
+
+    __hash__ = tuple.__hash__
+
+
+class _Token(NamedTuple):
+    ident: tuple    # the wire it travels (a view ident)
+    at: float       # 0 … 1 from the wire's source to its destination
+    mark: str
+    style: tuple
+
+
+class _BoxLook(NamedTuple):
+    """A box's styles under a sim frame (_box_look)."""
+    border: tuple
+    text: tuple
+    runs: Optional[list]    # the label as one run in the look's colour (None: its kind's runs)
+    bold: bool              # the kind's runs bold
+
+
+class _SelfSpots(NamedTuple):
+    """Where a self-call's token sits in one drawing."""
+    stubs: dict     # self-call wire ident → its stub's source-mark cell
+    marks: dict     # node id → the cell of its box's self mark (↺ ↻ ⇱)
+
+
+class _Route(NamedTuple):
+    """One drawn chain as a token travels it (_Trace.route)."""
+    src: str
+    dst: str
+    kind: str
+    cells: list     # source → destination
+
+
+class _Stage(NamedTuple):
+    """What of a Scene a frame's badges and leads are read against (_stage)."""
+    nodes: dict     # node id → render.Node, over the document and every expansion
+    machines: dict  # owner id → its drawn state machine's node ids
+
+
+def _stage(scn) -> _Stage:
+    nodes = {nid: n for cur in kit._walk(scn.graph) for nid, n in cur.nodes.items()}
+    machines = {u.owner: list(u.graph.nodes) for u in scn.units
+                if getattr(u.graph, "role", "") == "state"}
+    return _Stage(nodes, machines)
+
+
+def wire_state(frame, ident: tuple) -> str:
+    """A wire's state in a frame: "failed" (a route taken, a call that
+    failed), "active" (lit), "plain" (taken before), else "inactive"."""
+    if ident in frame.failed:
+        return "failed"
+    if ident in frame.lit:
+        return "active"
+    return "plain" if ident in frame.taken else "inactive"
+
+
+def _key_states(scn, frame) -> dict:
+    """{wire key: (state, the key's first wire)}: a key drawn as one stroke
+    takes the busiest state of its wires."""
+    out = {}
+    for w in scn.wires:
+        st = wire_state(frame, w.ident)
+        if w.key not in out:
+            out[w.key] = (st, w)
+        elif _STATE_RANK[st] > _STATE_RANK[out[w.key][0]]:
+            out[w.key] = (st, out[w.key][1])
+    return out
+
+
+def _token(tok, w) -> _Token:
+    """A frame's token (sim.Token) as drawn on the wire w (sim.md §7.1): ● out
+    in the wire's colour + bold, ○ a return in the produces role (`=>`'s) +
+    bold, a fallback return ○ muted produces, ✕ a failed attempt or route in
+    edges.fail, a cancelled token ⊘ muted wire colour (the tree's mark too)."""
+    produces = kit.edge_style("=>")[0]
+    if tok.state == "failed":
+        return _Token(w.ident, tok.at, TOKEN_MARK["failed"], scene.wire_style(w, "failed"))
+    if tok.state == "cancelled":
+        return _Token(w.ident, tok.at, TOKEN_MARK["cancelled"], scene.wire_style(w, "inactive"))
+    if tok.state == "fallback":
+        return _Token(w.ident, tok.at, TOKEN_MARK["back"], (kit.muted(produces), None, False))
+    if tok.dir == "back":
+        return _Token(w.ident, tok.at, TOKEN_MARK["back"], (produces, None, True))
+    return _Token(w.ident, tok.at, TOKEN_MARK["out"], scene.wire_style(w, "active"))
+
+
+def _badge_runs(frame, nid: str, stage: _Stage) -> list:
+    """The runs after a node's label in a frame: `…` waiting, `✕` failed,
+    `×n` instances (n ≠ 1), `↻k` recursion depth, and `◉ State` for the
+    current state of its machine when the drawing does not show the machine."""
+    n = stage.nodes.get(nid)
+    colour = (kit.kind_color(n.kind) if n is not None else kit.GREY["light"], None, False)
+    runs = []
+    status = frame.nodes.get(nid)
+    if status == "waiting":
+        runs.append((" …", colour))
+    elif status == "failed":
+        runs.append((" ✕", (scene.colour_of("edges-fail"), None, True)))
+    count = frame.instances.get(nid)
+    if count is not None and count != 1:
+        runs.append((f" ×{count}", colour))
+    if frame.depth.get(nid, 0) > 1:
+        runs.append((f" ↻{frame.depth[nid]}", colour))
+    state = frame.machines.get(nid)
+    if state is not None and nid not in stage.machines:
+        sn = stage.nodes.get(state)
+        name = kit.node_label(sn) if sn is not None else state
+        runs.append((f" ◉ {name}", (kit.kind_color("state"), None, True)))
+    return runs
+
+
+def _badged(frame, nodes) -> set:
+    """The ids of `nodes` (a Scene's) that carry a badge in frame (_badge_runs):
+    those it has waiting or failed, as other than one instance, deeper than one
+    call, or in a machine state — any other node's badge runs are empty."""
+    named = ({nid for nid, st in frame.nodes.items() if st in ("waiting", "failed")}
+             | {nid for nid, n in frame.instances.items() if n != 1}
+             | {nid for nid, k in frame.depth.items() if k > 1} | set(frame.machines))
+    return {nid for nid in named if nid in nodes}
+
+
+def badge_slots(trace) -> dict:
+    """{node id: the widest of its badges over the trace's frames}: the columns
+    sim_look pads each node's badges to. `trace` projected onto the drawing's
+    Scene (sim.project; trace.scene is that Scene). Pure."""
+    stage = _stage(trace.scene)
+    out = {}
+    for f in trace.frames:
+        for nid in _badged(f, trace.scene.nodes):
+            n = kit.row_len(_badge_runs(f, nid, stage))
+            if n > out.get(nid, 0):
+                out[nid] = n
+    return out
+
+
+_SLOTS_KEPT = 8
+_slots_memo: list = []      # (trace, its badge_slots), most recent last
+
+
+def _trace_slots(trace) -> dict:
+    """badge_slots(trace), worked out once per trace object: a run plays frame
+    after frame of one trace, and the slots of a long run take a while. The
+    memo holds the last _SLOTS_KEPT traces (by identity — a Trace holds dicts,
+    so it cannot be hashed); it is this module's only mutable state."""
+    for kept, slots in _slots_memo:
+        if kept is trace:
+            return slots
+    slots = badge_slots(trace)
+    _slots_memo.append((trace, slots))
+    del _slots_memo[:-_SLOTS_KEPT]
+    return slots
+
+
+def _node_looks(scn, frame, stage: _Stage) -> dict:
+    """{node id: look}: by its status (never touched: muted); a drawn machine's
+    current state "active", its other states muted."""
+    looks = {nid: _STATUS_LOOK.get(frame.nodes.get(nid), "muted") for nid in scn.nodes}
+    for owner, states in stage.machines.items():
+        current = frame.machines.get(owner)
+        for nid in states:
+            looks[nid] = "active" if nid == current else "muted"
+    return looks
+
+
+def _leads(frame, stage: _Stage) -> dict:
+    """{node id: runs}: `◉ ` before a drawn machine's current state, a blank
+    slot as wide before each of its other states."""
+    out = {}
+    for owner, states in stage.machines.items():
+        current = frame.machines.get(owner)
+        for nid in states:
+            out[nid] = ([("◉ ", (kit.kind_color("state"), None, True))] if nid == current
+                        else [("  ", None)])
+    return out
+
+
+def sim_look(scn, frame, slots: dict | None = None, probe: bool = False) -> SimLook:
+    """A sim Frame as the graph view draws it over `scn`, the Scene the frame's
+    idents name (sim.project onto a Scene built like the drawing's). `slots`
+    (badge_slots): each node's badges padded to its slot, so the layout holds
+    still across frames; None: unpadded. `probe`: the tokens' styles and the
+    borders of the boxes the frame has active are _Probe, for sim_focus."""
+    stage = _stage(scn)
+    keyed = _key_states(scn, frame)
+    by_ident = {w.ident: w for w in scn.wires}
+    tokens = tuple(_token(tok, by_ident[tok.wire]) for tok in frame.tokens
+                   if tok.wire in by_ident)
+    if probe:
+        tokens = tuple(tok._replace(style=_Probe(tok.style)) for tok in tokens)
+    badges = {}
+    wanted = set(slots or ()) | _badged(frame, scn.nodes)
+    for nid in (nid for nid in scn.nodes if nid in wanted):
+        runs = _badge_runs(frame, nid, stage)
+        pad = (slots or {}).get(nid, 0) - kit.row_len(runs)
+        runs += [(" " * pad, None)] if pad > 0 else []
+        if runs:
+            badges[nid] = runs
+    return SimLook({key: scene.wire_style(w, st) for key, (st, w) in keyed.items()},
+                   {key: st for key, (st, _w) in keyed.items()}, tokens,
+                   _node_looks(scn, frame, stage), badges, _leads(frame, stage),
+                   frozenset(nid for nid, st in frame.nodes.items() if st == "active")
+                   if probe else frozenset())
+
+
+def _box_look(n, sim: SimLook) -> Optional[_BoxLook]:
+    """A box's styles under a sim frame, None for its kind's own: active as
+    drawn; plain (visited, waiting, opaque) its colours, the label not bold;
+    failed in edges.fail; muted (never touched, cancelled; a chip of a wire
+    not taken). Join bars, branch decisions and arm chips keep their look."""
+    if n.kind == kit.CHIP:
+        key = n.attrs.get("key")
+        look = "muted" if key is not None and sim.states.get(key) == "inactive" else "active"
+    elif n.kind in (kit.JOIN, kit.DECISION):
+        look = "active"
+    else:
+        look = sim.looks.get(n.id, "muted")
+    if look == "active":
+        return None
+    border, text = kit.node_styles(n)
+    if look == "plain":
+        return _BoxLook(border, text, None, False)
+    if look == "failed":
+        st = (scene.colour_of("edges-fail"), None, True)
+        return _BoxLook(st, st, [(kit.node_label(n), st)], True)
+    st = (kit.muted(border[0]), None, False)
+    return _BoxLook(st, st, [(kit.node_label(n), st)], False)
+
+
+def _unkeyed_style(kind: str, muted: bool) -> tuple:
+    """The style of an edge no wire key styles: its arrow's, muted under a sim
+    frame (a wire the Scene does not name never carries a token)."""
+    style = kit.edge_style(kind)
+    return (kit.muted(style[0]), None, False) if muted else style
+
+
+def _route_cells(routes: list, key: tuple) -> list:
+    """The cells a token on the wire key = (src, dst, kind) travels, source to
+    destination: the drawn chains of its kind from src to dst, through the
+    chips and join bars standing in between (ids starting "\\0"); [] when
+    this drawing does not draw it."""
+    src, dst, kind = key
+
+    def walk(at, seen):
+        for r in routes:
+            if r.src != at or r.kind != kind or r.dst in seen:
+                continue
+            if r.dst == dst:
+                return r.cells
+            if r.dst.startswith("\0"):
+                rest = walk(r.dst, seen | {r.dst})
+                if rest:
+                    return r.cells + rest
+        return []
+
+    return walk(src, {src})
+
+
+def _token_cell(tok: _Token, routes: list, spots: _SelfSpots):
+    """The cell a token sits on: a self-call's on its stub's source mark (else
+    its box's self mark); any other at the route cell nearest `at` of the way
+    (the head cell at 1, the tail cell at 0); None when not drawn here."""
+    if tok.ident in spots.stubs:
+        return spots.stubs[tok.ident]
+    src, dst, kind = tok.ident[:3]
+    if src == dst:
+        return spots.marks.get(src)
+    cells = _route_cells(routes, (src, dst, kind))
+    return cells[round(tok.at * (len(cells) - 1))] if cells else None
+
+
+def _draw_tokens(cv: kit.Canvas, tokens, routes: list, spots: _SelfSpots) -> None:
+    """A frame's tokens over the drawing, in task order (a later task's token
+    wins a shared cell)."""
+    for tok in tokens:
+        cell = _token_cell(tok, routes, spots)
+        if cell is not None:
+            cv.put(cell[0], cell[1], tok.mark, tok.style)
+
+
 def trigger_lines(g):
     """`<Paid> ⇢ {Order}: Open → Settled` for each event wired to a transition."""
     nodes = {}
@@ -1185,7 +1557,7 @@ def all_payload_lines(g):
 
 def compose(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = True,
             width: int | None = None, access: bool = False, mods: bool = False,
-            events: str = "nodes"):
+            events: str = "nodes", trace=None, tick: int = 0):
     """The whole drawing as rows of (text, style) runs, plus its width. Each
     section's canvas is centred within the widest section. `payloads` draws each
     flow's payload as a chip on its edge; `triggers` wires each event to the owner
@@ -1207,11 +1579,59 @@ def compose(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = 
     `events`: "nodes" draws an event as a box; "land" draws a pass-through
     event where it lands — no box, each emitter → destination edge in the event
     colour with the event's name beside its head (scene.land_events). Every
-    edge takes its wire's colour (the Scene's colour policy)."""
+    edge takes its wire's colour (the Scene's colour policy).
+
+    `trace`, `tick`: a simulation run (sim.py) drawn over the graph at frame
+    `tick`; see sim_look. The trace must be named as this drawing's Scene:
+    sim.project(trace, scene.build_scene(g, events=events, triggers=triggers,
+    access=access, depth=depth)). Each box's badges are padded to their widest
+    over the trace (badge_slots, worked out once per trace), so the layout
+    holds still from frame to frame."""
+    return _compose(g, depth, payloads, notes, triggers, width, access, mods, events,
+                    trace, tick, probe=False)
+
+
+def sim_focus(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = True,
+              width: int | None = None, access: bool = False, mods: bool = False,
+              events: str = "nodes", trace=None, tick: int = 0):
+    """(x, y, w, h): the cells of compose's rows (same arguments) that frame
+    `tick` of `trace` acts in — its tokens and its active boxes; None without a
+    trace, or when the frame has nothing drawn in motion. Draws the frame once
+    more, as a probe (sim_look's `probe`)."""
+    if trace is None:
+        return None
+    rows, _w = _compose(g, depth, payloads, notes, triggers, width, access, mods, events,
+                        trace, tick, probe=True)
+    return _probed_box(rows)
+
+
+def _probed_box(rows) -> Optional[tuple]:
+    """(x, y, w, h) around every cell drawn in a _Probe style; None: none."""
+    cells = []
+    for y, row in enumerate(rows):
+        x = 0
+        for text, style in row:
+            if isinstance(style, _Probe) and text:
+                cells += [(x, y), (x + len(text) - 1, y)]
+            x += len(text)
+    if not cells:
+        return None
+    xs, ys = [x for x, _y in cells], [y for _x, y in cells]
+    return min(xs), min(ys), max(xs) - min(xs) + 1, max(ys) - min(ys) + 1
+
+
+def _compose(g, depth, payloads, notes, triggers, width, access, mods, events,
+             trace, tick, probe: bool):
+    """compose, with the frame's tokens and active boxes in _Probe styles when
+    `probe` (sim_focus)."""
     scn = scene.build_scene(g, events=events, triggers=triggers, access=access, depth=depth)
     idx = scn.notes if notes != "off" else {}
     tags = _tags(scn, notes != "off", mods)
-    parts = list(sections(g, depth, tags=tags, payloads=payloads, scn=scn, mods=mods))
+    look = (sim_look(scn, trace.frames[tick], _trace_slots(trace), probe)
+            if trace is not None else None)
+    for nid, runs in (look.badges if look else {}).items():
+        tags[nid] = tags.get(nid, []) + runs
+    parts = list(sections(g, depth, tags=tags, payloads=payloads, scn=scn, mods=mods, sim=look))
     rows, drawing_w = _section_rows(parts)
     natural = rows + ([[], kit.section_rule("notes"), []] + kit.note_rows(idx) if idx else [])
     natural_w = max([drawing_w] + [kit.row_len(r) for r in natural])
@@ -1221,7 +1641,7 @@ def compose(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = 
     marks = []
     if (payloads or mods) and drawing_w > width:
         parts = list(sections(g, depth, tags=tags, payloads=payloads, scn=scn,
-                              fit=width, marks=marks, mods=mods))
+                              fit=width, marks=marks, mods=mods, sim=look))
         rows, _w = _section_rows(parts)
     listed = sorted(e for entries in idx.values() for e in entries)
     block = [([(f"#{num}", kit.NOTE_STYLE[kind])], [(text, kind)])

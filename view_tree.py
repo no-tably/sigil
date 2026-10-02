@@ -5,8 +5,10 @@ every flow as a lane in a gutter beside it.
 Not a command: view.py loads it. Outline rows (`\\-` branches and `:=`
 expansions) with their call marks (`↺` / `↻` / `⇱`), lanes packed into the
 gutter, block brackets, join taps, the right margin (a chip per call or payload,
-modifiers, inline notes), margin callouts and the tree legend.
-compose_tree() returns the rows view.py prints. What is wired to what, in which
+modifiers, inline notes), margin callouts and the tree legend — and, given a
+sim.py trace, one frame of it over the tree (lit lanes, tokens in the gutter,
+row statuses, the current machine states). compose_tree() returns the rows
+view.py prints. What is wired to what, in which
 colour, with which payload, notes and join marks — and where an event is drawn —
 comes from the Scene (scene.py); this module only lays it out. Drawing
 primitives and styles come from viewkit.py (read as kit.NAME, so a theme change
@@ -123,7 +125,8 @@ def _tree_rows(g, depth: int, level: int = 0, base: int = 0, rows=None):
 
 
 def tree_legend(triggers: bool = True, payloads: bool = False, access: bool = False,
-                mods: bool = False, events: str = "land", calls: frozenset = frozenset()):
+                mods: bool = False, events: str = "land", calls: frozenset = frozenset(),
+                sim: bool = False):
     """Legend rows for the tree + wires view: relations, then lanes by arrow type,
     then the structure marks (blocks, joins, sections). Each arrow's sample is in
     its own colour (scene.arrow_colour); markers whose lanes take their source's
@@ -131,7 +134,8 @@ def tree_legend(triggers: bool = True, payloads: bool = False, access: bool = Fa
     mode — in "nodes" mode an event is a row with lanes in and out. `calls`: the
     call marks the drawing shows (view.drawn_call_marks) — an entry is listed for
     each of `↺` self-call, `↻` recursion, `⇱` host-provided and `↩` a call's
-    return only when its mark is in the set. Raises ValueError for an unknown
+    return only when its mark is in the set. `sim`: a last row of the
+    simulation overlay's marks (_sim_legend). Raises ValueError for an unknown
     events mode."""
     if events not in scene.EVENTS:
         raise ValueError(f"events must be one of {', '.join(scene.EVENTS)}, not {events!r}")
@@ -174,12 +178,34 @@ def tree_legend(triggers: bool = True, payloads: bool = False, access: bool = Fa
              (" scope / owns  ", mid), ("◀&", kit.LABEL_STYLE), (" joined: all  ", mid),
              ("◀&?", kit.LABEL_STYLE), (" race  ", mid), ("◀/", kit.LABEL_STYLE), (" one of  ", mid),
              ("── ──", kit.SECTION_STYLE), (" section", mid)]
-    return [rel, wires, marks]
+    return [rel, wires, marks] + ([_sim_legend()] if sim else [])
+
+
+def _sim_legend() -> list:
+    """The tree view's legend row of the simulation overlay's marks, in the words
+    and styles of the graph view's (view.sim_legend) wherever the two draw
+    alike; the tree's own: `▸` an active row."""
+    dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
+    wire = (kit.EDGE_DEFAULT, None, True)
+    quiet = (kit.muted(kit.EDGE_DEFAULT), None, False)
+    fail = (scene.colour_of("edges-fail"), None, True)
+    light = (kit.GREY["light"], None, False)
+    state = (kit.kind_color("state"), None, True)
+    return [("run    ", dim),
+            ("●", wire), (" out  ", mid), ("○", wire), (" return / fallback  ", mid),
+            ("✕", fail), (" failed  ", mid), (CANCELLED_MARK, quiet), (" cancelled  ", mid),
+            ("─", wire), (" lit  ", mid), ("─", quiet), (" untouched (muted)  ", mid),
+            ("▸", (kit.GREY["light"], None, True)), (" active  ", mid),
+            ("…", light), (" waiting  ", mid), ("✕", fail), (" failed  ", mid),
+            ("×n", light), (" instances  ", mid), ("↻k", light), (" recursion  ", mid),
+            ("◉", state), (" current state  ", mid), ("◉ State", state),
+            (" its owner's, machine not drawn", mid)]
 
 
 def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
                  notes: str = "off", payloads: bool = False, width: int | None = None,
-                 access: bool = False, mods: bool = False, events: str = "land"):
+                 access: bool = False, mods: bool = False, events: str = "land",
+                 trace=None, tick: int = 0):
     """The drawing as outline rows with a lane gutter; same return shape as compose().
     `triggers`: draw event → state lanes. `events`: "land" draws a pass-through
     event where it lands — no row of its own, its emitters wired straight to its
@@ -210,12 +236,21 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     beside its entry (`‹read›`); a joined flow's taps carry its join (`◀&`).
     `access`: the permission graph as dotted lanes from each principal (marked r
     / w / b) into its store, a store badged `1w` / `Nw` writers. `mods`:
-    modifiers after a node's label, and after the payload in a flow's chip."""
+    modifiers after a node's label, and after the payload in a flow's chip.
+
+    `trace`, `tick`: a simulation (sim.py) drawn over the tree at frame `tick`
+    (the layout holds still for the whole trace — every row gets a status slot
+    before its label, every node room for its widest badge). The trace must be
+    named as this drawing's Scene: sim.project(trace, scene.build_scene(g,
+    events=events, triggers=triggers, access=access, depth=depth)). See
+    the overlay section for what a frame paints. Raises IndexError for a
+    tick past the trace's end."""
     scn = scene.build_scene(g, events=events, triggers=triggers, access=access, depth=depth)
     rows = [r for r in _tree_rows(g, depth)
             if not (r.depth == 0 and r.node.id in scn.collapsed)]
     if not rows:
         return [], 0
+    frame = trace.frames[tick] if trace is not None else None
     idx = scn.notes if notes != "off" else {}
     wires = _lane_wires(scn)
     if spaced:
@@ -224,7 +259,8 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     xs, x0 = _bracket_cols(brackets)
     after_label = _tree_extras(scn, mods)
     calls = _self_call_rows(scn, rows)
-    marks = _call_marks(scn, rows, calls)
+    marks = _call_marks(scn, rows, calls, frame)
+    sim_rows = _sim_rows(scn, rows, trace, frame) if trace is not None else None
     joins = scene.join_marks(scn)
     # Block notes are about a component: tagged on its row, called out on the
     # left. Inline notes are about their line: they trail it on the right, after
@@ -233,7 +269,7 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     blocks = {nid: es for nid, es in blocks.items() if es}
     chipped = payloads or mods
     chip_lists = scene.chip_lists(scn, payloads, mods) if chipped else {}
-    self_chips = _self_call_chips(calls, payloads, mods) if chipped else {}
+    self_chips = _self_call_chips(calls, payloads, mods, frame) if chipped else {}
     trailing = scene.wire_notes(scn) if notes != "off" else {}
     bases = {}
 
@@ -243,11 +279,13 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
         if (left, right) not in bases:
             cv = kit.Canvas()
             out = _draw_outline(cv, rows, blocks, show_tags=notes != "callouts" or left,
-                                x0=x0, extra=after_label, marks=marks)
+                                x0=x0, extra=after_label, marks=marks, sim=sim_rows)
             _draw_brackets(cv, brackets, xs, x0)
-            lanes = _pack_lanes(_collect_lanes(cv, wires, out), max(out.ends) + 3)
-            _draw_lanes(cv, lanes, out.ends)
+            lanes = _pack_lanes(_collect_lanes(cv, wires, out), max(out.ends) + 3, frame)
+            _draw_lanes(cv, lanes, out.ends, muted_sources=frame is not None)
             _draw_join_taps(cv, lanes, out.ends, joins)
+            if frame is not None:
+                _draw_tokens(cv, frame.tokens, lanes, _self_call_cells(calls, out))
             moved = [] if right else None
             chips, drawn = _row_chips(lanes, chip_lists, self_chips)
             _draw_right_margin(cv, lanes, out, chips, trailing, notes, moved)
@@ -433,17 +471,23 @@ class _Outline:
     by_id: dict                                 # node id → the rows it is drawn on
     chain_at: dict                              # y → names root → this row
     tagged: dict                                # node id → row carrying its #N
+    marks_at: dict                              # y → x of its call mark (_call_marks)
 
 
 def _draw_outline(cv: kit.Canvas, rows, idx: dict, show_tags: bool = True, x0: int = 0,
-                  extra: dict | None = None, marks: dict | None = None) -> _Outline:
+                  extra: dict | None = None, marks: dict | None = None,
+                  sim: dict | None = None) -> _Outline:
     """The outline from column x0: rails, relation, label, the row's call marks
     (marks: {row: runs}, _call_marks), #N tag, the extra runs a node carries
     (modifiers, a writer badge, a branch arm's label) and (for a state) the
     triggers that lead into it, one row each. A banner row (a section
     divider, a block's header) is drawn as its runs; a block header inside a
-    unit sits at its next row's label column, the rails it interrupts bridged."""
-    out = _Outline([], {}, {}, {})
+    unit sits at its next row's label column, the rails it interrupts bridged.
+    `sim` ({row: _SimRow}, _sim_rows): a simulation frame's look — every row a
+    status slot before its label (its mark, if any), the label restyled by its
+    node's status, its badges after the call marks."""
+    out = _Outline([], {}, {}, {}, {})
+    slot = len(SIM_SLOT) if sim is not None else 0
     stack = []
     guides = _guides(rows)
     extra, extra_done, bridges = extra or {}, set(), []
@@ -456,7 +500,7 @@ def _draw_outline(cv: kit.Canvas, rows, idx: dict, show_tags: bool = True, x0: i
             if row.kind == "block":
                 nxt = next((guides[j] for j in range(y + 1, len(rows))
                             if isinstance(rows[j], TreeRow)), "")
-                x = x0 + (len(nxt) + 2 if nxt else 0)
+                x = x0 + (len(nxt) + 2 if nxt else 0) + slot
                 bridges.append((y, x))
             out.ends.append(kit._put_runs(cv, x, y, row.runs))
             continue
@@ -474,13 +518,22 @@ def _draw_outline(cv: kit.Canvas, rows, idx: dict, show_tags: bool = True, x0: i
                 cv.put(x, y, "─", kit.TREE_STYLE)
                 x += 1
             x += 1
+        state = sim.get(y) if sim is not None else None
+        if sim is not None:
+            if state is not None and state.mark:
+                cv.put(x, y, state.mark, _status_style(n, state.status))
+            x += slot
         label = kit.node_label(n) + (" ▸" if row.collapsed else "")
         _border, text = kit.node_styles(n)
-        kit._put_runs(cv, x, y, kit.label_runs(n) + ([(" ▸", (text[0], None, True))]
-                                             if row.collapsed else []))
+        runs = kit.label_runs(n) if state is None else _status_label_runs(n, state.status)
+        kit._put_runs(cv, x, y, runs + ([(" ▸", (text[0], None, True))]
+                                        if row.collapsed else []))
         x += len(label)
         if marks and y in marks:
+            out.marks_at[y] = x + 1             # each mark run leads with a space
             x = kit._put_runs(cv, x, y, marks[y])
+        if state is not None:
+            x = kit._put_runs(cv, x, y, state.badges)
         if n.id in idx and n.id not in out.tagged and not show_tags:
             out.tagged[n.id] = y                # callouts point here with `#>` instead
         if n.id in idx and n.id not in out.tagged:  # `#N` on the node's first row
@@ -521,22 +574,27 @@ LANE_ROLES = ("flow", "trigger", "emit", "access")     # the wires drawn as lane
 
 
 def _lane_wires(scn) -> list:
-    """The Scene's wires the gutter draws, one per stroke — flows, triggers, emits
-    (the first of a key: one stroke per emitter → destination), permissions —
-    keyed by (key, qualified ends); an emit wire takes the place of a flow it
-    coincides with (the event is what that stroke carries). A self-call is no
-    lane: its row carries it (_self_call_rows)."""
-    out, emitted = {}, set()
+    """[(wire, idents)]: the Scene's wires the gutter draws, one per stroke —
+    flows, triggers, emits (the first of a key: one stroke per emitter →
+    destination), permissions — keyed by (key, qualified ends); an emit wire
+    takes the place of a flow it coincides with (the event is what that stroke
+    carries). idents: every wire the stroke stands for (what a simulation
+    frame names it by). A self-call is no lane: its row carries it
+    (_self_call_rows)."""
+    out, idents, emitted = {}, {}, {}           # emitted: key → its stroke
     for w in scn.wires:
-        if (w.role not in LANE_ROLES or (w.role == "emit" and w.key in emitted)
-                or _is_self_call(w)):
+        if w.role not in LANE_ROLES or _is_self_call(w):
             continue
-        if w.role == "emit":
-            emitted.add(w.key)
-            out[(w.key, w.paths)] = w
+        stroke = (w.key, w.paths)
+        if w.role == "emit" and w.key in emitted:
+            stroke = emitted[w.key]             # rides on the first emit of its key
+        elif w.role == "emit":
+            emitted[w.key] = stroke
+            out[stroke] = w
         else:
-            out.setdefault((w.key, w.paths), w)
-    return list(out.values())
+            out.setdefault(stroke, w)
+        idents.setdefault(stroke, set()).add(w.ident)
+    return [(w, frozenset(idents[stroke])) for stroke, w in out.items()]
 
 
 EXTERNAL_MARK = "⇱"      # a host-provided far node (opaque), after its label
@@ -567,10 +625,11 @@ def _self_call_rows(scn, rows) -> dict:
     return out
 
 
-def _call_marks(scn, rows, calls: dict) -> dict:
+def _call_marks(scn, rows, calls: dict, frame=None) -> dict:
     """{row index: runs} after a row's label: its self-calls' mark (scene.self_mark:
     `↻` recursion, `↺` a self-call, `⇱` only host ops) in its first call's stroke,
-    then `⇱` on the far node of an external op call, in that call's stroke.
+    then `⇱` on the far node of an external op call, in that call's stroke —
+    each stroke in its simulation state in `frame` (_stroke_state).
     calls: _self_call_rows."""
     far = {}
     for w in scn.wires:
@@ -583,21 +642,26 @@ def _call_marks(scn, rows, calls: dict) -> dict:
         runs = []
         if y in calls:
             mark = scene.self_mark([w.call for w in calls[y]])
-            runs.append((" " + mark, scene.wire_style(calls[y][0])))
+            state = _stroke_state({w.ident for w in calls[y]}, frame)
+            runs.append((" " + mark, scene.wire_style(calls[y][0], state)))
         if r.node.id in far:
-            runs.append((" " + EXTERNAL_MARK, scene.wire_style(far[r.node.id])))
+            w = far[r.node.id]
+            runs.append((" " + EXTERNAL_MARK,
+                         scene.wire_style(w, _stroke_state({w.ident}, frame))))
         if runs:
             marks[y] = runs
     return marks
 
 
-def _self_call_chips(calls: dict, payloads: bool, mods: bool) -> dict:
-    """{row index: [(wire, chip text)]}: each self-call's chip on its subject's row
-    (`↺ plan({Seed}) ↩ {Plan}`, scene.chip_text), those with nothing to show left
+def _self_call_chips(calls: dict, payloads: bool, mods: bool, frame=None) -> dict:
+    """{row index: [(chip text, stroke style)]}: each self-call's chip on its
+    subject's row (`↺ plan({Seed}) ↩ {Plan}`, scene.chip_text) in its wire's
+    stroke (its simulation state in `frame`), those with nothing to show left
     out. calls: _self_call_rows."""
     out = {}
     for y, ws in calls.items():
-        chips = [(w, text) for w in ws for text in [scene.chip_text(w, payloads, mods)] if text]
+        chips = [(w, text, scene.wire_style(w, _stroke_state({w.ident}, frame)))
+                 for w in ws for text in [scene.chip_text(w, payloads, mods)] if text]
         if chips:
             out[y] = chips
     return out
@@ -618,9 +682,9 @@ def _row_chips(lanes, chip_lists: dict, self_chips: dict) -> tuple:
             seen.add((y, ident))
             chips.setdefault(y, []).append((text, style))
 
-    for y, pairs in self_chips.items():
-        for w, text in pairs:
-            add(y, ("self", id(w)), text, scene.wire_style(w))
+    for y, chips_ in self_chips.items():
+        for w, text, style in chips_:
+            add(y, ("self", id(w)), text, style)
             drawn.add(w.key)
     for ln in lanes:
         key = ln.wire.key
@@ -641,14 +705,15 @@ class _Lane(NamedTuple):
     wire: object                                # scene.Wire
     sy: list                                    # its source's rows
     dy: list                                    # its target's rows
+    idents: frozenset = frozenset()             # the wires its stroke stands for
     x: int = 0
     style: tuple = None
 
 
 def _collect_lanes(cv: kit.Canvas, wires, out: _Outline) -> list:
-    """One _Lane per wire, over every row where either end occurs, shortest
-    first; a self-loop that is no call (a state's self-transition) is marked ↺
-    on its row instead."""
+    """One _Lane per (wire, idents) of _lane_wires, over every row where either
+    end occurs, shortest first; a self-loop that is no call (a state's
+    self-transition) is marked ↺ on its row instead."""
     def at(nid, path):
         ys = out.by_id.get(nid, [])
         if path:
@@ -656,7 +721,7 @@ def _collect_lanes(cv: kit.Canvas, wires, out: _Outline) -> list:
         return ys
 
     lanes = []
-    for w in wires:
+    for w, idents in wires:
         (spath, dpath) = w.paths
         sy, dy = at(w.src, spath), at(w.dst, dpath)
         if not sy or not dy:
@@ -666,17 +731,18 @@ def _collect_lanes(cv: kit.Canvas, wires, out: _Outline) -> list:
                 cv.put(out.ends[y] + 1, y, "↺", kit.edge_style(w.kind))
             continue
         ys = sorted(set(sy) | set(dy))
-        lanes.append(_Lane(ys[0], ys[-1], w, sy, dy))
+        lanes.append(_Lane(ys[0], ys[-1], w, sy, dy, idents))
     lanes.sort(key=lambda lane: (lane.hi - lane.lo, lane.lo))
     return lanes
 
 
-def _pack_lanes(lanes, left: int) -> list:
+def _pack_lanes(lanes, left: int, frame=None) -> list:
     """Each lane with its gutter column (interval-packed from `left`) and its
-    stroke style (its wire's colour, scene.wire_style)."""
+    stroke style (its wire's colour, scene.wire_style — in its simulation state
+    in `frame`, _stroke_state)."""
     cols = []
     return [lane._replace(x=left + kit._first_fit(cols, lane.lo, lane.hi) * LANE_GAP,
-                          style=scene.wire_style(lane.wire))
+                          style=scene.wire_style(lane.wire, _stroke_state(lane.idents, frame)))
             for lane in lanes]
 
 
@@ -691,10 +757,13 @@ def _source_mark(w) -> str:
     return kit.SOURCE_MARK.get(w.kind, "●")
 
 
-def _draw_lanes(cv: kit.Canvas, lanes, ends):
+def _draw_lanes(cv: kit.Canvas, lanes, ends, *, muted_sources: bool = False):
     """Verticals first; then each row's runs out to the lanes it taps, hopping
     (─│─) over lanes it merely crosses, so a joint (┤ ┴ ┬ ┼) only ever appears
-    where a lane is actually tapped."""
+    where a lane is actually tapped. `muted_sources`: each source mark (`●`,
+    `›`, …) in its wire's muted colour whatever the lane's state — in a
+    simulation, so a token (`●` in full colour + bold) on a source row stands
+    out from the static marks."""
     verticals = set()
     for ln in lanes:
         if ln.hi > ln.lo:
@@ -702,10 +771,13 @@ def _draw_lanes(cv: kit.Canvas, lanes, ends):
             verticals |= {(ln.x, y) for y in range(ln.lo, ln.hi + 1)}
 
     taps = {}                                   # y → [(lane x, kind, style, role, mark)]
+    source_style = {}                           # (x, y) → its source mark's style
     for ln in lanes:
         mark = _source_mark(ln.wire)
         for y in ln.sy:
             taps.setdefault(y, []).append((ln.x, ln.wire.kind, ln.style, "src", mark))
+            if muted_sources:
+                source_style[(ln.x, y)] = scene.wire_style(ln.wire, "inactive")
         for y in ln.dy:
             taps.setdefault(y, []).append((ln.x, ln.wire.kind, ln.style, "dst", mark))
 
@@ -735,12 +807,212 @@ def _draw_lanes(cv: kit.Canvas, lanes, ends):
         for x1, kind, style, role, mark in order:
             both = kind == "<->" and role == "src"
             if role == "src":
-                heads.append((x1, y, mark, style))
+                heads.append((x1, y, mark, source_style.get((x1, y), style)))
             # one ◀ per row, in the colour of the lane whose stroke runs into it
             if (role == "dst" and x1 == nearest) or (both and nearest < 0):
                 heads.append((ends[y] + 1, y, "◀", style))
     for x, y, ch, st in heads:
         cv.put(x, y, ch, st)
+
+
+# ---------------------------------------------------------------------------
+# Simulation overlay — one Frame of a sim.py Trace painted over the tree
+# ---------------------------------------------------------------------------
+#
+# A frame restyles what the tree already draws and adds marks in room the
+# layout keeps for them, so nothing moves while a trace plays (sim.md §7):
+#   lanes     failed (a route taken, a call that failed) edges-fail; lit (a token
+#             on it, a call in progress) full colour + bold; taken earlier the
+#             policy colour; never taken muted — chips, ◀ and taps follow;
+#             source marks (`●`, `›`, …) always muted, so a token stands out
+#   tokens    in the lane's gutter column, on the row `at` of the way from its
+#             source row to its target row; a self-call's on its call mark
+#   rows      a status mark in the slot before the label (STATUS_MARK: `▸`
+#             active, `◉` a state machine's current state), the label in its
+#             node's status style; a machine's other states muted
+#   badges    after the call marks: `…` waiting, `✕` failed, `×n` instances
+#             (n ≠ 1), `↻k` recursion depth, and `◉ State` on an owner whose
+#             machine's states are not drawn — as the graph view's
+
+SIM_SLOT = "▸ "          # the room before every label in a simulation
+STATUS_MARK = {"active": "▸", "current": "◉"}
+CANCELLED_MARK = "⊘"     # a cancelled token: neither `●` out nor `✕` failed
+QUIET = ("idle", "cancelled", "dormant")    # statuses drawn muted (idle: untouched)
+RAN = ("visited", "waiting", "opaque")      # statuses whose label is drawn as without a sim
+STROKE_STATES = ("failed", "active", "plain", "inactive")   # the first that applies wins
+
+
+class _SimRow(NamedTuple):
+    """An outline row's look in one frame."""
+    status: str             # a sim node status, or "idle" / "current" / "dormant"
+    mark: str               # the status slot's mark ("" for none)
+    badges: list            # runs after the call marks, padded to the node's widest
+
+
+def _stroke_state(idents, frame) -> str:
+    """The scene.wire_style state of a stroke standing for the wires `idents` in
+    a frame ("plain" without one): failed > lit (active) > taken (plain) >
+    never taken (inactive)."""
+    if frame is None:
+        return "plain"
+    for state, seen in zip(STROKE_STATES, (frame.failed, frame.lit, frame.taken)):
+        if any(i in seen for i in idents):
+            return state
+    return STROKE_STATES[-1]
+
+
+def _row_status(row: TreeRow, machine_owner, frame) -> str:
+    """A row's status in a frame: a state of a tracked machine (machine_owner:
+    the owner of the state unit it is drawn in, else None) is "current" or
+    "dormant"; any other row its node's sim status, "idle" when untouched."""
+    if machine_owner is not None and machine_owner in frame.machines:
+        return "current" if frame.machines[machine_owner] == row.node.id else "dormant"
+    return frame.nodes.get(row.node.id, "idle")
+
+
+def _badge_runs(n, frame, hidden: set, names: dict) -> list:
+    """The runs after a node's label in a frame (sim.md §7.1, as the graph view's):
+    ` …` waiting (kind colour), ` ✕` failed (edges-fail, bold), ` ×n` instances
+    when n ≠ 1, ` ↻k` a recursion depth over 1 (kind colour), and ` ◉ State`
+    (state colour, bold) when it owns a machine whose states are not drawn
+    (hidden: those owners). names: {node id: label}."""
+    nid, colour = n.id, (kit.kind_color(n.kind), None, False)
+    runs = []
+    status = frame.nodes.get(nid)
+    if status == "waiting":
+        runs.append((" …", colour))
+    elif status == "failed":
+        runs.append((" ✕", (scene.colour_of("edges-fail"), None, True)))
+    count = frame.instances.get(nid)
+    if count is not None and count != 1:
+        runs.append((f" ×{count}", colour))
+    if frame.depth.get(nid, 0) > 1:
+        runs.append((f" ↻{frame.depth[nid]}", colour))
+    if nid in hidden and nid in frame.machines:
+        state = frame.machines[nid]
+        runs.append((f" ◉ {names.get(state, state)}", (kit.kind_color("state"), None, True)))
+    return runs
+
+
+def _padded(runs: list, width: int) -> list:
+    """runs followed by blanks up to width."""
+    pad = width - kit.row_len(runs)
+    return runs + ([(" " * pad, None)] if pad > 0 else [])
+
+
+def _sim_rows(scn, rows, trace, frame) -> dict:
+    """{row index: _SimRow} for every outline row in `frame`; each node's badges
+    padded to its widest over the whole trace, so the layout holds still."""
+    owner = {id(u.graph): u.owner for u in scn.units}
+    drawn_machines = {owner.get(id(r.graph)) for r in rows
+                      if isinstance(r, TreeRow) and getattr(r.graph, "role", "") == "state"}
+    # the machines tracked anywhere in the trace, so every frame pads alike
+    hidden = set().union(*(f.machines for f in trace.frames)) - drawn_machines
+    nodes = {nid: n for cur in kit._walk(scn.graph) for nid, n in cur.nodes.items()}
+    names = {nid: kit.node_label(n) for nid, n in nodes.items()}
+    widest = _badge_widths(trace, nodes, hidden, names)
+    out = {}
+    for y, r in enumerate(rows):
+        if not isinstance(r, TreeRow):
+            continue
+        state_unit = getattr(r.graph, "role", "") == "state"
+        status = _row_status(r, owner.get(id(r.graph)) if state_unit else None, frame)
+        out[y] = _SimRow(status, STATUS_MARK.get(status, ""),
+                         _padded(_badge_runs(r.node, frame, hidden, names),
+                                 widest.get(r.node.id, 0)))
+    return out
+
+
+def _badge_nodes(frame, hidden: set) -> set:
+    """The nodes that carry a badge in a frame (_badge_runs): waiting or failed,
+    other than one instance, a recursion depth over 1, a hidden machine's owner."""
+    return ({nid for nid, st in frame.nodes.items() if st in ("waiting", "failed")}
+            | {nid for nid, k in frame.instances.items() if k != 1}
+            | {nid for nid, k in frame.depth.items() if k > 1}
+            | (hidden & frame.machines.keys()))
+
+
+def _badge_widths(trace, nodes: dict, hidden: set, names: dict) -> dict:
+    """{node id: its widest _badge_runs over the whole trace}, for the nodes
+    (nodes: {id: Node}, the drawing's) that ever carry one — a node left out
+    never has a badge. One pass over the frames, visiting only the badged
+    nodes of each."""
+    widest = {}
+    for f in trace.frames:
+        for nid in _badge_nodes(f, hidden) & nodes.keys():
+            n = kit.row_len(_badge_runs(nodes[nid], f, hidden, names))
+            widest[nid] = max(widest.get(nid, 0), n)
+    return widest
+
+
+def _status_style(n, status: str) -> tuple:
+    """The style of a node's label (and its status mark) in a status: active and
+    a current state in full kind colour + bold, failed edges-fail, quiet ones
+    muted, the rest the kind colour."""
+    if status == "failed":
+        return (scene.colour_of("edges-fail"), None, True)
+    colour = kit.kind_color(n.kind)
+    if status in QUIET:
+        return (kit.muted(colour), None, False)
+    return (colour, None, status in ("active", "current"))
+
+
+def _status_label_runs(n, status: str) -> list:
+    """A node's label as runs in a status: as drawn without a simulation when it
+    has run (visited, waiting, opaque), else one run in its _status_style."""
+    if status in RAN:
+        return kit.label_runs(n)
+    return [(kit.node_label(n), _status_style(n, status))]
+
+
+def _self_call_cells(calls: dict, out: _Outline) -> dict:
+    """{ident: (x, y, wire)}: where a token on a self-call is drawn — on its row's
+    call mark. calls: _self_call_rows."""
+    return {w.ident: (out.marks_at[y], y, w)
+            for y, ws in calls.items() if y in out.marks_at for w in ws}
+
+
+def _token_glyph(tok, wire) -> tuple:
+    """(mark, style) of a token on a wire (sim.md §7.1): `●` out in the wire's
+    colour + bold, `○` a return (produces' colour), a fallback return `○`
+    muted, `✕` a failed attempt or route (edges-fail), `⊘` a cancelled one
+    (CANCELLED_MARK) muted."""
+    produces = kit.EDGE_DEFAULT
+    if tok.state == "failed":
+        return "✕", scene.wire_style(wire, "failed")
+    if tok.state == "cancelled":
+        return CANCELLED_MARK, scene.wire_style(wire, "inactive")
+    if tok.state == "fallback":
+        return "○", (kit.muted(produces), None, False)
+    if tok.dir == "back":
+        return "○", (produces, None, True)
+    return "●", scene.wire_style(wire, "active")
+
+
+def _token_row(lane: _Lane, at: float) -> int:
+    """The row `at` of the way from a lane's source row to its target row (the
+    target row nearest the first source row)."""
+    src = lane.sy[0]
+    dst = min(lane.dy, key=lambda y: (abs(y - src), y))
+    return round(src + at * (dst - src))
+
+
+def _draw_tokens(cv: kit.Canvas, tokens, lanes, self_cells: dict):
+    """Each token over the drawing: in its lane's gutter column on _token_row, or
+    on a self-call's mark (self_cells, _self_call_cells); a later token (a later
+    task) on the same cell wins. Tokens on wires the tree does not draw are
+    skipped."""
+    lane_of = {i: ln for ln in lanes for i in ln.idents}
+    for tok in tokens:
+        if tok.wire in lane_of:
+            ln = lane_of[tok.wire]
+            x, y, wire = ln.x, _token_row(ln, tok.at), ln.wire
+        elif tok.wire in self_cells:
+            x, y, wire = self_cells[tok.wire]
+        else:
+            continue
+        mark, style = _token_glyph(tok, wire)
+        cv.put(x, y, mark, style)
 
 
 def _mods_texts(g) -> dict:
