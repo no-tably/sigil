@@ -6,8 +6,10 @@ Not a command: view.py loads it. The layered layout (cycle breaking,
 longest-path layering, barycenter ordering, block-merged x placement, one track
 per fan-out) and its drawing, chips on edges, control-block frames, `:=`
 expansions and `--- section ---`s as stacked sections, triggers, notes and the
-graph legend. compose() returns the rows view.py prints. Drawing primitives and
-styles come from viewkit.py (read as kit.NAME, so a theme change reaches them).
+graph legend. compose() returns the rows view.py prints. What is wired to what,
+in which colour, and where an event is drawn comes from the Scene (scene.py);
+this module only lays it out. Drawing primitives and styles come from
+viewkit.py (read as kit.NAME, so a theme change reaches them).
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ import importlib.util
 import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Optional
 
 
 _HERE = Path(__file__).resolve().parent
@@ -27,8 +30,8 @@ def _sibling(name: str, fname: str):
     applied through any of them (apply_theme rebinds viewkit's style globals)
     reaches them all, while a view.py loaded from another directory (a packaged
     copy) gets modules, theme and dialect state of its own. The cache key names
-    the directory, never the bare name. view.py, view_graph.py and view_tree.py
-    each carry a copy of this function: keep the copies identical."""
+    the directory, never the bare name. view.py, view_graph.py, view_tree.py and
+    scene.py each carry a copy of this function: keep the copies identical."""
     key = f"{name}@{_HERE}"
     if key not in sys.modules:
         spec = importlib.util.spec_from_file_location(key, _HERE / fname)
@@ -43,6 +46,7 @@ def _sibling(name: str, fname: str):
 
 
 kit = _sibling("sigil_viewkit", "viewkit.py")
+scene = _sibling("sigil_scene", "scene.py")
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +88,8 @@ class _Layout:
     in_port: dict = field(default_factory=dict)     # w → {u: x where u → w enters w}
     tracks: list = field(default_factory=list)      # per gap: ({(u, w): track}, n tracks)
     top: list = field(default_factory=list)         # per layer: its y
-    tags: dict = field(default_factory=dict)        # node id / (src, dst, kind) → note tag runs
+    tags: dict = field(default_factory=dict)        # node id / (src, dst, kind) → tag runs
+    styles: dict = field(default_factory=dict)      # (src, dst, kind) → its wire's style
     # Parallel edges between one pair (`?>` beside `->`): (chain, segment) → its
     # rank k >= 1 among them, and the channel track it jogs on (its own).
     dup: dict = field(default_factory=dict)
@@ -133,8 +138,12 @@ def _break_cycles(ids, succ):
     return back
 
 
-def layout(g, expanded: set, collapsed: set, tags: dict | None = None) -> kit.Canvas:
-    lay = _prepare(g, expanded, collapsed, tags)
+def layout(g, expanded: set, collapsed: set, tags: dict | None = None,
+           styles: dict | None = None) -> kit.Canvas:
+    """g drawn as boxes and edges. `tags`: runs after a box's label (node id) or
+    beside an edge's head (its wire key); `styles`: each wire key's stroke style
+    (_wire_styles), an edge without one drawn in its arrow's style."""
+    lay = _prepare(g, expanded, collapsed, tags, styles)
     _layer(lay)
     _order(lay)
     _place_x(lay)
@@ -143,7 +152,7 @@ def layout(g, expanded: set, collapsed: set, tags: dict | None = None) -> kit.Ca
     return _draw(lay)
 
 
-def _prepare(g, expanded, collapsed, tags) -> _Layout:
+def _prepare(g, expanded, collapsed, tags, styles) -> _Layout:
     """Box labels (with #N tags, ▾ / ▸ and ↺ marks), the distinct edges, and the
     nodes no edge touches."""
     labels = {}
@@ -172,7 +181,8 @@ def _prepare(g, expanded, collapsed, tags) -> _Layout:
     # row) and are drawn as a wrapped grid under the graph.
     linked = {e.src for e in edges} | {e.dst for e in edges}
     return _Layout(g, labels, edges, ids=[i for i in g.nodes if i in linked],
-                   isolated=[i for i in g.nodes if i not in linked], tags=tags or {})
+                   isolated=[i for i in g.nodes if i not in linked], tags=tags or {},
+                   styles=styles or {})
 
 
 def _layer(lay: _Layout) -> None:
@@ -436,10 +446,19 @@ def _draw(lay: _Layout) -> kit.Canvas:
 
     # Edges first (boxes overwrite line cells they touch).
     heads = []
-    edge_labels = []   # (x, y, text) beside an arrowhead
+    edge_labels = []   # (x, y, runs) beside an arrowhead
     bar_style = {}     # join bar → the style of the edges it joins
+    traces = []        # per chain: _Trace, for the shared-cell colour rule
     for ci, (e, rev, chain) in enumerate(lay.chains):
-        style = kit.edge_style(e.kind)
+        key = _wire_key(g, e)
+        style = lay.styles.get(key) or kit.edge_style(e.kind)
+        trace = _Trace(style, rev, e.kind == "<->")
+        traces.append(trace)
+
+        def path(pts):
+            cv.path(pts, e.kind, style)
+            trace.cells += _cells(pts)
+
         for k, (u, w) in enumerate(zip(chain, chain[1:])):
             i = V[u].layer
             assign, _n = lay.tracks[i]
@@ -461,26 +480,26 @@ def _draw(lay: _Layout) -> kit.Canvas:
                 y1 = top[i + 1] + 1
                 bar_style.setdefault(w, (style, e.kind))
             if V[u].dummy:
-                cv.path([(sx, top[i]), (sx, top[i] + BOX_H)], e.kind, style)
+                path([(sx, top[i]), (sx, top[i] + BOX_H)])
                 y0 = top[i] + BOX_H
             pts = [(sx, y0), (sx, ty), (dx, ty), (dx, y1)] if sx != dx else [(sx, y0), (dx, y1)]
-            cv.path(pts, e.kind, style)
+            path(pts)
             if V[w].dummy:
-                cv.path([(dx, top[i + 1]), (dx, top[i + 1] + BOX_H - 1)], e.kind, style)
+                path([(dx, top[i + 1]), (dx, top[i + 1] + BOX_H - 1)])
             last = k == len(chain) - 2
             first = k == 0
             # Arrowheads at the LOGICAL destination (and both ends for <->).
             if e.label and ((last and not rev) or (first and rev)):
-                edge_labels.append((dx, y1, e.label, kit.LABEL_STYLE) if not rev
-                                   else (sx, y0, e.label, kit.LABEL_STYLE))
-            # An inline note about this flow's line sits beside its head (a chip
-            # remembers the flow it splits, so the tag follows into the chip half).
-            src = g.nodes[e.src].attrs.get("src", e.src) if g.nodes[e.src].kind == kit.CHIP else e.src
-            for text, style_ in lay.tags.get((src, e.dst, e.kind), ()):
-                if last and not rev:
-                    edge_labels.append((dx, y1, text, style_))
-                elif first and rev:
-                    edge_labels.append((sx, y0, text, style_))
+                edge_labels.append((dx, y1, [(e.label, kit.LABEL_STYLE)]) if not rev
+                                   else (sx, y0, [(e.label, kit.LABEL_STYLE)]))
+            # The tag of this flow's wire (an inline note, a landed event's name)
+            # sits beside its head: a chip remembers the wire it splits, so the
+            # tag follows into the chip half.
+            runs = lay.tags.get(key)
+            if runs and last and not rev and e.dst == key[1]:
+                edge_labels.append((dx, y1, runs))
+            elif runs and first and rev and e.src == key[0]:
+                edge_labels.append((sx, y0, runs))
             into_chip = g.nodes[chain[-1]].kind in (kit.CHIP, kit.JOIN) if not rev else False
             if last and not rev and not into_chip:
                 heads.append((dx, y1, _head(e.kind), style))
@@ -491,6 +510,8 @@ def _draw(lay: _Layout) -> kit.Canvas:
                     heads.append((sx, y0, "▲", style))
                 if last and rev:
                     heads.append((dx, y1, "▼", style))
+    for cell, st in _nearest_owners(traces, cv.lines).items():
+        cv.lines[cell][2] = st
     for x, y, ch, st in heads:
         cv.put(x, y, ch, st)
 
@@ -510,10 +531,11 @@ def _draw(lay: _Layout) -> kit.Canvas:
         return x0 >= 0 and all((x, y) not in cv.text and (x, y) not in cv.lines
                                for x in range(x0 - 1, x0 + n + 1))
 
-    for x, y, text, style in edge_labels:
-        for x0 in (x + 2, x - 1 - len(text)):
-            if free(x0, y, len(text)):
-                cv.put(x0, y, text, style)
+    for x, y, runs in edge_labels:
+        n = kit.row_len(runs)
+        for x0 in (x + 2, x - 1 - n):
+            if free(x0, y, n):
+                kit._put_runs(cv, x0, y, runs)
                 break
 
     if lay.isolated:
@@ -526,6 +548,80 @@ def _draw(lay: _Layout) -> kit.Canvas:
             _draw_box(cv, x, y, w, lay.labels[vid], g.nodes[vid])
             x += w + 1
     return cv
+
+
+@dataclass
+class _Trace:
+    """The cells one drawn chain passes through, in drawing order, with its
+    style, whether it is drawn reversed (its head at the start) and whether it
+    is a `<->` (a head at both ends)."""
+    style: object
+    rev: bool
+    both: bool
+    cells: list = field(default_factory=list)
+
+    def to_head(self, cell) -> int:
+        """How many cells from `cell` (its first pass) to this chain's nearest head."""
+        i = self.cells.index(cell)
+        ahead, behind = len(self.cells) - 1 - i, i
+        if self.both:
+            return min(ahead, behind)
+        return behind if self.rev else ahead
+
+    def runs(self) -> dict:
+        """{cell: the set of directions (dx, dy) the chain leaves it by}."""
+        out = {cell: set() for cell in self.cells}
+        for (ax, ay), (bx, by) in zip(self.cells, self.cells[1:]):
+            if abs(bx - ax) + abs(by - ay) == 1:
+                out[(ax, ay)].add((bx - ax, by - ay))
+                out[(bx, by)].add((ax - bx, ay - by))
+        return out
+
+
+def _cells(pts) -> list:
+    """The cells a polyline through pts passes, in order, each once."""
+    out = [pts[0]]
+    for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
+        dx, dy = (x2 > x1) - (x2 < x1), (y2 > y1) - (y2 < y1)
+        x, y = x1, y1
+        while (x, y) != (x2, y2):
+            x, y = x + dx, y + dy
+            out.append((x, y))
+    return out
+
+
+def _nearest_owners(traces: list, lines: dict) -> dict:
+    """{cell: style} for the line cells whose style changes under the colour
+    policy's shared-cell rule: of the chains that share a run through a cell
+    (leave it the same way as the chain whose style it has; a chain merely
+    crossing it does not), the one nearest its own head owns it — on a tie the
+    earlier chain. Style only: the cell's stroke (its glyph) stays."""
+    seen = {}                                   # cell → [(distance, dirs, style)]
+    for tr in traces:
+        for cell, dirs in tr.runs().items():
+            if cell in lines:
+                seen.setdefault(cell, []).append((tr.to_head(cell), dirs, tr.style))
+    out = {}
+    for cell, chains in seen.items():
+        cur = lines[cell][2]
+        ref = next((dirs for _d, dirs, st in chains if st == cur), chains[0][1])
+        sharing = [(d, st) for d, dirs, st in chains if dirs & ref]
+        _d, st = min(sharing, key=lambda c: c[0])
+        if st != cur:
+            out[cell] = st
+    return out
+
+
+def _wire_key(g, e) -> tuple:
+    """The key (src, dst, kind) of the wire a drawn edge belongs to: a chip, join
+    bar or branch decision standing in for an end names the end it stands for
+    (its attrs["key"], the key of the first wire through it)."""
+    def end(nid, side):
+        n = g.nodes.get(nid)
+        stands = (n.attrs.get("key") if n is not None
+                  and n.kind in (kit.CHIP, kit.JOIN, kit.DECISION) else None)
+        return stands[side] if stands and stands[side] is not None else nid
+    return (end(e.src, 0), end(e.dst, 1), e.kind)
 
 
 def _draw_join(cv: kit.Canvas, v, y, label, ins: set, outs: set, style, kind):
@@ -577,42 +673,49 @@ def _draw_box(cv: kit.Canvas, x, y, w, label, n):
     cv.put(x, y + 2, bl + h * (w - 2) + br, border)
 
 
-def with_chips(g, payloads: bool = False, triggers=(), marks: list | None = None,
-               mods: bool = False, access: bool = False):
+def with_chips(g, payloads: bool = False, scn=None, marks: list | None = None,
+               mods: bool = False):
     """The graph as the graph view draws it: each `: payload` as a chip splitting
-    its edge (src → chip → dst), and each trigger whose event and owner are both
-    here as an edge event ⇢ owner. Returns g itself when there is nothing to add.
-    With `marks` (a list), each chip shows only a marker letter and the payload is
-    appended to marks as (letter, payload) — for a panel beside the drawing.
-    Joined endpoints (`&` `&?` `/`) fork from / meet at a join bar; `mods` adds an
-    edge's modifiers to its chip; `access` draws the permission graph as dotted
-    edges principal → store, headed r / w / b."""
-    extra = [t for t in triggers if t.event in g.nodes and t.owner in g.nodes]
-    perms = [a for a in (getattr(g, "access", None) or []) if access
-             and a.principal in g.nodes and a.store in g.nodes and a.principal != a.store]
+    its edge (src → chip → dst), then — with `scn`, the document's Scene — what
+    drives a machine here as an edge ⇢ its owner (scene.trigger_edges; not in a
+    state machine, whose drivers scene.with_trigger_sources wires to the states
+    they enter) and the permission edges
+    principal → store (scene.access_edges) of g.access (graph_parts gives each
+    part its own). Returns g itself when there is nothing to add. With `marks`
+    (a list), each chip shows only a marker letter and the payload is appended
+    to marks as (letter, payload) — for a panel beside the drawing. Joined
+    endpoints (`&` `&?` `/`) fork from / meet at a join bar; `mods` adds an
+    edge's modifiers to its chip. A chip or join bar names the wire it stands
+    in for (attrs["key"], see _wire_key)."""
+    extra = []
+    if scn is not None:
+        own = {(a.principal, a.store, kit.access_kind(a)) for a in getattr(g, "access", None) or []}
+        drives = scene.trigger_edges(scn, g.nodes) if g.role != "state" else []
+        extra = (drives + [e for e in scene.access_edges(scn, g.nodes) if (e.src, e.dst, e.kind) in own])
     chips = [any(kit.chip_parts(e, payloads, mods)) for e in g.edges]
     joined = any(kit.drawn_join(g, e, "src") is not None or kit.drawn_join(g, e, "dst") is not None
                  for e in g.edges)
-    if not extra and not perms and not joined and not any(chips):
+    if not extra and not joined and not any(chips):
         return g
     nodes, edges = dict(g.nodes), []
     finals = set()                              # a final segment shared through a join
 
-    def join_node(idx):
+    def join_node(idx, e):
         jid = f"\0j{idx}"
         if jid not in nodes:
-            nodes[jid] = kit.render.Node(id=jid, name=g.joins[idx].kind, kind=kit.JOIN)
+            nodes[jid] = kit.render.Node(id=jid, name=g.joins[idx].kind, kind=kit.JOIN,
+                                         attrs={"key": e.key})
         return jid
 
     for k, e in enumerate(g.edges):
         src = e.src
         sj, dj = kit.drawn_join(g, e, "src"), kit.drawn_join(g, e, "dst")
         if sj is not None:
-            jid = join_node(sj)
+            jid = join_node(sj, e)
             edges.append(replace(e, dst=jid, label=None, payload=None, mods=[]))
             src = jid
         if dj is not None:
-            jid = join_node(dj)
+            jid = join_node(dj, e)
             edges.append(replace(e, src=src, dst=jid, label=None, payload=None, mods=[]))
             src = jid
         if src != e.src and (src, e.dst, e.kind) in finals:
@@ -623,25 +726,17 @@ def with_chips(g, payloads: bool = False, triggers=(), marks: list | None = None
         if (payload or mtext) and e.src != e.dst:
             cid = f"\0p{k}"
             name = kit.chip_text(payload, mtext)
-            attrs = {"src": e.src, "payload": payload, "mods": mtext}
+            attrs = {"key": e.key, "payload": payload, "mods": mtext}
             if marks is not None:
                 letter = kit._letter(len(marks))
                 marks.append((letter, name))
-                name, attrs = letter, {"src": e.src}
+                name, attrs = letter, {"key": e.key}
             nodes[cid] = kit.render.Node(id=cid, name=name, kind=kit.CHIP, attrs=attrs)
             edges += [replace(e, src=src, dst=cid, label=None, payload=None),
                       replace(e, src=cid, payload=None)]
         else:
             edges.append(replace(e, src=src) if src != e.src else e)
-    seen = set()
-    for t in extra:
-        if (t.event, t.owner) not in seen:
-            seen.add((t.event, t.owner))
-            edges.append(kit.render.Edge(src=t.event, dst=t.owner, kind="trigger"))
-    for a in perms:
-        edges.append(kit.render.Edge(src=a.principal, dst=a.store, kind=kit.access_kind(a),
-                                     line=a.line))
-    return replace(g, nodes=nodes, edges=edges)
+    return replace(g, nodes=nodes, edges=edges + extra)
 
 
 @dataclass
@@ -653,12 +748,16 @@ class _Part:
     blocks: list
 
 
-def graph_parts(g, top: bool = True, triggers=(), access: bool = False) -> list:
+def graph_parts(g, top: bool = True, drivers: dict | None = None,
+                access: bool = False) -> list:
     """The graph split for drawing. Flows inside a control block are drawn in
     that block's frame, not in the main layout. A top-level graph with `---`
     sections is split by them: each flow goes to the section its line is in,
     each node to every section that draws it (an unconnected node: the section
-    it is first written in), each block to the section of its header."""
+    it is first written in), each block to the section of its header.
+    `drivers` ({machine id: [node id]}, _drivers): what drives a machine joins
+    each part its machine is in; `access`: each of g's permissions goes, with
+    its principal and store, to the part of its line (the part graph's access)."""
     eb = kit.edge_blocks(g)
     blocks = getattr(g, "blocks", None) or []
     secs = (getattr(g, "sections", None) or []) if top else []
@@ -694,7 +793,8 @@ def graph_parts(g, top: bool = True, triggers=(), access: bool = False) -> list:
     parts = []
     for i in sorted(groups):
         edges, nodes, bis, acc = groups[i]
-        nodes |= {t.event for t in triggers if t.owner in nodes and t.event in g.nodes}
+        nodes |= {src for m, srcs in (drivers or {}).items() if m in nodes
+                  for src in srcs if src in g.nodes}
         sub = replace(g, nodes={nid: n for nid, n in g.nodes.items() if nid in nodes},
                       edges=edges, access=acc)
         title = kit.Rule(kit.section_name(secs[i])) if i >= 0 else ""
@@ -721,7 +821,9 @@ def _frame_content(g, bi: int, eb: dict, draw) -> "kit.Canvas":
     if b.kind == "branch":
         dec = f"\0b{bi}"
         name = b.header if b.header else "branch"
-        nodes = {dec: kit.render.Node(id=dec, name=name, kind=kit.DECISION), **nodes}
+        stands = {"key": (b.refs[0], None)} if b.refs else {}
+        nodes = {dec: kit.render.Node(id=dec, name=name, kind=kit.DECISION, attrs=stands),
+                 **nodes}
         refs = set(b.refs)
         edges = [replace(e, src=dec) if e.src in refs and e.key in b.after else e
                  for e in edges]
@@ -782,37 +884,44 @@ def _stack(main: "kit.Canvas", frames: list) -> "kit.Canvas":
 
 
 def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None = None,
-             payloads: bool = False, triggers=(), fit: int | None = None,
-             marks: list | None = None, mods: bool = False, access: bool = False,
-             _secs=None, _level=None, _nodes=None):
+             payloads: bool = False, scn=None, fit: int | None = None,
+             marks: list | None = None, mods: bool = False, _secs=None, _level=None,
+             _owner: Optional[str] = None):
     """Yield (title, graph, canvas) for the graph and its expansions up to depth.
-    `payloads` draws each flow's payload as a chip on its edge; `triggers` (the
-    document's event → state triggers) draw as dashed edges event ⇢ owner. With
-    `fit` (columns) and `marks` (a list), a section wider than `fit` that has chips
-    is laid out again with marker-letter chips — kept (and its payloads appended
-    to marks) when that fits, or is at least a fifth narrower.
+    `scn`: the document's Scene (scene.build_scene; None: built without triggers
+    or permissions) — what drives each machine draws as a dashed edge into it,
+    the permission graph as dotted edges, an event it lands draws as edges
+    emitter → destination, every edge in its wire's colour. `payloads` draws
+    each flow's payload as a chip on its edge. With `fit` (columns) and `marks`
+    (a list), a section wider than `fit` that has chips is laid out again with
+    marker-letter chips — kept (and its payloads appended to marks) when that
+    fits, or is at least a fifth narrower.
 
     A top-level graph with `--- sections ---` yields one part per section (its
     title a Rule); control blocks are drawn as titled frames under their part's
-    flows. `mods` puts modifiers on chips (edges) and after labels (nodes);
-    `access` draws the permission graph."""
+    flows. `mods` puts modifiers on chips (edges) and after labels (nodes)."""
+    if scn is None:
+        scn = scene.build_scene(g, triggers=False, depth=depth)
+    g = _landed(g, scn, _owner)
     show = set(g.expansions) if level < depth else set()
     collapsed = set(g.expansions) - show
     eb = kit.edge_blocks(g)
     secs = (getattr(g, "sections", None) or []) if level == 0 else (_secs or [])
     chipped = (payloads or mods) and any(any(kit.chip_parts(e, payloads, mods)) and e.src != e.dst
                                          for e in g.edges)
+    drivers = _drivers(scn) if g.role != "state" else None    # a machine has its own
+    styles = _wire_styles(scn)
 
     def draw_all(part, chip_marks):
         def draw(sub):
-            return layout(with_chips(sub, payloads, triggers, chip_marks, mods, access),
-                          show, collapsed, tags)
+            return layout(with_chips(sub, payloads, scn, chip_marks, mods),
+                          show, collapsed, tags, styles)
         main = draw(part.graph) if part.graph.nodes else kit.Canvas()
         frames = [_framed(_frame_content(g, bi, eb, draw), kit.block_title_runs(g.blocks[bi]))
                   for bi in part.blocks]
         return _stack(main, frames)
 
-    for part in graph_parts(g, level == 0, triggers, access):
+    for part in graph_parts(g, level == 0, drivers, scn.options.access):
         cv = draw_all(part, None)
         if fit is not None and marks is not None and cv.w > fit and chipped:
             trial = list(marks)
@@ -834,39 +943,67 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
             if title and not isinstance(title, kit.Rule):
                 sub_title = f"{title}  ›  {sub_title}"
             if getattr(sub, "role", "") == "state":
-                sub = _with_trigger_sources(sub, nid, triggers, _nodes or _all_nodes(g))
-            yield from sections(sub, depth, sub_title, level + 1, tags, payloads, triggers,
-                                fit, marks, mods, access, secs, zoom or _level,
-                                _nodes or _all_nodes(g))
+                sub = scene.with_trigger_sources(scn, sub, nid)
+            yield from sections(sub, depth, sub_title, level + 1, tags, payloads, scn,
+                                fit, marks, mods, secs, zoom or _level, nid)
 
 
-def _all_nodes(g) -> dict:
-    """Every node id → node, across g and its expansions."""
+def _drivers(scn) -> dict:
+    """{machine id: [node id]}: what drives each machine (scene.driver_wires) —
+    the event of each trigger wire, the emitter of each landed event a trigger
+    delivers — in wire order, each once."""
     out = {}
-    for cur in kit._walk(g):
-        for nid, n in cur.nodes.items():
-            out.setdefault(nid, n)
+    for w in scene.driver_wires(scn):
+        out.setdefault(w.machine, {})[w.src] = None
+    return {m: list(srcs) for m, srcs in out.items()}
+
+
+def _landed(g, scn, owner: Optional[str]):
+    """g (the graph of the unit `owner`) as drawn with the events the Scene lands:
+    their boxes and edges gone; an edge emitter → destination for each of the
+    unit's emit wires a flow delivers (one per key, its legs' payloads and
+    modifiers on it). What drives a machine is added by
+    scene.with_trigger_sources. No landed events: g itself."""
+    if not scn.collapsed:
+        return g
+    gone = scn.collapsed
+    nodes = {nid: n for nid, n in g.nodes.items() if nid not in gone}
+    edges = [e for e in g.edges if e.src not in gone and e.dst not in gone]
+    flows = {w.key: w for w in scn.wires
+             if w.role == "emit" and w.owner == owner and w.legs[1].role == "flow"}
+    for w in flows.values():
+        payload = " · ".join(leg.payload for leg in w.legs if leg.payload) or None
+        edges.append(kit.render.Edge(src=w.src, dst=w.dst, kind=w.kind, payload=payload,
+                                     src_path=w.paths[0], dst_path=w.paths[1],
+                                     mods=[m for leg in w.legs for m in leg.mods], line=w.line))
+    return replace(g, nodes=nodes, edges=edges)
+
+
+def _wire_styles(scn) -> dict:
+    """{wire key: stroke style} per the colour policy (scene.wire_style), the
+    first wire of a key winning."""
+    out = {}
+    for w in scn.wires:
+        out.setdefault(w.key, scene.wire_style(w))
     return out
 
 
-def _with_trigger_sources(machine, owner: str, triggers, nodes: dict):
-    """A state machine as the graph view draws it: each event that drives it is
-    a node with a trigger edge (╍) into the state it enters — the graph view's
-    counterpart of the tree's trigger lanes. The transition labels those edges
-    now show are dropped (an event is drawn once). No triggers: machine itself."""
-    ts = [t for t in triggers if t.owner == owner and t.dst in machine.nodes and t.event in nodes]
-    if not ts:
-        return machine
-    drawn = {t.label for t in ts}
-    new_nodes = dict(machine.nodes)
-    edges = [replace(e, label=None) if e.label in drawn else e for e in machine.edges]
-    seen = set()
-    for t in ts:
-        new_nodes.setdefault(t.event, nodes[t.event])
-        if (t.event, t.dst) not in seen:
-            seen.add((t.event, t.dst))
-            edges.append(kit.render.Edge(src=t.event, dst=t.dst, kind="trigger"))
-    return replace(machine, nodes=new_nodes, edges=edges)
+def _landed_tags(scn) -> dict:
+    """{key: runs}: each landed event's name beside the head of the edges that
+    carry it, in the event colour — keyed by the emit wire, and by emitter ⇢
+    machine for a trigger-delivered one (the overview's edge)."""
+    names = {}
+    for w in scn.wires:
+        if w.role != "emit":
+            continue
+        keys = [w.key]
+        if w.machine is not None:
+            keys.append((w.src, w.machine, "trigger"))
+        for key in keys:
+            names.setdefault(key, {})[w.via] = None
+    style = (scene.colour_of("kinds-event"), None, False)
+    return {key: [(" · ".join(kit.node_label(scn.nodes[ev].node) for ev in evs), style)]
+            for key, evs in names.items()}
 
 
 def trigger_lines(g):
@@ -891,7 +1028,8 @@ def all_payload_lines(g):
 
 
 def compose(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = True,
-            width: int | None = None, access: bool = False, mods: bool = False):
+            width: int | None = None, access: bool = False, mods: bool = False,
+            events: str = "nodes"):
     """The whole drawing as rows of (text, style) runs, plus its width. Each
     section's canvas is centred within the widest section. `payloads` draws each
     flow's payload as a chip on its edge; `triggers` wires each event to the owner
@@ -909,16 +1047,15 @@ def compose(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = 
     blocks are titled frames under their part's flows; joined endpoints fork
     from / meet at a join bar. `access`: the permission graph (dotted edges
     principal → store headed r / w / b, a store badged `1w` / `Nw` writers).
-    `mods`: modifier chips on edges (with the payload) and after node labels."""
-    idx = kit.note_index(g) if notes != "off" else {}
-    tags = {nid: kit.note_tag_runs(kit.node_notes(entries)) for nid, entries in idx.items()
-            if kit.node_notes(entries)}
-    for key, notes_ in kit.edge_notes(idx).items():    # inline notes ride their flow's edge
-        tags[key] = [(" ".join(f"#{num}" for num, _t in notes_), kit.NOTE_STYLE["inline"])]
-    _label_extras(g, tags, access, mods)
-    trig_edges = getattr(g, "triggers", []) if triggers else []
-    parts = list(sections(g, depth, tags=tags, payloads=payloads, triggers=trig_edges,
-                          mods=mods, access=access))
+    `mods`: modifier chips on edges (with the payload) and after node labels.
+    `events`: "nodes" draws an event as a box; "land" draws a pass-through
+    event where it lands — no box, each emitter → destination edge in the event
+    colour with the event's name beside its head (scene.land_events). Every
+    edge takes its wire's colour (the Scene's colour policy)."""
+    scn = scene.build_scene(g, events=events, triggers=triggers, access=access, depth=depth)
+    idx = scn.notes if notes != "off" else {}
+    tags = _tags(scn, notes != "off", mods)
+    parts = list(sections(g, depth, tags=tags, payloads=payloads, scn=scn, mods=mods))
     rows, drawing_w = _section_rows(parts)
     natural = rows + ([[], kit.section_rule("notes"), []] + kit.note_rows(idx) if idx else [])
     natural_w = max([drawing_w] + [kit.row_len(r) for r in natural])
@@ -927,8 +1064,8 @@ def compose(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = 
 
     marks = []
     if (payloads or mods) and drawing_w > width:
-        parts = list(sections(g, depth, tags=tags, payloads=payloads, triggers=trig_edges,
-                              fit=width, marks=marks, mods=mods, access=access))
+        parts = list(sections(g, depth, tags=tags, payloads=payloads, scn=scn,
+                              fit=width, marks=marks, mods=mods))
         rows, _w = _section_rows(parts)
     listed = sorted(e for entries in idx.values() for e in entries)
     block = [([(f"#{num}", kit.NOTE_STYLE[kind])], [(text, kind)])
@@ -944,21 +1081,44 @@ def compose(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = 
     return kit.stretch_rules(rows, w), max([w] + [kit.row_len(r) for r in rows])
 
 
-def _label_extras(g, tags: dict, access: bool, mods: bool):
-    """Add to the box-label runs (tags): a node's modifiers (mods) and a store's
-    writer badge (access), after any #N note tags."""
-    done = set()
+def _tags(scn, notes: bool, mods: bool) -> dict:
+    """The runs after a box's label (node id) and beside an edge's head (wire
+    key): #N note tags (notes), then a node's modifiers (mods) and a store's
+    writer badges (the Scene's, with the access option); a landed event's name,
+    then the #N of the inline notes about its edge's line."""
+    tags = {}
+    note_runs = {}
+    if notes:
+        for nid, sn in scn.nodes.items():
+            if kit.node_notes(sn.notes):
+                tags[nid] = kit.note_tag_runs(kit.node_notes(sn.notes))
+        for key, notes_ in scene.wire_notes(scn).items():
+            if isinstance(key, tuple):               # an inline note rides its flow's edge
+                note_runs[key] = [(" ".join(f"#{num}" for num, _t in notes_),
+                                   kit.NOTE_STYLE["inline"])]
+    for nid, text in (_node_mods(scn.graph) if mods else {}).items():
+        tags[nid] = tags.get(nid, []) + [(" ", None)] + kit.mod_runs(text)
+    for nid, sn in scn.nodes.items():
+        if sn.badges:
+            tags[nid] = tags.get(nid, []) + [(" " + badge, (kit.EDGE_COLOR["access"], None, True))
+                                             for badge in sn.badges]
+    names = _landed_tags(scn)
+    for key in names.keys() | note_runs.keys():
+        both = names.get(key, []) + ([(" ", None)] if key in names and key in note_runs else [])
+        tags[key] = both + note_runs.get(key, [])
+    return tags
+
+
+def _node_mods(g) -> dict:
+    """{node id: modifiers text} from the first place each node is written with
+    modifiers, over g and its expansions."""
+    out = {}
     for cur in kit._walk(g):
-        if mods:
-            for nid, n in cur.nodes.items():
-                text = kit.mods_text(n.mods)
-                if text and nid not in done:
-                    done.add(nid)
-                    tags[nid] = list(tags.get(nid, [])) + [(" ", None)] + kit.mod_runs(text)
-        if access:
-            for sid, badge in kit.writer_badges(cur).items():
-                tags[sid] = list(tags.get(sid, [])) + [(" " + badge,
-                                                       (kit.EDGE_COLOR["access"], None, True))]
+        for nid, n in cur.nodes.items():
+            text = kit.mods_text(n.mods)
+            if text:
+                out.setdefault(nid, text)
+    return out
 
 
 def _section_rows(parts):
@@ -979,10 +1139,12 @@ def _section_rows(parts):
 
 
 def graph_legend(triggers: bool = True, payloads: bool = False, access: bool = False,
-                 mods: bool = False):
+                 mods: bool = False, events: str = "nodes"):
     """Legend row for the graph view: the stroke and head of each arrow type,
-    then the trigger edge, structure marks (block frames, joins, branch arms),
-    the permission edges, payload and modifier chips when they are shown."""
+    then the trigger edge, an event drawn where it lands (events "land": the
+    event-coloured edge emitter → destination, its name beside the head),
+    structure marks (block frames, joins, branch arms), the permission edges,
+    payload and modifier chips when they are shown."""
     dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
     row = [("arrows ", dim)]
     for kind, word in kit.ARROW_LEGEND:
@@ -993,6 +1155,10 @@ def graph_legend(triggers: bool = True, payloads: bool = False, access: bool = F
     if triggers:
         row += [(kit._stroke_sample("trigger") * 2 + "▼", kit.edge_style("trigger")),
                 (" trigger  ", mid)]
+    if events == "land":
+        ev = (scene.colour_of("kinds-event"), None, False)
+        row += [(kit._stroke_sample("->") * 2 + _head("->") + " <E>", ev),
+                (" emits  ", mid)]
     row += [("╭╌ ↺ ∥ ◇ □", kit.FRAME_STYLE), (" block frame  ", mid),
             ("┄‹arm›┄", (kit.EDGE_COLOR["arm"], None, False)), (" branch arm  ", mid),
             ("━┷━ &", kit.LABEL_STYLE), (" join: all  ", mid), ("&?", kit.LABEL_STYLE),

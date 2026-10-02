@@ -58,6 +58,7 @@ class SiblingsPerDirectory(unittest.TestCase):
             return text[start:text.index("\n\n\n", start)]
         self.assertEqual(loader("view_graph.py"), loader("view.py"))
         self.assertEqual(loader("view_tree.py"), loader("view.py"))
+        self.assertEqual(loader("scene.py"), loader("view.py"))
 
     def test_theme_stays_in_its_directory(self):
         before = dict(self.copy.kit.GREY)

@@ -5,8 +5,11 @@ every flow as a lane in a gutter beside it.
 Not a command: view.py loads it. Outline rows (`\\-` branches and `:=`
 expansions), lanes packed into the gutter, block brackets, join taps, the right
 margin (payloads, modifiers, inline notes), margin callouts and the tree legend.
-compose_tree() returns the rows view.py prints. Drawing primitives and styles
-come from viewkit.py (read as kit.NAME, so a theme change reaches them).
+compose_tree() returns the rows view.py prints. What is wired to what, in which
+colour, with which payload, notes and join marks — and where an event is drawn —
+comes from the Scene (scene.py); this module only lays it out. Drawing
+primitives and styles come from viewkit.py (read as kit.NAME, so a theme change
+reaches them).
 """
 
 from __future__ import annotations
@@ -27,8 +30,8 @@ def _sibling(name: str, fname: str):
     applied through any of them (apply_theme rebinds viewkit's style globals)
     reaches them all, while a view.py loaded from another directory (a packaged
     copy) gets modules, theme and dialect state of its own. The cache key names
-    the directory, never the bare name. view.py, view_graph.py and view_tree.py
-    each carry a copy of this function: keep the copies identical."""
+    the directory, never the bare name. view.py, view_graph.py, view_tree.py and
+    scene.py each carry a copy of this function: keep the copies identical."""
     key = f"{name}@{_HERE}"
     if key not in sys.modules:
         spec = importlib.util.spec_from_file_location(key, _HERE / fname)
@@ -43,6 +46,7 @@ def _sibling(name: str, fname: str):
 
 
 kit = _sibling("sigil_viewkit", "viewkit.py")
+scene = _sibling("sigil_scene", "scene.py")
 
 
 # ---------------------------------------------------------------------------
@@ -67,16 +71,9 @@ class Banner(NamedTuple):
     runs: list
 
 
-def _tree_rows(g, depth: int, level: int = 0, base: int = 0, rows=None, wires=None,
-               triggers: bool = True):
-    """Flatten a graph (and its expansions, to `depth`) into outline TreeRows and
-    collect every flow as a wire (src, dst, kind, src_path, dst_path)."""
+def _tree_rows(g, depth: int, level: int = 0, base: int = 0, rows=None):
+    """Flatten a graph (and its expansions, to `depth`) into outline TreeRows."""
     rows = [] if rows is None else rows
-    wires = [] if wires is None else wires
-    wires += [(e.src, e.dst, e.kind, getattr(e, "src_path", None), getattr(e, "dst_path", None))
-              for e in g.edges]
-    for t in (getattr(g, "triggers", []) if triggers else []):   # events → their states
-        wires.append((t.event, t.dst if t.level <= depth else t.owner, "trigger", None, None))
     tree = getattr(g, "tree", [])
     kids = {}
     for i, t in enumerate(tree):
@@ -100,7 +97,7 @@ def _tree_rows(g, depth: int, level: int = 0, base: int = 0, rows=None, wires=No
             sub = g.expansions[nid]
             mark = "·" if getattr(sub, "role", "") == "state" else "─"
             before = len(rows)
-            _tree_rows(sub, depth, level + 1, d + 1, rows, wires, triggers)
+            _tree_rows(sub, depth, level + 1, d + 1, rows)
             for k in range(before, len(rows)):     # direct members hang off with :=
                 if rows[k].depth == d + 1 and not rows[k].rel:
                     rows[k] = rows[k]._replace(rel=mark)
@@ -121,20 +118,19 @@ def _tree_rows(g, depth: int, level: int = 0, base: int = 0, rows=None, wires=No
                     emit_entry(i)
         elif nid not in placed:
             emit_node(nid, base, "")
-    return rows, wires
-
-
-def _lane_colour(kind: str, src_kind: str) -> str:
-    """A lane's colour: the arrow's own colour when it has one (!> ?> ~> ]>[),
-    else its source node's kind colour."""
-    return kit.EDGE_COLOR[kind] if kind in kit.EDGE_COLOR else kit.kind_color(src_kind)
+    return rows
 
 
 def tree_legend(triggers: bool = True, payloads: bool = False, access: bool = False,
-                mods: bool = False):
+                mods: bool = False, events: str = "land"):
     """Legend rows for the tree + wires view: relations, then lanes by arrow type,
-    then the structure marks (blocks, joins, sections). Markers whose lanes take
-    their source's colour are drawn neutral."""
+    then the structure marks (blocks, joins, sections). Each arrow's sample is in
+    its own colour (scene.arrow_colour); markers whose lanes take their source's
+    colour are drawn neutral. `events`: the `›` emits entry shows only in "land"
+    mode — in "nodes" mode an event is a row with lanes in and out. Raises
+    ValueError for an unknown events mode."""
+    if events not in scene.EVENTS:
+        raise ValueError(f"events must be one of {', '.join(scene.EVENTS)}, not {events!r}")
     dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
     rel = [("tree   ", dim), ("─", kit.TREE_STYLE), (" contains  ", mid)]
     for glyph, word in (("&", "has"), ("*", "spawns"), ("?", "when"), ("$", "from data"),
@@ -143,13 +139,14 @@ def tree_legend(triggers: bool = True, payloads: bool = False, access: bool = Fa
         rel += [(glyph, kit.REL_STYLE), (f" {word}  ", mid)]
     wires = [("wires  ", dim)]
     for kind, word in kit.ARROW_LEGEND + ((("trigger", "trigger"),) if triggers else ()):
-        colour = kit.EDGE_COLOR.get(kind, kit.EDGE_DEFAULT)
+        own = scene.arrow_colour(kind)
+        colour = scene.colour_of(own) if own else kit.EDGE_DEFAULT
         sample = ("◀─▶" if kind == "<->"
                   else kit.SOURCE_MARK.get(kind, "●") + kit._stroke_sample(kind))
         wires += [(sample, (colour, None, False)), (f" {word}  ", mid)]
-    wires += [(EMIT_MARK + "─", (kit.kind_color("event"), None, False)),
-              (" emits  ", mid),
-              ("◀", (kit.GREY["light"], None, True)), (" target  ", mid),
+    if events == "land":
+        wires += [(EMIT_MARK + "─", (kit.kind_color("event"), None, False)), (" emits  ", mid)]
+    wires += [("◀", (kit.GREY["light"], None, True)), (" target  ", mid),
               ("─│─", dim), (" crossing  ", mid),
               ("■", (kit.EDGE_DEFAULT, None, False)), (" lane: its source's colour  ", mid)]
     if access:
@@ -170,58 +167,16 @@ def tree_legend(triggers: bool = True, payloads: bool = False, access: bool = Fa
     return [rel, wires, marks]
 
 
-def _collapse_events(rows, wires, g):
-    """Draw a pass-through event where it lands, not as its own row: a top-level
-    event row with no parts, expansion or state machine of its own, that is both
-    emitted (a flow into it) and delivered (a flow or trigger out of it), goes;
-    each emitter is wired straight to each destination, and the event's label
-    sits on the destination's row (a state's row already names its triggers).
-    Returns (rows, wires, emitted lane keys, {destination id: [event nodes]},
-    {emitted key: [the emission and delivery keys it merges]})."""
-    nodes = {}
-    for cur in kit._walk(g):
-        for nid, n in cur.nodes.items():
-            nodes.setdefault(nid, n)
-    has_parts = {r.node.id for k, r in enumerate(rows)
-                 if r and k + 1 < len(rows) and rows[k + 1] and rows[k + 1].depth > r.depth}
-    owners = {nid for cur in kit._walk(g) for nid, sub in cur.expansions.items()}
-    candidates = {r.node.id for r in rows if r and r.depth == 0 and r.node.kind == "event"
-                  and r.node.id not in has_parts and r.node.id not in owners}
-    emitted, landed, merged = set(), {}, {}
-    gone, out_wires = set(), []
-    for ev in candidates:
-        into = [w for w in wires if w[1] == ev and w[2] != "trigger" and w[0] != ev]
-        onward = [w for w in wires if w[0] == ev and w[1] != ev]
-        if not into or not onward:
-            continue
-        gone.add(ev)
-        for a in into:
-            for b in onward:
-                # a failure emission stays a failure path (!> stroke, ✖ source)
-                kind = "!>" if a[2] == "!>" and b[2] != "trigger" else b[2]
-                key = (a[0], b[1], kind)
-                if key not in merged:
-                    out_wires.append((a[0], b[1], kind, a[3], b[4]))
-                    merged[key] = [a[:3], b[:3]]
-                    if kind != "!>":
-                        emitted.add(key)
-                if b[2] != "trigger":
-                    events = landed.setdefault(b[1], [])
-                    if nodes[ev] not in events:
-                        events.append(nodes[ev])
-    if not gone:
-        return rows, wires, frozenset(), {}, {}
-    kept = [w for w in wires if w[0] not in gone and w[1] not in gone]
-    rows = [r for r in rows if not (r and r.depth == 0 and r.node.id in gone)]
-    return rows, kept + out_wires, frozenset(emitted), landed, merged
-
-
 def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
                  notes: str = "off", payloads: bool = False, width: int | None = None,
-                 access: bool = False, mods: bool = False):
+                 access: bool = False, mods: bool = False, events: str = "land"):
     """The drawing as outline rows with a lane gutter; same return shape as compose().
-    `triggers`: draw event → state lanes. `spaced`: a blank row between top-level
-    units (a root with parts, or the first root after one). `notes`: "markers" tags
+    `triggers`: draw event → state lanes. `events`: "land" draws a pass-through
+    event where it lands — no row of its own, its emitters wired straight to its
+    destinations (a `›` source), its label on each destination's row; "nodes"
+    keeps it as a row with lanes in and out (see scene.land_events). `spaced`: a
+    blank row between top-level units (a root with parts, or the first root after
+    one). `notes`: "markers" tags
     commented rows `#N` and lists the notes below; "callouts" draws them as boxes in
     a left margin, each tied to its row by a leader. `payloads`: draw each flow's
     payload as a chip in a right margin, on its target row (the mirror of the
@@ -242,38 +197,26 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     `access`: the permission graph as dotted lanes from each principal (marked r
     / w / b) into its store, a store badged `1w` / `Nw` writers. `mods`:
     modifiers after a node's label, and after the payload in a flow's chip."""
-    idx = kit.note_index(g) if notes != "off" else {}
-    rows, wires = _tree_rows(g, depth, triggers=triggers)
+    scn = scene.build_scene(g, events=events, triggers=triggers, access=access, depth=depth)
+    rows = [r for r in _tree_rows(g, depth)
+            if not (r.depth == 0 and r.node.id in scn.collapsed)]
     if not rows:
         return [], 0
-    rows, wires, emitted, landed, merged = _collapse_events(rows, wires, g)
-    if access:
-        wires = wires + [(a.principal, a.store, kit.access_kind(a), None, None)
-                         for cur in kit._walk(g) for a in getattr(cur, "access", None) or []
-                         if a.principal and a.store and a.principal != a.store]
+    idx = scn.notes if notes != "off" else {}
+    wires = _lane_wires(scn)
     if spaced:
         rows = _space_units(rows)
-    rows, brackets, arms = _tree_banners(rows, g)
+    rows, brackets = _tree_banners(rows, g)
     xs, x0 = _bracket_cols(brackets)
-    after_label = _tree_extras(g, access, mods, arms)
-    for nid, events in landed.items():          # an event shows where it lands
-        after_label[nid] = [run for ev in events
-                            for run in [(" ", None)] + kit.glyph_runs(kit.node_label(ev), "event")
-                            ] + after_label.get(nid, [])
-    joins = _join_marks(g)
+    after_label = _tree_extras(scn, mods)
+    joins = scene.join_marks(scn)
     # Block notes are about a component: tagged on its row, called out on the
     # left. Inline notes are about their line: they trail it on the right, after
     # the payload the line carries — as in the source.
     blocks = {nid: [e for e in es if e[2] == "block"] for nid, es in idx.items()}
     blocks = {nid: es for nid, es in blocks.items() if es}
-    payload_of = _payload_of(g, payloads, mods) if (payloads or mods) else {}
-    trailing = _trailing_notes(idx) if notes != "off" else {}
-    for key, parts in merged.items():           # an emitted lane carries both legs'
-        for table in (payload_of, trailing):
-            got = [table[p] for p in parts if p in table]
-            if got and key not in table:
-                table[key] = (" · ".join(got) if isinstance(got[0], str)
-                              else [x for part in got for x in part])
+    payload_of = scene.chip_texts(scn, payloads, mods) if (payloads or mods) else {}
+    trailing = scene.wire_notes(scn) if notes != "off" else {}
     bases = {}
 
     def base(left: bool, right: bool):
@@ -284,14 +227,11 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
             out = _draw_outline(cv, rows, blocks, show_tags=notes != "callouts" or left,
                                 x0=x0, extra=after_label)
             _draw_brackets(cv, brackets, xs, x0)
-            lanes = _collect_lanes(cv, wires, out)
-            placed = _pack_lanes(lanes, max(out.ends) + 3, out.node, emitted)
-            _draw_lanes(cv, placed, out.ends,
-                        frozenset(i for i, ln in enumerate(lanes) if ln[2:5] in emitted))
+            lanes = _pack_lanes(_collect_lanes(cv, wires, out), max(out.ends) + 3)
+            _draw_lanes(cv, lanes, out.ends)
             _draw_join_taps(cv, lanes, out.ends, joins)
             moved = [] if right else None
-            drawn = _draw_right_margin(cv, lanes, placed, out, payload_of, trailing, notes,
-                                       moved)
+            drawn = _draw_right_margin(cv, lanes, out, payload_of, trailing, notes, moved)
             for y, row in enumerate(rows):      # section rules run the full width
                 if isinstance(row, Banner) and row.kind == "section" and out.ends[y] < cv.w:
                     cv.put(out.ends[y], y, "─" * (cv.w - out.ends[y]), kit.SECTION_STYLE)
@@ -355,7 +295,7 @@ def _tree_banners(rows, g):
     """rows with banners inserted: a section divider before the first top-level
     unit of each `--- section ---`, and each control block's header — before the
     first member row the block introduces (else after its last member row).
-    Returns (rows, brackets, arm labels {entry node id: [label]})."""
+    Returns (rows, brackets)."""
     first = {}
     for i, r in enumerate(rows):
         if isinstance(r, TreeRow):
@@ -371,7 +311,6 @@ def _tree_banners(rows, g):
                     cur = k
                     pending.append((i, (1, 0), Banner("section", kit.section_rule(
                         kit.section_name(secs[k]))), None))
-    arms = {}
     seen_graphs = {id(r.graph): r.graph for r in rows if isinstance(r, TreeRow)}
     for G in seen_graphs.values():
         blocks = getattr(G, "blocks", None) or []
@@ -385,12 +324,8 @@ def _tree_banners(rows, g):
             at, prio = (min(intro), 2) if intro else (max(ys) + 1, 0)
             span = b.lines[1] - b.lines[0]
             pending.append((at, (prio, -span), Banner("block", kit.block_title_runs(b)), ys))
-            if b.kind == "branch":
-                for label, ids in b.arm_nodes:
-                    if ids:
-                        arms.setdefault(ids[0], []).append(label)
     if not pending:
-        return rows, [], arms
+        return rows, []
     pending.sort(key=lambda p: (p[0], p[1]))
     out, new_at, brackets, k = [], {}, [], 0
     for i in range(len(rows) + 1):
@@ -403,7 +338,7 @@ def _tree_banners(rows, g):
         if i < len(rows):
             new_at[i] = len(out)
             out.append(rows[i])
-    return out, [_Bracket(h, [new_at[y] for y in ys]) for h, ys in brackets], arms
+    return out, [_Bracket(h, [new_at[y] for y in ys]) for h, ys in brackets]
 
 
 BRACKET_GAP = 2                                 # columns between block brackets
@@ -479,7 +414,6 @@ class _Outline:
     by_id: dict                                 # node id → the rows it is drawn on
     chain_at: dict                              # y → names root → this row
     tagged: dict                                # node id → row carrying its #N
-    node: dict                                  # node id → its node (first row's)
 
 
 def _draw_outline(cv: kit.Canvas, rows, idx: dict, show_tags: bool = True, x0: int = 0,
@@ -489,7 +423,7 @@ def _draw_outline(cv: kit.Canvas, rows, idx: dict, show_tags: bool = True, x0: i
     state) the triggers that lead into it, one row each. A banner row (a section
     divider, a block's header) is drawn as its runs; a block header inside a
     unit sits at its next row's label column, the rails it interrupts bridged."""
-    out = _Outline([], {}, {}, {}, {})
+    out = _Outline([], {}, {}, {})
     stack = []
     guides = _guides(rows)
     extra, extra_done, bridges = extra or {}, set(), []
@@ -545,7 +479,6 @@ def _draw_outline(cv: kit.Canvas, rows, idx: dict, show_tags: bool = True, x0: i
                 x += 1 + len(" ".join(into))
         out.ends.append(x)
         out.by_id.setdefault(n.id, []).append(y)
-        out.node.setdefault(n.id, n)
 
     def rail(y, step):
         while 0 <= y < len(rows) and isinstance(rows[y], Banner):
@@ -562,69 +495,100 @@ def _draw_outline(cv: kit.Canvas, rows, idx: dict, show_tags: bool = True, x0: i
     return out
 
 
-def _collect_lanes(cv: kit.Canvas, wires, out: _Outline):
-    """One lane (lo, hi, src, dst, kind, src rows, dst rows) per distinct wire,
-    over every row where either end occurs, shortest first; a self-loop is marked
-    ↺ on its row instead."""
+LANE_ROLES = ("flow", "trigger", "emit", "access")     # the wires drawn as lanes
+
+
+def _lane_wires(scn) -> list:
+    """The Scene's wires the gutter draws, one per stroke — flows, triggers, emits
+    (the first of a key: one stroke per emitter → destination), permissions —
+    keyed by (key, qualified ends); an emit wire takes the place of a flow it
+    coincides with (the event is what that stroke carries)."""
+    out, emitted = {}, set()
+    for w in scn.wires:
+        if w.role not in LANE_ROLES or (w.role == "emit" and w.key in emitted):
+            continue
+        if w.role == "emit":
+            emitted.add(w.key)
+            out[(w.key, w.paths)] = w
+        else:
+            out.setdefault((w.key, w.paths), w)
+    return list(out.values())
+
+
+class _Lane(NamedTuple):
+    """A wire in the gutter: the rows it spans and the rows of each end; x and
+    style once packed (_pack_lanes)."""
+    lo: int
+    hi: int
+    wire: object                                # scene.Wire
+    sy: list                                    # its source's rows
+    dy: list                                    # its target's rows
+    x: int = 0
+    style: tuple = None
+
+
+def _collect_lanes(cv: kit.Canvas, wires, out: _Outline) -> list:
+    """One _Lane per wire, over every row where either end occurs, shortest
+    first; a self-loop is marked ↺ on its row instead."""
     def at(nid, path):
         ys = out.by_id.get(nid, [])
         if path:
             ys = [y for y in ys if out.chain_at[y][-len(path):] == tuple(path)]
         return ys
 
-    lanes, seen = [], set()
-    for wire in wires:
-        if wire in seen:
-            continue
-        seen.add(wire)
-        src, dst, kind, spath, dpath = wire
-        sy, dy = at(src, spath), at(dst, dpath)
+    lanes = []
+    for w in wires:
+        (spath, dpath) = w.paths
+        sy, dy = at(w.src, spath), at(w.dst, dpath)
         if not sy or not dy:
             continue
-        if src == dst and not spath and not dpath:
+        if w.src == w.dst and not spath and not dpath:
             for y in sy:
-                cv.put(out.ends[y] + 1, y, "↺", kit.edge_style(kind))
+                cv.put(out.ends[y] + 1, y, "↺", kit.edge_style(w.kind))
             continue
         ys = sorted(set(sy) | set(dy))
-        lanes.append((ys[0], ys[-1], src, dst, kind, sy, dy))
-    lanes.sort(key=lambda lane: (lane[1] - lane[0], lane[0]))
+        lanes.append(_Lane(ys[0], ys[-1], w, sy, dy))
+    lanes.sort(key=lambda lane: (lane.hi - lane.lo, lane.lo))
     return lanes
 
 
-def _pack_lanes(lanes, left: int, node: dict, emitted: frozenset = frozenset()):
-    """Give each lane a gutter column (interval-packed) and its style:
-    (x, lo, hi, src rows, dst rows, kind, style). An emitted lane (an event
-    drawn where it lands, see _collapse_events) takes the event colour."""
-    cols, placed = [], []
-    for lo, hi, src, dst, kind, sy, dy in lanes:
-        x = left + kit._first_fit(cols, lo, hi) * LANE_GAP
-        colour = (kit.kind_color("event") if (src, dst, kind) in emitted
-                  else _lane_colour(kind, node[src].kind))
-        style = (colour, None, False)
-        placed.append((x, lo, hi, sy, dy, kind, style))
-    return placed
+def _pack_lanes(lanes, left: int) -> list:
+    """Each lane with its gutter column (interval-packed from `left`) and its
+    stroke style (its wire's colour, scene.wire_style)."""
+    cols = []
+    return [lane._replace(x=left + kit._first_fit(cols, lane.lo, lane.hi) * LANE_GAP,
+                          style=scene.wire_style(lane.wire))
+            for lane in lanes]
 
 
 EMIT_MARK = "›"          # the source of a lane that carries an emitted event
 
 
-def _draw_lanes(cv: kit.Canvas, placed, ends, emitted: frozenset = frozenset()):
+def _source_mark(w) -> str:
+    """The mark at a lane's source tap: `›` for an emitted event (a failure
+    emission keeps its ✖), else the arrow's own source mark."""
+    if w.role == "emit" and w.kind != "!>":
+        return EMIT_MARK
+    return kit.SOURCE_MARK.get(w.kind, "●")
+
+
+def _draw_lanes(cv: kit.Canvas, lanes, ends):
     """Verticals first; then each row's runs out to the lanes it taps, hopping
     (─│─) over lanes it merely crosses, so a joint (┤ ┴ ┬ ┼) only ever appears
     where a lane is actually tapped."""
     verticals = set()
-    for x, lo, hi, _s, _d, kind, style in placed:
-        if hi > lo:
-            cv.path([(x, lo), (x, hi)], kind, style)
-            verticals |= {(x, y) for y in range(lo, hi + 1)}
+    for ln in lanes:
+        if ln.hi > ln.lo:
+            cv.path([(ln.x, ln.lo), (ln.x, ln.hi)], ln.wire.kind, ln.style)
+            verticals |= {(ln.x, y) for y in range(ln.lo, ln.hi + 1)}
 
     taps = {}                                   # y → [(lane x, kind, style, role, mark)]
-    for i, (x, lo, hi, sy, dy, kind, style) in enumerate(placed):
-        mark = EMIT_MARK if i in emitted else kit.SOURCE_MARK.get(kind, "●")
-        for y in sy:
-            taps.setdefault(y, []).append((x, kind, style, "src", mark))
-        for y in dy:
-            taps.setdefault(y, []).append((x, kind, style, "dst", mark))
+    for ln in lanes:
+        mark = _source_mark(ln.wire)
+        for y in ln.sy:
+            taps.setdefault(y, []).append((ln.x, ln.wire.kind, ln.style, "src", mark))
+        for y in ln.dy:
+            taps.setdefault(y, []).append((ln.x, ln.wire.kind, ln.style, "dst", mark))
 
     heads = []
     for y, row_taps in taps.items():
@@ -660,75 +624,53 @@ def _draw_lanes(cv: kit.Canvas, placed, ends, emitted: frozenset = frozenset()):
         cv.put(x, y, ch, st)
 
 
-def _payload_of(g, payloads: bool = True, mods: bool = False) -> dict:
-    """(src, dst, kind) → the chip text its flow carries — its payload, and with
-    `mods` its modifiers (`payload ┆ @timeout 30s ×3`) — across g and its expansions."""
+def _mods_texts(g) -> dict:
+    """{node id: its modifiers' text}: the first graph (g, then its expansions)
+    that gives the node any — a node written bare in one graph may carry them
+    in another."""
     out = {}
-    for sub in kit._walk(g):
-        for e in sub.edges:
-            text = kit.chip_text(*kit.chip_parts(e, payloads, mods))
-            if text:
-                out.setdefault((e.src, e.dst, e.kind), text)
-    return out
-
-
-def _tree_extras(g, access: bool, mods: bool, arms: dict) -> dict:
-    """{node id: runs} drawn after a node's label in the tree: its modifiers (m),
-    its writer badge (a), the branch arms it is the entry of (‹read›)."""
-    extra = {}
     for cur in kit._walk(g):
         for nid, n in cur.nodes.items():
-            text = kit.mods_text(n.mods) if mods else ""
-            if text and nid not in extra:
-                extra[nid] = [(" ", None)] + kit.mod_runs(text)
-        if access:
-            for sid, badge in kit.writer_badges(cur).items():
-                extra.setdefault(sid, []).append((" " + badge, (kit.EDGE_COLOR["access"], None, True)))
-    for nid, labels in arms.items():
-        extra.setdefault(nid, []).extend(
-            (f" ‹{label}›", (kit.EDGE_COLOR["arm"], None, True)) for label in labels)
-    return extra
-
-
-def _join_marks(g) -> dict:
-    """(src, dst, kind) → {"src" | "dst": join label}: the flows that leave or
-    enter a drawn join (`&` `&?` `/`), across g and its expansions."""
-    out = {}
-    for cur in kit._walk(g):
-        for e in cur.edges:
-            for side in ("src", "dst"):
-                idx = kit.drawn_join(cur, e, side)
-                if idx is not None:
-                    out.setdefault((e.src, e.dst, e.kind), {})[side] = cur.joins[idx].kind
+            text = kit.mods_text(n.mods)
+            if text:
+                out.setdefault(nid, text)
     return out
+
+
+def _tree_extras(scn, mods: bool) -> dict:
+    """{node id: runs} drawn after a node's label in the tree: the events that land
+    on it, its modifiers (mods), its writer badge (the access option), the branch
+    arms it is the entry of (‹read›)."""
+    texts = _mods_texts(scn.graph) if mods else {}
+    extra = {}
+    for nid, sn in scn.nodes.items():
+        runs = [run for ev in sn.landed
+                for run in [(" ", None)] + kit.glyph_runs(kit.node_label(ev), "event")]
+        text = texts.get(nid)
+        if text:
+            runs += [(" ", None)] + kit.mod_runs(text)
+        runs += [(" " + badge, (kit.EDGE_COLOR["access"], None, True)) for badge in sn.badges]
+        runs += [(f" ‹{label}›", (kit.EDGE_COLOR["arm"], None, True)) for label in sn.arms]
+        if runs:
+            extra[nid] = runs
+    return extra
 
 
 def _draw_join_taps(cv: kit.Canvas, lanes, ends, joins: dict):
     """A joined flow's label on its taps, beside the row's label: `◀&` where a
-    fork's branch arrives, `─&` where a fan-in's source leaves."""
-    for _lo, _hi, src, dst, kind, sy, dy in lanes:
-        mark = joins.get((src, dst, kind))
+    fork's branch arrives, `─&` where a fan-in's source leaves. joins: {key:
+    {"src" | "dst": join}} (scene.join_marks)."""
+    for ln in lanes:
+        mark = joins.get(ln.wire.key)
         if not mark:
             continue
-        for side, ys in (("dst", dy), ("src", sy)):
+        for side, ys in (("dst", ln.dy), ("src", ln.sy)):
             if side in mark:
                 for y in ys:
                     cv.put(ends[y] + 2, y, mark[side], kit.LABEL_STYLE)
 
 
-def _trailing_notes(idx: dict) -> dict:
-    """Inline notes by what their line drew: (src, dst, kind) for a flow line, the
-    node id for a line that only placed a node → [(number, text)]."""
-    out = {}
-    for nid, entries in idx.items():
-        for num, text, kind, edges in entries:
-            if kind == "inline":
-                for key in (edges or (nid,)):
-                    out.setdefault(key, []).append((num, text))
-    return out
-
-
-def _draw_right_margin(cv: kit.Canvas, lanes, placed, out: _Outline, payload_of: dict,
+def _draw_right_margin(cv: kit.Canvas, lanes, out: _Outline, payload_of: dict,
                        trailing: dict, notes: str, moved: list | None = None) -> set:
     """The right margin, the mirror of the note callouts: on each flow's target row
     the payload it carries (a ┆chip┆) and the inline comment from its line; on a
@@ -738,14 +680,14 @@ def _draw_right_margin(cv: kit.Canvas, lanes, placed, out: _Outline, payload_of:
     payloads were drawn. With `moved` (a list), a row's payloads and comment text
     are relocated instead: the row ends in a `┆a┆` marker and moved gets
     (letter, payloads, [(number, text)]); `#N` markers stay on the row."""
-    margin = max([x for x, *_ in placed] + [max(out.ends) - 1]) + 3
+    margin = max([ln.x for ln in lanes] + [max(out.ends) - 1]) + 3
     rightmost, chips, notes_at, drawn = {}, {}, {}, set()
-    for (_lo, _hi, src, dst, kind, _sy, _dy), (x, _l, _h, sy, dy, _k, _st) in zip(lanes, placed):
-        for y in list(sy) + list(dy):
-            rightmost[y] = max(rightmost.get(y, 0), x)
-        key = (src, dst, kind)
+    for ln in lanes:
+        for y in list(ln.sy) + list(ln.dy):
+            rightmost[y] = max(rightmost.get(y, 0), ln.x)
+        key = ln.wire.key
         text = payload_of.get(key)
-        for y in dy:
+        for y in ln.dy:
             if text and text not in chips.setdefault(y, []):
                 chips[y].append(text)
             for note in trailing.get(key, ()):

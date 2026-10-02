@@ -19,6 +19,13 @@ Options:
     --color WHEN     auto (default: colour when stdout is a tty) | always | never.
     --theme NAME     Colour theme: a name in themes/ or a .yaml path (default:
                      env SIGIL_THEME, else sigil). See themes.py.
+    --events MODE    land | nodes: how a pass-through event is drawn. land: where
+                     it lands — no row / box of its own, each emitter wired straight
+                     to each destination in the event's colour (tree: the › emit
+                     marker, the event named on the destination row; graph: the
+                     event named beside the edge's head). nodes: as a row / box of
+                     its own (a hub). Default: tree land, graph nodes; given, it
+                     sets both views.
     --tree           Tree + wires: the composition tree (`\\-` branches and `:=`
                      expansions) as an outline, every flow as a lane in a gutter —
                      ● marks a lane's source, ◀ each target; a row's run hops a lane
@@ -41,7 +48,7 @@ Keys (live view):
     d  cycle depth (0 → 1 → all)   p  payloads   m  modifiers   a  access
     l  lint panel   r  reload
     t  toggle graph / tree + wires   e  triggers (event ⇢ the state it drives)
-    s  spacing between units
+    s  spacing between units      v  events: where they land / as nodes (per view)
     n  notes: off → #N markers + list → margin callouts (tree view)
     arrows / h j k L scroll   pgup / pgdn / space page   g home   c  re-centre   q  quit
 
@@ -110,8 +117,8 @@ def _sibling(name: str, fname: str):
     applied through any of them (apply_theme rebinds viewkit's style globals)
     reaches them all, while a view.py loaded from another directory (a packaged
     copy) gets modules, theme and dialect state of its own. The cache key names
-    the directory, never the bare name. view.py, view_graph.py and view_tree.py
-    each carry a copy of this function: keep the copies identical."""
+    the directory, never the bare name. view.py, view_graph.py, view_tree.py and
+    scene.py each carry a copy of this function: keep the copies identical."""
     key = f"{name}@{_HERE}"
     if key not in sys.modules:
         spec = importlib.util.spec_from_file_location(key, _HERE / fname)
@@ -128,6 +135,7 @@ def _sibling(name: str, fname: str):
 kit = _sibling("sigil_viewkit", "viewkit.py")
 vgraph = _sibling("sigil_view_graph", "view_graph.py")
 vtree = _sibling("sigil_view_tree", "view_tree.py")
+scene = _sibling("sigil_scene", "scene.py")
 
 
 def __getattr__(name: str):
@@ -149,6 +157,21 @@ dialects = (kit._load("sigil_dialects", "dialects.py") if (_HERE / "dialects.py"
 # ---------------------------------------------------------------------------
 
 NOTE_MODES = ("off", "markers", "callouts")
+EVENT_MODES = scene.EVENTS                       # --events / v: "land" | "nodes"
+DEFAULT_EVENTS = {"tree": "land", "graph": "nodes"}   # each view's own default
+
+
+def view_name(tree: bool) -> str:
+    """The key of a view in DEFAULT_EVENTS / ViewState.events."""
+    return "tree" if tree else "graph"
+
+
+def events_by_view(events: str | None) -> dict:
+    """{view: events mode} to start with: `events` (--events) for both views when
+    given, else each view's default."""
+    return {v: events or d for v, d in DEFAULT_EVENTS.items()}
+
+
 ONCE_WIDTH = 100                                # --once width when stdout isn't a tty
 LEGEND_WIDTH = 100                              # --once legend wrap width
 
@@ -168,13 +191,15 @@ def wrap_legend(row, cols: int):
     return out
 
 
-KEY_LEGEND = (("t", "tree/graph"), ("n", "notes"), ("e", "triggers"), ("s", "spacing"),
+KEY_LEGEND = (("t", "tree/graph"), ("n", "notes"), ("e", "triggers"), ("v", "events"),
+              ("s", "spacing"),
               ("d", "depth"), ("p", "payloads"), ("m", "mods"), ("a", "access"),
               ("l", "lint"), ("c", "centre"), ("g", "home"), ("r", "reload"), ("q", "quit"))
 
 
 def keys_legend(state):
-    """The hotkeys row for a ViewState; toggles that are on are shown bright."""
+    """The hotkeys row for a ViewState; toggles that are on are shown bright (the
+    events mode: when the active view's differs from its default)."""
     dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
     on = {"t": state.tree, "e": state.show_triggers, "s": state.spaced,
           "p": state.payloads, "l": state.show_lint, "n": state.notes != "off",
@@ -184,6 +209,9 @@ def keys_legend(state):
         bright = on.get(key)
         if key == "n":
             word = f"notes:{state.notes}"
+        elif key == "v":
+            word = f"events:{state.events_mode}"
+            bright = state.events_mode != DEFAULT_EVENTS[view_name(state.tree)]
         elif key == "d":
             word = f"depth:{'all' if state.depth >= kit.ALL_DEPTH else state.depth}"
             bright = state.depth > 0
@@ -199,20 +227,25 @@ def keys_legend(state):
 def once(path: Path, depth: int, payloads: bool, do_lint: bool,
          dialect=None, colour: bool = False, tree: bool = False,
          triggers: bool = True, spaced: bool = True, notes: str = "off",
-         width: int | None = None, access: bool = False, mods: bool = False) -> int:
+         width: int | None = None, access: bool = False, mods: bool = False,
+         events: str | None = None) -> int:
     """Print the drawing once. `width`: the columns to fit it to (None: its
     natural width); the legend wraps at the narrower of that and LEGEND_WIDTH.
+    `events`: "land" | "nodes" (None: the view's default, DEFAULT_EVENTS).
     The summary line ends with the document's `#!mode`, when it has one."""
     kit.use_dialect(dialect)
     text = path.read_text()
     g = kit._call(kit.render.parse_document, text, dialect)
-    rows, _w = (vtree.compose_tree(g, depth, triggers, spaced, notes, payloads, width, access, mods)
-                if tree else vgraph.compose(g, depth, payloads, notes, triggers, width, access, mods))
+    events = events or DEFAULT_EVENTS[view_name(tree)]
+    rows, _w = (vtree.compose_tree(g, depth, triggers, spaced, notes, payloads, width, access,
+                                   mods, events)
+                if tree else vgraph.compose(g, depth, payloads, notes, triggers, width, access,
+                                            mods, events))
     out = [kit.ansi(r, colour) for r in rows]
     if tree:
         legend_w = LEGEND_WIDTH if width is None else min(LEGEND_WIDTH, width)
-        out += [""] + [kit.ansi(ln, colour) for r in vtree.tree_legend(triggers, payloads, access, mods)
-                       for ln in wrap_legend(r, legend_w)]
+        legend = vtree.tree_legend(triggers, payloads, access, mods, events)
+        out += [""] + [kit.ansi(ln, colour) for r in legend for ln in wrap_legend(r, legend_w)]
     out.append("")
     mode = kit.doc_mode(text)
     out.append(f"{path.name}: {len(g.nodes)} nodes, {len(g.edges)} edges, "
@@ -246,12 +279,15 @@ class ViewState:
     def __init__(self, path: Path, depth: int = 1, payloads: bool = False,
                  do_lint: bool = True, dialect=None, tree: bool = False,
                  triggers: bool = True, spaced: bool = True, notes: str = "off",
-                 access: bool = False, mods: bool = False):
+                 access: bool = False, mods: bool = False, events: str | None = None):
+        """`events`: the events mode both views start in (None: each view's
+        default, DEFAULT_EVENTS); each view then keeps its own (key v)."""
         self.path = path
         self.show_access = access
         self.show_mods = mods
         self.mode = ""
         self.tree = tree
+        self.events = events_by_view(events)   # {view: "land" | "nodes"}
         self.notes = notes
         self.show_triggers = triggers
         self.spaced = spaced
@@ -272,6 +308,11 @@ class ViewState:
         self._vh = 1                   # viewport height of the last frame (a page)
         self._rows, self._width = [], 0  # the drawing at its natural width
         self._fit = None               # (cols, rows, width): the drawing fitted to cols
+
+    @property
+    def events_mode(self) -> str:
+        """The active view's events mode."""
+        return self.events[view_name(self.tree)]
 
     # -- model ---------------------------------------------------------------
 
@@ -311,10 +352,11 @@ class ViewState:
             return [], 0
         if self.tree:
             return vtree.compose_tree(self.graph, self.depth, self.show_triggers, self.spaced,
-                                self.notes, self.payloads, width, self.show_access,
-                                self.show_mods)
+                                      self.notes, self.payloads, width, self.show_access,
+                                      self.show_mods, self.events_mode)
         return vgraph.compose(self.graph, self.depth, self.payloads, self.notes,
-                       self.show_triggers, width, self.show_access, self.show_mods)
+                              self.show_triggers, width, self.show_access, self.show_mods,
+                              self.events_mode)
 
     def fitted(self, cols: int):
         """(rows, width): the drawing rearranged to fit `cols` columns when it can
@@ -339,6 +381,11 @@ class ViewState:
             self._recompose()
         elif k == "n":
             self.notes = NOTE_MODES[(NOTE_MODES.index(self.notes) + 1) % len(NOTE_MODES)]
+            self._recompose()
+        elif k == "v":                 # flips the active view's mode only
+            view = view_name(self.tree)
+            self.events[view] = EVENT_MODES[(EVENT_MODES.index(self.events[view]) + 1)
+                                            % len(EVENT_MODES)]
             self._recompose()
         elif k == "e":
             self.show_triggers = not self.show_triggers
@@ -400,9 +447,9 @@ class ViewState:
                 rows[-1] = [(f"… {len(self.diags) - len(shown) + 1} more (view.py --once)",
                              (kit.GREY["mid"], None, False))]
         legend = (vtree.tree_legend(self.show_triggers, self.payloads, self.show_access,
-                              self.show_mods) if self.tree
+                                    self.show_mods, self.events_mode) if self.tree
                   else [vgraph.graph_legend(self.show_triggers, self.payloads, self.show_access,
-                                     self.show_mods)])
+                                            self.show_mods, self.events_mode)])
         rows[0:0] = [ln for r in legend + [keys_legend(self)] for ln in wrap_legend(r, cols)]
         rows.insert(0, self._legend_rule(cols))
         return [kit.clip(r, 0, cols) for r in rows]
@@ -428,7 +475,7 @@ class ViewState:
             left.append((f"{self.mode} ", kit.MODE_STYLE))
         if self.title:
             left.append((f" {self.title} ·", kit.BAR_NAME_STYLE))
-        view = "tree" if self.tree else "graph"
+        view = view_name(self.tree)
         left.append((f" {summary} · {view} · depth {d} · {self.updated} ", kit.BAR_STYLE))
         if n_err or n_warn:
             left.append((f"{n_err}E {n_warn}W ", (kit.SEVERITY_COLOR["error" if n_err else "warn"],
@@ -586,6 +633,10 @@ def main() -> int:
                     help="draw the permission graph: principal → store, headed r / w / b")
     ap.add_argument("--mods", action="store_true",
                     help="draw modifiers: chips on edges, after node labels")
+    ap.add_argument("--events", choices=EVENT_MODES, default=None,
+                    help="land: a pass-through event drawn where it lands (emitter wired "
+                         "to each destination); nodes: as a row / box of its own "
+                         "(default: tree land, graph nodes)")
     ap.add_argument("--tree", action="store_true",
                     help="tree + wires: the composition tree as an outline, flows as lanes")
     ap.add_argument("--width", type=_width_arg, default=None, metavar="N",
@@ -615,9 +666,10 @@ def main() -> int:
         colour = a.color == "always" or (a.color == "auto" and tty_out)
         width = a.width or (shutil.get_terminal_size().columns if tty_out else ONCE_WIDTH)
         return once(a.file, a.depth, a.payloads, not a.no_lint, dialect, colour, a.tree,
-                    not a.no_triggers, not a.compact, a.notes, width, a.access, a.mods)
+                    not a.no_triggers, not a.compact, a.notes, width, a.access, a.mods,
+                    a.events)
     tui(ViewState(a.file, a.depth, a.payloads, not a.no_lint, dialect, a.tree,
-                  not a.no_triggers, not a.compact, a.notes, a.access, a.mods))
+                  not a.no_triggers, not a.compact, a.notes, a.access, a.mods, a.events))
     return 0
 
 
