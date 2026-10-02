@@ -12,8 +12,9 @@ Canonical sources (edit these, never dist/):
     plugin/commands/*.md       slash commands; bodies use $1 / $ARGUMENTS and the
                                placeholder @SCRIPTS@ for the skill's scripts dir
     lint.py render.py view.py  copied into skills/sigil/scripts/ (required)
-    viewkit.py view_graph.py   view.py's drawing modules and the scene layer,
-    view_tree.py scene.py      copied alongside (required)
+    viewkit.py view_graph.py   view.py's drawing modules, the scene layer and
+    view_tree.py scene.py      the simulation engine, copied alongside (required)
+    sim.py
     dialects.py themes.py      copied alongside when present (optional)
     themes/*.yaml              copied into skills/sigil/scripts/themes/
     language.md examples.md    copied into skills/sigil/references/
@@ -57,9 +58,9 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent
 
 TOOLS = ["lint.py", "render.py", "view.py", "viewkit.py", "view_graph.py", "view_tree.py",
-         "scene.py", "dialects.py", "themes.py"]
+         "scene.py", "sim.py", "dialects.py", "themes.py"]
 REQUIRED_TOOLS = {"lint.py", "render.py", "view.py", "viewkit.py", "view_graph.py",
-                  "view_tree.py", "scene.py"}
+                  "view_tree.py", "scene.py", "sim.py"}
 REFERENCES = ["language.md", "examples.md"]
 TARGETS = ["claude", "codex", "pi", "opencode"]
 SKILL = "sigil"
