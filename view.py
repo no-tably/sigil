@@ -163,7 +163,7 @@ _BUILTIN_THEME = {
     "ui": {"text": "#c9d1d9", "muted": "#8b949e", "dim": "#6e7681", "tree": "#6e7681",
            "relation": "#5abea0", "label": "#5abea0", "title": "#c9d1d9",
            "payload": "#8b949e", "note": "#8b949e", "note_tag": "#6e7681",
-           "note_block": "#8b7aad", "note_inline": "#a5d6ff", "name_saturation": "0.25",
+           "note_block": "#8b7aad", "note_inline": "#a5d6ff", "name_saturation": "0.4",
            "bar_fg": "#c9d1d9", "bar_bg": "#161b22", "bar_name": "#e6edf3",
            "key_fg": "#e6edf3", "key_bg": "#30363d",
            "error": "#f85149", "warn": "#ffbf47", "ok": "#3fb950", "fill": "0.22",
