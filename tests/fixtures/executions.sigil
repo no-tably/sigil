@@ -31,7 +31,7 @@ follow := [Crawler] -> follow(.links)
 
 # E11 several calls into one target: reserve, then write; on failure release
 [Indexer] -> |Index| : reserve(${shard}) => {Lease}
-[Indexer] -> |Index| : write({Doc}, {Lease}) @fallback(skip())
+[Indexer] -> |Index| : write({Doc}, {Lease})
           !> |Index| : release({Lease})
 # a call repeated once per page
 loop @each page of {Site}.pages {

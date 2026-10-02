@@ -45,7 +45,7 @@ view draws (events drawn where they land, a shallower depth).
   `!>` only on failure. A join's members are resolved first, then its arrow
   runs them: on `~>` forked unawaited.
   A failure stops the activation it reaches, fires its routes (those guarded
-  by the failed block first, else its unguarded ones), ends it failed and
+  by the failed block or call first, else its unguarded ones), ends it failed and
   unwinds the sync stack.
 
   Resilience: a failing call makes attempts() tries, then `@fallback(x)` returns
@@ -301,7 +301,7 @@ def _fill_unit(prog: Program, ui: int, u, wires: list) -> None:
     for w in wires:
         if w.kind == "!>":
             prog.routes[(ui, w.src)] = (prog.routes.get((ui, w.src), ())
-                                        + ((w, _route_guard(w, blocks)),))
+                                        + ((w, _route_guard(w, blocks, wires)),))
         if w.returns_of is not None:
             returns.setdefault(w.returns_of.ident, []).append(w)
     prog.returns.update({k: _items(ui, v, blocks, joins, v[0].returns_of.block)
@@ -344,13 +344,28 @@ def _arm_groups(arm_of: dict, wires: list) -> dict:
     return out
 
 
-def _route_guard(w, blocks: list) -> Optional[tuple]:
-    """("block", index) for a `!>` continuing a block's `}` (Block.after), else None
-    (unguarded: the model does not yet mark continuation lines)."""
+def _route_guard(w, blocks: list, wires: list) -> Optional[tuple]:
+    """("block", index) for a `!>` continuing a block's `}` (Block.after); ("calls",
+    frozenset of ("call", ident)) for one continuing a flow line (Edge.cont): the
+    subject's work wires written on that line; else None (the node's own route)."""
     for bi, b in enumerate(blocks):
         if w.key in b.after and w.line >= b.lines[1]:
             return ("block", bi)
+    cont = getattr(w.edge, "cont", 0)
+    if cont:
+        calls = frozenset(("call", x.ident) for x in wires
+                          if x.src == w.src and x.line == cont and x.kind != "!>"
+                          and x.returns_of is None)
+        if calls:
+            return ("calls", calls)
     return None
+
+
+def _guards(g: Optional[tuple], failed) -> bool:
+    """Whether route guard `g` covers the failure guard `failed`."""
+    if g is None or failed is None:
+        return False
+    return failed in g[1] if g[0] == "calls" else g == failed
 
 
 def _chain(bi: Optional[int], blocks: list) -> list:
@@ -976,7 +991,7 @@ class _Run:
         guarded by what failed, else the unguarded ones. A route target's own
         failure ends that route only; the remaining routes still fire."""
         routes = self.prog.routes.get((act.ui, act.node), ())
-        chosen = [w for w, g in routes if g is not None and g == f.guard]
+        chosen = [w for w, g in routes if _guards(g, f.guard)]
         chosen = chosen or [w for w, g in routes if g is None]
         for w in chosen:
             self.failed_w.add(w.ident)
@@ -1578,10 +1593,13 @@ def choice_points(prog: Program, limits: Limits = Limits()) -> list:
     work |= {id(w) for body in prog.arm_bodies.values() for items in body.values()
              for w in _flat(items)}
     called = set()
+    guarded = {c for routes in prog.routes.values() for _w, g in routes
+               if g is not None and g[0] == "calls" for c in g[1]}
     for w in wires:
         if id(w) not in work:
             continue
-        if (w.call is not None and w.call.external) or resilient(w):
+        if (w.call is not None and w.call.external) or resilient(w) \
+                or ("call", w.ident) in guarded:
             called.add((prog.wire_unit.get(id(w)), w.src))
             if w.call is not None and w.call.op:
                 verb = _part(scene_mod.op_verb(w.call.op))

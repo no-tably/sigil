@@ -79,6 +79,15 @@ class Continuation(unittest.TestCase):
         self.assertIn(("API_service", "PaymentFailed_event", "!>"), keys(g))
         self.assertNotIn(("Payment_service", "PaymentFailed_event", "!>"), keys(g))
 
+    def test_cont_marks_the_flow_a_continuation_continues(self):
+        # Edge.cont: the statement's line, then the latest continuation that drew work
+        g = parse("[A] -> [B]\n  -> [C]\n  !> <E>\n  !> <F>\n[A] -> [G]\n")
+        self.assertEqual(edge(g, "A_service", "B_service").cont, 0)
+        self.assertEqual(edge(g, "A_service", "C_service").cont, 1)
+        self.assertEqual(edge(g, "A_service", "E_event").cont, 2)
+        self.assertEqual(edge(g, "A_service", "F_event").cont, 2)   # a route is no flow
+        self.assertEqual(edge(g, "A_service", "G_service").cont, 0)
+
     def test_a_section_header_resets_the_subject(self):
         g = parse("[A] -> [B]\n--- next ---\n  -> [C]\n")
         self.assertNotIn(("A_service", "C_service", "->"), keys(g))

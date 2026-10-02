@@ -84,7 +84,7 @@ class TestScenarioLists(unittest.TestCase):
     def test_executions_fixture_in_line_order(self):
         self.assertEqual(names(load("executions.sigil")), [
             "happy", "Crawler.throttle:fails", "Crawler.fetch:fallback",
-            "Fetcher.http.get:fails", "Indexer.write:fallback", "Notifier.mail.send:fails"])
+            "Fetcher.http.get:fails", "Indexer.write:fails", "Notifier.mail.send:fails"])
 
     def test_names_are_unique_and_safe(self):
         for path in EXAMPLES + FIXTURES:
@@ -131,10 +131,34 @@ class TestScenarioLists(unittest.TestCase):
 
     def test_combination_applies_both(self):
         sc = load("executions.sigil")
-        both = sim.scenario(sc, "Crawler.fetch:fallback+Indexer.write:fallback")
+        both = sim.scenario(sc, "Crawler.fetch:fallback+Indexer.write:fails")
         self.assertEqual(len(both.choices), 2)
         tr = sim.simulate(sc, both)
-        self.assertEqual(len(logs(tr, "falls back")), 2)
+        self.assertEqual(len(logs(tr, "falls back")), 1)
+        self.assertEqual(len(logs(tr, "failed → |Index|")), 1)
+
+    def test_continuation_route_guards_only_its_statement(self):
+        # R-a: a `!>` continuing a flow line guards that line's calls, not its
+        # subject's other calls (Edge.cont).
+        sc = build("[A] -> [B] : first() @timeout(1s)\n"
+                   "[A] -> [C] : second()\n"
+                   "     !> [D] : undo()\n")
+        self.assertEqual(names(sc), ["happy", "A.first:fails", "A.second:fails"])
+        first = sim.simulate(sc, sim.scenario(sc, "A.first:fails"))
+        self.assertEqual(logs(first, "failed → [D]"), [])
+        second = sim.simulate(sc, sim.scenario(sc, "A.second:fails"))
+        self.assertEqual(len(logs(second, "failed → [D]")), 1)
+
+    def test_route_follows_the_most_recent_flow(self):
+        # pitfall 4: an error path attaches to the most recent flow of the chain
+        sc = build("[A] -> [B] : first() @timeout(1s)\n"
+                   "    -> [C] : second()\n"
+                   "    !> [D]\n")
+        self.assertEqual(names(sc), ["happy", "A.first:fails", "A.second:fails"])
+        first = sim.simulate(sc, sim.scenario(sc, "A.first:fails"))
+        self.assertEqual(logs(first, "failed → [D]"), [])
+        second = sim.simulate(sc, sim.scenario(sc, "A.second:fails"))
+        self.assertEqual(len(logs(second, "failed → [D]")), 1)
 
     def test_list_is_capped(self):
         sc = load("coverage.sigil")

@@ -257,6 +257,10 @@ class Edge:
     # `[Worker] -> run()`: the op-call written as the target (a self-edge).
     target_op: Optional[str] = None
     line: int = 0
+    # A continuation line's edge (one starting with an arrow): the line of the flow
+    # it continues — the statement's line, or the latest continuation that drew work
+    # (pitfall 4: an error path attaches to the most recent flow). 0: not one.
+    cont: int = 0
 
     @property
     def key(self) -> tuple:
@@ -592,6 +596,7 @@ class Subject(NamedTuple):
     nodes: tuple              # node ids
     join: Optional[int] = None  # index into Graph.joins when the endpoint is joined
     paths: tuple = ()         # qualifying path per node (`[Bullet]/{Transform}`), or None
+    line: int = 0             # the most recent flow line under this subject (Edge.cont)
 
 
 def _add_mod(mods: list, pair: tuple):
@@ -893,9 +898,13 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
         out["edges"] = new_edges
     head = groups[0]
     if head.get("inherited"):
+        for e in new_edges:
+            e.cont = last_src.line
+        if any(e.kind != "!>" for e in new_edges):
+            return last_src._replace(line=line_no)
         return last_src
     return Subject(tuple(n.id for n in head["nodes"]), head["join_idx"],
-                   tuple(head.get("paths") or ()))
+                   tuple(head.get("paths") or ()), line_no)
 
 
 def _op_before(tokens: list, col: int) -> Optional[int]:
@@ -1541,6 +1550,9 @@ class _DocParser:
         subject = self._flow(body, col, self.last_src, k, acc)
         if not continuation:
             self.last_src = subject
+        elif (isinstance(subject, Subject) and isinstance(self.last_src, Subject)
+              and subject.nodes == self.last_src.nodes):
+            self.last_src = subject             # the same subject, its latest flow line
         edges = acc["edges"]
         keys = list(dict.fromkeys(e.key for e in edges))
         for f in self.frames:
