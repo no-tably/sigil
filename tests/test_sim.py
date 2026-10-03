@@ -348,6 +348,24 @@ class TestExecutions(unittest.TestCase):
         self.assertLess(fired, yielded)
         self.assertEqual(run(sc).end["routes"], [])
 
+    def test_a_callee_failure_is_one_attempt_never_retried(self):
+        # Example Q's declared twin: the charge retries ×3, but the scenario fails
+        # the nested card call, so the charge arrives once and is not re-run
+        sc = build("(User) -> [Booking] : book({Seat})\n"
+                   "[Booking] -> [Payments] : charge({Seat}) ×3\n"
+                   "[Payments] -> [Card] : op card.charge(${total})  @timeout(5s)\n")
+        tr = run(sc, "Payments.card.charge:fails")
+        self.assertEqual(tr.outcome, "failed")
+        tries = logs(tr, "charge({Seat}) attempt")
+        self.assertEqual(len(tries), 1)
+        self.assertTrue(tries[0].endswith("charge({Seat}) attempt 1/4"))
+        self.assertTrue(logs(tr, "failed: charge({Seat}) failed after 1 attempt "
+                                 "(its callee failed)"))
+        self.assertFalse(logs(tr, "after 4 attempts"))
+        # the call failing itself still makes every attempt
+        own = run(sc, "Booking.charge:fails")
+        self.assertTrue(logs(own, "failed: charge({Seat}) failed after 4 attempts"))
+
     def test_deadline_without_timeout_is_one_attempt(self):
         tr = run(self.sc, "Crawler.throttle:fails")
         self.assertEqual(tr.outcome, "failed")

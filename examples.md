@@ -893,3 +893,81 @@ the graph and lowers it; sigil only records the edges.
 - **Dynamic membership is a generic role** (`[Worker<N>]`) — the role name in a
   list stands for every current member. The static edges are the design-time
   skeleton.
+
+---
+
+## Example Q: A risky design and its declared twin (composition checks)
+
+**Prose:**
+
+> Many users book seats at once. Booking takes a seat off the count, then has
+> Payments charge the card through an external card API, retrying the charge up to
+> 3 times. A successful booking announces itself.
+
+**Sigil, as first written:**
+
+```
+#!spec
+
+--- booking ---
+
+~|Seats|
+(User)×N -> [Booking] : book({Seat})
+[Booking] -> ~|Seats| : ${state.Seats} - 1
+[Booking] -> [Payments] : charge({Seat}) ×3
+[Payments] -> [Card] : op card.charge(${total})
+[Booking] ~> <Booked>
+```
+
+It lints clean: every line is well formed. `check.py` (or `lint.py --deep`) asks
+what the wiring leaves unsaid. Under `#!spec`:
+
+| Line | Rule | Severity | The question it asks |
+| --- | --- | --- | --- |
+| `(User)×N -> [Booking]` | `capacity-mismatch` | info | many users reach one `[Booking]`: what load can it take? |
+| `[Booking] -> ~\|Seats\|` | `lost-update` | warn | `[Booking]` reads then writes the count and runs concurrently with itself: can two bookings take the same seat? |
+| `charge({Seat}) ×3` | `retry-without-idempotency` | **error** | the charge is retried and leaves the system: is it idempotent, and on what key? |
+| `charge({Seat}) ×3` | `saga-uncompensated` | info | if `charge` fails, what gives the seat back? |
+| `op card.charge(…)` | `unguarded-call` | **error** | how long may `[Payments]` wait on the card API? |
+| `op card.charge(…)` | `unhandled-failure` | **error** | if the card API fails, what does the user see? |
+| `[Booking] ~> <Booked>` | `orphan-event` | info | who receives `<Booked>`? |
+
+In `#!craft` the same findings come back as questions (warn and info); in
+`#!sketch` the binding and advisory ones are hidden (`check.py --all`
+shows them) and the hints are not emitted.
+
+**Sigil, with its risks declared:**
+
+```
+#!spec
+
+--- booking-declared ---
+
+[Booking] @sla(p99<500ms)
+~|Seats|  @inv cas(version) @read(Booking) @write(Booking)
+(User)×N -> [Booking] : book({Seat})
+  !> (User) : <BookingFailed>
+[Booking] -> ~|Seats| : ${state.Seats} - 1
+[Booking] -> [Payments] : charge({Seat}) ×3 @after(exp-backoff, cap=10s) @inv idempotent(booking_id)
+  !> ~|Seats| : ${state.Seats} + 1  @inv idempotent(booking_id)
+[Payments] -> [Card] : op card.charge(${total})  @timeout(5s)
+[Booking] ~> <Booked>
+<Booked> -> (User)
+```
+
+`check.py` gives no findings, in any mode.
+
+**Key decisions:**
+- **The shape did not change.** Every component, call, retry and write of the first
+  version is still there; nothing was removed or rerouted. Each finding was answered
+  with a declaration of what is true of the system.
+- **One declaration per risk.** `@sla` states `[Booking]`'s capacity;
+  `@inv cas(version)` says concurrent writes to the count compare-and-set, and
+  `@read` / `@write` name its only principal; `@inv idempotent(booking_id)` makes
+  the retried charge (and the compensation) safe to repeat, and `@after` spaces the
+  retries; `@timeout(5s)` bounds the external call; the `!>` under the entry tells
+  the user, and the `!>` under the charge gives the seat back; `<Booked> -> (User)`
+  names who receives the event.
+- **Or accept it.** A risk the design takes on purpose is acknowledged on its line
+  instead — `# accepts: lost-update — the count is advisory, overbooking is settled
+  at check-in` — and is then listed as `accepted:` with its reason.

@@ -5,7 +5,9 @@ The full rule catalog for [RFC 0003](./0003-composition-checks.md). Status: Acce
 (Q1–Q13; each is cited where it applies). It was drafted against main @ 8a2aeea and
 revised against an 86-point review (lenses: *never limits*, *computable*,
 *completeness*); the review log is the last section and records the state before the
-Decisions. Nothing here is implemented yet.
+Decisions. The rules are implemented in `check.py` and its modules
+(`check_flow.py`, `check_state.py`, `check_trace.py`, `check_inv.py`); the rules'
+probes are in `tests/fixtures/checks/`.
 
 Every rule ends with an **Example**: a small design the rule flags, and the same
 design once the risk is declared. Both halves lint clean. The flagged half shows the

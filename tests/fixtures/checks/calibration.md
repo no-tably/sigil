@@ -16,6 +16,10 @@ disposition:
   it is expected.
 - **open** — not yet resolved; the reason names the role that resolves it. The gate
   is met when no binding (error) finding remains, so an open error blocks it.
+- **shown** — the example raises the finding on purpose, to show the rule (examples.md
+  Example Q's risky half); its declared twin is the same design with every risk
+  declared and gives none. Allowed at any severity: a shown error does not block the
+  gate, since the twin, not the risky half, is the design.
 
 Retuned rules (recorded for the catalog): SGC153 counts a flow on the condition's
 store whose verb is no read verb as changing it (`pop => {Job}` drains `|Q|`;
@@ -171,3 +175,17 @@ store's races.
   noted — hint: an unrecognised @inv is listed as taken on trust, never failed (catalog SGC301)
 - examples.md · inv-unchecked · info · `{Entity}  @inv lifecycle-transitions-explicit`
   noted — hint: an unrecognised @inv is listed as taken on trust, never failed (catalog SGC301)
+- examples.md · capacity-mismatch · info · `(User)×N -> [Booking] : book({Seat})`
+  shown — Example Q's risky half raises it on purpose; its declared twin `--- booking-declared ---` declares the risk and gives no finding (ExampleQ in tests/test_check_state.py)
+- examples.md · lost-update · warn · `[Booking] -> ~|Seats| : ${state.Seats} - 1`
+  shown — Example Q's risky half raises it on purpose; its declared twin `--- booking-declared ---` declares the risk and gives no finding (ExampleQ in tests/test_check_state.py)
+- examples.md · retry-without-idempotency · error · `[Booking] -> [Payments] : charge({Seat}) ×3`
+  shown — Example Q's risky half raises it on purpose; its declared twin `--- booking-declared ---` declares the risk and gives no finding (ExampleQ in tests/test_check_state.py)
+- examples.md · saga-uncompensated · info · `[Booking] -> [Payments] : charge({Seat}) ×3`
+  shown — Example Q's risky half raises it on purpose; its declared twin `--- booking-declared ---` declares the risk and gives no finding (ExampleQ in tests/test_check_state.py)
+- examples.md · unguarded-call · error · `[Payments] -> [Card] : op card.charge(${total})`
+  shown — Example Q's risky half raises it on purpose; its declared twin `--- booking-declared ---` declares the risk and gives no finding (ExampleQ in tests/test_check_state.py)
+- examples.md · unhandled-failure · error · `[Payments] -> [Card] : op card.charge(${total})`
+  shown — Example Q's risky half raises it on purpose; its declared twin `--- booking-declared ---` declares the risk and gives no finding (ExampleQ in tests/test_check_state.py)
+- examples.md · orphan-event · info · `[Booking] ~> <Booked>`
+  shown — Example Q's risky half raises it on purpose; its declared twin `--- booking-declared ---` declares the risk and gives no finding (ExampleQ in tests/test_check_state.py)

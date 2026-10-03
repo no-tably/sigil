@@ -151,12 +151,11 @@ RETIRED_IDS = frozenset({"SGC105", "SGC164", "SGC305"})
 # lint code may start with neither (registry_problem, dialect_pack).
 CORE_ID_PREFIXES = {"SGL": "lint codes", "SGC": "check ids"}
 # Fixed by editing a line, never by a decision about the design (catalog §5): the
-# ack-* rules (SGC001-SGC003) and SGC004 policy-in-prose (writing the modifier is
-# the fix). No Rule or Hit flag can make these acknowledgeable. SGC090 is
-# acknowledgeable for its loop-cap cause only, on the loop's line (see
-# exploration_rule).
-NOT_ACKNOWLEDGEABLE = frozenset({"ack-unknown-rule", "ack-without-reason", "ack-unused",
-                                 "policy-in-prose"})
+# ack-* rules (SGC001-SGC003). No Rule or Hit flag can make these acknowledgeable.
+# SGC090 is acknowledgeable for its loop-cap cause only, on the loop's line (see
+# exploration_rule). SGC004 policy-in-prose is acknowledgeable: its match reads
+# prose and can misfire.
+NOT_ACKNOWLEDGEABLE = frozenset({"ack-unknown-rule", "ack-without-reason", "ack-unused"})
 EXPLORATION = ("SGC090", "exploration-incomplete")
 
 # The recognised `@inv` heads (RFC 0003 §3, Decision Q4). A dialect may add heads,
@@ -385,12 +384,15 @@ class Doc:
     def __init__(self, text: str, mode: str, k: int, known: frozenset, dialect=None,
                  read_verbs: tuple = (), policy_words: tuple = (),
                  inv_heads: frozenset = frozenset(),
-                 budget: Optional[int] = None, limits=None):
+                 budget: Optional[int] = None, limits=None,
+                 rule_ids: Optional[dict] = None):
         self.text = text
         self.lines = text.splitlines()
         self.mode = mode
         self.k = k
         self.known = known           # every rule name an acknowledgement may cite
+        # id → name of every rule, so SGC001 can name the rule an id stands for
+        self.names_by_id = {**CORE_NAMES, **(rule_ids or {})}
         self.dialect = dialect
         self.extra_read_verbs = tuple(sorted(read_verbs))     # a dialect's (CG6)
         self.policy_words = POLICY_WORDS + tuple(policy_words)
@@ -506,24 +508,29 @@ def layout_of(lines: list, strip_comment: Callable) -> Layout:
     return Layout(frozenset(statements), blocks, frozenset(quoted))
 
 
-_KEBAB = r"[a-z0-9]+(?:-[a-z0-9]+)*"
+# Any case, so a rule id (`SGC111`) or a mixed-case name still reads as an
+# acknowledgement and reaches SGC001 rather than failing silently as prose.
+_KEBAB = r"[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*"
 _ACK_RE = re.compile(rf"^accepts:\s*(?P<names>{_KEBAB}(?:\s*,\s*{_KEBAB})*)(?P<tail>.*)$")
+_RULE_ID_RE = re.compile(r"^[A-Z]+[0-9]+$")
 _SEPARATOR_RE = re.compile(r"^\s*(?:—|--)\s*(?P<reason>.*)$|^\s+-(?:\s+(?P<reason2>.*))?$")
 
 
 def parse_ack(text: str, known: frozenset) -> Optional[tuple]:
     """(names, reason) when a comment's text is an acknowledgement, else None.
     `accepts:` then kebab-case rule names, a separator (`—`, `--`, ` - `) and a
-    reason. With no separator it is an acknowledgement (missing its reason) only
-    when the text is nothing but names and one of them is a rule name or kebab
-    compound; so `# accepts: any JSON body` stays prose."""
+    reason. Names of any case and rule ids are read too, so SGC001 can say what is
+    wrong with them. With no separator it is an acknowledgement (missing its
+    reason) only when the text is nothing but names and one of them is a rule
+    name (in any case), a rule id or a kebab compound; so `# accepts: any JSON
+    body` stays prose."""
     m = _ACK_RE.match(text.strip())
     if not m:
         return None
     names = tuple(n.strip() for n in m.group("names").split(","))
     tail = m.group("tail")
     if not tail.strip():
-        if any(n in known or "-" in n for n in names):
+        if any(n.lower() in known or "-" in n or _RULE_ID_RE.match(n) for n in names):
             return names, ""
         return None
     sep = _SEPARATOR_RE.match(tail)
@@ -588,22 +595,48 @@ def nearest_name(name: str, known: Iterable) -> Optional[str]:
     return None
 
 
+def meant_name(name: str, known: frozenset, names_by_id: dict) -> tuple:
+    """(the rule name an unknown ack name most likely means, why it missed): "id"
+    for a rule id, "case" for a known name in the wrong case, "typo" for a near
+    miss; (None, "id") for an id no rule has; (None, None) when nothing fits."""
+    if _RULE_ID_RE.match(name):
+        return names_by_id.get(name), "id"
+    if name.lower() in known:
+        return name.lower(), "case"
+    near = nearest_name(name.lower(), known)
+    return (near, "typo") if near else (None, None)
+
+
+def unknown_name_hint(name: str, meant: Optional[str], why: Optional[str]) -> str:
+    """The sentence SGC001 adds after "No rule is named …" ("" when none fits)."""
+    if why == "id":
+        named = f", `{meant}`," if meant else ","
+        return f" Write the rule's name{named} not its id `{name}`."
+    if why == "case":
+        return f" Rule names are lower case: write `{meant}`."
+    if why == "typo":
+        return f" Did you mean `{meant}`?"
+    return ""
+
+
 def match_ack_unknown_rule(doc: Doc):
-    """SGC001: a name no rule has, or a rule that cannot be acknowledged."""
+    """SGC001: a name no rule has (a typo, a rule id, the wrong case), or a rule
+    that cannot be acknowledged."""
     for ack in doc.acks:
         for name in ack.names:
-            if name in NOT_ACKNOWLEDGEABLE:
+            meant, why = (None, None) if name in doc.known else \
+                meant_name(name, doc.known, doc.names_by_id)
+            if name in NOT_ACKNOWLEDGEABLE or meant in NOT_ACKNOWLEDGEABLE:
                 yield Hit(ack.line, f"`{name}` cannot be acknowledged",
                           f"`{name}` cannot be acknowledged. Fix what it reports instead?",
                           anchor=("comment", ack.line),
                           fix="remove the name and fix the line it reports")
             elif name not in doc.known:
-                near = nearest_name(name, doc.known)
-                hint = f" Did you mean `{near}`?" if near else ""
+                hint = unknown_name_hint(name, meant, why)
                 yield Hit(ack.line, f"no rule is named `{name}`.{hint}".rstrip(),
                           f"No rule is named `{name}`.{hint or ' Which rule is meant?'}",
                           anchor=("comment", ack.line),
-                          fix=f"write `{near}`" if near else "")
+                          fix=f"write `{meant}`" if meant else "")
 
 
 def match_ack_without_reason(doc: Doc):
@@ -758,7 +791,7 @@ def core_rules() -> list:
              why="A policy stated only in prose is invisible to the checks and the "
                  "simulator.",
              fix="write the modifier or @inv the comment describes",
-             match=match_policy_in_prose, acknowledgeable=False, family="0",
+             match=match_policy_in_prose, family="0",
              satisfiers=(("call", "×"), ("call", "@timeout"), ("call", "@deadline"),
                          ("call", "@after"), ("call", "idempotent"), ("call", "dedup"))),
     ]
@@ -1061,7 +1094,8 @@ def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
     known = frozenset(CORE_NAMES.values()) | {r.name for r in registry.values()}
     doc = Doc(text, mode, k, known, dialect, read_verbs=pack.read_verbs,
               policy_words=pack.policy_words, inv_heads=pack.inv_heads,
-              budget=budget, limits=limits)
+              budget=budget, limits=limits,
+              rule_ids={r.id: r.name for r in registry.values()})
     first = [r for r in registry.values() if not r.after_acks]
     findings = run_rules(doc, first)
     fold(findings)

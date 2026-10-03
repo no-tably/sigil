@@ -412,11 +412,22 @@ def store_effect(facts: Facts, w) -> Optional[Effect]:
             return Effect(f"writes {store}", store=w.dst)
         if w.kind == "<->":
             return Effect(f"writes {store}", "`<->` reads as read-and-write", w.dst)
-        return Effect(f"writes {store}", f"`{verb}` reads as a write", w.dst)
+        return Effect(f"writes {store}", f"{guessed_flow(w, verb)} reads as a write", w.dst)
     if mode == "read" and not exact and verb and verb.lower() not in facts.read_verbs:
-        return Effect(f"writes {store}", f"`{verb}` returns a value but reads as a write",
+        return Effect(f"writes {store}",
+                      f"{guessed_flow(w, verb)} returns a value but reads as a write",
                       w.dst)
     return None
+
+
+def guessed_flow(w, verb: str) -> str:
+    """What a guessed store write was read from, as a message names it: the verb,
+    else the value it carries (`${state.Seats} - 1`), else an unlabelled flow."""
+    if verb:
+        return f"`{verb}`"
+    if w.payload and "`" not in w.payload:
+        return f"the value `{w.payload}`"
+    return "an unlabelled flow"
 
 
 def is_value_assignment(facts: Facts, w) -> bool:

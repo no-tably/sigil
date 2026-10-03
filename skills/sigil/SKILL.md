@@ -155,13 +155,18 @@ are errors); in sketch they are hidden (`--all` shows them).
    A finding marked `(guessed: …)` rests on a guess about a name — say so.
 3. Resolve it in one of two ways only:
    - **declare** the handling in the notation the spec already has — `@timeout(t)`,
-     `×N`, `@fallback`, a `!>` route, `@inv idempotent(key)`, `@owns |S|`,
-     `@write(X)`, `@cap(…)`, `@deadline(…)`, a `?>` exit, … — whatever the user's
-     answer says is true of the system;
-   - or **acknowledge** it, when the user accepts the risk: a comment on the line
-     (or the line above, or a block's header to cover the block)
-     `# accepts: rule-name — the reason`. The reason is required; the finding is
-     then listed as `accepted:` and no longer counts.
+     `@deadline(t)`, `×N` with `@after(…)`, `@fallback(x)`, a `!>` route, a
+     recognised `@inv` (`idempotent(key)`, `atomic(…)`, `cas(field)`,
+     `depth <= N`, …), `@owns |S|`, `@read(…)` / `@write(…)`, a `^N` bound, an
+     `@sla`, a `?>` exit, a terminal state `$`, a consumer for an event — whatever
+     the user's answer says is true of the system. `@cap(…)` is a capability
+     requirement, not a bound: it resolves no finding;
+   - or **acknowledge** it, when the user accepts the risk: a comment
+     `# accepts: rule-name — the reason` trailing the line or on the line(s)
+     directly above it; on or above a block's header or on its `}` to cover the
+     block; or before the first statement, separated from it by a blank line, to
+     cover the document. The reason is required; the finding is then listed as
+     `accepted:` and no longer counts.
 4. **Never reshape the design to make a finding go away** — do not remove a call,
    a writer, a retry or a branch, merge components or reroute flows unless the user
    asks for that change. An unusual shape with its risks declared is a passing

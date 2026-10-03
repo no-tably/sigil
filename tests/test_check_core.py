@@ -288,6 +288,39 @@ class MetaRules(unittest.TestCase):
                          "No rule is named `retry-without-idempotence`. "
                          "Did you mean `retry-without-idempotency`?")
 
+    def test_rule_id_or_wrong_case_gives_sgc001_with_the_name(self):
+        # tests/fixtures/checks/core-ack-rule-id.sigil: read as acks, not prose
+        text = (_DIR / "tests" / "fixtures" / "checks" / "core-ack-rule-id.sigil"
+                ).read_text(encoding="utf-8")
+        rep = ck.check(text)
+        meta = [f for f in rep.findings if f.rule.id == "SGC001"]
+        self.assertEqual([(f.line, f.severity) for f in meta], [(5, "error"), (6, "error")])
+        self.assertIn("Write the rule's name, `retry-without-idempotency`, not its id "
+                      "`SGC111`.", meta[0].message)
+        self.assertIn("Rule names are lower case: write `retry-without-idempotency`.",
+                      meta[1].message)
+        self.assertEqual(rep.acknowledged, [])
+        self.assertEqual(lines_of(rep.findings, "retry-without-idempotency"), [5, 6])
+
+    def test_rule_id_alone_and_unknown_ids(self):
+        rep = run("""
+            #!spec
+            [A] -> [B] : f()   # accepts: SGC999 — r
+            [A] -> [C] : g()   # accepts: SGC002 — r
+            [A] -> [D] : h()   # accepts: TST001 — r
+            [A] -> [E] : k()   # accepts: TST001
+            [A] -> [F] : m()   # accepts: JSON
+            """, probe_rule(lines=()))
+        got = {f.line: f.message for f in rep.findings
+               if f.rule.name in ("ack-unknown-rule", "ack-without-reason")}
+        self.assertIn("no rule is named `SGC999`. Write the rule's name, not its id "
+                      "`SGC999`.", got[2])
+        self.assertIn("cannot be acknowledged", got[3])
+        # a dialect or module rule's id resolves through the registry
+        self.assertIn("Write the rule's name, `probe`, not its id `TST001`.", got[4])
+        self.assertIn(5, got)        # an id alone is an ack missing its reason
+        self.assertNotIn(6, got)     # one capitalised word is prose
+
     def test_unknown_name_far_from_any(self):
         rep = run("""
             #!spec
@@ -310,19 +343,17 @@ class MetaRules(unittest.TestCase):
         self.assertEqual([(f.rule.id, f.line) for f in rep.findings], [("SGC001", 2)])
         self.assertIn("cannot be acknowledged", rep.findings[0].message)
 
-    def test_policy_in_prose_cannot_be_acknowledged(self):
-        # writing the modifier is the fix (catalog §5): the ack is an SGC001 and
-        # the SGC004 hint stands
+    def test_policy_in_prose_can_be_acknowledged(self):
+        # its match reads prose and can misfire (catalog §5): the ack is valid and
+        # the SGC004 hint moves to `accepted:`
         rep = run("""
             #!spec
-            # accepts: policy-in-prose — prose on purpose
-            [Checkout] -> [Payments] : charge(total)   # 3 retries
+            # accepts: policy-in-prose — the gateway enforces it
+            [Checkout] -> [Payments] : charge(total)   # the timeout is enforced by the gateway
             """)
-        self.assertEqual(sorted((f.rule.id, f.line) for f in rep.findings),
-                         [("SGC001", 2), ("SGC004", 3)])
-        sgc001 = next(f for f in rep.findings if f.rule.id == "SGC001")
-        self.assertIn("`policy-in-prose` cannot be acknowledged", sgc001.message)
-        self.assertEqual(rep.acknowledged, [])
+        self.assertEqual(rep.findings, [])
+        self.assertEqual([(f.rule.id, f.line) for f in rep.acknowledged], [("SGC004", 3)])
+        self.assertEqual(rep.acknowledged[0].ack.reason, "the gateway enforces it")
 
     def test_no_reason_voids_the_ack(self):
         # the catalog's flagged example: the finding stands

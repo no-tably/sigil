@@ -248,6 +248,28 @@ class Tiers(unittest.TestCase):
         self.assertEqual([f.severity for f in hits], ["info"])
         self.assertIn("guessed: `put` reads as a write", hits[0].message)
 
+    def test_a_verbless_store_write_names_its_value(self):
+        """A value payload has no verb: the guess names the value, never "``"."""
+        rep = run("[Shop] => *<Order>^1k\n*<Order> -> [Billing]\n"
+                  "[Billing] -> ~|Count| : ${state.Count} + 1\n", mode="spec")
+        hits = [f for f in rep.findings if f.rule.id == "SGC112"]
+        self.assertEqual(len(hits), 1)
+        self.assertIn("guessed: the value `${state.Count} + 1` reads as a write",
+                      hits[0].message)
+
+    def test_no_message_quotes_an_empty_name(self):
+        """Every checks fixture and examples.md Example Q (the flagship): no finding
+        message carries an empty code span."""
+        texts = {p.name: p.read_text(encoding="utf-8")
+                 for p in sorted(_FIXTURES.glob("*.sigil"))}
+        texts["examples.md:916"] = block_at(_DIR / "examples.md", 916)
+        for name, text in texts.items():
+            for mode in ("sketch", "spec", "craft"):
+                with self.subTest(source=name, mode=mode):
+                    rep = ck.check(text, mode=mode, registry=registry())
+                    self.assertEqual([f.message for f in rep.findings if "``" in f.message],
+                                     [])
+
     def test_an_implicit_queue_is_a_hint(self):
         rep = run(fixture("unhandled-failure-async")[0], mode="spec")
         self.assertEqual(severities(rep, "SGC161"), ["info"])

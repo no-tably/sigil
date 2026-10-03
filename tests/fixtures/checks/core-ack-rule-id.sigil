@@ -1,0 +1,6 @@
+# SGC001 ack-unknown-rule — an acknowledgement written with the rule's id or in
+# the wrong case. Each is read as an acknowledgement (not prose), names no rule,
+# and says which name to write; the SGC111 findings stand.
+#!spec
+[API] -> [Payments] : charge(total) ×3 @timeout(2s)   # accepts: SGC111 — charge is an upsert on order_id
+[API] -> [Ledger] : post(total) ×3 @timeout(2s)   # accepts: Retry-Without-Idempotency — post is an upsert on order_id

@@ -2,13 +2,14 @@
 
 - **Status:** Accepted 2026-10-03 (owner review; see Decisions)
 - **Date:** 2026-10-02
-- **Spec (to change on acceptance):** language.md "Recursion" (a bound may be
+- **Spec (changed):** language.md "Recursion" (a bound may be
   stated, Q5), "Invariants" (a "Recognised invariants" table, Q4), "State machines"
   (specific beats `_`, Q12; the self-loop idiom), "Call resilience" (`×N` placement,
   Q6; a `!>` under a call with `@fallback` fires, then the fallback is returned, Q2),
   grammar (`(mod)*` after any block's closing `}`), comments (`#=` reserved, Q7), a
   new "Checks" section; examples.md: a deliberately risky design and its fixed twin
-- **Tools (to add or change):** `check.py` (new), `lint.py` (`--deep`, SGL120–188),
+  (Example Q)
+- **Tools (added or changed):** `check.py` (new), `lint.py` (`--deep`, SGL120–188),
   render.py (`Edge.card`, emit wires, dropped lines), scene.py (`call_policy`,
   `access_mode`, `writers`), sim.py (`failure_flow`, structured events, defect
   fixes), view.py (`c` overlay), the playground, the SKILL

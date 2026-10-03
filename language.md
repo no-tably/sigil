@@ -892,6 +892,18 @@ another flow) and `@after` (a backoff schedule): `@timeout`/`×N`/`@fallback`
 declare the **per-call resilience policy**, which a consumer maps onto its
 target's error-handling mechanism.
 
+The two compose. A `!>` under a call that has a `@fallback` still fires when the
+call finally fails — "notify, then yield": the route runs, then the call returns its
+fallback instead of failing. So degrading and alerting needs no extra notation:
+
+```
+#!sketch
+[Search] -> [Ranker] : rank({Hits})  @timeout(200ms) @fallback(${hits})
+  !> <RankerDegraded>
+```
+
+A route under a call with no fallback still means "fail, and route the failure".
+
 A `!>` under a fan-out or join line (`*> |A| & |B|`, `-> [A] & [B]`) guards each
 awaited member: when one member fails, the route fires. A failure does not cross an
 unawaited hop (a `~>` send, a stream): it stops at the receiver, which routes it
@@ -931,32 +943,86 @@ Mode declaration goes on the first non-empty line of the document. `#!craft` doc
 ## Checks
 
 Lint asks whether a document is well formed; the **composition checks**
-(`check.py`, rules `SGCnnn`, RFC 0003) ask whether it says how its risks are
-handled — an external call with no `@timeout`, a retry on a write with no
-idempotency, two writers on one store, a failure with no route, an event nothing
-handles. A finding never forbids a shape; it names a risk the document leaves
-undeclared. Severity follows the mode: hidden in `#!sketch` (`--all` shows them),
-questions (`warn`) in `#!craft`, errors for binding rules in `#!spec`.
+(`check.py`, rules `SGCnnn`, [RFC 0003](./rfcs/0003-composition-checks.md)) ask
+whether it says how its risks are handled — an external call with no `@timeout`, a
+retry on a write with no idempotency, two writers on one store, a failure with no
+route, an event nothing handles, a state machine that can get stuck. A finding never
+forbids a shape; it names a risk the document leaves undeclared. A design that
+declares its risks passes, however unusual its shape.
 
-`check.py FILE` prints the findings on their own; `lint.py FILE --deep` runs lint and
-the checks together and merges the two reports into one list sorted by line, with
-the acknowledged findings last as `accepted:` lines. Its exit code is the worse of
-the two reports (2 if either has an error). Fix lint errors first: a malformed line
-can explain a finding. `view.py FILE --checks` (live key `c`) marks the findings on
-the drawing.
+**Modes decide severity; tiers cap it.** There is no strictness switch beyond the
+mode line. Each rule has a tier, because some principles are judgement calls:
 
-A finding is resolved in one of two ways only:
+| Tier | `#!sketch` | `#!craft` | `#!spec` |
+| --- | --- | --- | --- |
+| **binding** | info, hidden | warn, asked as a question | **error** |
+| **advisory** | info, hidden | warn, asked as a question | warn |
+| **hint** | not emitted | info, asked as a question | info |
+
+In `#!craft` each finding is the question a reviewer would ask ("`charge` is retried
+×3. Is it idempotent, and on what key?"); in `#!spec` it is a statement followed by
+the declarations that would satisfy it. A finding built on a guess (a payload read
+as a write, a name-based pairing) drops one tier and says what it guessed; a finding
+whose every witness needs two or more simultaneous failures caps at warn. A fragment
+with no mode line is checked as `#!sketch`.
+
+**Running them.** `check.py FILE` prints the findings in lint's format
+(`severity:line:SGCnnn: rule-name: message`), exit 0 / 1 / 2 like lint.
+`--mode sketch|craft|spec` checks as another mode; `--all` also prints the hidden
+findings; `--k N` sets how many failures one simulated run combines (default 1 in
+sketch and craft, 2 in spec); `--json` prints one object with each rule's tier, why
+it matters, how to satisfy it, and the witness scenario; `--rules` lists every rule
+with its tier. `lint.py FILE --deep` runs lint and the checks together and merges the
+two reports into one list sorted by line, with the acknowledged findings last as
+`accepted:` lines; its exit code is the worse of the two. Fix lint errors first: a
+malformed line can explain a finding. `view.py FILE --checks` (live key `c`) marks
+the findings on the drawing in both views.
+
+**Three sources of rules.** *Structural* rules read the wiring (call policy, store
+access, failure routes, state machines, cycles, bounds). *Behavioural* rules read the
+simulator's runs of the design (`view.py --sim`), exploring single and combined
+failures: races on a store, joins that stall, events a machine drops, orders a
+machine cannot absorb. *Invariant* rules check the document's own `@inv` lines where
+the head is a recognised one (see "Recognised invariants" under "Invariants,
+capabilities, resource ownership"); any other `@inv` is listed as unchecked, never
+failed. A dialect can add rules and `@inv` heads of its own (see "Dialects").
+
+**A finding is resolved in one of two ways only:**
 
 - **declare** the handling in notation the language already has — `@timeout(t)`,
-  `×N`, `@fallback(x)`, a `!>` route, `@inv idempotent(key)`, `@owns |S|`,
-  `@write(…)`, a `?>` exit, … — whatever is true of the system;
-- or **acknowledge** an accepted risk with a comment on the line (or the line above,
-  or a block's header to cover the block): `# accepts: rule-name — the reason`. The
-  reason is required; the finding is then listed as `accepted:` and no longer counts.
+  `@deadline(t)`, `×N` with `@after(…)`, `@fallback(x)`, a `!>` route, a recognised
+  `@inv` (`idempotent(key)`, `atomic(…)`, `cas(field)`, `depth <= N`, …),
+  `@owns |S|`, `@read(…)` / `@write(…)`, a `^N` bound, an `@sla`, a `?>` exit, a
+  terminal state `$`, a consumer for an event — whatever is true of the system;
+- or **acknowledge** an accepted risk with a comment: `# accepts: rule-name — the
+  reason` (one or more rule names, then `—`, `--` or ` - `, then the reason).
 
-Never reshape the design to make a finding go away — removing a call, a writer, a
-retry or a branch, merging components or rerouting flows is a design change for its
-author to choose, not a fix. An unusual shape with its risks declared passes.
+```
+#!sketch
+[API] -> [Payments] : charge({Order}) ×3 @timeout(2s)   # accepts: retry-without-idempotency — charge is an upsert on order_id
+```
+
+An acknowledgement anchors by line: trailing the line, on the line(s) directly
+above a statement, on or above a block's header or its `}` (the whole block), or
+before the first statement and separated from it by a blank line (the whole
+document). The reason is required. An acknowledged finding is listed as `accepted:`
+with its reason and no longer counts toward the exit code. Three meta rules keep the
+valve honest and cannot themselves be acknowledged: `ack-unknown-rule` (a mistyped
+rule name; a warn even in `#!sketch`), `ack-without-reason` (the acknowledgement is
+void) and `ack-unused` (it no longer matches a finding — delete it). Rule names are
+kebab case; people write the name, never the `SGCnnn` id.
+
+`#=` is **reserved** for a later decorated form of the same acknowledgement
+(`#= retry-without-idempotency — upsert on order_id`). Until that form lands it
+acknowledges nothing, lint notes any `#=` (SGL188), and a dialect may not claim it
+as a comment marker.
+
+**Never reshape the design to make a finding go away** — removing a call, a writer,
+a retry or a branch, merging components or rerouting flows is a design change for
+its author to choose, not a fix. Each finding names declarations, not rewirings.
+examples.md "Example Q" shows a risky design and its declared twin; the full rule
+catalog, with a flagged and a declared example for every rule, is
+[rfcs/0003-catalog.md](./rfcs/0003-catalog.md).
 
 ---
 
@@ -1010,14 +1076,19 @@ A dialect **adds**; it never changes the meaning of core syntax:
   example, "every value payload in this dialect must carry a concern tag").
 - **Renderer hooks.** Pre-processing so that dialect-only lines render sensibly
   (or are stripped) in diagrams.
+- **Rule packs.** Extra composition checks for `check.py` (see "Checks"), extra
+  recognised `@inv` heads, and extra read verbs. A pack's rules use the dialect's
+  own id prefix and never reuse a core rule's id or name, its heads never redefine
+  a core head, and a dialect may not claim a comment marker the core reserves
+  (`#=`).
 
 The dialect's own document is the authority on its vocabulary; it names the core
 sections it extends. A dialect's grammar is an **addendum** to the core formal
 grammar below — it extends `stmt`, `entity`, `mod`, and `payload`, and adds its
 own productions.
 
-**Selecting a dialect.** The reference tools (`lint.py`, `render.py`, and the
-viewer) take `--dialect NAME`, defaulting to the environment variable
+**Selecting a dialect.** The reference tools (`lint.py`, `render.py`, `check.py`
+and the viewer) take `--dialect NAME`, defaulting to the environment variable
 `SIGIL_DIALECT`. A dialect is found by name next to the core package
 (`../sigil-<name>/dialect.py`), in any directory on `SIGIL_DIALECT_PATH`
 (`os.pathsep`-separated; a `sigil-<name>/dialect.py` or `<name>/dialect.py` inside
@@ -1182,6 +1253,7 @@ generics    := '<' name (',' name)* '>'
 
 section     := '---' ('L' INT ':')? title '---'
 note        := '#' char*                              # inline / whole-line comment
+                                                      # `#=` is reserved (see "Checks")
 
 flow        := src arrow dst (':' payload)? (mod)*
              | arrow dst ...              # continuation (inherits subject only)

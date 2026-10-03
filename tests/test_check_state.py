@@ -600,7 +600,7 @@ class Determinism(unittest.TestCase):
 
 _ENTRY_RE = re.compile(r"^- (?P<file>\S+) · (?P<rule>[a-z-]+) · (?P<sev>error|warn|info) · "
                        r"`(?P<text>.*)`$")
-_DISP_RE = re.compile(r"^  (?P<disp>accepted|noted|open) — (?P<reason>\S.*)$")
+_DISP_RE = re.compile(r"^  (?P<disp>accepted|noted|open|shown) — (?P<reason>\S.*)$")
 
 
 def calibration_entries() -> list:
@@ -648,14 +648,74 @@ class Calibration(unittest.TestCase):
         for entry in calibration_entries():
             fname, rule, sev, text, disp, _reason = entry
             with self.subTest(entry=entry[:4]):
-                want = {"error": ("open",), "warn": ("accepted", "open"),
-                        "info": ("noted", "accepted")}[sev]
+                want = {"error": ("open", "shown"), "warn": ("accepted", "open", "shown"),
+                        "info": ("noted", "accepted", "shown")}[sev]
                 self.assertIn(disp, want)
 
     def test_no_binding_finding_from_this_module(self):
         mine = {r.name for r in cs.rules(ck)}
         self.assertEqual([e for e in calibration_run() if e[2] == "error" and e[1] in mine],
                          [])
+
+
+
+# ---------------------------------------------------------------------------
+# examples.md Example Q: a risky design and its declared twin
+# ---------------------------------------------------------------------------
+
+def block_with_header(path: Path, header: str) -> str:
+    """The markdown block holding the `--- header ---` line."""
+    for _n, block in md_blocks(path):
+        if f"--- {header} ---" in block.splitlines():
+            return block
+    raise LookupError(f"{path.name} has no block `--- {header} ---`")
+
+
+def with_comment(block: str, line: int, comment: str) -> str:
+    """`block` with `comment` appended to its (1-based) `line`."""
+    lines = block.splitlines(keepends=True)
+    lines[line - 1] = lines[line - 1].rstrip("\n") + comment + "\n"
+    return "".join(lines)
+
+
+def triples(findings) -> set:
+    """(block line, rule name, severity) of findings."""
+    return {(f.line, f.rule.name, f.severity) for f in findings}
+
+
+class ExampleQ(unittest.TestCase):
+    EX = _DIR / "examples.md"
+    RISKY = {(6, "capacity-mismatch", "info"), (7, "lost-update", "warn"),
+             (8, "retry-without-idempotency", "error"), (8, "saga-uncompensated", "info"),
+             (9, "unguarded-call", "error"), (9, "unhandled-failure", "error"),
+             (10, "orphan-event", "info")}
+
+    def risky(self) -> str:
+        return block_with_header(self.EX, "booking")
+
+    def test_the_risky_half_under_spec(self):
+        rep = ck.check(self.risky(), mode="spec")
+        self.assertEqual(triples(rep.findings), self.RISKY)
+
+    def test_the_risky_half_under_craft_asks_without_errors(self):
+        rep = ck.check(self.risky(), mode="craft")
+        self.assertEqual({(n, r) for n, r, _s in triples(rep.findings)},
+                         {(n, r) for n, r, _s in self.RISKY})
+        self.assertNotIn("error", {f.severity for f in rep.findings})
+
+    def test_the_declared_twin_is_quiet_in_every_mode(self):
+        twin = block_with_header(self.EX, "booking-declared")
+        for mode in ("sketch", "craft", "spec"):
+            with self.subTest(mode=mode):
+                rep = ck.check(twin, mode=mode)
+                self.assertEqual(triples(rep.findings), set())
+
+    def test_accepting_the_lost_update_moves_it(self):
+        text = with_comment(self.risky(), 7, "   # accepts: lost-update — the count is "
+                            "advisory, overbooking is settled at check-in")
+        rep = ck.check(text, mode="spec")
+        self.assertEqual([f.rule.name for f in rep.acknowledged], ["lost-update"])
+        self.assertEqual(triples(rep.findings), self.RISKY - {(7, "lost-update", "warn")})
 
 
 if __name__ == "__main__":

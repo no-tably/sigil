@@ -54,8 +54,12 @@ view draws (events drawn where they land, a shallower depth).
   scenario may choose too), a `=>` produce hop or a flow into a stream stops
   it at the consumer ("not awaited"); the producer goes on.
 
-  Resilience: a failing call makes attempts() tries, then `@fallback(x)` fires
-  the caller's routes guarded by that call ("notify, then yield"), returns x and
+  Resilience: a failing call makes attempts() tries; a call that arrives and
+  whose callee's work fails (a nested call the scenario fails) is not retried —
+  it made one attempt, and its failure says so ("failed after 1 attempt (its
+  callee failed)"): the scenario names which call fails, so a retry could only
+  replay the same failure. On a call's final failure `@fallback(x)` fires the
+  caller's routes guarded by that call ("notify, then yield"), returns x and
   the caller goes on as ok; `!` critical ends the run. A self-call is a
   one-tick pulse; recursion stops at Limits.depth (the base case). An external
   op's far node is opaque. Blocks: `loop` repeats its region (`@times N`, capped
@@ -1213,7 +1217,7 @@ class _Run:
                 self._unawaited(task, w.dst, f.guard)
                 self._resume_caller(task)
                 return
-            yield from self._call_failed(task, w)
+            yield from self._call_failed(task, w, callee_failed=True)
             return
         yield from self._return(task, w)
         task.open.remove(w.ident)
@@ -1277,10 +1281,11 @@ class _Run:
             self._log(f"attempt {k}/{a} failed")
             yield ("turn",)
 
-    def _call_failed(self, task: _Task, w):
+    def _call_failed(self, task: _Task, w, *, callee_failed: bool = False):
         """A call has finally failed: the routes guarded by this call fire and its
         fallback comes back (the caller goes on: "notify, then yield"), or the
-        failure travels."""
+        failure travels. callee_failed: the call arrived and its callee's work
+        failed, so it made one attempt (a callee's failure is never retried)."""
         fb = mod(w, "fallback")
         critical = fb is None and mod(w, "!") is not None
         self._event("fail", task, origin=("call", w.ident), node=w.src,
@@ -1294,16 +1299,23 @@ class _Run:
             yield ("turn",)
             return
         self.failed_w.add(w.ident)
-        self._log(self._failure_text(w))
+        self._log(self._failure_text(w, callee_failed=callee_failed))
         if critical:
             self._event("stop", task, how="abort", node=w.src, guard=("call", w.ident))
             raise _Abort()
         raise _Fail(("call", w.ident))
 
-    def _failure_text(self, w) -> str:
+    def _failure_text(self, w, *, callee_failed: bool = False) -> str:
+        """The log line of a failed call, naming the attempts it actually made:
+        all of attempts() when the call itself failed, one when its callee did."""
         what = carried(w) or self._name(w.dst)
-        a = attempts(w, self.limits)
-        tries = f" failed after {a} attempt{'s' if a > 1 else ''}" if resilient(w) else ""
+        if not resilient(w):
+            tries = ""
+        elif callee_failed:
+            tries = " failed after 1 attempt (its callee failed)"
+        else:
+            a = attempts(w, self.limits)
+            tries = f" failed after {a} attempt{'s' if a > 1 else ''}"
         return f"{self._name(w.src)} failed: {what}{tries}"
 
     def _guarded_routes(self, task: _Task, guard: tuple):
@@ -1338,7 +1350,7 @@ class _Run:
                 yield from self._activate(task, ui, target, w.ident)
             except _Fail:
                 task.open.remove(w.ident)
-                yield from self._call_failed(task, w)
+                yield from self._call_failed(task, w, callee_failed=True)
                 return
         else:
             yield ("turn",)
