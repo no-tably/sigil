@@ -49,6 +49,10 @@ checkout.sigil: 6 nodes, 5 edges, 0 expansions · #!sketch
 lint: OK
 ```
 
+**Try it:** the [project page](https://no-tably.github.io/sigil/) has a
+[playground](https://no-tably.github.io/sigil/#playground) that runs these tools in
+the browser — write a design, switch views, step through a simulation.
+
 - **Spec:** [`language.md`](./language.md) — glyphs, arrows, modifiers, payloads,
   control-flow blocks, streams, zoom, composition trees (`\-` branches with the
   relations `> & ? $ @ ! = _` and qualified paths like `[Bullet]/{Transform}`),
@@ -58,17 +62,72 @@ lint: OK
 
 ## Tools
 
-All tools are Python 3 standard library only.
+All tools are Python 3 standard library only; each takes a file or `-` for stdin.
+Every flag and key is in [`docs/tools.md`](./docs/tools.md).
 
 | Tool | Does |
 | --- | --- |
-| `lint.py FILE\|-` | Validates a document. One `severity:line:rule: message` per issue; exit 0 clean, 1 warnings, 2 errors. `--deep` also runs the composition checks (`check.py`) and merges both reports into one list by line (acknowledged findings last, as `accepted:` lines); the exit code is the worse of the two. |
-| `check.py FILE\|-` | Composition checks (rules `SGCnnn`, [RFC 0003](./rfcs/0003-composition-checks.md)): asks whether the design says how its risks are handled — an external call with no time bound, a retried write with no idempotency, two writers on one store, a failure with no route, an event nothing consumes, a state machine that can get stuck. A finding never forbids a shape; it is satisfied by declaring the handling in existing notation or by a reasoned `# accepts: rule-name — reason` comment. Severity follows the mode (`#!sketch` hidden, `#!craft` questions, `#!spec` errors for binding rules); same line format as lint, exit 0 / 1 / 2. `--mode` checks as another mode; `--k N` explores up to N failures per run; `--all` shows hidden findings; `--json` prints one object (rule, tier, why, how to satisfy, witness); `--rules` lists the rules; `--dialect` adds a dialect's rule pack. See "Checks" in [`language.md`](./language.md). |
-| `view.py FILE` | Live terminal view of the graph that redraws on every save. `--once` prints the drawing plus a lint summary and exits (1 on lint error); `--depth N\|all` opens `X := { … }` expansions; `--payloads` shows flow payloads (chips on their edges in the graph view, a list in the tree view); `--no-lint` skips lint; `--tree` (or `t` live) shows the composition tree as an outline with every flow as a lane beside it; `--compact` starts without the blank row between top-level units; `--no-triggers` starts with event ⇢ state triggers hidden; `--events land\|nodes` draws a pass-through event where it lands (each emitter wired straight to each destination, the event named there) or as a node of its own (defaults: tree `land`, graph `nodes`); `--notes markers\|callouts` shows comments as `#N` tags with a notes list, or as boxes in a left margin tied to their rows (tree view); `--mods` shows modifiers (`@timeout 30s ×3`, `^10k drop`, `!`) as chips on edges and after node labels; `--access` draws the permission graph (`@read` / `@write` / `@borrow`: dotted principal → store edges headed `r` / `w` / `b`, stores badged `1w` / `Nw` writers); `--sim SCENARIO` runs one pathway of the design and draws its last frame (see [Simulation](#simulation)); `--checks` marks the composition-check findings (`check.py`) on the drawing, with a checks legend and each finding's question after the lint summary. Both views also draw control blocks (graph: titled frames `↺ loop …`, `∥ parallel …`, `◇ branch on …` with a decision node and arm chips, `□ scope`; tree: brackets in a left gutter), `&` / `&?` / `/` joins, `--- section ---` dividers, `[[alias]]` nodes, and the `#!mode` in the status bar. Live keys: `t` tree/graph · `x` sim mode (in it: space play / pause, `,` `.` step, `[` `]` scenario, `-` `+` speed) · `n` notes · `e` triggers · `v` events (where they land / as nodes, per view) · `s` spacing · `f` fit to the window / natural layout with free pan · `c` checks overlay · `d` depth · `p` payloads · `m` modifiers · `a` access · `l` lint · arrows / `h` `j` `k` `L` pan · `z` centre · `g` home · `r` reload · `q` quit; drag with the mouse to pan, the wheel scrolls (shift+wheel: across). |
-| `render.py FILE\|- [--depth N\|all] [--composition MODE]` | Emits a Mermaid `flowchart TD` for docs (GitHub, Obsidian, mermaid.live, …). Composition trees draw as nested subgraphs (`subgraphs`, the default), as labelled dotted edges (`edges`), or not at all (`none`). |
-| `themes.py [NAME\|PATH]` | Loads a colour theme from `themes/<name>.yaml` (prints it resolved; `--list` lists them). `view.py --theme NAME` or `SIGIL_THEME=NAME` picks one; the web page reads the same files. |
-| `dialects.py` | Loads a dialect (`--dialect NAME` or `SIGIL_DIALECT`) that extends the linter and renderer. |
+| `view.py FILE` | Live terminal view, redrawn on every save: a graph view and a tree view (`t`), a simulation mode (`x`) and a checks overlay (`c`). `--once` prints one drawing for agents and CI. |
+| `lint.py FILE` | Validates a document: one `severity:line:rule: message` per issue; exit 0 clean, 1 warnings, 2 errors. `--deep` adds the composition checks. |
+| `check.py FILE` | Composition checks ([RFC 0003](./rfcs/0003-composition-checks.md)): does the design say how its risks are handled — time bounds, idempotency, writers, failure routes, stuck state machines? A finding never forbids a shape: declare the handling, or accept the risk with a reason. |
+| `render.py FILE` | Emits a Mermaid `flowchart TD` for docs (GitHub, Obsidian, mermaid.live). |
+| `themes.py` | Colour themes from `themes/*.yaml`, shared by the viewer and the web page. |
+| `dialects.py` | Loads a dialect (`--dialect NAME`) that extends the linter, renderer and checker. |
 | `highlight/` | Syntax highlighting for bat, nvim, VS Code, Sublime/TextMate. |
+
+## Install as an agent skill
+
+Sigil ships as a skill (`sigil`) plus two commands (`sigil-view`, `sigil-lint`)
+for several coding agents. Each GitHub release attaches one archive per agent,
+`sigil-<agent>-<version>.zip` (and `.tar.gz`), plus
+`sigil-{claude,codex}-marketplace-<version>` archives. Build them locally with
+`./build.py` (see [Development](#development)).
+
+### Claude Code
+
+```sh
+# from a release: unzip sigil-claude-marketplace-<version>.zip, then in Claude Code
+/plugin marketplace add ./sigil-claude-marketplace-<version>
+/plugin install sigil@sigil
+# or try it for one session without installing
+claude --plugin-dir ./sigil-claude-<version>
+```
+
+Commands appear as `/sigil:sigil-view <file>` and `/sigil:sigil-lint <file>`.
+
+### Codex
+
+Unzip `sigil-codex-marketplace-<version>.zip` and add it as a local plugin
+marketplace (it holds `.agents/plugins/marketplace.json` → `./plugins/sigil`), or
+copy the skills straight into a skills directory:
+
+```sh
+unzip sigil-codex-<version>.zip
+cp -R sigil-codex-<version>/skills/* ~/.agents/skills/     # or <repo>/.agents/skills/
+```
+
+The commands become explicit-only skills: invoke them as `$sigil-view` /
+`$sigil-lint`.
+
+### pi
+
+```sh
+unzip sigil-pi-<version>.zip
+pi install ./sigil-pi-<version>        # add -l to install for this project only
+```
+
+Provides the `sigil` skill and the `/sigil-view` and `/sigil-lint` prompts.
+
+### OpenCode
+
+```sh
+unzip sigil-opencode-<version>.zip
+./sigil-opencode-<version>/install.sh                   # ~/.config/opencode
+./sigil-opencode-<version>/install.sh --project .       # ./.opencode
+```
+
+Provides the `sigil` skill and the `/sigil-view` and `/sigil-lint` commands.
+(OpenCode also discovers skills in `~/.claude/skills` and `.agents/skills`.)
 
 ## Simulation
 
@@ -133,60 +192,6 @@ t030 (Shopper) failed: {Cart}
 t030 episode 1 failed
 t030 done: failed
 ```
-
-## Install as an agent skill
-
-Sigil ships as a skill (`sigil`) plus two commands (`sigil-view`, `sigil-lint`)
-for several coding agents. Each GitHub release attaches one archive per agent,
-`sigil-<agent>-<version>.zip` (and `.tar.gz`), plus
-`sigil-{claude,codex}-marketplace-<version>` archives. Build them locally with
-`./build.py` (see [Development](#development)).
-
-### Claude Code
-
-```sh
-# from a release: unzip sigil-claude-marketplace-<version>.zip, then in Claude Code
-/plugin marketplace add ./sigil-claude-marketplace-<version>
-/plugin install sigil@sigil
-# or try it for one session without installing
-claude --plugin-dir ./sigil-claude-<version>
-```
-
-Commands appear as `/sigil:sigil-view <file>` and `/sigil:sigil-lint <file>`.
-
-### Codex
-
-Unzip `sigil-codex-marketplace-<version>.zip` and add it as a local plugin
-marketplace (it holds `.agents/plugins/marketplace.json` → `./plugins/sigil`), or
-copy the skills straight into a skills directory:
-
-```sh
-unzip sigil-codex-<version>.zip
-cp -R sigil-codex-<version>/skills/* ~/.agents/skills/     # or <repo>/.agents/skills/
-```
-
-The commands become explicit-only skills: invoke them as `$sigil-view` /
-`$sigil-lint`.
-
-### pi
-
-```sh
-unzip sigil-pi-<version>.zip
-pi install ./sigil-pi-<version>        # add -l to install for this project only
-```
-
-Provides the `sigil` skill and the `/sigil-view` and `/sigil-lint` prompts.
-
-### OpenCode
-
-```sh
-unzip sigil-opencode-<version>.zip
-./sigil-opencode-<version>/install.sh                   # ~/.config/opencode
-./sigil-opencode-<version>/install.sh --project .       # ./.opencode
-```
-
-Provides the `sigil` skill and the `/sigil-view` and `/sigil-lint` commands.
-(OpenCode also discovers skills in `~/.claude/skills` and `.agents/skills`.)
 
 ## Themes
 
@@ -261,6 +266,7 @@ view_graph.py · view_tree.py   the graph and tree views              │
 themes.py    YAML themes (themes/), shared with the page             ┘
 build.py     packaging (maintainers only)
 site/  the page and playground · tools/  golden drawings, doc regeneration
+docs/  the tools reference · rfcs/  design records
 tests/  unit tests, fixtures and golden drawings · highlight/  editor grammars
 ```
 
