@@ -1,0 +1,9 @@
+#!craft
+# SGC113 dual-write — atomicity declared on the node.
+# expect: none
+
+[Orders] -> |DB| : insert({Order})
+[Orders] ~> <OrderPlaced>
+<OrderPlaced> -> [Ship]
+[Ship] -> |Shipments| : create({Order})
+[Orders] @inv atomic(|DB|, <OrderPlaced>)

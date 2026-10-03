@@ -1,0 +1,5 @@
+#!craft
+# SGC111 retry-without-idempotency — a retried read changes nothing.
+# expect: none
+
+[API] -> |Catalog| : get(sku) ×3 => {Item}

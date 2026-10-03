@@ -1,0 +1,11 @@
+#!spec
+# SGC103 timeout-budget-inverted — a join longer than its caller waits.
+# expect: 5:SGC103
+
+(U) -> [A] : go() @timeout(2s)
+(U) !> (Ops) : <Failed>
+[A] @sla(100rps)
+parallel @all {
+  [A] -> [B] : get(x) @timeout(3s)
+  [A] -> [C] : get(y) @timeout(3s)
+}

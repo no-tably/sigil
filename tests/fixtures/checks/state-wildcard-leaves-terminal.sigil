@@ -1,0 +1,12 @@
+#!craft
+# SGC148 wildcard-leaves-terminal — the catalog example, flagged.
+# expect: 9:SGC146
+# expect: 10:SGC146
+# expect: 11:SGC146
+# expect: 11:SGC148
+
+state {Job} {
+  Running -<ok>->      Done
+  Done    -<archive>-> $
+  _       -<cancel>->  Cancelled
+}

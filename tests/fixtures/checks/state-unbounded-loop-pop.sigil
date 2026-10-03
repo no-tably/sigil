@@ -1,0 +1,7 @@
+#!craft
+# SGC153 unbounded-loop — `pop` changes the condition's store, though it produces a value.
+# expect: none
+
+loop @while |Q|.nonempty {
+  [Worker] -> |Q| : pop => {Job}
+}

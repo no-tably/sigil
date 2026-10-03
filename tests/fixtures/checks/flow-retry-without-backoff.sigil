@@ -1,0 +1,6 @@
+#!craft
+# SGC104 retry-without-backoff — an external call retried at once.
+# expect: 5:SGC104
+
+[Svc] -> (Web) : op http.get(${url}) @timeout(5s) ×3
+       !> <FetchFailed>

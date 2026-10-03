@@ -1,0 +1,6 @@
+#!craft
+# SGC171 dependency-cycle — the catalog example, flagged.
+# expect: 5:SGC171
+
+[Orders]  -> [Billing] : charge()
+[Billing] -> [Orders]  : lookup()

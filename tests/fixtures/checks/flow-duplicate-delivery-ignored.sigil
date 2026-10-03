@@ -1,0 +1,13 @@
+#!craft
+# SGC112 duplicate-delivery — a bare self-loop is the machine ignoring a duplicate.
+# expect: none
+
+[Bank] => <Placed>
+[Bank] => *<Paid>^1k
+<Placed> -> {Order}
+*<Paid> -> {Order}
+state {Order} {
+  + -<Placed>-> Open
+  Open -<Paid>-> Settled @timeout(1d)
+  Settled -<Paid>-> Settled
+}

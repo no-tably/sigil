@@ -1,0 +1,9 @@
+#!craft
+# SGC113 dual-write — a compensating route under the second write (live: a request).
+# expect: none
+
+[S] -> |A| : put(x)
+[S] -> |B| : put(x)
+    !> |A| : delete(x) ×3 @inv idempotent(x)
+|A| @inv retention(7d)
+|B| @inv retention(7d)

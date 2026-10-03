@@ -1,0 +1,6 @@
+#!craft
+# SGC112 duplicate-delivery — a stage that only re-emits is not asked.
+# expect: none
+
+[Ingest] => *<Raw>^10k@drop
+*<Raw> -> [Parse] => *<Parsed>^10k

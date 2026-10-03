@@ -1,4 +1,4 @@
-── judge-loop ────────────────
+── judge-loop ────────────────────────────────────────────────
 [Loop] ──────────────●
 ~|running| ◀─────────┴─┐
 <stop> ────────────────●
@@ -10,8 +10,8 @@
 ~|rubric| ◀──────────┘ │ │ │ │
 ~|opts| ◀──────────────┘ │ │ │
 ~|policy| ◀──────────────┘ │ │
-|Scores| ⇱ ◀───────────────┘ │
-[Index] ⇱ ◀──────────────────┘
+|Scores| ⇱ ◀───────────────┘┄│┄┆ @timeout 2s @fallback false ┆
+[Index] ⇱ ◀──────────────────┘┄┆ @timeout 2s @fallback [] ┆
 
 tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
        (N) weight  

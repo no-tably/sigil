@@ -1,0 +1,5 @@
+#!craft
+# SGC167 unbounded-spawn — a spawn flow `=> [X]` with no ceiling.
+# expect: 5:SGC167
+
+[Crawler] => [Fetch]

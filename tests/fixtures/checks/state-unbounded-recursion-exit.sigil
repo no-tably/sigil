@@ -1,0 +1,6 @@
+#!craft
+# SGC151 unbounded-recursion — a `?>` arm leaves the recursion.
+# expect: none
+
+[Doc.walk] -> [Doc.walk] : child
+[Doc.walk] ?> [Doc.done]

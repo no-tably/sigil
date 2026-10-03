@@ -1,0 +1,7 @@
+#!craft
+# SGC202 dead-failure-route — the guarded flow is a call that can fail.
+# expect: none
+
+[A] -> (Ext) : op x.get() @timeout(1s)
+     !> <Failed>
+<Failed> -> (Ops)

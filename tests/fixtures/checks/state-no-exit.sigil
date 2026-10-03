@@ -1,0 +1,10 @@
+#!craft
+# SGC144 no-exit — the catalog example, flagged.
+# expect: 7:SGC146
+# expect: 8:SGC144
+
+state {Msg} {
+  +         -<new>->   Pending
+  Pending   -<fail>->  Retryable
+  Retryable -<retry>-> Pending
+}

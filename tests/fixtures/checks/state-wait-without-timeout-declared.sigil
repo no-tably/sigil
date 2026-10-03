@@ -1,0 +1,9 @@
+#!craft
+# SGC147 wait-without-timeout — the catalog example, risk declared.
+# expect: 8:SGC146
+
+(Customer) ~> <Paid>
+state {Order} {
+  Open -<Paid>->    Settled
+  Open -<expired>-> Cancelled @after(30min)
+}

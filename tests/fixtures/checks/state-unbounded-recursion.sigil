@@ -1,0 +1,5 @@
+#!craft
+# SGC151 unbounded-recursion — the catalog example, flagged.
+# expect: 5:SGC151
+
+[Doc.walk] -> [Doc.walk] : child

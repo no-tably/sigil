@@ -1,0 +1,6 @@
+#!craft
+# SGC123 race-loser-effects — both members of a hedge write (guesses: no bodies).
+# expect: 6:SGC123
+# expect: 6:SGC123
+
+[Client] -> [EU] &? [US] : put({Doc})

@@ -1,0 +1,9 @@
+#!craft
+# SGC142 dead-end-state — the catalog example, risk declared.
+# expect: 6:SGC146
+
+state {Order} {
+  +       -<Paid>->    Settled
+  +       -<Void>->    $
+  Settled -<archive>-> $
+}

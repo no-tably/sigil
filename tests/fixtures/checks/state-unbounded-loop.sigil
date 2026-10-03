@@ -1,0 +1,7 @@
+#!craft
+# SGC153 unbounded-loop — the catalog example, flagged.
+# expect: 5:SGC153
+
+loop @while ~|running| {
+  [Worker] -> run()
+}

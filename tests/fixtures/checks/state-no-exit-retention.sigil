@@ -1,0 +1,10 @@
+#!craft
+# SGC144 no-exit — `@inv retention(t)` on the owner declares how long records stay.
+# expect: 6:SGC146
+
+state {Msg} {
+  +         -<new>->   Pending
+  Pending   -<fail>->  Retryable
+  Retryable -<retry>-> Pending
+}
+{Msg} @inv retention(30d)

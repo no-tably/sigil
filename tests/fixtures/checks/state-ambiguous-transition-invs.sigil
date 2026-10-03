@@ -1,0 +1,9 @@
+#!craft
+# SGC143 ambiguous-transition — duplicates each with a per-transition `@inv`: not ambiguous.
+# expect: 7:SGC146
+# expect: 8:SGC146
+
+state {Job} {
+  Running -<done>-> Ok     @inv {Job}.exit = 0
+  Running -<done>-> Failed @inv {Job}.exit != 0
+}

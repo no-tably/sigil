@@ -1,0 +1,8 @@
+#!craft
+# SGC167 unbounded-spawn — one child per message of an unbounded stream.
+# expect: 6:SGC161
+# expect: 8:SGC167
+
+*<Shot> -> [Ship]
+[Ship]
+    \-* [Bullet]

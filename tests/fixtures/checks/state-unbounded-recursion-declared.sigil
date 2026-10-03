@@ -1,0 +1,6 @@
+#!craft
+# SGC151 unbounded-recursion — the catalog example, risk declared.
+# expect: none
+
+[Doc.walk] -> [Doc.walk] : child
+[Doc.walk] @inv depth <= 32

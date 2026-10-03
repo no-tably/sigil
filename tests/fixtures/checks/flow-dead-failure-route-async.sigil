@@ -1,0 +1,9 @@
+#!craft
+# SGC202 dead-failure-route — a route under a `~>` send: the sender never sees the failure.
+# expect: 6:SGC161
+# expect: 7:SGC202
+
+[A] ~> [B] : notify()
+     !> <Failed>
+[B] -> (Ext) : op x.put() @timeout(1s)
+     !> <PutFailed>

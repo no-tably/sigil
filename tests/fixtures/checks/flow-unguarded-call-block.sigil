@@ -1,0 +1,11 @@
+#!craft
+# SGC101 unguarded-call — a block's `} @deadline` bounds every member.
+# expect: none
+
+(U) -> [A] : go()
+(U) !> (Ops) : <Failed>
+[A] @sla(100rps)
+parallel @all {
+  [A] -> (E) : op e.get()
+  [A] -> (F) : op f.get()
+} @deadline(3s)

@@ -1,0 +1,5 @@
+#!craft
+# SGC162 unbounded-result — a read returning every row.
+# expect: 5:SGC162
+
+[Api] -> |DB| : query() => {List<Row>}

@@ -1,0 +1,10 @@
+#!craft
+# SGC143 ambiguous-transition — a specific transition written before `_`: not ambiguous.
+# expect: 8:SGC146
+# expect: 9:SGC146
+# expect: 9:SGC148
+
+state {Order} {
+  Open -<Paid>-> Done
+  _    -<Paid>-> Weird
+}

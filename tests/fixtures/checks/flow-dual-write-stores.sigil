@@ -1,0 +1,8 @@
+#!craft
+# SGC113 dual-write — two stores written in one activation (`put` is a guessed write: a hint).
+# expect: 5:SGC113
+
+[S] -> |A| : put(x)
+[S] -> |B| : put(x)
+|A| @inv retention(7d)
+|B| @inv retention(7d)

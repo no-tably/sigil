@@ -1,0 +1,7 @@
+#!craft
+# SGC111 retry-without-idempotency — a `<->` reads as read-and-write: a guessed write.
+# expect: 5:SGC111
+
+[A] -> [Fetcher] : fetch(${url}) ×3 @after(1s) @timeout(5s)
+       !> (Ops) : <FetchFailed>
+[Fetcher] <-> |Robots| : allowed(${url})

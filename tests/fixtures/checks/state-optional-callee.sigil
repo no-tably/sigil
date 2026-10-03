@@ -1,0 +1,7 @@
+#!craft
+# SGC174 optional-callee — the catalog example, flagged.
+# expect: 7:SGC174
+
+[Cluster]
+    \-{hot}-? [Cache]
+[Api] -> [Cache] : get()

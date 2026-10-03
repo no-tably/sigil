@@ -61,6 +61,11 @@ def _check(text: str, pack_dialect):
     return ck.check(text, dialect=pack_dialect, registry=registry)
 
 
+def _pack_only(findings) -> list:
+    """The findings a dialect rule raised; core rules also fire on the same text."""
+    return [f for f in findings if f.rule.layer == "dialect"]
+
+
 class TestPackRuns(unittest.TestCase):
     def setUp(self):
         self.pack = dialects.load(str(_PACK))
@@ -73,11 +78,10 @@ class TestPackRuns(unittest.TestCase):
         self.assertEqual(pack.policy_words, ())
 
     def test_rules_join_the_registry_and_fire(self):
-        report = _check(DOC, self.pack)
-        names = sorted(f.rule.name for f in report.findings)
-        self.assertEqual(names, ["shared-pool", "unbroken-dependency"])
-        self.assertTrue(all(f.severity == "info" for f in report.findings))
-        self.assertTrue(all(f.rule.layer == "dialect" for f in report.findings))
+        found = _pack_only(_check(DOC, self.pack).findings)
+        self.assertEqual(sorted(f.rule.name for f in found), ["shared-pool", "unbroken-dependency"])
+        self.assertTrue(all(f.severity == "info" for f in found))
+        self.assertTrue(all(f.rule.id.startswith("RSL") for f in found))
 
     def test_declared_handling_satisfies(self):
         doc = DOC.replace("[Api] -> [Pay]", "[Api] @inv breaker(5) @inv bulkhead(2) -> [Pay]")
@@ -93,8 +97,8 @@ class TestPackRuns(unittest.TestCase):
                           "# accepts: unbroken-dependency, shared-pool — the callee sheds load\n"
                           "[Api] -> [Pay]: charge() @timeout(2s) ×3")
         report = _check(doc, self.pack)
-        self.assertEqual([f.rule.name for f in report.findings], [])
-        self.assertEqual(sorted(f.rule.name for f in report.acknowledged),
+        self.assertEqual(_pack_only(report.findings), [])
+        self.assertEqual(sorted(f.rule.name for f in _pack_only(report.acknowledged)),
                          ["shared-pool", "unbroken-dependency"])
 
     def test_pack_name_is_unknown_without_the_pack(self):

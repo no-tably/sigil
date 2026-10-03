@@ -1,0 +1,8 @@
+#!craft
+# SGC204 race — one writer and a reader from another arrival (not folded: one writer).
+# expect: 7:SGC204
+
+(Alice) -> [Editor] : save()
+(Bob) -> [Viewer] : show()
+[Editor] -> |Doc| : put({Doc})
+[Viewer] -> |Doc| : get() => {Doc}

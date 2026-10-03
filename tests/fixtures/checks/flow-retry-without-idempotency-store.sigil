@@ -1,0 +1,8 @@
+#!craft
+# SGC111 retry-without-idempotency — the callee writes a store that declares idempotency.
+# expect: none
+
+[API] -> [Pay] : charge(total) ×3 @timeout(2s) @after(1s)
+[API] !> (Ops) : <PayFailed>
+[Pay] -> |Ledger| : insert({Tx})
+|Ledger| @inv idempotent(tx_id)

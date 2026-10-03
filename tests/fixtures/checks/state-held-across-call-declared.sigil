@@ -1,0 +1,7 @@
+#!craft
+# SGC134 held-across-call — the catalog example, risk declared.
+# expect: none
+
+[H] @owns |Conn| {
+  [H] -> (Bank) : op bank.check() @timeout(5s) ×3 @deadline(1s)
+}

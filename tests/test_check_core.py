@@ -667,8 +667,12 @@ class Cli(unittest.TestCase):
         p = self.cli("-")
         self.assertEqual(p.returncode, 1)
         out = p.stdout.splitlines()
-        self.assertEqual([ln.split(":")[2] for ln in out],
+        # The rule modules add their own findings to SAMPLE; pin only the core's
+        # (SGC0xx), and the line order of everything.
+        self.assertEqual([ln.split(":")[2] for ln in out if ln.split(":")[2] < "SGC100"],
                          ["SGC001", "SGC004", "SGC002", "SGC001", "SGC001"])
+        lines = [int(ln.split(":")[1]) for ln in out]
+        self.assertEqual(lines, sorted(lines))
         for ln in out:
             sev, line, rid, rest = ln.split(":", 3)
             self.assertIn(sev, ("error", "warn", "info"))
@@ -688,7 +692,7 @@ class Cli(unittest.TestCase):
         self.assertEqual(data["acknowledged"], [])
 
     def test_clean_document(self):
-        p = self.cli("-", stdin="#!spec\n[A] -> [B] : f() @timeout(2s)\n")
+        p = self.cli("-", stdin="#!spec\n[A] -> [B] : f() @timeout(2s) @fallback(x)\n")
         self.assertEqual((p.returncode, p.stdout.strip()), (0, "sigil check: OK (no findings)"))
 
     def test_rules_flag(self):

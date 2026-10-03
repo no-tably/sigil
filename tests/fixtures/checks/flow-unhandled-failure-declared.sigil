@@ -1,0 +1,7 @@
+#!craft
+# SGC201 unhandled-failure — one route on the chain handles it.
+# expect: 5:SGC163
+
+(User) -> [Judge] : judge()
+[Judge] -> |Scores| : op db.insert(${score}) @timeout(2s)
+        !> (User) : <JudgeFailed>

@@ -1,0 +1,9 @@
+#!craft
+# SGC136 shared-data-order — a flow between the writers sequences them.
+# expect: none
+
+loop @times 2 {
+  [Physics]  -> {Transform}
+  [Steering] -> {Transform}
+  [Physics]  -> [Steering]
+}

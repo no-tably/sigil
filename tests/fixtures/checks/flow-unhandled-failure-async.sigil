@@ -1,0 +1,9 @@
+#!craft
+# SGC201 unhandled-failure — a failure in a `~>` task with no route of its own (SGC114 holds it).
+# expect: 7:SGC163
+# expect: 8:SGC161
+# expect: 9:SGC114
+
+(User) -> [Api] : save()
+[Api] ~> [Audit]
+[Audit] -> (Siem) : op siem.push(${event}) @timeout(1s)

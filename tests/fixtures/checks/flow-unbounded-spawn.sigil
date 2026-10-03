@@ -1,0 +1,6 @@
+#!craft
+# SGC167 unbounded-spawn — a dynamic child with no ceiling.
+# expect: 6:SGC167
+
+[Crawler]
+    \-* [Fetch]

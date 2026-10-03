@@ -1,0 +1,8 @@
+#!craft
+# SGC146 undriven-transition — the catalog example, risk declared.
+# expect: 7:SGC147
+
+(Bank) ~> <Paid>
+state {Order} {
+  Open -<Paid>-> Settled
+}

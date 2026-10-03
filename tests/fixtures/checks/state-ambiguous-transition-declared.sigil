@@ -1,0 +1,9 @@
+#!craft
+# SGC143 ambiguous-transition — the catalog example, risk declared.
+# expect: 7:SGC146
+# expect: 8:SGC146
+
+state {Job} {
+  Running -<succeeded>-> Ok
+  Running -<failed>-> Failed
+}

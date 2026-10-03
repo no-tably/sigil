@@ -1,0 +1,8 @@
+#!craft
+# SGC147 wait-without-timeout — the catalog example, flagged.
+# expect: 7:SGC147
+
+(Customer) ~> <Paid>
+state {Order} {
+  Open -<Paid>-> Settled
+}

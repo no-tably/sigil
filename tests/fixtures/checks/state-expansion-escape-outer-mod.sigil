@@ -1,0 +1,11 @@
+#!craft
+# SGC172 expansion-escape / SGC171 dependency-cycle — an outer modifier line
+# (`[A] @sla(…)`) does not make `[A]` an outer node: the cycle stays inside `[Svc]`
+# and is SGC151's (no bound stated), never SGC171 or SGC172.
+# expect: 8:SGC151
+
+[Svc] := {
+  [A] -> [B] : f()
+  [B] -> [A] : g()
+}
+[A] @sla(p99<1s)

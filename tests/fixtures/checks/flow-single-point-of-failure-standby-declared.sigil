@@ -1,0 +1,10 @@
+#!craft
+# SGC166 single-point-of-failure — clause (c): a route reaches the standby.
+# expect: none
+
+[Gateway]
+    \-_ [StripePsp]
+    \-_ [AdyenPsp]
+[Gateway] -> [StripePsp] : pay(total) @timeout(2s)
+          !> [AdyenPsp] : pay(total) @inv idempotent(order_id)
+[Gateway] @sla(p99<1s)

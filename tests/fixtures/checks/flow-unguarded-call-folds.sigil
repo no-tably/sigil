@@ -1,0 +1,11 @@
+#!craft
+# SGC101 unguarded-call folds SGC165 fanout-tail on the same call (§1.7).
+# expect: 8:SGC101
+# expect: 8:SGC121
+# expect: 9:SGC121
+
+parallel @all {
+  [Api] -> (Bank) : op bank.charge(total)
+  [Api] -> [Fraud] : score @timeout(500ms)
+}
+       !> <CheckoutFailed>

@@ -419,6 +419,24 @@ an indentation-significant authoring style of its own; core Sigil never does.)
 
 Control flow lives in named blocks rather than overloading arrows.
 
+**Modifiers after a block.** Any block — a named block, `state`, `loop`, `parallel`,
+`branch`, an `@owns` scope, a `:= { … }` expansion — may carry modifiers after its
+closing `}`. They apply to the block as a whole — a deadline over every member of a
+join, an invariant over a loop — and an expansion's go to the entity it expands
+(`} @inv write-only-primary`, Example 6).
+
+```
+#!sketch
+parallel @all {
+  [Checkout] -> [Payments] : charge({Order}) @timeout(2s)
+  [Checkout] -> [Stock]    : reserve({Order}) @timeout(2s)
+} @deadline(3s)
+
+loop @while {Queue}.size > 0 {
+  [Worker] -> |Queue| : take() => {Job}
+} @inv terminates
+```
+
 ### State machines (and lifecycle)
 
 ```
@@ -433,6 +451,13 @@ state {Name} {
 - `+` — creation source (no predecessor)
 - `$` — terminal state (no successor)
 - `_` — wildcard source (transitions from any state)
+- **A specific transition beats `_`.** When a state has its own transition for a
+  trigger, that transition is taken and the wildcard's is not, whichever is written
+  first.
+- **A self-loop `S -<T>-> S` says "seen and ignored on purpose".** The machine stays
+  in `S` when `T` arrives there; it is the one way to state that an event is
+  deliberately ignored in a state (and, with the rule above, to keep a state out of a
+  wildcard's reach).
 - Inside a `state` block, bare names are states of its owner, `->` is a transition, and `<x>` between the dashes is the trigger.
 - **Any glyph owns a state machine.** `state {Order} { … }` is a record's lifecycle;
   `state [Checkout] { … }` is a component's own modes (idle / busy / draining);
@@ -441,6 +466,18 @@ state {Name} {
 - Per-transition modifiers: `×N` (retry count), `@inv`, `@timeout`, etc.
 
 Lifecycle is just a state machine with `+` and `$`. No separate keyword.
+
+```
+#!sketch
+state {Order} {
+  _         -<cancel>->  Cancelled
+  +         -<place>->   Open
+  Open      -<pay>->     Settled
+  Settled   -<pay>->     Settled     # a repeated payment is ignored on purpose
+  Settled   -<cancel>->  Settled     # beats `_`: a settled order is not cancelled
+  Settled   -<ship>->    $
+}
+```
 
 **Events drive transitions by name.** A trigger names an event: when the document
 has an event glyph of the same name (case-insensitive), that event **is** the
@@ -546,9 +583,20 @@ walk := [Node] -> walk(.children)
 ```
 
 A self-arrow (or an alias whose body calls its own name) is a recursive call. Sigil
-does not state the recursion's depth or base case — those are the callee's
-internals (see "What Sigil deliberately doesn't do"); a consumer that runs the
-design bounds the depth itself (`view.py --sim` stops at depth 3 and logs a base case).
+does not describe the recursion's base case — that is the callee's internals (see
+"What Sigil deliberately doesn't do"). A design **may** state a bound on it, as an
+invariant on a node of the recursion: `@inv depth <= N` (how deep it can go) or
+`@inv terminates` (it ends, without a number). Stating one is optional; recursion
+without one is still valid.
+
+```
+#!sketch
+[Doc.walk] -> [Doc.walk] : child
+[Doc.walk] @inv depth <= 32
+```
+
+A stated bound does not change how a design is run: a consumer that runs it bounds
+the depth itself (`view.py --sim` stops at depth 3 and logs a base case).
 
 ---
 
@@ -753,6 +801,38 @@ parent above it; `SGL112` a path that matches nothing. A dialect may add relatio
 {User}.age @inv >= 0
 ```
 
+`@inv` takes a free expression, and any expression stays valid. **Recognised
+invariants** are the short list of heads a checker can test against the wiring — one
+form per risk. Where an existing modifier already says the same thing, write that
+instead (last column).
+
+| Invariant | States that | Prefer instead, when it fits |
+| --- | --- | --- |
+| `idempotent(key)` | a repeat (on `key`) has no further effect | — |
+| `dedup(key)` | the channel drops duplicates | — |
+| `atomic(x, …)` | these effects commit together | — |
+| `ordered(key)` | arrivals keep their order (per key) | — |
+| `serialised(\|S\|)` | writes to `S` are applied one at a time | `@owns \|S\|`, a single `@write(…)` |
+| `cas(field)` | writes compare-and-set on a version | — |
+| `immutable` | written once, never changed | — |
+| `depth <= N` | a recursion goes at most `N` deep | — |
+| `hops <= N` | a message cycle takes at most `N` hops | — |
+| `terminates` | a loop or recursion ends | `@times N`, `@each`, a `?>` exit |
+| `retention(t)` | stored items expire after `t` | — |
+| `lock-order(\|A\| < \|B\|)` | stores are always acquired in this order | — |
+| `layers(a > b > c)` | the order of `@loc` tiers (calls go downward) | — |
+| `retry-budget(p)` | retries are capped at a share `p` of traffic | — |
+| `limit(N)` | a data result is capped (a page size) | `^N` on a stream result |
+| `concurrency <= N` | at most `N` spawned tasks at once | `×N` on the child, `^N` upstream |
+| `consistent(model)` | the read model a reader accepts | — |
+
+Other risks already have notation and get no `@inv` head: a bound (`^N`), a rate or
+latency (`@sla`), ownership (`@owns`, `@write(…)`), a time bound (`@timeout`,
+`@deadline`), a handled failure (`!>`, `@fallback`), an exit (`?>`), a terminal
+state (`$`), a reply (`=>`), and "ignored on purpose" (the self-loop `S -<T>-> S`).
+Anything else written after `@inv` (`unique:email`, `>= 0`) is a claim for readers
+that tools list as unchecked.
+
 **SLAs and timing:**
 ```
 [API] @sla(p99<100ms, avail>99.95%)
@@ -778,6 +858,24 @@ one policy and read left-to-right:
 [Judge] -> [Scorer] : score({Draft})  @timeout(30s) ×3 @fallback(0)
 #   one attempt ≤ 30s; up to 3 retries; on final failure yield 0 instead of erroring
 [Svc] -> [Web] : op http.get(${url})  @timeout(5s) @fallback(${cache})
+```
+
+**Where `×N` sits decides what it means.** The same token is a retry count or a
+cardinality, and its place says which:
+
+- trailing a call's payload (`: charge({Order}) ×3`) — **retries** of that call;
+- glued to a glyph (`[App]×3`, `(User)×N`) or on a node's own line — **cardinality**:
+  that many instances, never a retry. An actor with a cardinality is that many
+  concurrent callers; a plain `(User)` is one caller, whose requests come one after
+  another;
+- trailing a flow with no payload (`[Api] -> [Shard] ×4`) — read as cardinality of
+  the destination; lint notes it (SGL187) and suggests the glued `[Shard]×4`.
+
+```
+#!sketch
+(User)×N -> [Api] : submit({Form})
+[Api] -> [Billing]×2 : charge({Order}) ×3 @timeout(2s)
+#   many concurrent users; two billing instances; each charge retried up to 3 times
 ```
 
 `@deadline(t)` bounds the **whole** call — every attempt and the waits between
@@ -1055,8 +1153,9 @@ mod         := '@' name ('(' arg (',' arg)* ')')?     # @inv @sla @cap @grants @
              | fallback-mod | access-mod | borrow-mod
 
 # Call resilience — `@timeout`/`×N`/`@fallback` form a call's error policy.
-# `×N` is the existing cardinality/retry token; `@fallback(x)` is the recovery
-# payload on final failure.
+# `×N` trailing a call payload is a retry count; glued to a glyph (`[App]×3`),
+# on a node, or trailing a payload-less flow it is cardinality.
+# `@fallback(x)` is the recovery payload on final failure.
 fallback-mod:= '@fallback' '(' (value | int-op-call | ext-op-call) ')'
 
 # A payload is structural (an entity or internal op-call) or a value.
@@ -1086,8 +1185,10 @@ STR         := '"' char* '"' | '"""' any* '"""'    # single-line | multiline blo
 # `:` (key/value pairs), e.g. `{retries: 3}`; otherwise it is the DATA-GLYPH
 # `{X}` (entity). Every bare-identifier `{X}` stays an entity.
 
-alias       := name ':=' (expr | '{' stmt* '}')
-block       := name '{' stmt* '}'
+alias       := name ':=' (expr | '{' stmt* '}' (mod)*)
+block       := name '{' stmt* '}' (mod)*
+# Any block's closing `}` may carry modifiers for the whole block
+# (`} @deadline(3s)`, `} @inv terminates`); an expansion's go to its entity.
 
 comp-tree   := entity (INLINE-BRANCH)? NL branch+     # children indented deeper than the parent
 branch      := INDENT '\\-' spawn? (weight | cond)? rel entity (flow-tail)? NL branch*
@@ -1104,16 +1205,16 @@ path        := entity ('/' entity)+                   # no spaces around '/'; ea
                                                       # parent→child branch; matches as a suffix of an
                                                       # occurrence's ancestor chain (SGL112 if none)
 
-state-block := 'state' entity '{' trans* '}'          # any glyph owns the machine
+state-block := 'state' entity '{' trans* '}' (mod)*   # any glyph owns the machine
 trans       := (name | '+' | '_') '-<' name '>->' (name | '$') (mod)*
 
-loop-block     := 'loop' loopmod '{' stmt* '}'
+loop-block     := 'loop' loopmod '{' stmt* '}' (mod)*
 loopmod        := '@each' name 'of' expr | '@while' expr
                 | '@until' expr | '@times' N
 
-parallel-block := 'parallel' '@all'|'@any'|'@none' '{' stmt* '}'
+parallel-block := 'parallel' ('@all'|'@any'|'@none') '{' stmt* '}' (mod)*
 
-branch-block   := 'branch' 'on' expr '{' arm* '}'
+branch-block   := 'branch' 'on' expr '{' arm* '}' (mod)*
 arm            := (name | '_') '=>' flow
 
 # Permission graph — access edges on a store, as `@`-modifiers carrying a `( )`

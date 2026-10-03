@@ -107,7 +107,9 @@ carry most rules:
   await, `~>` and streams stop, routes choose; under Q2 a fallback that absorbs a
   failure still lets the call's routes fire). "Can fail", "is this route
   reachable", and "does this failure reach an entry unhandled" are exact static
-  answers over it.
+  answers over it. A route under a request declares that the request can fail;
+  one under a flow into data declares nothing, so `dead-failure-route` reports it
+  even though the simulator fires it (catalog §3).
 - **concurrency** — a static predicate (cardinality, spawns, generic roles, stream
   feeds, concurrent arrivals) shared by every rule that asks "can this run twice at
   once?", plus an explicit **arrival model**: actor flows, outside-cause events,

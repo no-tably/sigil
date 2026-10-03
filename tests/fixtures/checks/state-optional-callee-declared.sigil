@@ -1,0 +1,7 @@
+#!craft
+# SGC174 optional-callee — the catalog example, risk declared.
+# expect: none
+
+[Cluster]
+    \-{hot}-? [Cache]
+[Api] -> [Cache] : get() @fallback(null)

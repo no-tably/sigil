@@ -1,0 +1,6 @@
+#!craft
+# SGC101 unguarded-call — the catalog example, risk declared.
+# expect: none
+
+[Judge] -> |Scores| : op db.insert(${out.score}) @timeout(2s)
+        !> <ScoreLost>

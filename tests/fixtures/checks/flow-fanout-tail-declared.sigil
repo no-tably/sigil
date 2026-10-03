@@ -1,0 +1,9 @@
+#!craft
+# SGC165 fanout-tail — the member bounded.
+# expect: 7:SGC121
+
+parallel @all {
+  [API] -> [Payment] : charge ×3 @timeout(2s) @inv idempotent(order_id)
+  [API] -> [Fraud]   : score @timeout(500ms)
+}
+       !> <CheckoutFailed>

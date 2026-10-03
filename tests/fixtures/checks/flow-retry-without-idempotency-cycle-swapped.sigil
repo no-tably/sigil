@@ -1,0 +1,9 @@
+#!craft
+# SGC111 retry-without-idempotency — the same cycle written the other way round: the
+# findings do not depend on the order.
+# expect: 7:SGC111
+# expect: 8:SGC111
+
+[B] -> [A] : g() ×3 @after(1s)
+[A] -> [B] : f() ×3 @after(1s)
+[B] -> |S| : put(x)

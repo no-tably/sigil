@@ -1,0 +1,10 @@
+#!craft
+# SGC101 unguarded-call — a loop's `} @deadline` bounds its calls.
+# expect: none
+
+(U) -> [A] : go()
+(U) !> (Ops) : <Failed>
+[A] @sla(100rps)
+loop @times(2) {
+  [A] -> (E) : op e.get()
+} @deadline(3s)

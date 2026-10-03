@@ -1,0 +1,7 @@
+#!craft
+# SGC114 poison-message — a dead-letter route (Example 4), with its retention.
+# expect: 5:SGC111
+
+*<Raw>^1k -> [Parse] : parse() ×3
+          !> |DLQ|
+|DLQ| @inv retention(7d)

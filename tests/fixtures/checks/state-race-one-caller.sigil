@@ -1,0 +1,8 @@
+#!craft
+# SGC204 race — one plain actor is one sequential caller (Q10): no race.
+# expect: none
+
+(Alice) -> [Editor] : save()
+(Alice) -> [Viewer] : show()
+[Editor] -> |Doc| : put({Doc})
+[Viewer] -> |Doc| : get() => {Doc}

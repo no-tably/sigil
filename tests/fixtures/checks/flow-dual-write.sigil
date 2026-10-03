@@ -1,0 +1,8 @@
+#!craft
+# SGC113 dual-write — a store write and an event another store write acts on (a guessed write: a hint).
+# expect: 5:SGC113
+
+[Orders] -> |DB| : insert({Order})
+[Orders] ~> <OrderPlaced>
+<OrderPlaced> -> [Ship]
+[Ship] -> |Shipments| : create({Order})

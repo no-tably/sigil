@@ -1,0 +1,5 @@
+#!craft
+# SGC145 orphan-event — the catalog example, flagged.
+# expect: 5:SGC145
+
+[Payments] ~> <Paid>

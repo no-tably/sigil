@@ -1,0 +1,6 @@
+#!craft
+# SGC131 shared-writable-store — clause (c): one known writer and a flow of unknown mode (a hint).
+# expect: 5:SGC131
+
+[A] -> |Doc| : put({Doc})
+[B] -> |Doc|

@@ -1,0 +1,9 @@
+#!craft
+# SGC141 unreachable-state — a component machine with no `+`: every state is entered, skipped.
+# expect: 7:SGC146
+# expect: 8:SGC146
+
+state [Lamp] {
+  Off -<on>->  On
+  On  -<off>-> Off
+}

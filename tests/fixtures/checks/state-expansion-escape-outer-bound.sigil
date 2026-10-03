@@ -1,0 +1,11 @@
+#!craft
+# SGC172 expansion-escape / SGC171 dependency-cycle — `[A]` named again at the outer
+# level on a declaration line only is still the expansion's own member: no escape,
+# no cross-component cycle, and the bound SGC151 asks for is honoured.
+# expect: none
+
+[Svc] := {
+  [A] -> [B] : f()
+  [B] -> [A] : g()
+}
+[A] @inv depth <= 4

@@ -1,0 +1,7 @@
+#!craft
+# SGC114 poison-message — an overflow policy upstream states the handling.
+# expect: 6:SGC111
+# expect: 6:SGC112
+
+*<Job>^10@drop -> [W] : run() ×3 @after(1s)
+[W] -> (Ext) : op x.put() @timeout(1s)

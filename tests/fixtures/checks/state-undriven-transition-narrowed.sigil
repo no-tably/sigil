@@ -1,0 +1,15 @@
+#!craft
+# SGC146 undriven-transition — case 1: an aim narrowed `<Paid>` away from `[Checkout]` (advisory).
+# expect: 10:SGC147
+# expect: 13:SGC146
+# expect: 14:SGC146
+
+[Payments] ~> <Paid>
+<Paid> -> {Order}
+state {Order} {
+  Open -<Paid>-> Settled
+}
+state [Checkout] {
+  Idle -<Placed>-> Busy
+  Busy -<Paid>->   Idle
+}

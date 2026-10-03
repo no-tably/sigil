@@ -1,0 +1,6 @@
+#!craft
+# SGC131 shared-writable-store — the catalog example, flagged.
+# expect: 5:SGC131
+
+[A] -> |Doc| : put({Doc})
+[B] -> |Doc| : put({Doc})

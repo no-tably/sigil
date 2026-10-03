@@ -1,0 +1,5 @@
+#!craft
+# SGC101 unguarded-call — a notification to an actor is no call.
+# expect: none
+
+[Mailer] -> (User) : {Receipt}

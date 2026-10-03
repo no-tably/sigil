@@ -1,0 +1,7 @@
+#!craft
+# SGC133 lost-update — the catalog example, flagged.
+# expect: 6:SGC146
+# expect: 7:SGC133
+
+*<Hit> -> [Counter]
+[Counter] -> ~|total| : ${state.total} + 1

@@ -1,0 +1,7 @@
+#!craft
+# SGC204 race — SGC204 folds SGC133 on its (node, store).
+# expect: 6:SGC146
+# expect: 7:SGC204
+
+*<Hit> -> [Counter]
+[Counter] -> |total| : ${state.total} + 1

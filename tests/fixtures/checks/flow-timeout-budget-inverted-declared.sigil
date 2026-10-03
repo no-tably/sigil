@@ -1,0 +1,7 @@
+#!craft
+# SGC103 timeout-budget-inverted — an inner @deadline within the outer budget.
+# expect: 6:SGC163
+# expect: 7:SGC201
+
+(U) -> [A] : get() @timeout(2s)
+[A] -> (Ext) : op x.get() @timeout(1s) ×3 @after(0) @deadline(2s)

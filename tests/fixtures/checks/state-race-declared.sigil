@@ -1,0 +1,9 @@
+#!craft
+# SGC204 race — the catalog example, risk declared.
+# expect: none
+
+(Alice) -> [Editor] : save()
+(Bob) -> [Sync] : pull()
+[Editor] -> |Doc| : put({Doc})
+[Sync] -> |Doc| : put({Doc})
+|Doc| @inv cas(version)

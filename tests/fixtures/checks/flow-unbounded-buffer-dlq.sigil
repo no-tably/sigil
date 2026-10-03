@@ -1,0 +1,6 @@
+#!craft
+# SGC161 unbounded-buffer — clause (b): a dead-letter store nothing reads.
+# expect: 6:SGC161
+
+*<Raw>^1k -> [Parse] : parse()
+          !> |DLQ|

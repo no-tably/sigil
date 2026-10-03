@@ -238,6 +238,8 @@ _PAYLOAD_TAIL_RE = re.compile(r"(?:\s*×\s*\w+|\s+x(?:\d+|N)\b|(?<=[\s>])\^\w+|\
 # statement's trailing modifiers belong to its final link's edges, or to its last
 # glyph when the statement draws no edge. Declarations about an entity always go
 # on the node: @loc @read @write @borrow @owns @grants @requires and `^N@policy`.
+# Modifiers after the `}` of an `X := { … }` expansion or a `state X { … }` machine
+# (`} @inv ordered(id)`) are X's node's.
 
 @dataclass
 class Node:
@@ -1236,7 +1238,7 @@ class _DocParser:
         # the whole document is read so one written BEFORE its node's first use
         # still attaches.
         self.pending_expansions = []   # (name, kind, sub_graph|None, layer, mods, line)
-        self.pending_states = []       # (owner Node, state graph)
+        self.pending_states = []       # (owner Node, state graph, `} @mods` pairs)
         # Blocks being collected. Expansion: [target_name, target_kind, raw lines,
         # brace depth, first line, layer, header line]; state: [owner Node | None,
         # lines, brace depth, header index]; declaration: [(regex, on_raw), depth,
@@ -1374,8 +1376,10 @@ class _DocParser:
                 home.expansions[target_id] = sub_graph
                 by_level.setdefault(level, []).append(sub_graph)
 
-        for owner, machine in self.pending_states:
-            graph.nodes.setdefault(owner.id, owner)
+        for owner, machine, tail in self.pending_states:
+            node = graph.nodes.setdefault(owner.id, owner)
+            for pair in tail:
+                _add_mod(node.mods, pair)
             home = graph.expansions.get(owner.id)
             if home is None:
                 graph.expansions[owner.id] = machine
@@ -1573,7 +1577,8 @@ class _DocParser:
             # One-line `state {X} { A -> B }`.
             if owner and body[:cut].strip():
                 self.pending_states.append((owner, self._adopt(
-                    parse_state_block([(body[:cut], self.ln(k))], owner.name))))
+                    parse_state_block([(body[:cut], self.ln(k))], owner.name)),
+                    scan_mods(body[cut + 1:])))
             elif not owner:
                 self._drop(k, "no-owner")
         else:
@@ -1592,8 +1597,11 @@ class _DocParser:
         if cut is not None and line[:cut].strip():
             st[1].append((line[:cut].strip(), self.ln(k)))   # a last transition before the `}`
         if st[0]:
+            # Modifiers after the `}` (`} @inv ordered(id)`) are the owner's.
+            tail = scan_mods(line[cut + 1:]) if cut is not None else []
             self.pending_states.append((st[0], self._adopt(parse_state_block(st[1],
-                                                                             st[0].name))))
+                                                                             st[0].name)),
+                                        tail))
         else:
             for kk in range(st[3], k + 1):
                 self._drop(kk, "no-owner")

@@ -1,0 +1,8 @@
+#!craft
+# SGC090 exploration-incomplete — the catalog example, risk declared.
+# expect: none
+
+(User) -> [Batch] : run()
+loop @times 5 {   # accepts: exploration-incomplete — 2 runs show the pattern
+  [Batch] -> |Q| : push({Item})
+}

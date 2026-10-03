@@ -1,0 +1,7 @@
+#!craft
+# SGC202 dead-failure-route — a node's own route on a node nothing in which can fail.
+# expect: 6:SGC202
+
+[A] -> {Report}
+[A] !> <Failed>
+<Failed> -> (Ops)

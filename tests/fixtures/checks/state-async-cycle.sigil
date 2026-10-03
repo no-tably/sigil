@@ -1,0 +1,6 @@
+#!craft
+# SGC152 async-cycle — the catalog example, flagged.
+# expect: 5:SGC152
+
+[Ping] ~> [Pong]
+[Pong] ~> [Ping]

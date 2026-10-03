@@ -1,0 +1,10 @@
+#!craft
+# SGC165 fanout-tail — a member that retries with no time bound in a strict join.
+# expect: 7:SGC165
+# expect: 8:SGC121
+
+parallel @all {
+  [API] -> [Payment] : charge ×3 @inv idempotent(order_id)
+  [API] -> [Fraud]   : score @timeout(500ms)
+}
+       !> <CheckoutFailed>

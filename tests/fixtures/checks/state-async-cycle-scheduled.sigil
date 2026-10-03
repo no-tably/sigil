@@ -1,0 +1,6 @@
+#!craft
+# SGC152 async-cycle — `@after(t)` makes the loop a scheduled tick.
+# expect: none
+
+[Ping] ~> [Pong] @after(1s)
+[Pong] ~> [Ping]

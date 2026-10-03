@@ -1,0 +1,13 @@
+#!craft
+# SGC112 duplicate-delivery — a self-loop with an effect re-fires on a duplicate.
+# expect: 12:SGC112
+
+[Bank] => <Placed>
+[Bank] => *<Paid>^1k
+<Placed> -> {Order}
+*<Paid> -> {Order}
+state {Order} {
+  + -<Placed>-> Open
+  Open -<Paid>-> Settled @timeout(1d)
+  Settled -<Paid>-> Settled : log()
+}

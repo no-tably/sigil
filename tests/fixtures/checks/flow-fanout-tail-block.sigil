@@ -1,0 +1,9 @@
+#!craft
+# SGC165 fanout-tail — a block-level @deadline after the closing brace (NG3).
+# expect: 7:SGC121
+
+parallel @all {
+  [API] -> [Payment] : charge ×3 @inv idempotent(order_id)
+  [API] -> [Fraud]   : score @timeout(500ms)
+} @deadline(3s)
+       !> <CheckoutFailed>

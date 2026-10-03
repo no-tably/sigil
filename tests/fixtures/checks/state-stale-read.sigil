@@ -1,0 +1,7 @@
+#!craft
+# SGC135 stale-read — the catalog example, flagged.
+# expect: 7:SGC135
+
+[Api] -> |Primary| : write({Post})
+|Primary| ~> |Replica|
+[Api] -> |Replica| : get() => {Post}

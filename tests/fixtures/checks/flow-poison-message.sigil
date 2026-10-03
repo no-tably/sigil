@@ -1,0 +1,6 @@
+#!craft
+# SGC114 poison-message — a retrying consumer with no route: binding; it folds SGC201.
+# expect: 6:SGC111
+# expect: 6:SGC114
+
+*<Raw>^1k -> [Parse] : parse() ×3

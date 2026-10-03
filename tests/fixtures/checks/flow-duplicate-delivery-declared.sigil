@@ -1,0 +1,9 @@
+#!craft
+# SGC112 duplicate-delivery — the consumer declares idempotency.
+# expect: none
+
+[Shop] => *<Order>^1k
+*<Order> -> [Billing]
+[Billing] -> *|Ledger| : append({Order})
+*|Ledger| @inv retention(30d)
+[Billing] @inv idempotent(order_id)

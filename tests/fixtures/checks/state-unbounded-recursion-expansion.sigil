@@ -1,0 +1,10 @@
+#!craft
+# SGC151 unbounded-recursion — the bound is written on [Walk] inside an expansion:
+# a declaration on any occurrence of a node declares the node.
+# expect: none
+
+[Parser] -> [Walk] : run(d) @timeout(1s)
+[Walk] -> [Walk] : child
+[Parser] := {
+  [Walk] @inv depth <= 32
+}

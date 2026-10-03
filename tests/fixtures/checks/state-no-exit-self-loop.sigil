@@ -1,0 +1,9 @@
+#!craft
+# SGC144 no-exit — a terminal state with only a self-loop is not a cycle.
+# expect: 6:SGC146
+
+state {Msg} {
+  +       -<new>-> Pending
+  Pending -<ack>-> Done
+  Done    -<ack>-> Done
+}

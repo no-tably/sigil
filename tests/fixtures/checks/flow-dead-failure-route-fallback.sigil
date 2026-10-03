@@ -1,0 +1,6 @@
+#!craft
+# SGC202 dead-failure-route — a route under a call with @fallback fires (Q2: notify, then yield).
+# expect: none
+
+[Crawler] -> (Web) : op http.get(${url}) @timeout(5s) ×3 @after(1s) @fallback(${cached})
+          !> <FetchFailed>

@@ -1,0 +1,6 @@
+#!craft
+# SGC111 retry-without-idempotency — a guess ([Payments] has no body): advisory.
+# expect: 5:SGC111
+
+[API] -> [Payments] : charge(total) ×3 @timeout(2s)
+       !> <PaymentFailed>

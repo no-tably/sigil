@@ -1,0 +1,8 @@
+#!craft
+# SGC114 poison-message — the consumer retries on its feeding wire: binding.
+# expect: 7:SGC111
+# expect: 7:SGC112
+# expect: 8:SGC114
+
+*<Job>^10 -> [W] : run() ×3 @after(1s)
+[W] -> (Ext) : op x.put() @timeout(1s)

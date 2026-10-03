@@ -348,6 +348,14 @@ class Modifiers(unittest.TestCase):
         self.assertEqual([e.mods for e in m.edges], [[("timeout", "1d")], [("×", "3")]])
         self.assertEqual([e.line for e in m.edges], [2, 3])
 
+    def test_state_block_tail_modifiers_are_the_owners(self):
+        g = parse("[Api] @loc(eu)\nstate [Api] {\n  + -> Idle\n} @inv ordered(order_id)\n"
+                  "state {Order} { + -> Open } @deadline(1d)  # tail\n")
+        self.assertEqual(g.nodes["Api_service"].mods,
+                         [("loc", "eu"), ("inv", "ordered(order_id)")])
+        self.assertEqual(g.nodes["Order_data"].mods, [("deadline", "1d")])
+        self.assertEqual(g.dropped, [])
+
     def test_payload_text_unchanged(self):
         g = parse('[A] -> [B] : "a ×3" @timeout(1s)\n[A] -> [C] : x^2\n')
         self.assertEqual(edge(g, "A_service", "B_service").payload, '"a ×3"')

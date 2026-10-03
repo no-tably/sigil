@@ -1,0 +1,7 @@
+#!craft
+# SGC161 unbounded-buffer — clause (b) with a retention.
+# expect: none
+
+*<Raw>^1k -> [Parse] : parse()
+          !> |DLQ|
+|DLQ| @inv retention(7d)

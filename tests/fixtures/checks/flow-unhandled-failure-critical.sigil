@@ -1,0 +1,8 @@
+#!craft
+# SGC201 unhandled-failure — `!` is not a satisfier: a critical call that times out ends the run.
+# expect: 7:SGC163
+# expect: 8:SGC166
+# expect: 8:SGC201
+
+(User) -> [Judge] : judge()
+[Judge] -> |Scores| : insert(${s}) @timeout(2s) !

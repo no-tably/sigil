@@ -1,0 +1,10 @@
+#!craft
+# SGC144 no-exit — the catalog example, risk declared.
+# expect: 6:SGC146
+
+state {Msg} {
+  +         -<new>->     Pending
+  Pending   -<fail>->    Retryable
+  Retryable -<retry>->   Pending
+  Retryable -<exhaust>-> $
+}

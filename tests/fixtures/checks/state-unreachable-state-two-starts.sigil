@@ -1,0 +1,11 @@
+#!craft
+# SGC141 unreachable-state — a machine with two `+` transitions.
+# expect: 7:SGC146
+# expect: 10:SGC141
+
+state {Job} {
+  +    -<submit>-> Open
+  +    -<import>-> Done
+  Open -<finish>-> Done
+  Lost -<found>->  Open
+}

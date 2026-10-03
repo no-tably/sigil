@@ -1,0 +1,8 @@
+#!craft
+# SGC111 retry-without-idempotency — two retried calls on a cycle both reach the write.
+# expect: 6:SGC111
+# expect: 7:SGC111
+
+[A] -> [B] : f() ×3 @after(1s)
+[B] -> [A] : g() ×3 @after(1s)
+[B] -> |S| : put(x)

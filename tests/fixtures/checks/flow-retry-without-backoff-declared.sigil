@@ -1,0 +1,6 @@
+#!craft
+# SGC104 retry-without-backoff — the schedule stated.
+# expect: none
+
+[Svc] -> (Web) : op http.get(${url}) @timeout(5s) ×3 @after(exp-backoff, cap=1min)
+       !> <FetchFailed>

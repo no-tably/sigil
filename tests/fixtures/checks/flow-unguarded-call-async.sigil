@@ -1,0 +1,10 @@
+#!craft
+# SGC101 unguarded-call — coverage stops at `~>`: the `[Cron]` task inherits no deadline.
+# expect: 7:SGC163
+# expect: 9:SGC161
+# expect: 10:SGC101
+
+(User) -> [Api] : {r} @deadline(2s)
+       !> (User) : <Busy>
+[Cron] ~> [Api] : tick()
+[Api] -> (Ext) : op x.get() @fallback(${c})

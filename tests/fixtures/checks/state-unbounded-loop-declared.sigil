@@ -1,0 +1,8 @@
+#!craft
+# SGC153 unbounded-loop — the catalog example, risk declared.
+# expect: 8:SGC146
+
+loop @while ~|running| {
+  [Worker] -> run()
+}
+<stop> -> ~|running| : false

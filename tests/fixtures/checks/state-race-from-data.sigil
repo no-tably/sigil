@@ -1,0 +1,10 @@
+#!craft
+# SGC204 race — `\-$` is the "from data" relation, not a spawn: one plain actor
+# drives one `[Render]` (Q10), so its write races with nothing.
+# expect: none
+
+[Report]
+  \-$ [Render]
+(User) -> [Report] : make()
+[Report] -> [Render] : draw()
+[Render] -> |Cache| : put(${x})

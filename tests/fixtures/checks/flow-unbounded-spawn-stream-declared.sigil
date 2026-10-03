@@ -1,0 +1,7 @@
+#!craft
+# SGC167 unbounded-spawn — a bounded stream feeding the spawner is the ceiling.
+# expect: none
+
+*<Shot>^10@drop -> [Ship]
+[Ship]
+    \-* [Bullet]

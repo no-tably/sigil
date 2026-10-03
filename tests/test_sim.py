@@ -10,7 +10,10 @@ Covers:
      parallel blocks, conditionals, critical calls;
   5. termination and determinism: every scenario of every input ends, cycles
      end by their limits, two runs are equal, frame invariants hold;
-  6. project(): one trace named as a view draws it (land mode, a shallow depth).
+  6. project(): one trace named as a view draws it (land mode, a shallow depth);
+  7. failure_flow(): the static failure flow agrees with the traces of every
+     corpus document, and the public static helpers (reachable, route_guard,
+     loop_count).
 
 Run:  python3 -m unittest discover tests
 """
@@ -33,6 +36,7 @@ def _load(name: str, path: Path):
 
 
 sim = _load("sigil_sim_test", _DIR / "sim.py")
+golden = _load("sigil_golden_sim_test", _DIR / "tools" / "golden.py")
 scene = sim.scene_mod
 render = sim.kit.render
 
@@ -816,6 +820,200 @@ class TestProject(unittest.TestCase):
         self.assertTrue(inside)
         self.assertTrue(busy)
         self.assertNotIn("Cart_service", p.frames[-1].nodes)
+
+
+
+# ---------------------------------------------------------------------------
+# 7. failure_flow() and the public static helpers
+# ---------------------------------------------------------------------------
+
+ALL = sim.Limits(scenarios=10 ** 6)
+
+
+def corpus() -> list:
+    """Every golden input plus every language.md block: (name, text)."""
+    spec = golden.examples_inputs((_DIR / "language.md").read_text(encoding="utf-8"))
+    return ([(i.name, i.text) for i in golden.collect_inputs(_DIR)]
+            + [("language-" + i.name, i.text) for i in spec])
+
+
+def worked_example(title: str) -> str:
+    """The corpus name of the first Sigil block under language.md's `### {title}`
+    heading, so spec edits that renumber the blocks do not shift a key."""
+    text = (_DIR / "language.md").read_text(encoding="utf-8")
+    at = text.index(f"### {title}")
+    fences = [m for m in golden._FENCE.finditer(text) if m.group(1) != "text"]
+    k = next(k for k, m in enumerate(fences) if m.start() > at)
+    return "language-" + golden.examples_inputs(text)[k].name
+
+
+def routes_of(prog) -> dict:
+    return {w.ident: w for rs in prog.routes.values() for w, _g in rs}
+
+
+def fired(sc, picked) -> set:
+    return {r for s in picked for r in sim.simulate(sc, s).end["routes"]}
+
+
+def fired_in_pairs(sc, singles) -> set:
+    """The routes some combination of two deviations fires."""
+    out = set()
+    for i, a in enumerate(singles):
+        for b in singles[i + 1:]:
+            out |= fired(sc, [sim.scenario(sc, f"{a.name}+{b.name}", limits=ALL)])
+    return out
+
+
+class TestFailureFlow(unittest.TestCase):
+    """CG7: a route is live per failure_flow iff some scenario fires it — one
+    deviation, or (for a route behind a route or an arm) two."""
+
+    # Dead in both today, each for a listed simulator defect (RFC 0003 catalog §6):
+    # a `*>` / `&` member's failure reaches its line's route as None (B1); a
+    # `parallel @all` member gets no failure scenario of its own (B2).
+    KNOWN_DEAD = {("coverage", 72): "B1", ("examples-04", 7): "B1",
+                  (worked_example("Example 4:"), 5): "B1", ("coverage", 141): "B2"}
+
+    def test_live_iff_fired_over_the_corpus(self):
+        for name, text in corpus():
+            sc = build(text)
+            prog = sim.program(sim.canonical(sc.graph))
+            live = sim.failure_analysis(prog).live
+            singles = sim.scenarios(sc, limits=ALL)[1:]
+            got = fired(sc, singles)
+            if live - got:
+                got |= fired_in_pairs(sc, singles)
+            for ident, w in routes_of(prog).items():
+                with self.subTest(doc=name, line=w.line, route=ident):
+                    self.assertEqual(ident in live, ident in got)
+                    if ident not in live:
+                        self.assertIn((name, w.line), self.KNOWN_DEAD)
+
+    def test_known_dead_routes_exist(self):
+        docs = dict(corpus())
+        for (name, line), _defect in self.KNOWN_DEAD.items():
+            with self.subTest(doc=name, line=line):
+                prog = sim.program(sim.canonical(build(docs[name]).graph))
+                dead = [w for i, w in routes_of(prog).items()
+                        if i not in sim.failure_analysis(prog).live]
+                self.assertIn(line, [w.line for w in dead])
+
+    def probe(self, text: str):
+        sc = build(text)
+        prog = sim.program(sim.canonical(sc.graph))
+        ff = sim.failure_analysis(prog)
+        singles = sim.scenarios(sc, limits=ALL)[1:]
+        got = fired(sc, singles) | fired_in_pairs(sc, singles)
+        self.assertEqual({i for i in routes_of(prog) if i in ff.live},
+                         {i for i in routes_of(prog) if i in got})
+        return ff, {w.dst: w.ident in ff.live for w in routes_of(prog).values()}
+
+    def test_dead_routes(self):
+        for text in [
+                # a `~>` send never consults its call outcome; its failure stops there
+                "(U) -> [A]\n[A] ~> [B] : go() @timeout(1s)\n     !> <Failed>\n",
+                # a loop that runs no time
+                "(U) -> [A]\nloop @times 0 {\n  [A] -> [B] : x() ×2\n} !> <Failed>\n",
+                # a critical call ends the run: no route fires
+                "(U) -> [A]\n[A] -> [B] : pay() !\n     !> <Failed>\n",
+                # parallel @none forks and does not wait
+                "(U) -> [A]\nparallel @none {\n  [A] -> [B] : f() ×2\n} !> <Failed>\n",
+                # a race member's failure reaches the line's route as None (B1)
+                "(U) -> [A]\n[A] -> [B] &? [C] : f() ×2\n     !> <Failed>\n"]:
+            with self.subTest(text=text):
+                _ff, live = self.probe(text)
+                self.assertEqual(live, {"Failed_event": False})
+
+    def test_a_fallback_absorbs_and_its_routes_still_fire(self):
+        ff, live = self.probe("(U) -> [A]\n[A] -> (Ext) : op x.get() @timeout(1s) "
+                              "@fallback(${c})\n     !> <Failed>\n")
+        self.assertEqual(live, {"Failed_event": True})
+        self.assertEqual(ff.arriving[(0, "A_service")], frozenset())
+        self.assertEqual(ff.absorbed[(0, "A_service")],
+                         {("call", wire(build("(U) -> [A]\n[A] -> (Ext) : op x.get() "
+                                              "@timeout(1s) @fallback(${c})\n"),
+                                        "A_service", "Ext_actor", "->"))})
+
+    def test_route_induced_sources(self):
+        """route_induced=False: a route alone makes nothing fail, so a route over a
+        plain call (or a node's own outcome) is dead; an external call still fails."""
+        text = ("(U) -> [A]\n[A] -> [B] : f()\n     !> <Guarded>\n(U) -> [D]\n[D] !> <Any>\n"
+                "(U) -> [C]\n[C] -> (Ext) : op x.get()\n     !> <ExtFailed>\n")
+        prog = sim.program(sim.canonical(build(text).graph))
+        names = lambda ff: {routes_of(prog)[i].dst for i in ff.live}
+        self.assertEqual(names(sim.failure_analysis(prog)),
+                         {"Guarded_event", "Any_event", "ExtFailed_event"})
+        self.assertEqual(names(sim.failure_analysis(prog, route_induced=False)),
+                         {"ExtFailed_event"})
+        cids = {p.cid[0] for p in sim.choice_points(prog, route_induced=False)}
+        self.assertEqual(cids, {"call"})
+        self.assertEqual(len(sim.choice_points(prog, route_induced=False)), 1)
+
+    def test_a_policy_reads_the_same_in_either_place(self):
+        """scene.call_policy: `[A] @timeout(2s) -> [B] : f()` and the trailing
+        `[A] -> [B] : f() @timeout(2s)` are one policy, so one choice point, one
+        failure flow and the same runs."""
+        def facts(stmt):
+            sc = build(f"(U) -> [A]\n{stmt}\n")
+            prog = sim.program(sim.canonical(sc.graph))
+            points = [(p.cid, p.options, p.names)
+                      for p in sim.choice_points(prog, route_induced=False)]
+            outcomes = [(s.name, run(sc, s.name).outcome) for s in sim.scenarios(sc)]
+            return points, sim.failure_flow(prog), outcomes
+        for policy in ("@timeout(2s)", "@deadline(5s)", "@fallback(none)"):
+            with self.subTest(policy=policy):
+                before = facts(f"[A] {policy} -> [B] : f()")
+                after = facts(f"[A] -> [B] : f() {policy}")
+                self.assertTrue(before[0], "a guarded call is a choice point")
+                self.assertEqual(before, after)
+
+    def test_guards_name_what_failed(self):
+        ff, live = self.probe("(U) -> [A]\nloop @times 3 {\n  [A] -> [B] : x() ×2\n}"
+                              " !> <LoopFailed>\n[A] !> <Any>\n")
+        self.assertEqual(ff.arriving[(0, "A_service")], {("block", 0)})
+        self.assertEqual(live, {"LoopFailed_event": True, "Any_event": False})
+        ff, _live = self.probe("(U) -> [A]\n(U) -> [B]\n[A] & [B] -> [C]\n"
+                               "[C] -> [D] : f() ×2\n[A] !> <AF>\n")
+        self.assertIn(("node", "C_service"), ff.arriving[(0, "A_service")])
+        ff, _live = self.probe("(U) -> [A]\n[A] := {\n  [In] -> [Db] : q() ×2\n}\n"
+                               "[A] !> <AF>\n")
+        self.assertIn(("node", "In_service"), ff.arriving[(0, "A_service")])
+
+    def test_routes_behind_a_route_or_an_arm_need_two_deviations(self):
+        for text, target in [
+                ("(U) -> [A]\n[A] -> [B] : f() ×2\n     !> [H]\n"
+                 "[H] -> [I] : g() ×2\n     !> <HF>\n", "HF_event"),
+                ("branch on kind {\n  a => [B] -> [C] : f() ×2\n"
+                 "  b => [D] -> [E] : g() ×2\n}\n[B] !> <BF>\n[D] !> <DF>\n", "DF_event")]:
+            with self.subTest(target=target):
+                _ff, live = self.probe(text)
+                self.assertTrue(live[target])
+
+    def test_failure_flow_is_the_arriving_map(self):
+        prog = sim.program(sim.canonical(load("executions.sigil").graph))
+        self.assertEqual(sim.failure_flow(prog), sim.failure_analysis(prog).arriving)
+        self.assertEqual(sim.failure_flow(prog), sim.failure_flow(prog))
+
+
+class TestStaticHelpers(unittest.TestCase):
+    """MG4 and the SGC090 loop cap: the public static helpers."""
+
+    def test_loop_count_caps_the_declared_times(self):
+        g = render.parse_document("(U) -> [A]\nloop @times 5 {\n  [A] -> |Q| : push()\n}\n"
+                                  "loop {\n  [A] -> |R| : push()\n}\n")
+        counts = [sim.loop_count(b, sim.Limits()) for b in g.blocks]
+        self.assertEqual(counts, [2, 2])
+        self.assertEqual(sim.loop_count(g.blocks[0], sim.Limits(iterations=9)), 5)
+
+    def test_reachable_and_route_guard(self):
+        sc = build("(U) -> [A]\n[A] -> [B] : f() ×2\n     !> <F>\n[Z] -> [Y]\n")
+        prog = sim.program(sim.canonical(sc.graph))
+        _wires, nodes, _regions = sim.reachable(prog)
+        self.assertIn((0, "B_service"), nodes)
+        (w, guard), = prog.routes[(0, "A_service")]
+        unit = [x for x in prog.scene.wires if x.role == "flow"]
+        self.assertEqual(sim.route_guard(w, [], unit), guard)
+        self.assertEqual(guard[0], "calls")
 
 
 if __name__ == "__main__":

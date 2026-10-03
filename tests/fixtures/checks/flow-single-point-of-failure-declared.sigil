@@ -1,0 +1,6 @@
+#!craft
+# SGC166 single-point-of-failure — the accepted availability stated.
+# expect: none
+
+(Customer) -> [Api] : {Cart} !
+[Api] @sla(avail>99.9%)

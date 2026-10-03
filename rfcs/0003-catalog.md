@@ -40,7 +40,7 @@ number. "Example n" means language.md's worked example n.
 | SGC003 | ack-unused | meta | advisory | P2 | — |
 | SGC004 | policy-in-prose | meta | hint | P1 | site 02:13, site 01:8 |
 | SGC090 | exploration-incomplete | meta | hint | P3 (loop part P2) | coverage loop caps |
-| SGC101 | unguarded-call | static | binding (op) / advisory (actor) | P2 | examples.md:497–498 |
+| SGC101 | unguarded-call | static | binding (op) / advisory (actor) | P2 | examples.md:497–498 (satisfied at P2) |
 | SGC102 | retry-amplification | static | advisory | P2 | probe only |
 | SGC103 | timeout-budget-inverted | static | binding | P2 | probe only |
 | SGC104 | retry-without-backoff | static | advisory | P2 | site 05:11 |
@@ -79,7 +79,7 @@ number. "Example n" means language.md's worked example n.
 | SGC173 | lock-order-cycle | static | binding | P2 (declared order P4) | probe only |
 | SGC174 | optional-callee | static | hint | P2 | coverage:63 |
 | SGC175 | unreached | static | hint | P3 (gated on B4) | coverage:82, 194–197 |
-| SGC201 | unhandled-failure | static (+trace witness) | binding | P2 / P3 | examples.md:497, executions:41 |
+| SGC201 | unhandled-failure | static (+trace witness) | binding | P2 / P3 | examples.md:497–498 (satisfied at P2), executions:41 |
 | SGC202 | dead-failure-route | static (+trace witness) | binding | P2 / P3 | probe only (seed: executions E11 before d29e6b7) |
 | SGC203 | event-ignored | trace + static diamond | binding | P3 | **coverage:119–121**, examples.md:388–412 |
 | SGC204 | race | static + trace | binding | P2 (static) / P3 (trace) | examples.md:480–481 |
@@ -98,7 +98,9 @@ declared-invariant rules. Ids **SGC105** (`unbroken-dependency`) and **SGC164**
 reused.
 
 Since the revision, SGC201 and SGC202 have an exact *static* detector (the
-`failure_flow` fact, §1.5 CG7), and the trace only names a witness scenario. Their
+`failure_flow` fact, §1.5 CG7), and the trace only names a witness scenario.
+SGC202 departs from the simulator in one case on purpose: a route that guards only
+a flow into data is reported, though the simulator fires it (§3, SGC202). Their
 ids stay in the 2xx block so the numbering the first review saw does not churn; ids
 are frozen once released, and none is released yet.
 
@@ -260,6 +262,12 @@ The terms below are used throughout:
   Steps 4–5 make the finding a guess (§1.2). **A rule that needs a write never fires
   on `unknown`.** At most, SGC131 gives one hint per store when the answer would
   change a finding (§2, SGC131 clause c).
+
+  *Retuned in P2 (the effect rules).* access_mode keeps step 2, but a rule that asks
+  "does this flow have an effect?" (SGC111, SGC112, SGC121, SGC122, SGC123) reads
+  a store flow that returns a value and whose op verb is not a read verb as a
+  **guessed write**: `[Book] -> |Seats| : hold({Trip}) => {Hold}` writes `|Seats|`
+  (a guess), while `get() => {Post}` stays a read.
 - **effectful(w).** The wire writes a store (access_mode write/rw), is an external
   call, emits, or calls a node whose body (`prog.bodies`, transitively through aliases
   and expansions) contains an effectful wire. A node with no body and a non-read op
@@ -343,7 +351,7 @@ cause covers the folded findings.
 |---|---|---|
 | SGC146 (case 2: nothing drives the machine out of `+`) | SGC203, SGC205, SGC147 | that machine |
 | SGC146 (any) | SGC147 | the undriven transition's source state |
-| SGC131 | SGC204, SGC133 | that store |
+| SGC131 (clause a; the clause (c) hint folds nothing) | SGC204, SGC133 | that store |
 | SGC204 | SGC133 | that (node, store) |
 | SGC101 | SGC165, SGC134 | that call (the join or `owns` context goes into the 101 message) |
 | SGC114 | SGC201 | that anchor (stream- or `~>`-fed node) |
@@ -380,8 +388,10 @@ The table is registry data, so a declarative front end can carry it.
   `(Approver)` intended?"
 - **False positives.** Low. Notifications to actors (site 02:32,
   coverage:42/134/197, examples.md:56) do not fire.
-- **Evidence.** Corpus hits: examples.md:497 `op db.insert`, examples.md:498
-  `op mcp.search`. Satisfied: site 05:11, coverage:38/39, executions:16/18/41.
+- **Evidence.** Corpus hits before the P2 calibration: examples.md:497
+  `op db.insert`, examples.md:498 `op mcp.search` (the example now bounds both with
+  `@timeout(2s) @fallback(…)`). Satisfied: examples.md:497–498, site 05:11,
+  coverage:38/39, executions:16/18/41.
 - **Example.** Flagged:
   ```
   [Judge] -> |Scores| : op db.insert(${out.score})
@@ -582,8 +592,10 @@ The table is registry data, so a declarative front end can carry it.
   - a store write plus an emit whose event drives a state machine or reaches another
     store write (a consumer with state).
 
-  Emits that reach only actors or nothing (a metric, a notification) and writes of
-  `unknown` mode do not count. Report only when no `@inv atomic(…)` is on the node or
+  Emits that reach only actors or nothing (a metric, a notification), writes of
+  `unknown` mode, and writes to a mutable slot `~|S|` (in-process control state such
+  as `~|running|` or `~|node|`, not a durable record; retuned in P2) do not count.
+  Report only when no `@inv atomic(…)` is on the node or
   an enclosing block and no `!>` route of the node names one of the targets.
 - **Declare.** `@inv atomic(|S|, <E>)` on the node, or a compensating `!>`. The rule
   does not ask for a relay store; if the author chooses one
@@ -619,8 +631,9 @@ The table is registry data, so a declarative front end can carry it.
   Integration Patterns*; Nygard, *Steady State*.
 - **Query.** Report a node fed by a stream or `~>` that can fail (failure_flow) and
   has no route in `prog.routes` and no `@fallback` on the failing call. With B13 the
-  failure stops at this consumer, which is where the finding anchors (not at the
-  producer).
+  failure stops at this consumer. The finding anchors on the call where the failure
+  starts (the failing call inside the consumer, not the producer), one finding per
+  origin (retuned in P2, as SGC201).
 - **Declare.** `!> |DLQ|` (Example 4), a `@fallback`, or an overflow policy upstream
   (`^N@drop`, `@err`) as a stated policy.
 - **Tier.** **binding** when the consumer retries (`×N`) with no `!>` (the "retries
@@ -660,7 +673,12 @@ The table is registry data, so a declarative front end can carry it.
   - `@inv atomic(…)` on the node or block (one transaction).
 
   `&` joins and `parallel @all` with effectful members are checked the same way: a
-  member's failure leaves its siblings' effects.
+  member's failure leaves its siblings' effects. The earlier steps of a strict-join
+  member include its **siblings**, whatever their written order, since they run at
+  once (retuned in P2): in language.md Example 3 both `charge` and `score` get the
+  hint, each for the other effects of the `parallel @all`. A store step is found by
+  the effect reading of §1.4 (a non-read verb that returns a value is a guessed
+  write), which is what makes the example below fire.
 
   **Across async edges (choreography).** For a step reached through `~>` from an
   earlier effectful step in another component, the failing step must have a route
@@ -769,7 +787,9 @@ The table is registry data, so a declarative front end can carry it.
     states no resolution.
   - **(c) access unknown (hint).** When a store has one known writer plus flows of
     `unknown` mode (§1.4) that would make it two, one hint per store: "`[Svc] ->
-    |DB|`: does it read or write? `@read`/`@write`, or a verb, says."
+    |DB|`: does it read or write? `@read`/`@write`, or a verb, says." The hint folds
+    nothing (retuned in P2): it is a question about one flow, not a stated race, so
+    SGC204 and SGC133 on the store still report on their own.
 - **Declare.** `@owns |S|`, `@write(X)`, `@inv serialised(|S|)` / `cas(field)` /
   `atomic(…)`, or the `*|S|` / `~|S|` kind.
 - **Tier.** advisory (with the guess downgrade when a writer is a heuristic); clause
@@ -913,8 +933,10 @@ The table is registry data, so a declarative front end can carry it.
 - **Tier.** advisory. Ask: "`[Api]` writes `|Primary|` then reads `|Replica|`. Must it
   see its own write?"
 - **False positives.** Low: it needs both the write and the async feed in the wiring.
-- **Evidence.** examples.md:750–751 writes `|Primary|`, replicates with
-  `|Primary| ~> |Replica|` and serves reads from `|Replica|`.
+- **Evidence.** None in the corpus. examples.md:728–756 replicates with
+  `|Primary| ~> |Replica|` and serves reads from `|Replica|`, but nothing in that
+  block writes `|Primary|`, so the rule is quiet there (corrected at the P2
+  calibration); the probe is the example below.
 - **Example.** Flagged:
   ```
   [Api] -> |Primary| : write({Post})
@@ -1329,7 +1351,10 @@ purpose" (NG7, §7.8).
 - **Query.** Report a `Block` of kind `loop` with neither `@times` nor `@each`, and
   no `@inv terminates` in `Block.modifiers` (a trailing `} @inv …`, NG3). A
   `@while` / `@until` naming a store that something in the document writes is
-  satisfied (a stop exists). Loops with no modifier are lint SGL163.
+  satisfied (a stop exists). A flow on the condition's store whose op verb is not a
+  read verb counts as changing it (retuned in P2): `[Worker] -> |Q| : pop => {Job}`
+  drains `|Q|`, so language.md Example 5's `loop @while |Q|.nonempty` is not
+  asked. Loops with no modifier are lint SGL163.
 - **Declare.** `@times N`, `@each`, `} @inv terminates`, a writer of the condition
   (`<stop> -> ~|running| : false`), or an acknowledgement for a service main loop
   that runs forever on purpose.
@@ -1419,7 +1444,8 @@ purpose" (NG7, §7.8).
   spawn) **or an actor entry** (an unbounded caller) that calls a callee with no
   instances, when the callee has no `@sla`, no bounded stream and no `^N` in front of
   it. For actor entries, report only the first non-actor callee of a per-request
-  path.
+  path. Only plain `->` requests count (retuned in P2); `~>`, `<->`, `*>` and `?>`
+  flows are not read as one more request.
 - **Declare.** `@sla(…)` on the callee, or a bounded stream between the two.
 - **Tier.** hint (never reaches error). Ask: "`[App]×N` all call one `[Data]`. What
   load can `[Data]` take?"
@@ -1444,8 +1470,11 @@ purpose" (NG7, §7.8).
 - **Principle.** Source: Dean and Barroso, "The Tail at Scale".
 - **Query.** For a `&` join, a `*>` group or a `parallel @all` block with no
   join-level deadline (`} @deadline(t)` in `Block.modifiers`, NG3), report a member
-  that **can fail** (failure_flow, or `×N`) and is not an external call, when it has
-  no `@timeout` / `@deadline`. External members without a timeout are SGC101's
+  that **can fail** and is not an external call, when it has no `@timeout` /
+  `@deadline`. "Can fail" counts only the member's **own** failures (its call is a
+  failure source, or its callee's activation can fail) or a `×N` retry; a route on
+  the join's line does not make a member fail (retuned in P2: language.md Example
+  4's `*> |Warehouse| & |RealtimeIdx|` with `!> |DLQ|` is quiet). External members without a timeout are SGC101's
   finding, with the join context in its message (§1.7). Plain in-process members
   that cannot fail are never reported.
 - **Declare.** Per-member `@timeout` / `@deadline`, or a block-level `@deadline`.
@@ -1565,7 +1594,9 @@ purpose" (NG7, §7.8).
   system (1968).
 - **Query.** For every expansion unit `U` of owner `O`, report a wire in `U` whose
   destination is a node of an outer unit other than `O`, when the outer level has no
-  flow between `O` and that node.
+  flow between `O` and that node. Only component-to-component wires count, both ends
+  `[X]` (retuned in P2): a data glyph, event, store or actor named inside an
+  expansion body is not a dependency on a sibling.
 - **Declare.** State the dependency at the outer level (`[O] -> [X]`); the inner
   calls stay as they are.
 - **Tier.** advisory. Ask: "`[App]` inside `[Core]` calls `[Data]`, but the outer
@@ -1744,6 +1775,9 @@ access with an unknown outcome (Q13).
   - **Trace witness (P3).** Names a scenario that shows it. A trace detector proper
     would need `_Fail.origin` copied at the four re-raise sites (`_run`, `_region`,
     `_call_failed`, `_await`); it is not needed.
+  - **Anchor.** The finding anchors on the call where the failure starts (its
+    origin), not on the entry it reaches; one finding per origin, at the first root
+    it reaches in written order (retuned in P2).
   - **Counting.** A `!>` route counts as handling **whether or not** the caller still
     fails after it (§7.1). Failures in `~>` tasks are reported only when the async
     task has no route of its own. A stream- or `~>`-fed node is SGC114's (§1.7).
@@ -1754,9 +1788,9 @@ access with an unknown outcome (Q13).
   that way).
 - **Tier.** binding. Ask: "If `db.insert` fails, what does `[Judge]` do?"
 - **False positives.** Low.
-- **Evidence.** examples.md:497–498; executions:41 E12; executions:14 E4;
-  coverage:59, 63, 64, 187. Not flagged: site 04:9, examples.md:47–53,
-  executions:34–35.
+- **Evidence.** executions:41 E12; executions:14 E4; coverage:59, 63, 64, 187;
+  examples.md:497–498 before the P2 calibration. Not flagged: site 04:9,
+  examples.md:47–53, examples.md:497–498 (`@fallback`, since P2), executions:34–35.
 - **Example.** Flagged:
   ```
   (User) -> [Judge] : judge()
@@ -1774,13 +1808,33 @@ access with an unknown outcome (Q13).
 - **Risk.** A `!>` route that no failure can reach. The author believes a failure is
   handled, and it is not.
 - **Principle.** Reachability. Seed: executions E11 (fixed in d29e6b7).
-- **Query.** **Static, exact (P2):** a route is dead iff its guard is selected for no
-  arriving guard in failure_flow (CG7). That covers the cases the first draft
+- **Query.** **Static (P2):** a route is dead when its guard is selected for no
+  arriving guard in failure_flow (CG7), no absorbed failure fires it (Q2), and it
+  declares no failure of its own (below). That covers the cases the first draft
   missed: a continuation `!>` under a `~>` (structurally dead: `_async` never
   consults the call choice and an async failure stops as "not awaited"), a `!>` on a
   `*>` / `&` line (dead until B1 is fixed), block-guarded and node routes reached
   only by propagated failures. The trace (union of `end["routes"]`) only names a
   witness.
+- **A route declares its guard's failure.** The simulator lists any call a route
+  guards as a failure choice (`choice_points`), so a route under a call says, by
+  being there, that the call can fail; failure_flow is therefore computed on the
+  program without call-guarded routes (so a route never makes its own guard fail),
+  and each route is then judged on its own. The rule counts a route as declaring
+  the failure, and so as live, when it guards
+  - a **request**: a sync flow into a service, a store or an actor
+    (`[Payments] !> <Declined>` in site 04, examples.md:22 `!> <Unauthorized>`,
+    executions E11 are live only this way);
+  - a flow that only **produces** (`=> {X}`) and continues such a request
+    (pitfall 4: language.md Example 2, `[Auth] -> |UserDB|` then
+    `=> ~{Session}` then `!> <Unauthorized>`);
+  - a **block**: a `} !> …` route on its closing line (coverage:141 is quiet).
+- **Route-guarded flows into data.** A route whose guarded flows all go into a data
+  glyph, an event or a state is reported: a produced value cannot fail, and the
+  route states no failure the design could have. Here the rule is stricter than the
+  simulator on purpose: the simulator fires such a route (its failure choice comes
+  from the route alone, `A->Report:fails`), so the trace has no witness and the
+  finding is static only.
 - **One case: unreachable.** No failure can reach the route at all. A route under a
   call with `@fallback` is **not** dead: under Q2 the route fires and the fallback
   is still returned ("notify, then yield"), so degrade-and-alert needs no new
@@ -1788,16 +1842,29 @@ access with an unknown outcome (Q13).
 - **Gate.** Routes on `*>` / `&` lines are not reported until B1 is fixed (Example 4
   would otherwise be an error).
 - **Declare.** The rule asks a question and never moves the route: which flow should
-  this route guard? It is answered by stating how the guarded flow can fail (in the
-  example the flow is in fact an `op` call with a `@timeout`), by the author placing
-  the route under the flow it meant, by deleting it, or by an acknowledgement.
+  this route guard? It is answered by stating how the guarded flow can fail (an `op`
+  call, a `@timeout`), by the author placing the route under the flow it meant, by
+  deleting it, or by an acknowledgement.
 - **Tier.** binding. Ask: "Nothing above this `!>` can fail, so it never fires. Which
   flow did you mean it to guard?"
 - **Evidence.** None true in the corpus. site/examples/05-executions.sigil:11–12
   (`@timeout(5s) ×3 @fallback(${cached})` then `!> <FetchFailed>`) is **not**
   flagged under Q2. coverage:72 and examples.md:117 `!> |DLQ|` are live once B1 is
-  fixed (gated until then); coverage:141 needs B2.
-- **Example.** Flagged:
+  fixed (gated until then); coverage:141 is a block's `} !>` route (declared).
+- **Example.** Flagged (dead in the simulator too: a `~>` sender never sees the
+  failure):
+  ```
+  [A] ~> [B] : notify()
+       !> <Failed>
+  [B] -> (Ext) : op x.put() @timeout(1s)
+  ```
+  Declared (the route placed under the flow that can fail):
+  ```
+  [A] ~> [B] : notify()
+  [B] -> (Ext) : op x.put() @timeout(1s)
+       !> <Failed>
+  ```
+  Flagged (a route under a produced value; static only, see above):
   ```
   [A] -> {Report}
        !> <Failed>
@@ -2535,14 +2602,34 @@ Expected findings for language.md's examples under this rule set:
 | Example | Expected findings | Disposition |
 |---|---|---|
 | 1 request-response | SGC163 hint (`(User)` front door, no `@sla` on `[API]`) | hint; none needed |
-| 2 auth + audit | SGC145 advisory: `<Unauthorized>` is a route target nothing is named as receiving | reviewed ack, or the example adds `-> (User)` |
+| 2 auth + audit | SGC145 advisory: `<Unauthorized>` is a route target nothing is named as receiving. It surfaces on its own: SGC202, which would fold it, is quiet here (the route continues the `=>` of a request, pitfall 4) | reviewed ack, or the example adds `-> (User)` |
 | | (`[Auth] -> \|UserDB\|` then `=>` is a read; `<LoginEvent> -> \|AuditLog\|` is `unknown`, so SGC113, 131, 133 and 204 stay quiet) | retuned (access unknown) |
-| 3 parallel checkout | SGC111 advisory (guess: `[Payment]` has no body); SGC165 advisory (`charge ×3`, no timeout); SGC122 advisory (`release` not retryable); SGC121 hint (guess: `score` may time out after `charge` committed, no route names `[Payment]`); SGC163 hint | reviewed acks or example edits; `reserve` no longer fires (retuned SGC165) |
-| 4 stream pipeline | SGC161 advisory (`\|DLQ\|` has no reader and no retention); SGC202 not reported until B1 is fixed (gate) | reviewed ack; SGC112 retuned so re-emitting stages are quiet |
-| 5 state machine + worker | SGC146 advisory (case 2: nothing emits `<submit>`, so `{Job}` never leaves `+`; folds SGC203/205/147 on `{Job}` and the base hints); SGC148 advisory (`_ -<cancel>->` also leaves `Done` and `Dead`) | reviewed acks; SGC142 quiet (`Dead` has a wildcard exit) |
+| 3 parallel checkout | SGC111 advisory (guess: `[Payment]` has no body); SGC165 advisory (`charge ×3`, no timeout); SGC122 advisory (`release` not retryable); SGC121 hints on `charge` and on `score` (guess: each is a strict-join sibling of the other's effects, and no route names `[Payment]` or `[Fraud]`); SGC163 hint | reviewed acks or example edits; `reserve` no longer fires (retuned SGC165) |
+| 4 stream pipeline | SGC161 advisory (`\|DLQ\|` has no reader and no retention); SGC202 not reported until B1 is fixed (gate) | reviewed ack; SGC112 retuned so re-emitting stages are quiet; SGC165 quiet (the `*>` members cannot fail on their own) |
+| 5 state machine + worker | SGC146 advisory (case 2: nothing emits `<submit>`, so `{Job}` never leaves `+`; folds SGC203/205/147 on `{Job}` and the base hints, so no SGC147 appears); SGC148 advisory (`_ -<cancel>->` also leaves `Done` and `Dead`) | reviewed acks; SGC142 quiet (`Dead` has a wildcard exit); SGC153 quiet (`pop` drains `\|Q\|`) |
 | 6 multi-level zoom | SGC301 hint (`write-only-primary` unchecked); SGC163 hints (`(Client)`, `[App]×N → [Data]`) | none needed; SGC172 quiet (`[Core] -> [Data]` is stated); CG1 removes the phantom `Primary~>Replica:fails` |
 
-The examples.md blocks are recorded the same way in the P2 calibration fixture.
+The examples.md blocks are recorded the same way in the P2 calibration fixture
+(`tests/fixtures/checks/calibration.md`). The one binding result there was fixed in
+the example, not by an acknowledgement: the judge-loop block's external op-calls
+(examples.md:497–498, SGC101 and SGC201 on each) now carry `@timeout(2s)` and a
+`@fallback`, so the block gives no finding.
+
+**Retuned at the P2 calibration** (each recorded in its rule's entry):
+
+| Rule | Retune |
+|---|---|
+| §1.4 effects | a store flow with a non-read verb that returns a value is a guessed write (`hold({Trip}) => {Hold}`) |
+| SGC113 | writes to a mutable slot `~\|S\|` do not count |
+| SGC114, SGC201 | anchored on the call where the failure starts, one finding per origin |
+| SGC121 | strict-join siblings count as earlier steps (Example 3: hints on `charge` and `score`) |
+| SGC131 | the clause (c) hint folds nothing |
+| SGC135 | evidence corrected: examples.md:728–756 writes no `\|Primary\|`, so it is quiet there |
+| SGC153 | a non-read verb on the condition's store changes it (`pop => {Job}`; Example 5 quiet) |
+| SGC163 | only plain `->` requests count |
+| SGC165 | only a member's own failures or `×N` count (Example 4's `*>` group is quiet) |
+| SGC172 | only component-to-component wires count |
+| SGC202 | a route under a request, under the `=>` of a request (pitfall 4) or on a block's `}` declares the failure; a route under a flow into data is reported, though the simulator fires it |
 
 ---
 

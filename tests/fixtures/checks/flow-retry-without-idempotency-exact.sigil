@@ -1,0 +1,8 @@
+#!craft
+# SGC111 retry-without-idempotency — the callee's body writes: exact, binding.
+# expect: 5:SGC111
+
+[API] -> [Ledger] : post(total) ×3 @timeout(2s)
+       !> <PostFailed>
+[Ledger] -> |Entries| : insert(total)
+|Entries| @write(Ledger)

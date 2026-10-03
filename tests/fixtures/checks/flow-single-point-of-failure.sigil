@@ -1,0 +1,6 @@
+#!craft
+# SGC166 single-point-of-failure — clause (a): a flow marked critical.
+# expect: 5:SGC166
+
+(Customer) -> [Api] : {Cart} !
+[Api] @sla(p99<100ms)

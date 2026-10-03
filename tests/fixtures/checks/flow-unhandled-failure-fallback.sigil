@@ -1,0 +1,6 @@
+#!craft
+# SGC201 unhandled-failure — a fallback absorbs the failure.
+# expect: 5:SGC163
+
+(User) -> [Judge] : judge()
+[Judge] -> |Scores| : op db.insert(${score}) @timeout(2s) @fallback(${none})

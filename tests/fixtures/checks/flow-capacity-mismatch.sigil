@@ -1,0 +1,6 @@
+#!craft
+# SGC163 capacity-mismatch — N app instances call one data tier (a hint).
+# expect: 6:SGC163
+
+[LB]  -> [App]×N
+[App] -> [Data]

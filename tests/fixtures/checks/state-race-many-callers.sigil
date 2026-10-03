@@ -1,0 +1,6 @@
+#!craft
+# SGC204 race — `(Alice)×N` declares concurrent callers (Q10): a race with itself.
+# expect: 6:SGC204
+
+(Alice)×N -> [Editor] : save()
+[Editor] -> |Doc| : put({Doc})

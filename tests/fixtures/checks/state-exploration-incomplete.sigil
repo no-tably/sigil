@@ -1,0 +1,8 @@
+#!craft
+# SGC090 exploration-incomplete — the catalog example, flagged.
+# expect: 6:SGC090
+
+(User) -> [Batch] : run()
+loop @times 5 {
+  [Batch] -> |Q| : push({Item})
+}

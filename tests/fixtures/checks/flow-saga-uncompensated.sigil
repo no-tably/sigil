@@ -1,0 +1,7 @@
+#!craft
+# SGC121 saga-uncompensated — the charge can fail after the hold (a guess: hint).
+# expect: 7:SGC121
+# expect: 7:SGC201
+
+[Book] -> |Seats| : hold({Trip}) => {Hold}
+[Book] -> (Bank) : op bank.charge(total) @timeout(5s)

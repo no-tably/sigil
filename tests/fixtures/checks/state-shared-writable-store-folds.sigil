@@ -1,0 +1,8 @@
+#!craft
+# SGC131 shared-writable-store — SGC131 folds SGC204 and SGC133 on its store (catalog §1.7).
+# expect: 6:SGC146
+# expect: 7:SGC131
+
+*<Hit> -> [Counter]
+[Counter] -> |total| : ${state.total} + 1
+[Admin] -> |total| : reset()

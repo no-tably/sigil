@@ -1,0 +1,8 @@
+#!craft
+# SGC103 timeout-budget-inverted — 2s outside, 4 attempts of 1s inside.
+# expect: 7:SGC103
+# expect: 7:SGC163
+# expect: 8:SGC201
+
+(U) -> [A] : get() @timeout(2s)
+[A] -> (Ext) : op x.get() @timeout(1s) ×3 @after(0)

@@ -1,0 +1,10 @@
+#!craft
+# SGC205 ordering-unstated — the catalog example, risk declared.
+# expect: 9:SGC147
+
+[Payments] ~> <Paid>
+[Checkout] ~> <Placed>
+state {Order} {
+  +     -<Placed>->  Open
+  Open  -<Paid>->    Settled
+} @inv ordered(order_id)

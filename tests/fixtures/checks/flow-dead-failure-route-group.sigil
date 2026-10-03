@@ -1,0 +1,7 @@
+#!craft
+# SGC202 dead-failure-route — routes on `*>` / `&` lines wait for the B1 fix (gated).
+# expect: none
+
+*<Enriched>^10k *> |Warehouse| & |RealtimeIdx|
+               !> |DLQ|
+|DLQ| @inv retention(7d)

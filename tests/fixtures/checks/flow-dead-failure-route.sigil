@@ -1,0 +1,10 @@
+#!craft
+# SGC202 dead-failure-route — nothing in the block the route guards can fail.
+# expect: 9:SGC202
+
+parallel @all {
+  [A] -> {Report}
+  [A] -> {Summary}
+}
+     !> <Failed>
+<Failed> -> (Ops)

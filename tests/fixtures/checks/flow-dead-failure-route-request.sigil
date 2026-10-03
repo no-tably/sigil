@@ -1,0 +1,8 @@
+#!craft
+# SGC202 dead-failure-route — a route under a request states that it can fail (language.md Example 2).
+# expect: 5:SGC163
+
+(User) -> [Auth] : {creds}
+[Auth] -> |UserDB|
+       => ~{Session}
+       !> <Unauthorized>

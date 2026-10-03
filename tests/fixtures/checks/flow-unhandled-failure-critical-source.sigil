@@ -1,0 +1,8 @@
+#!craft
+# SGC201 unhandled-failure — the same critical call, its policy written on the source side.
+# expect: 7:SGC163
+# expect: 8:SGC166
+# expect: 8:SGC201
+
+(User) -> [Judge] : judge()
+[Judge] @timeout(2s) -> |Scores| : insert(${s}) !

@@ -1,0 +1,6 @@
+#!craft
+# SGC171 dependency-cycle — a data-only back-edge: the message suggests `=>`.
+# expect: 5:SGC171
+
+[Orders]  -> [Billing] : charge()
+[Billing] -> [Orders]  : {Receipt}

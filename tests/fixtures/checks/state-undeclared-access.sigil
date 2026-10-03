@@ -1,0 +1,7 @@
+#!craft
+# SGC132 undeclared-access — the catalog example, flagged.
+# expect: 7:SGC132
+
+|Doc| @write(Editor)
+[Editor] -> |Doc| : put({Doc})
+[Bot] -> |Doc| : put({Doc})

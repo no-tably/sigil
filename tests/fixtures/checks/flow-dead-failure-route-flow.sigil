@@ -1,0 +1,8 @@
+#!craft
+# SGC202 dead-failure-route — a route under a flow into data: a produced value cannot
+# fail, so the route states nothing (static only: the simulator fires it from the route).
+# expect: 7:SGC202
+
+[A] -> {Report}
+     !> <Failed>
+<Failed> -> (Ops)

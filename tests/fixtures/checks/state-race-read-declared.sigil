@@ -1,0 +1,9 @@
+#!craft
+# SGC204 race — the reader race with a stated resolution.
+# expect: none
+
+(Alice) -> [Editor] : save()
+(Bob) -> [Viewer] : show()
+[Editor] -> |Doc| : put({Doc})
+[Viewer] -> |Doc| : get() => {Doc}
+|Doc| @inv serialised(|Doc|)

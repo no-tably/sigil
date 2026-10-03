@@ -1,0 +1,6 @@
+#!craft
+# SGC171 dependency-cycle — the catalog example, risk declared.
+# expect: none
+
+[Orders]  -> [Billing] : charge()
+[Billing] -> [Orders]  : lookup() @timeout(2s)

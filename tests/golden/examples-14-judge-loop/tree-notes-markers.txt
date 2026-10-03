@@ -17,7 +17,7 @@
 
 #1 control values written to a mutable store
 #2 an internal op-call (structural) — no `op` keyword, no namespace ·
-   external op-calls: a host-provided reach (far side opaque)
+   external op-calls: a host-provided reach (far side opaque), each bounded
 #3 store writes using the closed value operators
 
 tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  

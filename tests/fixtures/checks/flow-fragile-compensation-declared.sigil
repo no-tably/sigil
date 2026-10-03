@@ -1,0 +1,7 @@
+#!craft
+# SGC122 fragile-compensation — the release declared idempotent.
+# expect: none
+
+[Book] -> |Seats| : hold({Trip}) => {Hold}
+[Book] -> (Bank) : op bank.charge(total) @timeout(5s)
+       !> |Seats| : release({Hold}) @inv idempotent(hold_id)

@@ -1,0 +1,7 @@
+#!craft
+# SGC146 undriven-transition — the catalog example, flagged.
+# expect: 6:SGC146
+
+state {Order} {
+  Open -<Paid>-> Settled
+}

@@ -1,0 +1,6 @@
+#!craft
+# SGC161 unbounded-buffer — clause (a): a stream with no bound anywhere.
+# expect: 5:SGC161
+
+[Ingest] => *<Raw>
+*<Raw> -> [Parse]

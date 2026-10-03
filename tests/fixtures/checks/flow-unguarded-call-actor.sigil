@@ -1,0 +1,6 @@
+#!craft
+# SGC101 unguarded-call — a returning actor: advisory (a human may wait on purpose).
+# expect: 5:SGC101
+
+[Desk] -> (Approver) : approve({Doc}) => {Verdict}
+       !> <Rejected>

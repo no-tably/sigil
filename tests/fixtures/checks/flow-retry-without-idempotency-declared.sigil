@@ -1,0 +1,6 @@
+#!craft
+# SGC111 retry-without-idempotency — idempotency declared on the call.
+# expect: none
+
+[API] -> [Payments] : charge(total) ×3 @timeout(2s) @inv idempotent(order_id)
+       !> <PaymentFailed>

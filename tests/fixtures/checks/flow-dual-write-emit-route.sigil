@@ -1,0 +1,12 @@
+#!craft
+# SGC113 dual-write — a route under an emit compensates nothing (an emit cannot fail).
+# expect: 8:SGC113
+# expect: 8:SGC161
+# expect: 10:SGC122
+# expect: 10:SGC202
+
+[Orders] -> |DB| : insert({Order})
+[Orders] ~> <OrderPlaced>
+         !> |DB| : delete({Order})
+<OrderPlaced> -> [Ship]
+[Ship] -> |Shipments| : create({Order})

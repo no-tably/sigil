@@ -1,0 +1,7 @@
+#!craft
+# SGC131 shared-writable-store — clause (c) answered: the access is declared.
+# expect: none
+
+[A] -> |Doc| : put({Doc})
+[B] -> |Doc|
+|Doc| @write(A) @read(B)

@@ -1,0 +1,6 @@
+#!craft
+# SGC101 unguarded-call — the catalog example, flagged (binding: an op reach).
+# expect: 6:SGC101
+# expect: 6:SGC201
+
+[Judge] -> |Scores| : op db.insert(${out.score})

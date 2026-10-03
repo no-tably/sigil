@@ -1,0 +1,9 @@
+#!craft
+# SGC141 unreachable-state — the catalog example, flagged.
+# expect: 7:SGC146
+# expect: 8:SGC141
+
+state {Job} {
+  +    -<submit>-> Open
+  Lost -<found>->  Open
+}

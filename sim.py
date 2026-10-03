@@ -64,7 +64,8 @@ view draws (events drawn where they land, a shallower depth).
   Composition children are instances: static ones once per parent (×N
   multiplies), dynamic ones Limits.spawn per parent, a `=>` into one spawns
   another. A flow's destination cardinality (`-> [App]×N`, Edge.card) is how
-  many instances it reaches, never a retry: only a `×N` in Wire.mods retries. Declarations (`@read`, `@inv`, `@sla`, notes, …) do not affect a run.
+  many instances it reaches, never a retry: only a `×N` in a call's policy
+  (scene.call_policy: Wire.mods, then Edge.src_mods) retries. Declarations (`@read`, `@inv`, `@sla`, notes, …) do not affect a run.
 
 SCENARIOS
 
@@ -74,6 +75,15 @@ outcomes, `?>`, `/`, `&?`, `parallel @any`, branch arms, `\\-_` siblings,
 ambiguous machine transitions), ordered by source line. scenario(scene,
 "a+b") combines deviations. Scenario(name, choices, label, entries): choices a
 tuple of (choice id, option).
+
+STATIC FACTS (pure, over program(canonical(graph)); no run changes)
+
+  reachable(prog)         what the default entries reach (wires, nodes, regions)
+  route_guard / selected_routes   a route's guard; the routes a failure takes
+  loop_count(block, limits)       how often the simulator runs a loop
+  failure_flow(prog)      {(ui, node): the failure guards that can arrive there};
+                          failure_analysis(prog) adds what fallbacks absorbed and
+                          the live routes — mirrors the run, defects included (B1)
 
 THE TRACE
 
@@ -308,7 +318,7 @@ def _fill_unit(prog: Program, ui: int, u, wires: list) -> None:
     for w in wires:
         if w.kind == "!>":
             prog.routes[(ui, w.src)] = (prog.routes.get((ui, w.src), ())
-                                        + ((w, _route_guard(w, blocks, wires)),))
+                                        + ((w, route_guard(w, blocks, wires)),))
         if w.returns_of is not None:
             returns.setdefault(w.returns_of.ident, []).append(w)
     prog.returns.update({k: _items(ui, v, blocks, joins, v[0].returns_of.block)
@@ -351,10 +361,12 @@ def _arm_groups(arm_of: dict, wires: list) -> dict:
     return out
 
 
-def _route_guard(w, blocks: list, wires: list) -> Optional[tuple]:
-    """("block", index) for a `!>` continuing a block's `}` (Block.after); ("calls",
-    frozenset of ("call", ident)) for one continuing a flow line (Edge.cont): the
-    subject's work wires written on that line; else None (the node's own route)."""
+def route_guard(w, blocks: list, wires: list) -> Optional[tuple]:
+    """The guard of route w among its unit's flow `wires` (prog.routes stores it
+    beside each route): ("block", index) for a `!>` continuing a block's `}`
+    (Block.after); ("calls", frozenset of ("call", ident)) for one continuing a flow
+    line (Edge.cont): the subject's work wires written on that line; else None (the
+    node's own route)."""
     for bi, b in enumerate(blocks):
         if w.key in b.after and w.line >= b.lines[1]:
             return ("block", bi)
@@ -538,8 +550,11 @@ def duration(text: Optional[str]) -> Optional[float]:
 
 
 def mod(w, name: str):
-    """The argument of a wire's first modifier `name`, or None; "" for a bare one."""
-    for n, arg in (w.mods or []):
+    """The argument of the first modifier `name` in a call's policy, or None; ""
+    for a bare one. The policy is scene.call_policy(w) — the wire's own modifiers,
+    then its source side's (`[A] @timeout(2s) -> [B]`) — the same reading every
+    check uses, so one policy written in either place gives one run."""
+    for n, arg in scene_mod.call_policy(w):
         if n == name:
             return "" if arg is None else arg
     return None
@@ -1002,9 +1017,7 @@ class _Run:
     def _fire_routes(self, task: _Task, act: _Act, f: _Fail):
         """The failed activation's routes, in written order: those
         guarded by what failed, else the unguarded ones."""
-        routes = self.prog.routes.get((act.ui, act.node), ())
-        chosen = [w for w, g in routes if _guards(g, f.guard)]
-        for w in chosen or [w for w, g in routes if g is None]:
+        for w in selected_routes(self.prog.routes.get((act.ui, act.node), ()), f.guard):
             yield from self._route(task, act, w)
 
     def _route(self, task: _Task, act: _Act, w):
@@ -1037,7 +1050,7 @@ class _Run:
             return
         if w.kind == "?>" and self._choice(("cond", w.ident), "skip") != "take":
             return
-        gate = self._gate_of(w)
+        gate = _gate_of(self.prog, w)
         if gate is not None:
             yield from self._gate(task, w, gate, arm)
             return
@@ -1110,17 +1123,11 @@ class _Run:
                 self._log(f"visit limit: {self._name(dst)}")
                 yield ("turn",)
                 return
-        alias = self._alias_of(w)
+        alias = _alias_of(self.prog, w)
         if self._depth_capped(task, dst) or (alias and self._depth_capped(task, alias[1])):
             yield ("turn",)
             return
         yield from self._activate(task, self._ui(w), dst, w.ident, arm, alias)
-
-    def _alias_of(self, w) -> Optional[tuple]:
-        """(ui, alias node) of the alias w's op verb names, else None."""
-        if w.call is None or not w.call.op:
-            return None
-        return self.prog.aliases.get(scene_mod.op_verb(w.call.op))
 
     def _return(self, task: _Task, w):
         back = returned(w)
@@ -1179,7 +1186,7 @@ class _Run:
         """A self-call: a one-tick pulse; an alias body or a
         recursion runs as its work; a target op's `=>` wires are its return."""
         call = w.call
-        alias = self._alias_of(w)
+        alias = _alias_of(self.prog, w)
         glyph = w.edge is None or not w.edge.target_op     # `[D] -> [D]`: the node recurses
         target = alias[1] if alias else (w.src if glyph else None)
         if target is not None and self._depth_capped(task, target):
@@ -1270,17 +1277,6 @@ class _Run:
         if failed:
             raise _Fail(guard)
 
-    def _gate_of(self, w) -> Optional[tuple]:
-        """(unit, join index, kind) of a `&` / `&?` source join w leaves, else None."""
-        if w.edge is None or w.edge.src_join is None:
-            return None
-        ui = self._ui(w)
-        joins = getattr(self.prog.units[ui].graph, "joins", None) or []
-        j = w.edge.src_join
-        if not 0 <= j < len(joins) or joins[j].kind == "/":
-            return None
-        return (ui, j, joins[j].kind)
-
     def _gate(self, task: _Task, w, gate: tuple, arm):
         """A source join: each member deposits at the gate and goes on (never a
         barrier); `&` runs the target once when the last arrives, `&?` when the first
@@ -1349,7 +1345,7 @@ class _Run:
             self._log(f"acquire {self._name(n)}")
         try:
             if kind == "loop":
-                n = _loop_count(b, self.limits)
+                n = loop_count(b, self.limits)
                 for k in range(1, n + 1):
                     self.loops[key] = k
                     self._log(f"iteration {k}/{n}")
@@ -1468,12 +1464,330 @@ class _Run:
         return str(nid)
 
 
-def _loop_count(b, limits: Limits) -> int:
-    """How often a loop runs: `@times N` capped by the limit, else the limit."""
+def loop_count(b, limits: Limits) -> int:
+    """How often a loop runs: `@times N` capped by Limits.iterations, else the limit.
+    A pure function of Block.modifiers and the limits (the checks compare it with
+    the declared N: a loop the simulator runs fewer times than written)."""
     times = next((a for n, a in b.modifiers if n == "times"), None)
     if times and times.strip().isdigit():
         return min(int(times), limits.iterations)
     return limits.iterations
+
+
+# ---------------------------------------------------------------------------
+# Failure flow — the run's failure handling, read statically
+# ---------------------------------------------------------------------------
+#
+# A may-fail fixpoint that mirrors _Run: which failure guards can reach each
+# activation (where _run fires its routes), and so which routes some failure
+# selects. It changes no run. The rules it mirrors, function by function:
+#   _run          a node's own outcome choice fails it with guard None; whatever
+#                 fails it travels on as ("node", its id)
+#   _call         a call's outcome choice, or its callee failing, fails the call;
+#   _call_failed  then `@fallback` absorbs it (the caller's routes guarded by the
+#                 call still fire, on the caller's own task only), `!` ends the run
+#                 (no route fires), else it raises ("call", ident)
+#   _self_call    the same over the recursion / alias body; then its `=>` returns
+#   _region       relabels any failure leaving it as ("block", index); a loop run 0
+#                 times runs nothing; `parallel` forks its members (a member's
+#                 fallback fires no route), @all / @any await, @none does not
+#   _group        `~>` members are forked unawaited; an alternative is a step; an
+#                 `&` / `*>` / race member's failure fails the waiter with None (B1)
+#   _gate         a source join's target failing raises ("node", target)
+#   _async        a `~>` send: the receiver's failure stops there
+#   _branch       an arm entry's failure travels as ("node", arm entry)
+#   _fire_routes  routes guarded by the arriving guard, else the unguarded ones
+# Every choice may go either way (each is a scenario option); limits that only
+# cut a run short (depth, visits, instances) are not modelled, so a route this
+# calls live may need a deeper run, or two deviations, to fire.
+
+def _alias_of(prog: Program, w) -> Optional[tuple]:
+    """(ui, alias node) of the alias w's op verb names, else None."""
+    if w.call is None or not w.call.op:
+        return None
+    return prog.aliases.get(scene_mod.op_verb(w.call.op))
+
+
+def _gate_of(prog: Program, w) -> Optional[tuple]:
+    """(unit, join index, kind) of a `&` / `&?` source join w leaves, else None."""
+    if w.edge is None or w.edge.src_join is None:
+        return None
+    ui = prog.wire_unit.get(id(w), 0)
+    joins = getattr(prog.units[ui].graph, "joins", None) or []
+    j = w.edge.src_join
+    if not 0 <= j < len(joins) or joins[j].kind == "/":
+        return None
+    return (ui, j, joins[j].kind)
+
+
+class _Ctx(NamedTuple):
+    """One kind of activation: a node in a unit, in a branch arm or not, running
+    an alias's body or its own, on a task already inside these block keys."""
+    ui: int
+    node: str
+    arm: Optional[tuple]
+    alias: Optional[tuple]
+    scopes: frozenset
+
+
+class _Place(NamedTuple):
+    """Where a stretch of work runs: the activation on top of the task (None on a
+    forked member's own task), its arm, the blocks the task is inside, and
+    whether a fallback's guarded routes reach that activation."""
+    node: Optional[str]
+    arm: Optional[tuple]
+    scopes: frozenset
+    on_task: bool
+
+
+class _Effect(NamedTuple):
+    raises: frozenset = frozenset()     # guards the work raises to its activation
+    absorbed: frozenset = frozenset()   # ("call", ident) a fallback absorbed there
+    started: tuple = ()                 # the _Ctx activations it starts
+
+
+class _Flow(NamedTuple):
+    """The fixed inputs of one failure-flow pass."""
+    prog: Program
+    limits: Limits
+    failing_nodes: frozenset            # node ids with a node outcome choice
+    failing_calls: frozenset            # wire idents with a call outcome choice
+
+
+class FailureFlow(NamedTuple):
+    """failure_flow's full result. arriving: {(ui, node): frozenset of guards that
+    can fail that activation} for every node some entry activates (empty: it cannot
+    fail); absorbed: {(ui, node): frozenset of ("call", ident)} a fallback absorbed
+    there (its guarded routes fire, the node goes on); live: the idents of the
+    routes some failure selects."""
+    arriving: dict
+    absorbed: dict
+    live: frozenset
+
+
+def _merge(*effects: _Effect) -> _Effect:
+    return _Effect(frozenset().union(*(e.raises for e in effects)),
+                   frozenset().union(*(e.absorbed for e in effects)),
+                   tuple(c for e in effects for c in e.started))
+
+
+def _relabel(e: _Effect, guard: tuple) -> _Effect:
+    return e._replace(raises=frozenset({guard}) if e.raises else frozenset())
+
+
+def _land_ctx(prog: Program, w, arm, scopes: frozenset) -> Optional[_Ctx]:
+    """The activation a token arriving along w starts (_land), or None where
+    _land starts none: a hole, an external node or op, an actor."""
+    sn = prog.scene.nodes.get(w.dst)
+    if sn is not None and (sn.node.is_hole or sn.external
+                           or (w.call is not None and w.call.external)):
+        return None
+    if sn is not None and sn.node.kind == "actor":
+        return None
+    return _Ctx(prog.wire_unit.get(id(w), 0), w.dst, arm, _alias_of(prog, w), scopes)
+
+
+def _failed_call(w, at: _Place) -> _Effect:
+    """_call_failed: a fallback absorbs, `!` ends the run, else ("call", ident)."""
+    if mod(w, "fallback") is not None:
+        return _Effect(absorbed=frozenset({("call", w.ident)}) if at.on_task else frozenset())
+    if mod(w, "!") is not None:
+        return _Effect()
+    return _Effect(raises=frozenset({("call", w.ident)}))
+
+
+def _fails(ctx: Optional[_Ctx], fails: dict) -> bool:
+    return ctx is not None and bool(fails.get(ctx))
+
+
+def _call_effect(fl: _Flow, fails: dict, w, at: _Place) -> _Effect:
+    """_call / _self_call."""
+    prog = fl.prog
+    chosen = w.ident in fl.failing_calls
+    if w.src == w.dst or (w.call is not None and w.call.self_call):
+        alias = _alias_of(prog, w)
+        glyph = w.edge is None or not w.edge.target_op
+        target = None
+        if alias:
+            target = _Ctx(alias[0], alias[1], None, None, at.scopes)
+        elif glyph:
+            target = _Ctx(prog.wire_unit.get(id(w), 0), w.src, None, None, at.scopes)
+        failed = _failed_call(w, at) if chosen or _fails(target, fails) else _Effect()
+        returns = _walk(fl, fails, prog.returns.get(w.ident, ()), at._replace(arm=None))
+        return _merge(failed, returns, _Effect(started=(target,) if target else ()))
+    target = _land_ctx(prog, w, at.arm, at.scopes)
+    failed = _failed_call(w, at) if chosen or _fails(target, fails) else _Effect()
+    return _merge(failed, _Effect(started=(target,) if target else ()))
+
+
+def _step_effect(fl: _Flow, fails: dict, w, at: _Place) -> _Effect:
+    """_step: `~>` forks (its failure stops there), a source join's target fails
+    the arriving member raw, anything else is a call."""
+    if w.kind == "~>":
+        target = _land_ctx(fl.prog, w, at.arm, at.scopes)
+        return _Effect(started=(target,) if target else ())
+    if _gate_of(fl.prog, w) is not None:
+        target = _land_ctx(fl.prog, w, at.arm, at.scopes)
+        if target is None:
+            return _Effect()
+        raises = frozenset({("node", w.dst)}) if _fails(target, fails) else frozenset()
+        return _Effect(raises=raises, started=(target,))
+    return _call_effect(fl, fails, w, at)
+
+
+def _group_effect(fl: _Flow, fails: dict, g: Group, at: _Place) -> _Effect:
+    """_group: any kept member may be the alternative or the race's winner."""
+    if g.wires[0].kind == "~>" or g.kind == "alt":
+        return _merge(*(_step_effect(fl, fails, w, at) for w in g.wires))
+    forked = at._replace(node=None, on_task=False)
+    members = _merge(*(_call_effect(fl, fails, w, forked) for w in g.wires))
+    return members._replace(raises=frozenset({None}) if members.raises else frozenset())
+
+
+def _region_effect(fl: _Flow, fails: dict, r: Region, at: _Place) -> _Effect:
+    """_region: a plain scope on re-entry; else a loop, a parallel fork or a scope."""
+    b = r.block
+    key = (fl.prog.units[r.ui].owner, r.index)
+    guard = ("block", r.index)
+    if key in at.scopes:
+        return _relabel(_walk(fl, fails, r.items, at), guard)
+    subject = at.node is None or not b.subject or at.node in b.subject
+    kind = b.kind if subject else "scope"
+    inside = at._replace(scopes=at.scopes | {key})
+    if kind == "loop" and loop_count(b, fl.limits) == 0:
+        return _Effect()
+    if kind != "parallel":
+        return _relabel(_walk(fl, fails, r.items, inside), guard)
+    forked = inside._replace(node=None, on_task=False)
+    members = _merge(*(_walk(fl, fails, (it,), forked) for it in r.items))
+    if "none" in {n for n, _a in b.modifiers}:
+        return _Effect(started=members.started)
+    return _relabel(members, guard)
+
+
+def _walk(fl: _Flow, fails: dict, items, at: _Place) -> _Effect:
+    """_items: the effect of a body's items run where `at` says."""
+    out = []
+    for it in items:
+        if isinstance(it, Step):
+            out.append(_step_effect(fl, fails, it.wire, at))
+        elif isinstance(it, Group):
+            out.append(_group_effect(fl, fails, it, at))
+        else:
+            out.append(_region_effect(fl, fails, it, at))
+    return _merge(*out)
+
+
+def _branch_effect(fl: _Flow, fails: dict, ui: int, bi: int, scopes: frozenset) -> _Effect:
+    """_branch: any arm may be chosen; its entry's failure travels as its node."""
+    b = fl.prog.units[ui].graph.blocks[bi]
+    out = []
+    for label, ids in b.arm_nodes:
+        if ids:
+            ctx = _Ctx(ui, ids[0], (ui, bi, label), None, scopes)
+            raises = frozenset({("node", ids[0])}) if _fails(ctx, fails) else frozenset()
+            out.append(_Effect(raises=raises, started=(ctx,)))
+    return _merge(*out)
+
+
+def _entry_effect(fl: _Flow, fails: dict, ui: int, nid: str, scopes: frozenset) -> _Effect:
+    """_entry_gen: a decision's branch, or the entry node's activation."""
+    if nid in fl.prog.decisions:
+        dui, bi = fl.prog.decisions[nid]
+        return _branch_effect(fl, fails, dui, bi, scopes)
+    ctx = _Ctx(ui, nid, None, None, scopes)
+    raises = frozenset({("node", nid)}) if _fails(ctx, fails) else frozenset()
+    return _Effect(raises=raises, started=(ctx,))
+
+
+def _activation(fl: _Flow, fails: dict, ctx: _Ctx) -> _Effect:
+    """_run over one activation: what arrives at its routes (raises), what a
+    fallback absorbed on it, and the activations it starts."""
+    prog = fl.prog
+    own = _Effect(raises=frozenset({None}) if ctx.node in fl.failing_nodes else frozenset())
+    if ctx.alias is not None:
+        body = _entry_effect(fl, fails, ctx.alias[0], ctx.alias[1], ctx.scopes)
+        return _merge(own, body)
+    at = _Place(ctx.node, ctx.arm, ctx.scopes, True)
+    parts = [own]
+    exp = prog.expansions.get((ctx.ui, ctx.node))
+    if exp is not None and ctx.arm is None:
+        parts += [_entry_effect(fl, fails, exp, e, ctx.scopes) for e in prog.entries.get(exp, ())]
+    items = (prog.arm_bodies.get(ctx.arm, {}).get(ctx.node, ()) if ctx.arm
+             else prog.bodies.get((ctx.ui, ctx.node), ()))
+    parts.append(_walk(fl, fails, items, at))
+    if ctx.arm is None:
+        parts += [_branch_effect(fl, fails, ctx.ui, bi, ctx.scopes)
+                  for bi in prog.branches.get((ctx.ui, ctx.node), ())]
+    return _merge(*parts)
+
+
+def selected_routes(routes, guard) -> list:
+    """The routes (wire, guard) pairs _fire_routes takes for an arriving failure
+    guard: those it guards, else the unguarded ones."""
+    chosen = [w for w, g in routes if _guards(g, guard)]
+    return chosen or [w for w, g in routes if g is None]
+
+
+def _fired(prog: Program, ctx: _Ctx, e: _Effect) -> list:
+    """The routes of ctx's node that its arriving and absorbed guards select."""
+    routes = prog.routes.get((ctx.ui, ctx.node), ())
+    out = [w for f in e.raises for w in selected_routes(routes, f)]
+    out += [w for f in e.absorbed for w, g in routes if _guards(g, f)]
+    return list({w.ident: w for w in out}.values())
+
+
+def _started(prog: Program, ctx: _Ctx, e: _Effect) -> list:
+    """The activations ctx starts: its work's, then its fired routes' targets
+    (_route lands them outside any arm)."""
+    routed = [_land_ctx(prog, w, None, ctx.scopes) for w in _fired(prog, ctx, e)]
+    return list(e.started) + [c for c in routed if c is not None]
+
+
+def failure_analysis(prog: Program, limits: Limits = Limits(), *,
+                     route_induced: bool = True) -> FailureFlow:
+    """The failure flow of a program (see the section comment): a least fixpoint
+    over the activations the default entries start, the routes that fire and the
+    activations those routes start. Its failure sources are choice_points(prog,
+    limits, route_induced=…): False keeps only what fails on its own, so a route
+    never makes its own guard fail. Pure."""
+    cids = {p.cid for p in choice_points(prog, limits, route_induced=route_induced)}
+    fl = _Flow(prog, limits, frozenset(c[1] for c in cids if c[0] == "node"),
+               frozenset(c[1] for c in cids if c[0] == "call"))
+    known = {}
+    for nid in prog.entries.get(0, ()):
+        for ctx in _entry_effect(fl, {}, 0, nid, frozenset()).started:
+            known.setdefault(ctx, None)
+    fails, effects = {}, {}
+    changed = True
+    while changed:
+        changed = False
+        for ctx in list(known):
+            e = _activation(fl, fails, ctx)
+            effects[ctx] = e
+            if e.raises != fails.get(ctx, frozenset()):
+                fails[ctx] = e.raises
+                changed = True
+            for c in _started(prog, ctx, e):
+                if c not in known:
+                    known[c] = None
+                    changed = True
+    arriving, absorbed, live = {}, {}, set()
+    for ctx, e in effects.items():
+        key = (ctx.ui, ctx.node)
+        arriving[key] = arriving.get(key, frozenset()) | e.raises
+        absorbed[key] = absorbed.get(key, frozenset()) | e.absorbed
+        live |= {w.ident for w in _fired(prog, ctx, e)}
+    return FailureFlow(arriving, absorbed, frozenset(live))
+
+
+def failure_flow(prog: Program, limits: Limits = Limits()) -> dict:
+    """{(ui, node): frozenset of the failure guards that can arrive at that
+    activation} for every node the default entries activate — None (its own
+    outcome), ("call", ident), ("block", index), ("node", id). Empty: it cannot
+    fail. A route is live iff selected_routes picks it for some arriving guard, or
+    a fallback absorbed a call it guards (failure_analysis(prog).live)."""
+    return failure_analysis(prog, limits).arriving
 
 
 def _setup_instances(prog: Program, limits: Limits) -> list:
@@ -1561,10 +1875,12 @@ def _part(text: str) -> str:
     return re.sub(r"[\s+]+", "_", text.strip())
 
 
-def _reachable(prog: Program):
-    """(wires, (ui, node) pairs, events, (ui, block index) of regions and
-    branches) reachable from the default entries — over bodies, routes, self-call
-    returns, triggers, arms, expansion and alias descents."""
+def reachable(prog: Program):
+    """What the default entries can reach, over bodies, routes, self-call returns,
+    arms, expansion and alias descents: (wires, [(ui, node) …], {(ui, block index):
+    its Region, or None for a branch}). Every route counts as taken (a may-reach:
+    failure_flow says which routes some failure selects). Pure; public for the
+    checks (unreachable constructs, loop caps)."""
     seen, wires, regions = {}, {}, {}
     queue = [(0, nid) for nid in prog.entries.get(0, ())]
 
@@ -1622,9 +1938,14 @@ def _take_branch(prog: Program, ui: int, bi: int, take, queue: list) -> None:
             take([w], ui)
 
 
-def choice_points(prog: Program, limits: Limits = Limits()) -> list:
-    """The reachable choice points, ordered by line, then wire order."""
-    wires, nodes, regions = _reachable(prog)
+def choice_points(prog: Program, limits: Limits = Limits(), *,
+                  route_induced: bool = True) -> list:
+    """The reachable choice points, ordered by line, then wire order.
+    route_induced=False leaves out the points a route alone creates — a call that
+    is a point only because a `!>` route guards it, and a node's own outcome
+    (which exists only for its unguarded routes) — so what remains fails on its
+    own: the checks judge routes against that, not against themselves."""
+    wires, nodes, regions = reachable(prog)
     order = prog.order
     name = lambda nid: _part(prog.scene.nodes[nid].node.name) if nid in prog.scene.nodes else nid
     points = []
@@ -1633,7 +1954,7 @@ def choice_points(prog: Program, limits: Limits = Limits()) -> list:
              for w in _flat(items)}
     called = set()
     guarded = {c for routes in prog.routes.values() for _w, g in routes
-               if g is not None and g[0] == "calls" for c in g[1]}
+               if route_induced and g is not None and g[0] == "calls" for c in g[1]}
     for w in wires:
         if id(w) not in work:
             continue
@@ -1654,7 +1975,7 @@ def choice_points(prog: Program, limits: Limits = Limits()) -> list:
             points.append(ChoicePoint(("cond", w.ident), w.line, order[id(w)], ("skip", "take"),
                                       ("", text), ("", f"{text}: taken")))
     points += _group_points(prog, wires, name)
-    for ui, nid in nodes:
+    for ui, nid in nodes if route_induced else ():
         routes = [w for w, g in prog.routes.get((ui, nid), ()) if g is None]
         if routes and (ui, nid) not in called:
             text = f"{name(nid)}:fails"

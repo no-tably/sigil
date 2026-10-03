@@ -1,0 +1,12 @@
+#!craft
+# SGC102 retry-amplification — the catalog example: three layers, 48 attempts.
+# expect: 10:SGC102
+# expect: 10:SGC111
+# expect: 10:SGC163
+# expect: 11:SGC111
+# expect: 12:SGC111
+# expect: 12:SGC201
+
+(U) -> [A] : run() ×3
+[A] -> [B] : call() ×3
+[B] -> (Ext) : op x.write() ×2 @timeout(1s) @after(1s)

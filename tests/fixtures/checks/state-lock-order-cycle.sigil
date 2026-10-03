@@ -1,0 +1,11 @@
+#!craft
+# SGC173 lock-order-cycle — the catalog example, flagged.
+# expect: 7:SGC171
+# expect: 7:SGC173
+
+[P] @owns |A| {
+  [P] -> [Q]
+}
+[Q] @owns |B| {
+  [Q] -> [P]
+}

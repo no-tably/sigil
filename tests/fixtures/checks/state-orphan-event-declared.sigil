@@ -1,0 +1,6 @@
+#!craft
+# SGC145 orphan-event — the catalog example, risk declared.
+# expect: none
+
+[Payments] ~> <Paid>
+<Paid> -> (Accounting)

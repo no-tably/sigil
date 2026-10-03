@@ -1,0 +1,10 @@
+#!craft
+# SGC172 expansion-escape — the catalog example, risk declared.
+# expect: none
+
+(Client) -> [Core]
+[Ops]    -> [Data]
+[Core]   -> [Data]
+[Core] := {
+  [App] -> [Data]
+}

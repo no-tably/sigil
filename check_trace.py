@@ -14,7 +14,15 @@ Rules (rfcs/0003-catalog.md §3):
                         `@timeout` or `@fallback` on the join's wires.
 
 A run the simulator cut (a limit) shows no stall: it did not end, and SGC090
-reports it. Standard library only; deterministic (written and scenario order).
+reports it.
+
+Folding scopes: a trace hit carries the same scopes as its rule's static half,
+so one acknowledgement and one fold cover both halves (catalog §1.7):
+  SGC203, SGC205  ("machine", owner id)               SGC146 folds them there
+  SGC204          ("store", store id) and             SGC131 folds it at the store;
+                  ("node_store", f"{node}|{store}")   it folds SGC133 at node_store
+  wire and call anchors/scopes use the tuple `w.ident`, as check_flow does.
+ Standard library only; deterministic (written and scenario order).
 """
 
 from __future__ import annotations

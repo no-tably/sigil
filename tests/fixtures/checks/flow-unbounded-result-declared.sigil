@@ -1,0 +1,5 @@
+#!craft
+# SGC162 unbounded-result — a page size declared.
+# expect: none
+
+[Api] -> |DB| : query() => {List<Row>} @inv limit(100)

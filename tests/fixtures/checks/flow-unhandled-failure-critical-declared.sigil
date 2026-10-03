@@ -1,0 +1,8 @@
+#!craft
+# SGC201 unhandled-failure — a route under the critical call states its handling.
+# expect: 6:SGC163
+# expect: 7:SGC166
+
+(User) -> [Judge] : judge()
+[Judge] -> |Scores| : insert(${s}) @timeout(2s) !
+        !> (User) : <JudgeFailed>

@@ -1,0 +1,7 @@
+#!craft
+# SGC167 unbounded-spawn — the spawned child spawns its parent's work again: binding.
+# expect: 6:SGC167
+
+[Crawler]
+    \-* [Fetch]
+[Fetch] => [Crawler]

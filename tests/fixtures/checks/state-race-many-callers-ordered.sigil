@@ -1,0 +1,8 @@
+#!craft
+# SGC204 race — `(Alice)×N` with `@inv ordered(doc_id)`: its callers' arrivals are
+# sequential per key, so they do not race (catalog SGC204 Declare).
+# expect: none
+
+(Alice)×N -> [Editor] : save()
+(Alice) @inv ordered(doc_id)
+[Editor] -> |Doc| : put({Doc})

@@ -1,0 +1,6 @@
+#!craft
+# SGC161 unbounded-buffer — bounded on one occurrence.
+# expect: none
+
+[Ingest] => *<Raw>^10k@drop
+*<Raw> -> [Parse]

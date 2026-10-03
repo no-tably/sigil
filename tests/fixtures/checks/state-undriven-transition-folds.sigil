@@ -1,0 +1,11 @@
+#!craft
+# SGC146 undriven-transition — SGC146 case 2 folds SGC205 and SGC147 on its machine.
+# expect: 8:SGC146
+
+[Payments] ~> <Paid>
+[Checkout] ~> <Placed>
+state {Order} {
+  +     -<Start>->   New
+  New   -<Placed>->  Open
+  Open  -<Paid>->    Settled
+}

@@ -1,0 +1,11 @@
+#!craft
+# SGC205 ordering-unstated — the catalog example, flagged.
+# expect: 9:SGC205
+# expect: 10:SGC147
+
+[Payments] ~> <Paid>
+[Checkout] ~> <Placed>
+state {Order} {
+  +     -<Placed>->  Open
+  Open  -<Paid>->    Settled
+}

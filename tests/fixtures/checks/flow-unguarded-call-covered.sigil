@@ -1,0 +1,7 @@
+#!craft
+# SGC101 unguarded-call — a @deadline on every path into the caller covers it.
+# expect: 5:SGC163
+
+(User) -> [Api] : find(q) @deadline(3s)
+       !> (User) : <Busy>
+[Api] -> (Index) : op idx.search(q)

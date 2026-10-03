@@ -1,0 +1,10 @@
+#!craft
+# SGC141 unreachable-state — the catalog example, risk declared.
+# expect: 7:SGC146
+# expect: 8:SGC144
+
+state {Job} {
+  +    -<submit>-> Open
+  Open -<lose>->   Lost
+  Lost -<found>->  Open
+}

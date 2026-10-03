@@ -1,0 +1,8 @@
+#!craft
+# SGC112 duplicate-delivery — a stream into a consumer that appends.
+# expect: 6:SGC112
+
+[Shop] => *<Order>^1k
+*<Order> -> [Billing]
+[Billing] -> *|Ledger| : append({Order})
+*|Ledger| @inv retention(30d)

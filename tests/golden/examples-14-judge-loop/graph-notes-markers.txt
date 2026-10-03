@@ -3,7 +3,7 @@
 #2 an internal op-call (structural) — no
    `op` keyword, no namespace · external
    op-calls: a host-provided reach (far
-   side opaque)
+   side opaque), each bounded
 #3 store writes using the closed value
    operators
 

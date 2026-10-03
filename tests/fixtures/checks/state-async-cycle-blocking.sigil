@@ -1,0 +1,7 @@
+#!craft
+# SGC152 async-cycle — the bounded-buffer clause: a `^N@block` stream on the loop.
+# expect: 5:SGC152
+
+[A] => *<Q>^10@block
+*<Q> -> [B]
+[B] ~> [A]

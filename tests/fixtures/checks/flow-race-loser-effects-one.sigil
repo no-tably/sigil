@@ -1,0 +1,6 @@
+#!craft
+# SGC123 race-loser-effects — idempotency on one member only: the other stays flagged.
+# expect: 5:SGC123
+
+[Client] -> [EU] &? [US] : put({Doc})
+[EU] @inv idempotent(doc_id)

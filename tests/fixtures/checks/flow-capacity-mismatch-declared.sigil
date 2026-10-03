@@ -1,0 +1,7 @@
+#!craft
+# SGC163 capacity-mismatch — the data tier's capacity stated.
+# expect: none
+
+[LB]  -> [App]×N
+[App] -> [Data]
+[Data] @sla(p99<50ms)

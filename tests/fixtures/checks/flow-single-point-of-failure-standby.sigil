@@ -1,0 +1,7 @@
+#!craft
+# SGC166 single-point-of-failure — clause (c): a standby nothing switches to (a hint).
+# expect: 7:SGC166
+
+[Gateway]
+    \-_ [StripePsp]
+    \-_ [AdyenPsp]

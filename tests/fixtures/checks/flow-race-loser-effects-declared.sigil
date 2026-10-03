@@ -1,0 +1,7 @@
+#!craft
+# SGC123 race-loser-effects — both members idempotent.
+# expect: none
+
+[Client] -> [EU] &? [US] : put({Doc})
+[EU] @inv idempotent(doc_id)
+[US] @inv idempotent(doc_id)

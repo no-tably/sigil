@@ -1,0 +1,8 @@
+#!craft
+# SGC132 undeclared-access — the catalog example, risk declared.
+# expect: none
+
+|Doc| @write(Editor)
+[Editor] -> |Doc| : put({Doc})
+[Bot] @borrow(write) |Doc|
+[Bot] -> |Doc| : put({Doc})

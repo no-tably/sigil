@@ -1,0 +1,7 @@
+#!craft
+# SGC201 unhandled-failure — the insert's failure unwinds to the user unrouted.
+# expect: 6:SGC163
+# expect: 7:SGC201
+
+(User) -> [Judge] : judge()
+[Judge] -> |Scores| : op db.insert(${score}) @timeout(2s)

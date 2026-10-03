@@ -1,0 +1,7 @@
+#!craft
+# SGC133 lost-update — the catalog example, risk declared.
+# expect: 5:SGC146
+
+*<Hit> -> [Counter]
+[Counter] -> ~|total| : ${state.total} + 1
+[Counter] @inv cas(version)

@@ -1,0 +1,7 @@
+#!craft
+# SGC152 async-cycle — the catalog example, risk declared.
+# expect: none
+
+[Ping] ~> [Pong]
+[Pong] ~> [Ping]
+[Ping] @inv hops <= 8

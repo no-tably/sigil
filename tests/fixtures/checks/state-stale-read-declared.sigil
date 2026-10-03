@@ -1,0 +1,8 @@
+#!craft
+# SGC135 stale-read — the catalog example, risk declared.
+# expect: none
+
+[Api] -> |Primary| : write({Post})
+|Primary| ~> |Replica|
+[Api] -> |Replica| : get() => {Post}
+|Replica| @inv consistent(read-your-writes)

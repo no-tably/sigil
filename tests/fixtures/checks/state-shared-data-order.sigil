@@ -1,0 +1,9 @@
+#!craft
+# SGC136 shared-data-order — the catalog example, flagged.
+# expect: 6:SGC090
+# expect: 7:SGC136
+
+loop @times N {
+  [Physics]  -> {Transform}
+  [Steering] -> {Transform}
+}

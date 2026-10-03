@@ -493,9 +493,9 @@ Rate the draft 1-10 on ${state.rubric}.
 Return only the integer.
 """
 
-# external op-calls: a host-provided reach (far side opaque)
-[Judge] -> |Scores|   : op db.insert(${out.score})
-[Judge] -> [Index]    : op mcp.search(${query})
+# external op-calls: a host-provided reach (far side opaque), each bounded
+[Judge] -> |Scores|   : op db.insert(${out.score})  @timeout(2s) @fallback(false)
+[Judge] -> [Index]    : op mcp.search(${query})     @timeout(2s) @fallback([])
 ```
 
 **Key decisions:**
@@ -511,6 +511,10 @@ Return only the integer.
   (`db.insert`, `mcp.search`) marks an external reach — the consumer validates
   only its well-formedness; the far side is opaque. `score({Draft})` is an internal
   dispatch — a bare op-call.
+- **An external reach is bounded.** The far side can hang or fail, so each op-call
+  carries `@timeout(2s)` and a `@fallback` — `false` (the score is not recorded) and
+  `[]` (no search hits) — the call yields instead of failing the loop
+  (see Example L).
 
 ---
 

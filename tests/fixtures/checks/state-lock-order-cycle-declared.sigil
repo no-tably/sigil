@@ -1,0 +1,10 @@
+#!craft
+# SGC173 lock-order-cycle — the catalog example, risk declared.
+# expect: none
+
+[P] @owns |A| {
+  [P] -> [Q] @timeout(1s)
+}
+[Q] @owns |B| {
+  [Q] -> [P] @timeout(1s)
+}
