@@ -1,14 +1,14 @@
-[Ingest] ───────────────────›
-[Parse] *<Raw> ◀────────────┴─›
-[Enrich] *<Parsed> ◀──────────┴═›═›─✖
-|Warehouse| *<Enriched> ◀═══════╝┄║┄│┄┆ @sla p99<50ms ┆
-|RealtimeIdx| *<Enriched> ◀═══════╝┄│┄┆ @sla p99<50ms ┆
-|DLQ| *<Enriched> ◀─────────────────┘┄┆ @sla p99<50ms ┆
+[Ingest] ─────────────────────›
+[Parse] *<Raw> ≋ ◀────────────┴─›
+[Enrich] *<Parsed> ≋ ◀──────────┴═›═›─✖
+|Warehouse| *<Enriched> ≋ ◀═══════╝┄║┄│┄┆ @sla p99<50ms ┆
+|RealtimeIdx| *<Enriched> ≋ ◀═══════╝┄│┄┆ @sla p99<50ms ┆
+|DLQ| *<Enriched> ≋ ◀─────────────────┘┄┆ @sla p99<50ms ┆
 
 tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
        (N) weight  
 wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
-       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  ┆@… ×N┆ modifiers
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  ≋ stream  ┆@… ×N┆ modifiers
 blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
        ── ── section
 

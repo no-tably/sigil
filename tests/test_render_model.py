@@ -134,6 +134,13 @@ class Generics(unittest.TestCase):
         acc = {(a.principal, a.mode) for a in parse(doc).access}
         self.assertEqual(acc, {("Worker_N__service", "read"), ("Coord_service", "write")})
 
+    def test_a_generic_named_as_a_principal_is_a_role(self):
+        g = parse("[Worker<N>]\n[Worker]\n[Pool<T>]\n[Cache<K,V>]\n(Agent<M>)\n"
+                  "|Tasks| @read(Worker, Agent) @write(Cache)\n[Pool] @borrow |Tasks|\n")
+        roles = {n.name for n in g.nodes.values() if n.is_role}
+        # also when an exact [Worker] takes the edge; a borrower names no role
+        self.assertEqual(roles, {"Worker<N>", "Agent<M>", "Cache<K,V>"})
+
 
 BRANCH = """branch on {Request}.kind {
   read  => [Reader] -> |DB|

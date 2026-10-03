@@ -134,7 +134,8 @@ def tree_legend(triggers: bool = True, payloads: bool = False, access: bool = Fa
     mode — in "nodes" mode an event is a row with lanes in and out. `calls`: the
     call marks the drawing shows (view.drawn_call_marks) — an entry is listed for
     each of `↺` self-call, `↻` recursion, `⇱` host-provided and `↩` a call's
-    return only when its mark is in the set. `sim`: a last row of the
+    return only when its mark is in the set; so are `≋` a stream and `‹›` a
+    generic role (drawn `[R‹N›]`). `sim`: a last row of the
     simulation overlay's marks (_sim_legend). Raises ValueError for an unknown
     events mode."""
     if events not in scene.EVENTS:
@@ -168,6 +169,10 @@ def tree_legend(triggers: bool = True, payloads: bool = False, access: bool = Fa
                               ("↩", "returns", kit.PAYLOAD_STYLE)):
         if mark in calls:
             wires += [(mark, style), (f" {word}  ", mid)]
+    for mark, sample, word in ((kit.STREAM_MARK, kit.STREAM_MARK, "stream"),
+                               ("‹›", "[R‹N›]", "role: N members")):
+        if mark in calls:
+            wires += [(sample, (kit.GREY["light"], None, False)), (f" {word}  ", mid)]
     if payloads:
         wires += [("┄┆{…}┆", dim), (" payload, on its target row", mid)]
     if mods:
@@ -568,12 +573,10 @@ def _draw_outline(cv: kit.Canvas, rows, idx: dict, show_tags: bool = True, x0: i
             if state is not None and state.mark:
                 cv.put(x, y, state.mark, _status_style(n, state.status))
             x += slot
-        label = kit.node_label(n) + (" ▸" if row.collapsed else "")
         _border, text = kit.node_styles(n)
         runs = kit.label_runs(n) if state is None else _status_label_runs(n, state.status)
-        kit._put_runs(cv, x, y, runs + ([(" ▸", (text[0], None, True))]
-                                        if row.collapsed else []))
-        x += len(label)
+        runs += _stream_runs(n) + ([(" ▸", (text[0], None, True))] if row.collapsed else [])
+        x = kit._put_runs(cv, x, y, runs)
         if marks and y in marks:
             out.marks_at[y] = x + 1             # each mark run leads with a space
             x = kit._put_runs(cv, x, y, marks[y])
@@ -1095,6 +1098,12 @@ def _mods_texts(g) -> dict:
     return out
 
 
+def _stream_runs(n) -> list:
+    """A stream's mark after its label (` ≋`, in its kind's colour): a tree row
+    has no box to shadow as the graph view does."""
+    return [(" " + kit.STREAM_MARK, kit.node_styles(n)[0])] if n.is_stream else []
+
+
 def _tree_extras(scn, mods: bool) -> dict:
     """{node id: runs} drawn after a node's label in the tree: the events that land
     on it, its modifiers (mods), its writer badge (the access option), the branch
@@ -1103,7 +1112,8 @@ def _tree_extras(scn, mods: bool) -> dict:
     extra = {}
     for nid, sn in scn.nodes.items():
         runs = [run for ev in sn.landed
-                for run in [(" ", None)] + kit.glyph_runs(kit.node_label(ev), "event")]
+                for run in [(" ", None)] + kit.glyph_runs(kit.node_label(ev), "event")
+                + _stream_runs(ev)]
         text = texts.get(nid)
         if text:
             runs += [(" ", None)] + kit.mod_runs(text)

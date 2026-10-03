@@ -712,22 +712,40 @@ def _colour_tags(cv: kit.Canvas, x, y, n, runs):
         tx += len(text)
 
 
-def _border(n) -> tuple:
-    """A node box's border glyphs (top-left, top-right, bottom-left,
-    bottom-right, horizontal, side), by kind."""
+class _Border(NamedTuple):
+    """A node box's border glyphs: corners, top and left strokes, and the right
+    side and bottom (a stream's shadow, a role's stack draw them apart)."""
+    tl: str
+    tr: str
+    bl: str
+    br: str
+    h: str                                          # the top (and bottom) stroke
+    s: str                                          # the left (and right) side
+    rs: str = ""                                    # the right side, when not s
+    bh: str = ""                                    # the bottom stroke, when not h
+
+
+def _border(n) -> _Border:
+    """A node box's border glyphs, by kind: a mutable `~` box heavy, a stream
+    `*` box shadowed (heavy right side and bottom, ┒┃┛), a generic role stacked
+    (a double right side ╖║╜: more members behind it)."""
     if n.kind == kit.DECISION:                      # a branch's choice: ╱──╲ ◇ … ╲──╱
-        return "╱", "╲", "╲", "╱", "─", "│"
+        return _Border("╱", "╲", "╲", "╱", "─", "│")
     if n.kind == kit.CHIP:
-        return "╭", "╮", "╰", "╯", "┄", "┆"
+        return _Border("╭", "╮", "╰", "╯", "┄", "┆")
     if n.is_hole:
-        return "┌", "┐", "└", "┘", "┄", "┆"
+        return _Border("┌", "┐", "└", "┘", "┄", "┆")
     if n.is_mutable:
-        return "┏", "┓", "┗", "┛", "━", "┃"
+        return _Border("┏", "┓", "┗", "┛", "━", "┃")
+    if getattr(n, "is_role", False):
+        return _Border("┌", "╖", "└", "╜", "─", "│", "║")
+    if n.is_stream:
+        return _Border("┌", "┒", "┕", "┛", "─", "│", "┃", "━")
     if kit.KINDS.get(n.kind, {}).get("border") == "double":
-        return "╔", "╗", "╚", "╝", "═", "║"
+        return _Border("╔", "╗", "╚", "╝", "═", "║")
     if kit.KINDS.get(n.kind, {}).get("border") == "round":
-        return "╭", "╮", "╰", "╯", "─", "│"
-    return "┌", "┐", "└", "┘", "─", "│"
+        return _Border("╭", "╮", "╰", "╯", "─", "│")
+    return _Border("┌", "┐", "└", "┘", "─", "│")
 
 
 def _draw_box(cv: kit.Canvas, x, y, w, label, n, look: Optional["_BoxLook"] = None,
@@ -735,7 +753,7 @@ def _draw_box(cv: kit.Canvas, x, y, w, label, n, look: Optional["_BoxLook"] = No
     """A node's box: `label` (its lead's text first) in its border; `look`
     (_box_look) a sim frame's styles for it, else its kind's; `lead` runs
     drawn before the label."""
-    tl, tr, bl, br, h, s = _border(n)
+    tl, tr, bl, br, h, s, rs, bh = _border(n)
     border, text = look[:2] if look else kit.node_styles(n)
     cv.put(x, y, tl + h * (w - 2) + tr, border)
     cv.put(x, y + 1, s + " ", border)
@@ -750,8 +768,8 @@ def _draw_box(cv: kit.Canvas, x, y, w, label, n, look: Optional["_BoxLook"] = No
     else:                                       # brackets in colour, name off-white
         bold = look.bold if look else True
         kit._put_runs(cv, lx, y + 1, kit.label_runs(n, bold=bold, bg=text[1]))
-    cv.put(x + w - 2, y + 1, " " + s, border)
-    cv.put(x, y + 2, bl + h * (w - 2) + br, border)
+    cv.put(x + w - 2, y + 1, " " + (rs or s), border)
+    cv.put(x, y + 2, bl + (bh or h) * (w - 2) + br, border)
 
 
 # ---------------------------------------------------------------------------
@@ -780,7 +798,7 @@ class _Stub(NamedTuple):
         return 4 + 2 + kit.row_len(self.runs) + 2
 
 
-_TEE = {"┘": "┤", "╯": "┤", "┛": "┩", "╝": "╣"}     # a box corner the stubs leave from
+_TEE = {"┘": "┤", "╯": "┤", "┛": "┩", "╝": "╣", "╜": "╢"}     # a box corner the stubs leave from
 
 
 def _reach(w: int, stubs) -> int:
@@ -797,7 +815,7 @@ def _draw_stubs(cv: kit.Canvas, x, y, w, n, stubs, styles: dict) -> dict:
     if not stubs:
         return {}
     spots = {}
-    corner = _border(n)[3]
+    corner = _border(n).br
     cv.put(x + w - 1, y + BOX_H - 1, _TEE.get(corner, "┤"), kit.node_styles(n)[0])
     dim = (kit.GREY["dim"], None, False)
     for k, st in enumerate(stubs):

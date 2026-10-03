@@ -1,13 +1,13 @@
                                         ── coordinated ────────────
                                         [Coordinator] ──────●
 ╭ the coordinator reads every      ╮ #> |Directives| ◀──────┘             ┆a┆ # a generic ROLE: N
-│ channel and writes the directive │    [Worker<N>] ──────────●               workers, count unknown
+│ channel and writes the directive │    [Worker‹N›] ──────────●               workers, count unknown
 ╰ store each worker reads.         ╯    |Reports| ◀───────────┘┄┆a┆           at author time
 
 tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
        (N) weight  
 wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
-       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  [R‹N›] role: N members  
 blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
        ── ── section
 

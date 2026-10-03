@@ -1,14 +1,14 @@
 ── coordinated ────────────────
 [Coordinator] ──────●┄w┄┄┄┄┄┄┄r
 |Directives| 1w ◀───┴┄┴┄┐     ┆
-[Worker<N>] ────────────r─●┄w ┆
+[Worker‹N›] ────────────r─●┄w ┆
 |Reports| 1w ◀────────────┴┄┴┄┘
 
 tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
        (N) weight  
 wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
        ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  r┄ reads  w┄ writes  
-       b┄ borrows  1w writers  
+       b┄ borrows  1w writers  [R‹N›] role: N members  
 blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
        ── ── section
 

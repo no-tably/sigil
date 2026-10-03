@@ -15,6 +15,8 @@ Covers (each in the graph view and the tree + wires view):
   6. `--- section ---` dividers and the `#!mode` in the status bar;
   7. alias nodes drawn `[[name]]` in their own theme colour;
   8. Mermaid ids unique per expansion path.
+  9. a stream's shadowed box (┒┃┛) and ` ≋` tree mark; a generic role's stacked
+     box (╖║╜) and its generics in ‹ › — told apart from `~`'s heavy box.
 
 Run:  python3 -m unittest discover tests
 """
@@ -378,6 +380,50 @@ class TestMermaidIds(unittest.TestCase):
         for m in re.finditer(r"(\w+) -\. \"triggers\" \.-> (\w+)", out):
             for nid in m.groups():
                 self.assertRegex(out, r"(?m)^\s*(?:subgraph )?" + nid + r"[\[\(\{>]")
+
+
+class TestStreamsAndRoles(unittest.TestCase):
+    DOC = ("[Ingest] => *<Raw>\n*<Raw> -> [Parse]\n~{Session}\n[Worker<N>] -> [Api]\n"
+           "[Cache<K,V>]\n|Tasks| @read(Worker)\n")
+
+    @staticmethod
+    def box(out: str, label: str) -> list:
+        """The three rows of the box drawn around `label`."""
+        lines = out.splitlines()
+        y = next(i for i, ln in enumerate(lines) if f" {label} " in ln)
+        x = lines[y].index(f" {label} ") - 1
+        return [ln[x:x + len(label) + 4] for ln in lines[y - 1:y + 2]]
+
+    def test_graph_shadows_a_stream_box(self):
+        out = graph(self.DOC)
+        self.assertEqual(self.box(out, "*<Raw>"), ["┌────────┒", "│ *<Raw> ┃", "┕━━━━━━━━┛"])
+        self.assertEqual(self.box(out, "~{Session}")[1], "┃ ~{Session} ┃")   # `~` stays heavy
+
+    def test_graph_stacks_a_role_box(self):
+        out = graph(self.DOC)
+        self.assertEqual(self.box(out, "[Worker‹N›]"),
+                         ["┌─────────────╖", "│ [Worker‹N›] ║", "└─────────────╜"])
+        self.assertEqual(self.box(out, "[Cache<K,V>]")[1], "│ [Cache<K,V>] │")   # a type
+
+    def test_self_call_stub_leaves_a_role_box(self):
+        out = graph("[Worker<N>] -> run()\n|Q| @write(Worker)\n", payloads=True)
+        self.assertIn("╢", out)
+
+    def test_tree_marks_streams_and_roles(self):
+        out = tree(self.DOC)
+        self.assertIn("[Parse] *<Raw> ≋", out)       # an event landed on its target row
+        self.assertIn("[Worker‹N›]", out)
+        out = tree(self.DOC, events="nodes")
+        self.assertIn("*<Raw> ≋", out)
+
+    def test_tree_legend_lists_the_marks_drawn(self):
+        marks = view.drawn_call_marks(render.parse_document(self.DOC), 1, False)
+        text = "".join(t for r in view.tree_legend(calls=marks) for t, _ in r)
+        self.assertIn("≋ stream", text)
+        self.assertIn("[R‹N›] role: N members", text)
+        plain = view.drawn_call_marks(render.parse_document("[A] -> [B]\n"), 1, False)
+        text = "".join(t for r in view.tree_legend(calls=plain) for t, _ in r)
+        self.assertNotIn("stream", text)
 
 
 class TestCoverageFixture(unittest.TestCase):

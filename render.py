@@ -157,7 +157,8 @@ _PAYLOAD_TAIL_RE = re.compile(r"(?:\s*×\s*\w+|\s+x(?:\d+|N)\b|(?<=[\s>])\^\w+|\
 #               service|data|event|actor|store (the five glyphs), state (a state
 #               of a `state` machine), alias (a bare-word `name := …` definition),
 #               plus any kind a dialect adds. Node.mods: every modifier written on
-#               the node (see "Modifiers").
+#               the node (see "Modifiers"). Node.is_role: a generic glyph whose
+#               base name an `@read(…)` / `@write(…)` list names (a generic role).
 #   edges       [Edge] in document order: one per (source, target) pair a flow
 #               statement draws. `[A] & [B] -> [C]` is two edges; a `*>` fan-out
 #               one per target. Edge.kind is the arrow as written (`->`, `→`,
@@ -258,6 +259,9 @@ class Node:
     mods: list = field(default_factory=list)
     # Generic parameters (`[Cache<K,V>]` → ("K", "V")); empty for a plain glyph.
     params: tuple = ()
+    # A generic role (`[Worker<N>]` whose base name an access list names as a
+    # principal: `@read(Worker)`) — N members, drawn as a role. See _mark_roles.
+    is_role: bool = False
 
     @property
     def base_name(self) -> str:
@@ -1260,6 +1264,17 @@ def _resolve_access(g: Graph, top: Graph):
                     a.store = n.id
 
 
+def _mark_roles(top: Graph):
+    """Mark each generic glyph whose base name some access list names as a
+    principal (`[Worker<N>]` with `@read(Worker)` anywhere in the document) a
+    role (Node.is_role) — also when an exact `[Worker]` takes the access edge."""
+    graphs = [g for g, _o, _l in _walk(top)]
+    names = {a.name for g in graphs for a in g.access if a.name and a.mode != "borrow"}
+    for g in graphs:
+        for n in g.nodes.values():
+            n.is_role = bool(n.params) and n.base_name in names
+
+
 def _resolve_principal(g: Graph, name: str) -> Optional[str]:
     """A principal name → node id: an exact name first, then a generic role's
     base name (`Worker` → `[Worker<N>]`)."""
@@ -1615,6 +1630,7 @@ class _DocParser:
         if self.top:                        # top level: wire events to transitions
             for g2, _o, _l in _walk(graph):  # access lists inside expansions may
                 _resolve_access(g2, graph)   # name a top-level principal / store
+            _mark_roles(graph)
             graph.triggers, graph.narrowed = find_triggers(graph)
             _expand_alias_refs(graph)
         graph.dropped.sort(key=lambda d: d.line)

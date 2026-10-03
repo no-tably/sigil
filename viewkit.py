@@ -295,9 +295,22 @@ def node_label(n) -> str:
     spec = KINDS.get(n.kind, {})
     if n.attrs.get("pseudo") in PSEUDO_LABEL:
         return PSEUDO_LABEL[n.attrs["pseudo"]]
-    name = spec["label"](n) if "label" in spec else n.name
+    name = spec["label"](n) if "label" in spec else role_name(n)
     lead = ("~" if n.is_mutable else "") + ("*" if n.is_stream else "")
     return f"{lead}{spec.get('open', '[')}{name}{spec.get('close', ']')}"
+
+
+def role_name(n) -> str:
+    """A node's name, a generic role's generics in ‹ › (`Worker<N>` → `Worker‹N›`:
+    N members of one role, not a parametric type)."""
+    if not getattr(n, "is_role", False) or not n.name.endswith(">"):
+        return n.name
+    base = n.name.split("<", 1)[0]
+    return f"{base}‹{n.name[n.name.index('<') + 1:-1]}›"
+
+
+# A stream's mark beside its label where no box shape can show it (tree rows).
+STREAM_MARK = "≋"
 
 
 def edge_text(g, e) -> str:

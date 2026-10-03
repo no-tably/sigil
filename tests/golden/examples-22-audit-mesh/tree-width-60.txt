@@ -1,6 +1,6 @@
 ── audit-mesh ──────────
 [ServiceA] ────────●
-*|EventLog| ◀──────┴─┬─┐
+*|EventLog| ≋ ◀────┴─┬─┐
 [ServiceB] ──────────● │
 (Auditor) ─────────────●
 
@@ -10,6 +10,7 @@ tree   ─ contains  & has  * spawns  ? when  $ from data
 wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  
        ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  ›─ emits  
        ◀ target  ─│─ crossing  ■ lane: its source's colour  
+       ≋ stream  
 blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  
        □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
        ── ── section

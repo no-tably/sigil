@@ -99,6 +99,8 @@ Boxes are colour-coded by node type (border + tinted fill); the sigil theme:
     |store| amber   state cyan   ? hole grey   (a dialect may register more kinds)
 Border shape:  (actor) ╭╮ round   ~mutable ┏┓ heavy   [[alias]] rose
                ? hole ┄┆ dashed     ▸ collapsed expansion   ▾ shown below
+               *stream ┒┃┛ shadowed   [Role‹N›] ╖║╜ stacked (a generic role: N
+               members); tree rows mark a stream ` ≋`
 Edge strokes:  ->  │─ light ▼      ~>  ╎╌ dashed      =>  ┃━ heavy
                *>  ║═ double       ?>  ┆┄ dotted       !>  │─ light, head ✖ (red)
                <-> heads both ends  ╏╍ pink  event ⇢ owner (e: a trigger)
@@ -253,7 +255,8 @@ def drawn_call_marks(graph, depth: int, payloads: bool) -> frozenset:
     """The call marks the drawing of `graph` to `depth` shows — the tree legend
     lists only these: each call wire's mark (scene.call_mark: `↻`, `⇱`, `↺`),
     `⇱` for an external op's far node, and `↩` when a call returns something and
-    payloads are on. A missing graph (a parse error) shows none."""
+    payloads are on; with them the glyph marks a node of it carries (`≋` a
+    stream, `‹›` a generic role). A missing graph (a parse error) shows none."""
     if graph is None:
         return frozenset()
     scn = scene.build_scene(graph, depth=depth)
@@ -261,6 +264,10 @@ def drawn_call_marks(graph, depth: int, payloads: bool) -> frozenset:
     marks = {scene.call_mark(c) for c in calls}
     if any(n.external for n in scn.nodes.values()):
         marks.add("⇱")
+    if any(sn.node.is_stream for sn in scn.nodes.values()):
+        marks.add(kit.STREAM_MARK)
+    if any(getattr(sn.node, "is_role", False) for sn in scn.nodes.values()):
+        marks.add("‹›")
     if payloads and any(c.returns for c in calls):
         marks.add("↩")
     return frozenset(marks - {""})

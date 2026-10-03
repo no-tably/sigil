@@ -1,7 +1,7 @@
    ── walk ──────────────────────────────────────────────────────────
 ┌─ ↺ loop @while node
 ├─ ~|node| ◀━━━━━━━━━━━━━━━━━━┓
-├─ *|visited| ◀━━━━━━━━━━━━━┓ ┃
+├─ *|visited| ≋ ◀━━━━━━━━━━━┓ ┃
 ├─ [Walker] ────────────●   ┃ ┃
 └─ [Planner] ◀──────────┴━━━◆━◆┄┆ @timeout 30s ×3 @fallback ${node} ┆
    [Fetcher] ─────────────●
@@ -11,7 +11,7 @@ tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts 
        (N) weight  
 wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
        ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  ⇱ host-provided (opaque)  
-       ┆@… ×N┆ modifiers
+       ≋ stream  ┆@… ×N┆ modifiers
 blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
        ── ── section
 
