@@ -60,6 +60,9 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent
 
+# Every shipped module, here only: the plugin bundles them and site/build_site.py
+# copies the same list into the playground (tests/test_build.py: every top-level
+# module but this one is listed).
 TOOLS = ["lint.py", "render.py", "view.py", "viewkit.py", "view_graph.py", "view_tree.py",
          "scene.py", "sim.py", "check.py", "check_state.py", "check_trace.py", "check_flow.py",
          "check_inv.py", "dialects.py", "themes.py"]

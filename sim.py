@@ -388,7 +388,7 @@ _FIELD_HEADER = re.compile(r"^\s*\{[^{}]*\}\s*\.\s*\w")
 def _field_header(b) -> bool:
     """A branch on a field of a value (`branch on {Request}.kind`): it tests the
     value, nothing activates it, so it decides where it is written, as a branch
-    with no header glyph does (B4)."""
+    with no header glyph does (catalog §6 B4)."""
     return bool(_FIELD_HEADER.match(b.header or ""))
 
 
@@ -1031,7 +1031,7 @@ class _Run:
 
     def _access(self, task: _Task, w, outcome: str) -> None:
         """An `access` event when w touches a store (scene.access_mode, the static
-        rules' reading): outcome "done", or "unknown" for a failed attempt (Q13);
+        rules' reading): outcome "done", or "unknown" for a failed attempt (RFC 0003 Q13);
         `held` the stores the task's `owns` blocks hold."""
         if w.ident not in self.modes:
             self.modes[w.ident] = scene_mod.access_mode(w, self.prog.scene.graph)
@@ -1166,7 +1166,7 @@ class _Run:
     def _async(self, task: _Task, w, arm):
         """A `~>` send in its own task: hop, then the receiver's work. A send the
         scenario fails makes its attempts and never arrives; neither that nor the
-        receiver's failure reaches the sender (B3)."""
+        receiver's failure reaches the sender (catalog §6 B3)."""
         if self._inactive_sibling(task, w.dst):
             return
         if self._choice(task, ("call", w.ident), "ok") == "fails":
@@ -1186,7 +1186,7 @@ class _Run:
 
     def _unawaited(self, task: _Task, nid: str, guard) -> None:
         """A failure that stops where nothing awaits it: a `~>` send, or the
-        consumer behind a stream or a `=>` hop (B13)."""
+        consumer behind a stream or a `=>` hop (catalog §6 B13)."""
         self._event("stop", task, how="unawaited", node=nid, guard=guard)
         self._log(f"{self._name(nid)} failed (not awaited)")
 
@@ -1416,7 +1416,7 @@ class _Run:
         cancel the rest of `members`. A failure among `failing` (every member of an
         `&` / `*>` / `@all`; the winner of a race / `@any`) fails the waiter with
         `guard` — None: the failed member's own (its call), so the routes of the
-        member's line fire (B1); the others' failures are theirs alone."""
+        member's line fire (catalog §6 B1); the others' failures are theirs alone."""
         self._event("await", task, members=[m.id for m in members], need=[m.id for m in need])
         yield ("wait", lambda: all(m.ended for m in need) or any(m.failed for m in failing))
         failed = next((m for m in failing if m.failed), None)
@@ -1436,7 +1436,7 @@ class _Run:
         does (later arrivals are dropped). A deposit is not a call the arriver
         awaits, so it is no failure choice point: a join's `@timeout` bounds the
         target's wait for the missing members (the open deposit), not the arrival
-        (Q3)."""
+        (RFC 0003 Q3)."""
         ui, j, kind = gate
         members = self.prog.units[ui].graph.joins[j].members
         key = (ui, j, w.dst)
@@ -1592,7 +1592,7 @@ class _Run:
 
     def _deliver(self, task: _Task, act: _Act) -> None:
         """An event's triggers: a task per machine with a matching transition (a
-        specific one beats `_`: NG6), forked by the delivering task. A machine
+        specific one beats `_`: catalog §6 NG6), forked by the delivering task. A machine
         heading for `$`, or with no transition from its heading state, ignores it."""
         refs = self.prog.triggers.get(act.node, ())
         for owner in dict.fromkeys(r.trigger.owner for r in refs):
@@ -1632,7 +1632,7 @@ class _Run:
 
     def _matching(self, refs: list, state: str) -> list:
         """The refs whose transition leaves `state`: those written from it, else
-        the `_` ones (a specific transition beats the wildcard: NG6, Q12)."""
+        the `_` ones (a specific transition beats the wildcard: catalog §6 NG6, Q12)."""
         specific = [r for r in refs if r.trigger.src == state]
         return specific or [r for r in refs
                             if _pseudo(self.prog.units, r.trigger.src) == "any"]
@@ -1644,7 +1644,7 @@ class _Run:
     def _trigger(self, task: _Task, ref: TriggerRef):
         """A trigger's hop, then the transition the machine's state on arrival
         takes (resolved again there: another delivery may have moved it since; a
-        specific transition beats `_`: NG6, Q12) — or none, and it is ignored."""
+        specific transition beats `_`: catalog §6 NG6, RFC 0003 Q12) — or none: ignored."""
         t = ref.trigger
         try:
             yield from self._hop(task, ref.wire, carries=t.label)
@@ -1713,11 +1713,11 @@ def _declared_times(b) -> Optional[int]:
 #                 fallback fires no route), @all / @any await, @none does not
 #   _group        `~>` members are forked unawaited; an alternative is a step; an
 #                 `&` / `*>` / race member's failure fails the waiter with the
-#                 member's own ("call", ident) (B1)
+#                 member's own ("call", ident) (catalog §6 B1)
 #   _gate         a source join's target failing raises ("node", target)
-#   _async        a `~>` send: its own and the receiver's failure stop there (B3)
+#   _async        a `~>` send: its own and the receiver's failure stop there (catalog §6 B3)
 #   _detached     a `=>` hop or a flow into a stream: the callee's failure stops
-#                 there; only the hop's own outcome fails the call (B13)
+#                 there; only the hop's own outcome fails the call (catalog §6 B13)
 #   _branch       an arm entry's failure travels as ("node", arm entry)
 #   _fire_routes  routes guarded by the arriving guard, else the unguarded ones
 # Every choice may go either way (each is a scenario option); limits that only
@@ -1745,7 +1745,7 @@ def _gate_of(prog: Program, w) -> Optional[tuple]:
 
 def _detached(prog: Program, w) -> bool:
     """Whether a failure landing along w stops there instead of failing the
-    sender (B13): a `=>` produce hop, or a flow into a stream — the producer
+    sender (catalog §6 B13): a `=>` produce hop, or a flow into a stream — the producer
     deposits and goes on, so a failure stops at the consumer."""
     if w.kind == "=>":
         return True
@@ -1870,7 +1870,7 @@ def _call_effect(fl: _Flow, fails: dict, w, at: _Place) -> _Effect:
 
 def _step_effect(fl: _Flow, fails: dict, w, at: _Place) -> _Effect:
     """_step: `~>` forks (its failure stops there), a source join's target fails
-    the arriving member raw (the deposit itself never fails, Q3), anything else
+    the arriving member raw (the deposit itself never fails, RFC 0003 Q3), anything else
     is a call."""
     if w.kind == "~>":
         target = _land_ctx(fl.prog, w, at.arm, at.scopes)
@@ -1886,7 +1886,7 @@ def _step_effect(fl: _Flow, fails: dict, w, at: _Place) -> _Effect:
 
 def _group_effect(fl: _Flow, fails: dict, g: Group, at: _Place) -> _Effect:
     """_group: any kept member may be the alternative or the race's winner; an
-    awaited member's failure reaches the waiter as its own call's guard (B1)."""
+    awaited member's failure reaches the waiter as its own call's guard (catalog §6 B1)."""
     if g.wires[0].kind == "~>" or g.kind == "alt":
         return _merge(*(_step_effect(fl, fails, w, at) for w in g.wires))
     forked = at._replace(node=None, on_task=False)
@@ -2248,7 +2248,7 @@ def choice_points(prog: Program, limits: Limits = Limits(), *,
 
 def _block_guarded(prog: Program, limits: Limits) -> set:
     """{("call", ident)} of the calls a block's `} !>` route makes choice points
-    (B2): a route declares that its block can fail, so when nothing in the block
+    (catalog §6 B2): a route declares that its block can fail, so when nothing in the block
     fails on its own (no route of the block is live without route-made
     failures), each awaited call in it may — a `parallel @any`'s default winner
     only, nothing under `@none` or in a loop run no time."""
@@ -2461,7 +2461,7 @@ def scenario(sc, name: str, *, limits: Limits = Limits()) -> Scenario:
 
 
 # ---------------------------------------------------------------------------
-# Exploration — bounded combinations of deviations (MG10)
+# Exploration — bounded combinations of deviations (catalog §1 MG10)
 # ---------------------------------------------------------------------------
 
 class Deviation(NamedTuple):

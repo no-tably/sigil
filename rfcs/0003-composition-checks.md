@@ -13,7 +13,7 @@
   render.py (`Edge.card`, emit wires, dropped lines), scene.py (`call_policy`,
   `access_mode`, `writers`), sim.py (`failure_flow`, structured events, defect
   fixes), view.py (`c` overlay), the playground, the SKILL
-- **Catalog:** [0003-catalog.md](./0003-catalog.md) — every rule in full
+- **Catalog:** [0003-composition-checks.catalog.md](./0003-composition-checks.catalog.md) — every rule in full
 
 ## Motivation
 
@@ -235,7 +235,7 @@ Ids are `SGC` + 3 digits (hundreds: 0 meta, 1 structural, 2 behavioural, 3
 invariants; tens: the family). People type the **name**, never the id. The full
 entries — risk, principle and sources, query, satisfying declarations, tier and ask,
 false-positive analysis, corpus evidence, and an example (a flagged design and the
-same design with the risk declared) — are in [0003-catalog.md](./0003-catalog.md).
+same design with the risk declared) — are in [0003-composition-checks.catalog.md](./0003-composition-checks.catalog.md).
 
 | Id | Name | Layer | Phase |
 |---|---|---|---|

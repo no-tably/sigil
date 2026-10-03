@@ -1,6 +1,6 @@
 """
 check_flow.py — Sigil composition checks over calls, delivery, sagas, load and
-failure handling (RFC 0003, rfcs/0003-catalog.md §2 families 10x-12x and 16x,
+failure handling (RFC 0003, rfcs/0003-composition-checks.catalog.md §2 families 10x-12x and 16x,
 §3 the static halves of SGC201 and SGC202).
 
 Not a command: check.py loads it (RULE_MODULES) and calls `rules(ck)` with
@@ -34,7 +34,7 @@ Failure facts. sim.failure_analysis mirrors the simulator's failure handling
 over the document's own program: a call fails when it is a choice point (an
 external or resilient call, or one a `!>` route guards: the route states that it
 can fail) or when its callee's activation can; `absorbed` holds the calls a
-`@fallback` absorbed, and `live` the routes some failure selects (Q2: a route
+`@fallback` absorbed, and `live` the routes some failure selects (RFC 0003 Q2: a route
 under a fallback still fires). SGC201, SGC114, SGC121 and SGC165 read that. SGC202
 reads the same analysis without route-made failures (route_induced=False), so a
 route never makes its own guard fail; a route is then live when that analysis
@@ -1276,7 +1276,7 @@ def duplicate_deliveries(facts: Facts) -> list:
 
 def bare_self_loop(facts: Facts, t, tw) -> bool:
     """`S -<T>-> S` with nothing on it: it changes no state, so it is how a design
-    says a duplicate is ignored on purpose (NG7)."""
+    says a duplicate is ignored on purpose (catalog §7.8 NG7)."""
     if t.src != t.dst or tw is None:
         return False
     return not (facts.scene.call_policy(tw) or tw.payload)
@@ -1285,7 +1285,7 @@ def bare_self_loop(facts: Facts, t, tw) -> bool:
 def refiring_machines(facts: Facts) -> list:
     """(event id, owner, line) where a boundary-crossing event drives a machine
     that re-fires on a duplicate: a `_` transition on it, or a self-loop that
-    carries modifiers or an effect (a bare self-loop is the NG7 ignore)."""
+    carries modifiers or an effect (a bare self-loop is the NG7 ignore-on-purpose idiom)."""
     out = []
     wires = {w.ident: w for w in facts.prog.scene.wires}
     for event, refs in facts.prog.triggers.items():

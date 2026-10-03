@@ -1018,9 +1018,10 @@ def _edit_distance(a: str, b: str) -> int:
 # rules report each such line. `_StructureWalk` follows the document's blocks the
 # way the parser does and hands each statement to `tokenize_statement`; the rule
 # functions below read the tokens. Codes and severities are fixed by RFC 0003's
-# catalog §8: a silent drop is an error in every mode. Since the parser fix B7 an
-# alias after `×N` is no longer dropped, so SGL181 (now: the alias is undefined) is
-# a warning; since B8, SGL153 only guards against the chain being lost again.
+# catalog §8: a silent drop is an error in every mode. Since the parser fix for
+# `×3 Alias` (catalog §6 B7) an alias after `×N` is no longer dropped, so SGL181 (now:
+# the alias is undefined) is a warning; since the `<H>({C})` chain fix (catalog §6 B8),
+# SGL153 only guards against the chain being lost again.
 
 HARDENING_SEVERITY = {
     "SGL120": "error", "SGL121": "error", "SGL122": "error",
@@ -2020,7 +2021,7 @@ _EVENT_ARG_RE = re.compile(r"<([^<>\s][^<>]*)>\(")
 
 def parser_gap_findings(codes: list, facts: ParsedFacts) -> list:
     """What the parsed model reports: SGL153 where an event argument still breaks
-    the chain (a guard since B8: quiet while the parser reads the line), SGL181 a
+    the chain (a guard since catalog §6 B8: quiet while the parser reads the line), SGL181 a
     modifier alias after `×N` that nothing defines, SGL161 a transition with no
     trigger, and SGL160 / SGL161 for the lines it dropped (Graph.dropped)."""
     out = []

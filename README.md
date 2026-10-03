@@ -53,7 +53,7 @@ lint: OK
   control-flow blocks, streams, zoom, composition trees (`\-` branches with the
   relations `> & ? $ @ ! = _` and qualified paths like `[Bullet]/{Transform}`),
   modes, normal form, grammar.
-- **Design records:** [`rfcs/`](./rfcs) — accepted RFCs with their decisions.
+- **Design records:** [`rfcs/`](./rfcs/README.md) — accepted RFCs with their decisions.
 - **Examples:** [`examples.md`](./examples.md) — worked prose ↔ Sigil pairs.
 
 ## Tools
@@ -241,6 +241,31 @@ python3 -m unittest discover tests          # all tests
 ./build.py --target claude --version 1.2.3   # one target, explicit version
 ./build.py --check                           # validate dist/ (CI runs this)
 ```
+
+### Layout
+
+The modules sit flat at the top level so each runs as a script, ships into the
+skill's `scripts/` unchanged and runs byte for byte in the playground:
+
+```text
+render.py    parse a design into a graph; render it as Mermaid        ┐
+lint.py      the linter (SGLnnn)                                     │ the core
+dialects.py  layer-1 hooks: extra vocabulary, rules, a rule pack     ┘
+scene.py     one shared scene: wires, roles, colours, notes, joins   ┐
+sim.py       the simulator: scenarios → runs of frames               │ the engine
+check.py     the checker (SGCnnn) and its rule modules:              │
+  check_flow.py · check_state.py · check_trace.py · check_inv.py     ┘
+view.py      the terminal viewer app                                 ┐
+viewkit.py   its drawing kit                                         │ the viewer
+view_graph.py · view_tree.py   the graph and tree views              │
+themes.py    YAML themes (themes/), shared with the page             ┘
+build.py     packaging (maintainers only)
+site/  the page and playground · tools/  golden drawings, doc regeneration
+tests/  unit tests, fixtures and golden drawings · highlight/  editor grammars
+```
+
+`build.py`'s `TOOLS` is the one list of shipped modules; the page's playground copies
+the same list, and a test fails if a new top-level module is missing from it.
 
 Canonical packaging sources — edit these, never `dist/`:
 

@@ -1022,7 +1022,7 @@ a retry or a branch, merging components or rerouting flows is a design change fo
 its author to choose, not a fix. Each finding names declarations, not rewirings.
 examples.md "Example Q" shows a risky design and its declared twin; the full rule
 catalog, with a flagged and a declared example for every rule, is
-[rfcs/0003-catalog.md](./rfcs/0003-catalog.md).
+[rfcs/0003-composition-checks.catalog.md](./rfcs/0003-composition-checks.catalog.md).
 
 ---
 

@@ -3,8 +3,8 @@
 check.py — Sigil composition checks: is the design a document describes sound?
 
 lint.py checks that a document is well formed; check.py asks whether the design
-says how its risks are handled (RFC 0003, rfcs/0003-catalog.md). A finding never
-forbids a shape: it names a risk the design leaves undeclared, and is satisfied by
+says how its risks are handled (RFC 0003, rfcs/0003-composition-checks.catalog.md).
+A finding never forbids a shape: it names a risk the design leaves undeclared, and is satisfied by
 declaring the handling in the notation (`@timeout`, `×N`, `!>`, `@inv …`, …) or by
 a reasoned acknowledgement:
 
@@ -110,8 +110,8 @@ def _sim():
 
 
 # ---------------------------------------------------------------------------
-# The catalog: every core id and name (rfcs/0003-catalog.md §0). Names are what
-# people type; ids never change and retired ids are never reused. A name is known
+# The catalog: every core id and name (rfcs/0003-composition-checks.catalog.md §0).
+# Names are what people type; ids never change and retired ids are never reused. A name is known
 # (an acknowledgement may cite it) before its rule is implemented.
 # ---------------------------------------------------------------------------
 
@@ -377,7 +377,7 @@ class Doc:
     Graph: Edge.card / src_mods / implied, Graph.narrowed / dropped), `doc.scene`
     (scene.py: call_policy, declared_access, writers), `doc.sc` / `doc.prog` (the
     simulator's canonical scene and program), and `doc.access_mode(w)`, which
-    reads the dialect's extra read verbs (CG6). `doc.inv_heads` is the recognised
+    reads the dialect's extra read verbs (catalog §1 CG6). `doc.inv_heads` is the recognised
     `@inv` heads: the core's INV_HEADS and the dialect's rule pack's. `doc.budget` and `doc.limits`
     bound the simulator's exploration; they are reported in `--json` (catalog §1.3)."""
 
@@ -394,7 +394,7 @@ class Doc:
         # id → name of every rule, so SGC001 can name the rule an id stands for
         self.names_by_id = {**CORE_NAMES, **(rule_ids or {})}
         self.dialect = dialect
-        self.extra_read_verbs = tuple(sorted(read_verbs))     # a dialect's (CG6)
+        self.extra_read_verbs = tuple(sorted(read_verbs))     # a dialect's (catalog §1 CG6)
         self.policy_words = POLICY_WORDS + tuple(policy_words)
         self.inv_heads = INV_HEADS | frozenset(inv_heads)  # the recognised @inv heads
         self.findings = []           # first-pass Findings (set before after_acks rules)
@@ -574,7 +574,7 @@ def read_acks(comments: dict, layout: Layout, known: frozenset) -> list:
 
 
 # ---------------------------------------------------------------------------
-# Meta rules of P1: SGC001, SGC002, SGC004
+# Meta rules: SGC001, SGC002, SGC004
 # ---------------------------------------------------------------------------
 
 def edit_distance(a: str, b: str) -> int:
@@ -652,7 +652,7 @@ def match_ack_without_reason(doc: Doc):
 @dataclass(frozen=True)
 class PolicyWord:
     """A resilience word a comment may use, the declarations that already say it
-    and the form to suggest (CG6: data). The words are declared when the call's
+    and the form to suggest (catalog §1 CG6: data). The words are declared when the call's
     policy (scene.call_policy) holds a modifier named in `mods` or an `@inv`
     whose head is in `heads`."""
     label: str
@@ -773,7 +773,7 @@ def match_policy_in_prose(doc: Doc):
 
 
 def core_rules() -> list:
-    """The rules check.py itself carries (P1)."""
+    """The rules check.py itself carries."""
     return [
         Rule("SGC001", "ack-unknown-rule", "binding",
              ask="No rule is named so. Did you mean another name?",

@@ -137,7 +137,7 @@ upper-case attributes are data.
       node per occurrence), "edges" (one node per name, dotted relation edges)
       or "none" (composition trees are not drawn).
 
-  -- check (the rule-pack hook, RFC 0003 MG16 / CG6) -------------------------
+  -- check (the rule-pack hook; catalog §1 CG6, §1 MG16) -------------------------
   check_rules(api) -> [api.Rule]
       Composition rules the dialect adds to check.py's registry. `api` is the
       check module (its Rule and Hit records), as for core rule modules. Ids use

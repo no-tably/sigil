@@ -32,6 +32,15 @@ def _load_build():
 build = _load_build()
 
 
+class ModuleListTest(unittest.TestCase):
+    def test_every_top_level_module_ships(self):
+        """build.TOOLS is the one list the plugin and the playground ship: a new
+        top-level module must join it (only build.py itself stays out)."""
+        on_disk = {p.name for p in ROOT.glob("*.py")} - {"build.py"}
+        self.assertEqual(on_disk, set(build.TOOLS))
+        self.assertLessEqual(build.REQUIRED_TOOLS, set(build.TOOLS))
+
+
 class BuildTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

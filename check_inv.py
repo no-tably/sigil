@@ -1,6 +1,6 @@
 """
 check_inv.py — Sigil composition checks over the document's own `@inv`
-declarations (RFC 0003, rfcs/0003-catalog.md §4).
+declarations (RFC 0003, rfcs/0003-composition-checks.catalog.md §4).
 
 A rule module for check.py: `rules(ck)` returns this module's `ck.Rule`s, where
 `ck` is check.py itself (passed in, so this module never imports it). Rules:

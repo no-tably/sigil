@@ -1,6 +1,6 @@
 """
 check_state.py — Sigil composition checks over shared state, state machines,
-termination and structure (RFC 0003, rfcs/0003-catalog.md), plus the stale
+termination and structure (RFC 0003, rfcs/0003-composition-checks.catalog.md), plus the stale
 acknowledgement rule.
 
 A rule module for check.py: `rules(ck)` returns this module's `ck.Rule`s and
@@ -750,7 +750,7 @@ def node_store_flows(f: Facts, nid: str, sid: str) -> list:
 
 def read_modify_write(f: Facts, nid: str, sid: str):
     """The write of a read-modify-write by nid on sid: a read then a write, or
-    one write whose value reads `${state.…}` (Q11: not atomic). None."""
+    one write whose value reads `${state.…}` (RFC 0003 Q11: not atomic). None."""
     seen_read = False
     for w, m in node_store_flows(f, nid, sid):
         if m in ("write", "rw") and (seen_read or "${state." in (w.payload or "")):
@@ -796,7 +796,7 @@ def racing_writers(f: Facts, sid: str) -> dict:
     """{writer node: (other participants, guessed)} of a store's static races
     (catalog SGC204, half 1): two arrivals reach the store and one writes it, or
     one arrival writes it through a node that runs concurrently with itself.
-    Arrivals from one plain actor are one entry (Q10: one sequential caller)."""
+    Arrivals from one plain actor are one entry (RFC 0003 Q10: one sequential caller)."""
     per = {e: store_accesses(f, sid, e) for e in f.entries}
     per = {e: acc for e, acc in per.items() if acc}
     out = {}
@@ -1077,7 +1077,7 @@ def find_dead_end_state(ck, f: Facts):
 def ambiguous_groups(m: MachineView) -> list:
     """The transitions of every (state, trigger) written twice with two targets,
     unless each carries its own `@inv`. A specific transition beside a `_` one on
-    its trigger is not ambiguous: the specific one wins (NG6), in spec and sim."""
+    its trigger is not ambiguous: the specific one wins (catalog §6 NG6), in spec+sim."""
     out, groups = [], {}
     for t in m.transitions:
         groups.setdefault((t.src, t.label), []).append(t)

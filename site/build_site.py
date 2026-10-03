@@ -44,12 +44,6 @@ SITE = Path(__file__).resolve().parent
 ROOT = SITE.parent
 PAGE = "index.html"                  # the one file with {{placeholders}}
 ASSETS = ["site.css", "site.js"]     # copied verbatim
-# The playground's Python, copied verbatim into py/ (manifest.json lists them):
-# the repo's own tools, then the two site helpers — the browser runs these files,
-# never a port of them.
-PY_TOOLS = ["render.py", "lint.py", "themes.py", "viewkit.py", "view_graph.py",
-            "view_tree.py", "scene.py", "sim.py", "view.py", "dialects.py", "check.py",
-            "check_flow.py", "check_state.py", "check_trace.py", "check_inv.py"]
 PY_SITE = ["frames.py", "playground.py"]
 PLACEHOLDER_REPO = "OWNER/sigil"
 MAX_DEPTH = 99                       # expand every := block in the frames
@@ -74,6 +68,10 @@ def _load(name: str, path: Path) -> ModuleType:
 view = _load("sigil_view", ROOT / "view.py")
 themes = _load("sigil_site_themes", ROOT / "themes.py")
 frames_mod = _load("sigil_site_frames", SITE / "frames.py")
+# The playground's Python, copied verbatim into py/ (manifest.json lists them):
+# the repo's own tools (build.py's list, the one the plugin ships), then the two
+# site helpers — the browser runs these files, never a port of them.
+PY_TOOLS = list(_load("sigil_site_build", ROOT / "build.py").TOOLS)
 autoclose, Styles, pack_rows = frames_mod.autoclose, frames_mod.Styles, frames_mod.pack_rows
 
 

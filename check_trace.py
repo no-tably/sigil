@@ -7,7 +7,7 @@ this module never imports check.py. Every rule here reads the runs of the
 document's bounded exploration (sim.combinations over the canonical scene, up
 to `doc.k` deviations at once, at most `doc.budget` runs (default BUDGET), each
 under `doc.limits`) and reports a candidate as a trace Hit: its witness is the scenario that shows it, `k` the deviations that
-scenario takes (rfcs/0003-catalog.md §3).
+scenario takes (rfcs/0003-composition-checks.catalog.md §3).
 
 Rules this module registers:
   SGC203 event-ignored      an event reaches its machine in a state with no
@@ -17,14 +17,14 @@ Rules this module registers:
                             sim.reachable; a hint)
   SGC090 exploration-incomplete — its run causes: the budget left combinations
                             out, a run was cut, a spawn ceiling was hit, a declared
-                            bound lies beyond the simulator's (CG4)
+                            bound lies beyond the simulator's (catalog §1 CG4)
 
 Rules other modules register, extended here (`extend_rules`):
   SGC204 race (trace half)  vector clocks over the run's fork / await / gate
                             events; two accesses to one store in one episode, one
                             a write, unordered and lockset-disjoint; two tasks
                             holding one `owns` at once (concurrent ownership); a
-                            `(User)×N` entry's writes race with their own copies (Q10)
+                            `(User)×N` entry's writes race with their own copies (RFC 0003 Q10)
   SGC205 ordering-unstated (the primary detector) — two unordered deliveries to
                             one machine whose order changes its outcome (a static
                             diamond check), or a drop while the owner is in `+`
@@ -66,9 +66,9 @@ BOUNDING_MODS = ("timeout", "fallback")
 # Runs one exploration may make, the happy run aside (sim.combinations' budget).
 BUDGET = 256
 
-# The simulator fixes (catalog §6) whose regression probes pass, and the fixes
-# each rule's trace evidence relies on. A rule's trace findings stay capped at
-# warn while it needs a fix not listed in FIXED.
+# The simulator fixes (catalog §6 "Prerequisite tool fixes"; the keys are its ids) whose
+# regression probes pass, and the fixes each rule's trace evidence relies on. A rule's
+# trace findings stay capped at warn while it needs a fix not listed in FIXED.
 FIXED = frozenset({"B1", "B2", "B3", "B4", "B13", "NG6", "Q3"})
 NEEDS = {
     "SGC203": ("B1", "B2", "B3", "B4", "NG6"),
@@ -244,7 +244,7 @@ def unordered(a: Delivery, b: Delivery) -> bool:
 
 def step(m, state: str, label: str) -> tuple:
     """(next state, dropped) of machine view m taking `label` in `state`: a
-    transition written from the state beats a `_` one (NG6); after `$` or with
+    transition written from the state beats a `_` one (catalog §6 NG6); after `$` or with
     no transition the event is dropped."""
     if state in m.end:
         return state, True
@@ -293,7 +293,7 @@ def in_flight(d: Delivery, ds: list) -> list:
 def machine_drops(m, d: Delivery, ds: list) -> bool:
     """d, dropped in the run, is dropped by the machine itself: its sender's
     earlier sends land first (per-sender FIFO; the run judged d while they were
-    still in flight), then d meets no transition (NG6) in the state reached. A
+    still in flight), then d meets no transition (catalog §6 NG6) in the state reached. A
     drop the run judged at send time already met the heading state (the
     in-flight triggers taken), so nothing is replayed. A drop the run made
     against a transition the machine has is not one."""
@@ -335,7 +335,7 @@ class Access(NamedTuple):
 
 def accesses(events: list, clocks: list) -> list:
     """The run's store accesses with a known mode (a rule that needs a write
-    never fires on `unknown`), in event order. A failed attempt counts (Q13)."""
+    never fires on `unknown`), in event order. A failed attempt counts (RFC 0003 Q13)."""
     return [Access(e["task"], e["episode"], e["store"], e["mode"], e["wire"],
                    frozenset(e["held"]), clocks[i])
             for i, e in enumerate(events)
@@ -360,7 +360,7 @@ def clash(a: Access, b: Access) -> Optional[Clash]:
 def clashes(acc: list, self_concurrent: frozenset) -> list:
     """The clashes of one run: pairs of accesses in one episode by two tasks with
     concurrent clocks, plus each write of an episode whose entry runs
-    concurrently with itself (`(User)×N`, Q10) against its own copy."""
+    concurrently with itself (`(User)×N`, RFC 0003 Q10) against its own copy."""
     out = []
     for i, a in enumerate(acc):
         if a.mode in WRITES and a.episode in self_concurrent:
@@ -418,7 +418,7 @@ class TraceFacts:
         return {m.owner: m for m in self.state.machines}
 
     def self_concurrent(self, run: Run) -> frozenset:
-        """The episodes of a run whose entry has concurrent callers (Q10)."""
+        """The episodes of a run whose entry has concurrent callers (RFC 0003 Q10)."""
         return frozenset(ep for ep, node in episode_entries(run.events).items()
                          if node is not None and self.state.many_callers(node))
 
@@ -848,7 +848,7 @@ def unreached_hit(ck, prog, f, listing, x: Unreached):
 
 
 def match_unreached(ck, doc):
-    """SGC175: the complement of sim.reachable (B4 fixed: field branches run)."""
+    """SGC175: the complement of sim.reachable (field branches run: catalog §6 B4)."""
     st = state_module(ck)
     f = st.facts_of(doc)
     links = [(w.src, w.dst) for w in doc.sc.wires if w.role == "flow"]
@@ -939,7 +939,7 @@ def spawn_cause(ck):
 
 
 # Declared bounds (`@inv depth <= N`, `@inv hops <= N`) and the simulator limit
-# that stands in for each (CG4: declarations never change a run).
+# that stands in for each (catalog §1 CG4: declarations never change a run).
 BOUND_LIMITS = (("depth", "depth", "depth"), ("hops", "visits", "visits"))
 
 
@@ -955,7 +955,7 @@ def declared_bound(f, nid: str, head: str) -> Optional[int]:
 
 def bound_cause(ck):
     """A declared bound beyond the limit the simulator stopped the node at:
-    "bounded by design (N) vs simulator (depth 3)" (CG4)."""
+    "bounded by design (N) vs simulator (depth 3)" (catalog §1 CG4)."""
     def match(doc):
         tf, seen = trace_facts(ck, doc), set()
         for run in tf.runs:
