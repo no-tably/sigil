@@ -93,6 +93,10 @@ upper-case attributes are data.
   -- render ----------------------------------------------------------------
   render_prepasses() -> [fn(lines) -> lines]
       Line-count-preserving rewrites run after the core block-string pre-pass.
+      An expansion body is read in one pass, so a body's line is not re-run
+      through them; only a line the body reads rewritten (a header's text after
+      `{`, a closing line's text before `}`) is, on its own: a pass must leave its
+      own output unchanged.
   render_line_strips() -> [fn(line) -> line]
       Applied first, to every flow line, inside render.extract_flows.
   render_tokenizers() -> [fn(s, i, prev_was_glyph, layer, Node)

@@ -587,6 +587,59 @@ class Dropped(unittest.TestCase):
         self.assertEqual(self.reasons("loop {\n  [A] -> [B]\n"), [])   # closed at the end
 
 
+def _nest(depth):
+    """`depth` expansions, each inside the last, each body with one flow."""
+    lines = []
+    for i in range(depth):
+        lines += [f"{'  ' * i}[N{i}] := {{", f"{'  ' * i}  [N{i}] -> [M{i}]  # n{i}"]
+    lines += [f"{'  ' * i}}}" for i in reversed(range(depth))]
+    return "\n".join(lines) + "\n"
+
+
+class NestedExpansions(unittest.TestCase):
+    """Expansion bodies are read in one pass: a child parser per open body, on a
+    stack — no re-reading per level, no recursion per level."""
+
+    def test_deep_nesting(self):
+        g = parse(_nest(1000))
+        self.assertEqual(g.dropped, [])
+        for i in range(1000):
+            g = g.expansions[f"N{i}_service"]
+            self.assertIn(f"M{i}_service", g.nodes)
+        self.assertEqual(g.expansions, {})                 # the innermost body
+        self.assertIn("flowchart TD", render.render(_nest(1000)))
+
+    def test_each_line_is_read_once(self):
+        read = []
+        line = render._DocParser.line
+
+        def spy(self, k, raw):
+            read.append(self.ln(k))
+            return line(self, k, raw)
+
+        render._DocParser.line = spy
+        try:
+            text = _nest(40)
+            g = parse(text)
+        finally:
+            render._DocParser.line = line
+        self.assertEqual(len(read), len(set(read)))       # no line read twice
+        self.assertEqual(len(read), 80)                    # the closing `}` lines: none
+        inner = g.expansions["N0_service"].expansions["N1_service"]
+        self.assertEqual([(n.node, n.text, n.line) for n in inner.notes],
+                         [("N1_service", "n1", 4)])
+
+    def test_unclosed_body_numbers_no_holes(self):
+        # The body of `[X]` never closes inside `[A]`, so it is dropped unread: its
+        # hole takes no number, and the hole after `[A]` is the second.
+        g = parse("[?] -> [T]\n[A] := {\n  [X] := [?] -> [Y] } {\n  [?] -> [Z]\n}\n"
+                  "[?] -> [W]\n")
+        self.assertEqual(sorted(n for n in g.nodes if n.startswith("__")),
+                         ["__service1", "__service2"])
+        self.assertEqual([(d.line, d.reason) for d in g.dropped],
+                         [(3, "unclosed"), (4, "unclosed")])
+
+
 class ModelDocumented(unittest.TestCase):
     def test_docstring_names_every_graph_field(self):
         src = (_DIR / "render.py").read_text(encoding="utf-8")

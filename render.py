@@ -52,6 +52,7 @@ The parsed model (parse_document → Graph) is described under "THE MODEL" below
 
 import sys
 import re
+from bisect import bisect_left
 from dataclasses import dataclass, field, replace
 from typing import NamedTuple, Optional
 
@@ -1218,6 +1219,16 @@ def _close_at(text: str, depth: int) -> Optional[int]:
     return None
 
 
+def _close_head(stripped: str, before: int) -> tuple:
+    """The line that closes an expansion open `before` deep: the text before its
+    `}` (the body's last line) and the modifiers after it (`} @inv x` — the
+    node's)."""
+    cut = _close_at(stripped, before)
+    if cut is None:
+        return stripped, []
+    return stripped[:cut], scan_mods(stripped[cut + 1:])
+
+
 def _layer_num(layer) -> int:
     m = re.match(r"L(\d+)$", layer or "")
     return int(m.group(1)) if m else 1
@@ -1268,6 +1279,22 @@ class _Frame:
         self.subjects = []        # subjects of the body's own statements
 
 
+class _BodyLines:
+    """The lines of an expansion body read in one pass (see _DocParser._stream):
+    the document's own lines from `base` on, except those the body reads rewritten
+    (a header's text after its `{`, a closing line's text before its `}`)."""
+    def __init__(self, shared: list, base: int):
+        self.shared, self.base = shared, base
+        self.over: dict = {}                # body index → rewritten line
+        self.n = 0                          # lines read so far
+
+    def __getitem__(self, k: int) -> str:
+        return self.over[k] if k in self.over else self.shared[self.base + k]
+
+    def __len__(self) -> int:
+        return self.n
+
+
 class _DocParser:
     """parse_document's line-by-line state — one instance per document (and per
     `:= { … }` sub-document). Handlers named `_on_*` take a line and return True
@@ -1289,14 +1316,16 @@ class _DocParser:
         # still attaches.
         self.pending_expansions = []   # (name, kind, sub_graph|None, layer, mods, line)
         self.pending_states = []       # (owner Node, state graph, `} @mods` pairs)
-        # Blocks being collected. Expansion: [target_name, target_kind, raw lines,
-        # brace depth, first line, layer, header line]; state: [owner Node | None,
+        # Blocks being collected. Expansion: [target_name, target_kind, raw lines
+        # (read in one pass: only the header's text after its `{`), brace depth,
+        # first line, layer, header line]; state: [owner Node | None,
         # lines, brace depth, header index]; declaration: [(regex, on_raw), depth,
         # header index].
         self.expansion = None
         self.state = None
         self.decl = None
         self.decl_blocks = list(_hook(dialect, "DECLARATION_BLOCKS"))
+        self.prepasses = list(_hook(dialect, "render_prepasses"))
         # Open control blocks (loop / parallel / branch / scope / owns), innermost
         # last; and the block whose subject continuation lines after it take.
         self.frames: list = []
@@ -1309,6 +1338,7 @@ class _DocParser:
         # own-line comments waiting for the statement below.
         self.anchor = None
         self.comments: dict = {}
+        self.marker = _comment_marker(dialect)
         self.above: list = []
         # The lines being read (block-strings folded): the text of a dropped line.
         self.lines: list = []
@@ -1325,15 +1355,154 @@ class _DocParser:
         # Then any dialect pre-passes (line-count preserving).
         lines = collapse_block_strings(text.splitlines())
         self.comments = collect_comments(lines, self.dialect)   # before dialect pre-passes
-        for prepass in _hook(self.dialect, "render_prepasses"):
+        for prepass in self.prepasses:
             lines = prepass(lines)
         self.lines = lines
-        for k, raw in enumerate(lines):
-            self.line(k, raw)
-        self._drop_unclosed(len(lines))
+        # A `"""` the pre-pass left (in a comment, a second block-string on a line)
+        # would be folded again inside a body, which reading bodies in one pass
+        # cannot see ahead to: such a document collects each body and parses it
+        # on its own, as a sub-document.
+        if any(BLOCK_DELIM in raw for raw in lines):
+            for k, raw in enumerate(lines):
+                self.line(k, raw)
+        else:
+            self._stream(lines)
+        return self._end(len(lines))
+
+    def _end(self, n: int) -> Graph:
+        """The text (of n lines) is read: drop what was left open, then finish."""
+        self._drop_unclosed(n)
         while self.frames:                  # a block left open at the end of the text
-            self._close_block(len(lines) - 1)
+            self._close_block(n - 1)
         return self.finish()
+
+    def _stream(self, lines: list):
+        """Read the lines once each. An expansion body is read as it arrives by a
+        child parser — the stack's innermost — and adopted when its closing `}`
+        does; nesting grows the stack, not the Python call stack.
+
+        Every open body counts the same braces on a line it does not close, so one
+        running sum `acc` stands for all: body i's depth is offs[i] + acc. The
+        bodies a line closes are those whose depth it takes to 0 or below; the
+        outermost is found by bisecting the running minimum of offs. Inside it,
+        each deeper body reads that line's text before its `}` as a sub-document
+        would, and is adopted if its own parent closed on the line, else discarded
+        with the hole numbers it took (a sub-document never parses a body it
+        leaves unclosed)."""
+        stack = [self]                      # each parser but the last has an open body
+        offs: list = []                     # offs[i]: depth of stack[i]'s body, less acc
+        lows: list = []                     # lows[i]: -min(offs[:i + 1]) (ascending)
+        acc = 0
+        hole_seq = self.graph.hole_seq
+        for t, raw in enumerate(lines):
+            stripped = strip_comment(raw).rstrip()
+            line = stripped.strip()
+            delta = (self._delta(raw.strip(), line)
+                     if offs and line and not line.startswith("#!") else 0)
+            j = bisect_left(lows, acc + delta)
+            if j == len(lows):              # closes no body: the innermost reads it
+                acc += delta
+                self._read(stack, offs, lows, acc, t, raw, False)
+                continue
+            # Body j closes; the text before its `}` goes on down the open bodies.
+            head, mods = _close_head(stripped, offs[j] + acc)
+            closed = {j: mods}              # body index → modifiers after its `}`
+            fed = set()                     # bodies that read the line's text
+            text = head if head.strip() else None
+            i = j + 1
+            while text is not None and i < len(stack):
+                if i == len(stack) - 1:
+                    fed.add(i)
+                    self._read(stack, offs, lows, acc, t, text, True)
+                    break
+                p = stack[i]
+                fed.add(i)
+                text = p._body_line(t, text)
+                t_stripped = strip_comment(text).rstrip()
+                t_line = t_stripped.strip()
+                if t_line and not t_line.startswith("#!"):
+                    before = offs[i] + acc
+                    if before + self._delta(text.strip(), t_line) <= 0:
+                        head, closed[i] = _close_head(t_stripped, before)
+                        text = head if head.strip() else None
+                i += 1
+            while len(stack) > j + 1:
+                child = stack.pop()
+                offs.pop()
+                lows.pop()
+                parent = len(stack) - 1
+                if parent in closed:
+                    home = stack[parent]
+                    sub = child._end(child._body_len(t, parent + 1 in fed))
+                    home._close_expansion(home._adopt(sub), closed[parent])
+                else:
+                    hole_seq[0] = child.hole0   # its holes were never numbered
+            acc += delta
+        while len(stack) > 1:               # bodies left open at the end of the text
+            hole_seq[0] = stack.pop().hole0
+
+    def _read(self, stack: list, offs: list, lows: list, acc: int, t: int, text: str,
+              rewritten: bool):
+        """The innermost parser reads document line t (`text`, rewritten when it is
+        not the document's own line); a body it opens is pushed and reads the
+        header's text after the `{`."""
+        p = stack[-1]
+        if p is self:
+            self.line(t, text)
+        else:
+            p._read_body_line(t, text, rewritten)
+        while p.expansion is not None:
+            exp = p.expansion
+            child = _DocParser(self.graph.hole_seq, self.dialect, exp[4])
+            child.base = exp[4] - self.line0     # document index of its line 0
+            child.lines = _BodyLines(self.lines, child.base)
+            child.hole0 = self.graph.hole_seq[0]
+            off = exp[3] - acc
+            offs.append(off)
+            lows.append(max(lows[-1], -off) if lows else -off)
+            stack.append(child)
+            if not exp[2]:
+                break
+            child._read_body_line(t, exp[2].pop(), True)
+            p = child
+
+    def _body_line(self, t: int, text: str) -> str:
+        """A body's rewritten line arrives (document line t): this body's dialect
+        pre-passes run on it, as on a sub-document's lines. Returns it as read."""
+        k = t - self.base
+        for prepass in self.prepasses:
+            text = prepass([text])[0]
+        self.lines.over[k] = text
+        return text
+
+    def _read_body_line(self, t: int, text: str, rewritten: bool):
+        """A body reads its line at document index t. Its comments are those of the
+        line it was given (before its own pre-passes), as a sub-document's are."""
+        k = t - self.base
+        src = text
+        if rewritten:
+            text = self._body_line(t, text)
+        self.lines.n = k + 1
+        c = _comment_of(src, self.marker)
+        if c:
+            self.comments[k] = c
+        self.line(k, text)
+
+    def _body_len(self, t: int, fed: bool) -> int:
+        """How many lines this body has when document line t closes it (`fed`: the
+        closing line's head is its last line). A sub-document's text was its lines
+        joined with newlines and split again, which loses one trailing blank line."""
+        n = t - self.base + (1 if fed else 0)
+        if not fed and n > 0 and (n - 1) not in self.lines.over and self.lines[n - 1] == "":
+            n -= 1
+        self.lines.n = n
+        return n
+
+    def _close_expansion(self, sub: Graph, mods: list):
+        """The open expansion's body is read: `sub` is its graph."""
+        exp = self.expansion
+        self.pending_expansions.append((exp[0], exp[1], sub, exp[5], mods, exp[6]))
+        self.expansion = None
 
     def line(self, k: int, raw: str):
         raw_lead = raw.strip()
@@ -1517,16 +1686,11 @@ class _DocParser:
             exp[2].append(raw)
             return
         # End of expansion — keep what precedes its closing `}`, then parse the
-        # body recursively. Modifiers after the `}` (`} @inv x`) are the node's.
-        cut = _close_at(stripped, before)
-        last = stripped[:cut] if cut is not None else stripped
+        # body as a sub-document.
+        last, mods = _close_head(stripped, before)
         if last.strip():
             exp[2].append(last)
-        mods = scan_mods(stripped[cut + 1:]) if cut is not None else []
-        self.pending_expansions.append(
-            (exp[0], exp[1], self._sub_parse("\n".join(exp[2]), exp[4]), exp[5], mods,
-             exp[6]))
-        self.expansion = None
+        self._close_expansion(self._sub_parse("\n".join(exp[2]), exp[4]), mods)
 
     def _on_declaration(self, k: int, raw_lead: str, line: str) -> bool:
         """Dialect DECLARATION blocks (`name { … }` whose body declares, not flows)
@@ -1869,10 +2033,13 @@ def parse_document(text: str, _hole_seq: Optional[list] = None, dialect=None,
 
 
 def _walk(g, owner=None, level=0):
-    """(graph, owning node id, nesting level) for g and every nested graph."""
-    yield g, owner, level
-    for nid, sub in g.expansions.items():
-        yield from _walk(sub, nid, level + 1)
+    """(graph, owning node id, nesting level) for g and every nested graph, depth
+    first in document order (a stack, so deep nesting costs no Python stack)."""
+    todo = [(g, owner, level)]
+    while todo:
+        g, owner, level = todo.pop()
+        yield g, owner, level
+        todo.extend((sub, nid, level + 1) for nid, sub in reversed(g.expansions.items()))
 
 
 def collect_comments(lines: list, dialect=None) -> dict:
@@ -1880,24 +2047,35 @@ def collect_comments(lines: list, dialect=None) -> dict:
     `#` (not the `#!` mode line, nor a `#&` marker — see _COMMENT_START_RE); a
     dialect may add markers (COMMENT_MARKERS, regex sources matched at line start
     or after whitespace). A marker inside a `"…"` string starts no comment."""
-    extra = list(_hook(dialect, "COMMENT_MARKERS"))
-    marker = (re.compile(r"(?:^|(?<=\s))(?:" + "|".join(extra) + ")") if extra else None)
+    marker = _comment_marker(dialect)
     out = {}
     for k, line in enumerate(lines):
-        if line.lstrip().startswith(("#!", "#&")):
-            continue
-        hits = [comment_start(line, notes_only=True)]
-        if marker:
-            hits.append(next((h for h in marker.finditer(line)
-                              if not _in_string(line, h.start())), None))
-        hits = [h for h in hits if h]
-        if not hits:
-            continue
-        m = min(hits, key=lambda h: h.start())
-        text = line[m.end():].strip()
-        if text:
-            out[k] = (text, not line[:m.start()].strip())
+        c = _comment_of(line, marker)
+        if c:
+            out[k] = c
     return out
+
+
+def _comment_marker(dialect=None):
+    """The dialect's extra comment markers as one regex, or None."""
+    extra = list(_hook(dialect, "COMMENT_MARKERS"))
+    return re.compile(r"(?:^|(?<=\s))(?:" + "|".join(extra) + ")") if extra else None
+
+
+def _comment_of(line: str, marker) -> Optional[tuple]:
+    """collect_comments for one line: (text, own_line), or None."""
+    if line.lstrip().startswith(("#!", "#&")):
+        return None
+    hits = [comment_start(line, notes_only=True)]
+    if marker:
+        hits.append(next((h for h in marker.finditer(line)
+                          if not _in_string(line, h.start())), None))
+    hits = [h for h in hits if h]
+    if not hits:
+        return None
+    m = min(hits, key=lambda h: h.start())
+    text = line[m.end():].strip()
+    return (text, not line[:m.start()].strip()) if text else None
 
 
 def _expand_alias_refs(graph: Graph):
@@ -2314,25 +2492,25 @@ def unique_ids(graph: Graph, depth: int = 1) -> Graph:
     if not any(renamed.values()):
         return graph
 
-    def copy(g):
+    copies = {}                                 # id(graph) → its copy
+    for g, _o, _l in reversed(list(_walk(graph))):   # nested graphs before their owners
         m = renamed.get(id(g), {})
 
-        def r(nid):
+        def r(nid, m=m):
             return m.get(nid, nid)
 
-        return replace(
+        copies[id(g)] = replace(
             g,
             nodes={r(k): replace(n, id=r(n.id)) for k, n in g.nodes.items()},
             edges=[replace(e, src=r(e.src), dst=r(e.dst)) for e in g.edges],
-            expansions={r(k): copy(sub) for k, sub in g.expansions.items()},
+            expansions={r(k): copies[id(sub)] for k, sub in g.expansions.items()},
             tree=[replace(t, node=r(t.node)) for t in g.tree],
             blocks=[replace(b, refs=[r(x) for x in b.refs],
                             members=[r(x) for x in b.members],
                             arm_nodes=[(lab, [r(x) for x in ids]) for lab, ids in b.arm_nodes])
                     for b in g.blocks],
         )
-
-    out = copy(graph)
+    out = copies[id(graph)]
     trig = []
     for t in graph.triggers:
         owner, src, dst, event = t.owner, t.src, t.dst, t.event
