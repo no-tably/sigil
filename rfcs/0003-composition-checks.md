@@ -1,6 +1,6 @@
 # RFC 0003 — Composition checks
 
-- **Status:** Proposed 2026-10-02; reviewed 2026-10-03 — all decided but Q10 (see Decisions)
+- **Status:** Accepted 2026-10-03 (owner review; see Decisions)
 - **Date:** 2026-10-02
 - **Spec (to change on acceptance):** language.md "Recursion" (a bound may be
   stated), "Invariants" (a "Recognised invariants" table), "State machines"
@@ -385,12 +385,12 @@ and names that never reuse a core name.
 | 7 | **Reserve `#=` now** (unused until the decorated form lands; lint notes a stray `#=`). |
 | 8 | **Max** over the members that can win (a race can be won by its slow member when the fast one fails). |
 | 9 | **Allowed** — `@write(<stop>)` may name an event (the notation must not force a component in). |
-| 10 | **Open** — see below. |
+| 10 | **One sequential caller by default**; `(User)×N` (Q6 cardinality) declares concurrent callers, making every entry from that actor concurrent with itself for `lost-update` and `race`. |
 | 11 | **Non-atomic** (draft): `~|n| : ${state.n} + 1` is a read then a write; `@inv atomic` declares otherwise. |
 | 12 | **Accepted** — a specific transition beats `_`, in the spec and the simulator. |
 | 13 | **Yes** — a failed (timed-out) write is an access with an unknown outcome. |
 
-Recommendation for Q10: an actor is **one sequential caller** by default (fewer
+Q10 as decided: an actor is **one sequential caller** by default (fewer
 false findings), and a design declares concurrent callers with the cardinality it
 already has — `(User)×N` (Q6) — which makes every entry from that actor concurrent
 with itself for `lost-update` and `race`.
