@@ -312,7 +312,10 @@ class Program:
     machines: dict             # owner → Machine
     triggers: dict             # event id → (TriggerRef, …)
     tree: list                 # [(ui, index in its unit's tree, TreeEntry)]
+    tree_nodes: frozenset      # the node ids tree places
+    unit_nodes: dict           # node id → render.Node, first seen over units
     order: dict                # id(wire) → position in Scene.wires
+    access: object             # scene.access_index of the document
 
 
 def canonical(graph):
@@ -324,6 +327,8 @@ def canonical(graph):
 def program(sc) -> Program:
     """The static program of a canonical Scene (see Program's fields)."""
     units = sc.units
+    tree = [(i, k, t) for i, u in enumerate(units)
+            for k, t in enumerate(getattr(u.graph, "tree", None) or [])]
     unit_of_graph = {id(u.graph): i for i, u in enumerate(units)}
     edge_unit = {id(e): i for i, u in enumerate(units) for e in u.graph.edges}
     flows = [w for w in sc.wires if w.role == "flow" and id(w.edge) in edge_unit]
@@ -335,17 +340,20 @@ def program(sc) -> Program:
                    arm_wire={}, routes={}, returns={}, expansions=expansions,
                    aliases=_aliases(units, expansions), entries={}, decisions={},
                    branches={}, machines=_machines(sc, units), triggers={},
-                   tree=[(i, k, t) for i, u in enumerate(units)
-                         for k, t in enumerate(getattr(u.graph, "tree", None) or [])],
-                   order={id(w): k for k, w in enumerate(sc.wires)})
+                   tree=tree, tree_nodes=frozenset(t.node for _i, _k, t in tree),
+                   unit_nodes=_unit_nodes(units),
+                   order={id(w): k for k, w in enumerate(sc.wires)},
+                   access=scene_mod.access_index(sc.graph))
+    by_unit = {}
+    for w in flows:
+        by_unit.setdefault(wire_unit[id(w)], []).append(w)
     for i, u in enumerate(units):
         if u.graph.role == "state":
             continue
-        mine = [w for w in flows if wire_unit[id(w)] == i]
-        _fill_unit(prog, i, u, mine)
+        _fill_unit(prog, i, u, by_unit.get(i, []))
     for i, u in enumerate(units):
         if u.graph.role != "state":
-            prog.entries[i] = _unit_entries(prog, i, [w for w in flows if wire_unit[id(w)] == i])
+            prog.entries[i] = _unit_entries(prog, i, by_unit.get(i, []))
     prog.triggers = _trigger_refs(sc, prog.machines)
     return prog
 
@@ -356,8 +364,11 @@ def _fill_unit(prog: Program, ui: int, u, wires: list) -> None:
     arm_of = _arm_membership(blocks, wires)
     work = [w for w in wires if w.kind != "!>" and w.returns_of is None and id(w) not in arm_of]
     joins = getattr(u.graph, "joins", None) or []
-    for src in dict.fromkeys(w.src for w in work):
-        prog.bodies[(ui, src)] = _items(ui, [w for w in work if w.src == src], blocks, joins, None)
+    by_src = {}
+    for w in work:
+        by_src.setdefault(w.src, []).append(w)
+    for src, mine in by_src.items():
+        prog.bodies[(ui, src)] = _items(ui, mine, blocks, joins, None)
     returns = {}
     for w in wires:
         if w.kind == "!>":
@@ -548,12 +559,17 @@ def _aliases(units: list, expansions: dict) -> dict:
     return out
 
 
-def _pseudo(units: list, nid: str) -> Optional[str]:
+def _unit_nodes(units: list) -> dict:
+    out = {}
     for u in units:
-        n = u.graph.nodes.get(nid)
-        if n is not None:
-            return n.attrs.get("pseudo")
-    return None
+        for nid, n in u.graph.nodes.items():
+            out.setdefault(nid, n)
+    return out
+
+
+def _pseudo(prog: Program, nid: str) -> Optional[str]:
+    n = prog.unit_nodes.get(nid)
+    return n.attrs.get("pseudo") if n is not None else None
 
 
 def _machines(sc, units: list) -> dict:
@@ -717,12 +733,13 @@ _BUSY = {"active": 5, "waiting": 4, "failed": 3, "visited": 2, "opaque": 1, "can
 class _Run:
     """One simulation: tasks, activations, machines, instances; tick() makes Frames."""
 
-    def __init__(self, prog: Program, sc: Scenario, limits: Limits):
-        self.prog, self.limits = prog, limits
+    def __init__(self, prog: Program, sc: Scenario, limits: Limits, keep: bool = True):
+        self.prog, self.limits, self.keep = prog, limits, keep
         self.choices = dict(sc.choices)
         self.entries = list(_resolve_entries(prog, sc.entries))
         self.t, self.episode, self.entry = 0, 0, None
-        self.tasks: list = []
+        self.tasks: list = []          # every task forked (numbers the next id)
+        self.alive: list = []          # the tasks not ended yet, in fork order
         self.status: dict = {}
         self.taken, self.failed_w, self.routes = set(), set(), []
         self.machines = {o: m.initial for o, m in prog.machines.items()}
@@ -744,7 +761,8 @@ class _Run:
 
     # ---- scheduler -------------------------------------------------------
 
-    def tick(self) -> Frame:
+    def tick(self) -> Optional[Frame]:
+        """One tick; its Frame, or None when the run keeps only its last one."""
         t = self.t
         if t == 0:
             self._log(CONVENTIONS)
@@ -752,15 +770,15 @@ class _Run:
         if self.start_next:
             self._begin_episode()
         k = 0
-        while k < len(self.tasks) and not self.done:
-            task = self.tasks[k]
+        while k < len(self.alive) and not self.done:
+            task = self.alive[k]
             k += 1
             if not task.ended and task.resume == t:
                 self._advance(task)
         self._wake()
-        pending = any(not x.ended and x.resume is not None for x in self.tasks)
+        pending = any(not x.ended and x.resume is not None for x in self.alive)
         if not self.done and not pending:
-            self._event("quiet", None, waiting=[x.id for x in self.tasks
+            self._event("quiet", None, waiting=[x.id for x in self.alive
                                                 if not x.ended and x.wait is not None])
             if self.entries:
                 self.start_next = True
@@ -770,8 +788,9 @@ class _Run:
             self._cut("frames")
         if self.done:
             self._log(f"done: {self.outcome()}")
-        frame = self._snapshot()
+        frame = self._snapshot() if self.keep or self.done else None
         self.t += 1
+        self.alive = [x for x in self.alive if not x.ended]
         self.changed, self.lit_now, self.ghosts, self.lines = set(), set(), [], []
         return frame
 
@@ -795,6 +814,7 @@ class _Run:
         if parent is not None:
             task.scopes = Counter(+parent.scopes)
         self.tasks.append(task)
+        self.alive.append(task)
         self._event("fork", task, parent=parent.id if parent is not None else None, why=why,
                     wire=wire, node=node)
         task.gen = factory(task)
@@ -853,7 +873,7 @@ class _Run:
         self._event("end", task, how="failed" if failed else "ok")
 
     def _wake(self) -> None:
-        for task in self.tasks:
+        for task in self.alive:
             if not task.ended and task.wait is not None and task.wait():
                 task.wait, task.resume = None, self.t + 1
 
@@ -874,7 +894,7 @@ class _Run:
     def _abort(self) -> None:
         self._log("critical call failed: the run ends")
         self.aborted = True
-        for task in self.tasks:
+        for task in self.alive:
             self._cancel(task)
         self.done = True
 
@@ -888,15 +908,15 @@ class _Run:
 
     def _snapshot(self) -> Frame:
         tokens, in_flight = [], set()
-        for task in self.tasks:
+        for task in self.alive:
             fl = task.flight
             if not task.ended and fl is not None and fl.start <= self.t <= fl.start + fl.dur:
                 tokens.append(self._token(task, fl))
                 in_flight.add(fl.wire)
         tokens += self.ghosts
-        open_ = {w for task in self.tasks if not task.ended for w in task.open}
+        open_ = {w for task in self.alive if not task.ended for w in task.open}
         depth = {}
-        for task in self.tasks:
+        for task in self.alive:
             if not task.ended:
                 for nid, n in Counter(a.node for a in task.stack).items():
                     if n > 1:
@@ -921,7 +941,7 @@ class _Run:
         return "failed" if self.failed_episode or self.aborted else "ok"
 
     def end(self) -> dict:
-        stalled = [x.stack[-1].node for x in self.tasks
+        stalled = [x.stack[-1].node for x in self.alive
                    if not x.ended and x.wait is not None and x.stack]
         return {"machines": dict(self.machines), "routes": list(self.routes),
                 "stalled": list(dict.fromkeys(stalled)), "deposits": self._deposits(),
@@ -1010,7 +1030,7 @@ class _Run:
         """How many instances a flow into w.dst reaches: its composition instances,
         else the cardinality written on the flow (`-> [App]×3`, Edge.card; a
         symbolic N counts Limits.spawn), else 1."""
-        if not any(t.node == w.dst for _ui, _k, t in self.prog.tree):
+        if w.dst not in self.prog.tree_nodes:
             card = w.edge.card if w.edge is not None else None
             if not card:
                 return 1
@@ -1034,7 +1054,8 @@ class _Run:
         rules' reading): outcome "done", or "unknown" for a failed attempt (RFC 0003 Q13);
         `held` the stores the task's `owns` blocks hold."""
         if w.ident not in self.modes:
-            self.modes[w.ident] = scene_mod.access_mode(w, self.prog.scene.graph)
+            self.modes[w.ident] = scene_mod.access_mode(w, self.prog.scene.graph,
+                                                        index=self.prog.access)
         mode = self.modes[w.ident]
         if mode is None:
             return
@@ -1600,7 +1621,7 @@ class _Run:
             state = self._heading(owner)
             if state is None:
                 continue
-            pick = (None if _pseudo(self.prog.units, state) == "end"
+            pick = (None if _pseudo(self.prog, state) == "end"
                     else self._pick(task, mine, owner, state))
             if pick is None:
                 self._ignored(task, act.node, mine[0].trigger.label, owner, state)
@@ -1635,7 +1656,7 @@ class _Run:
         the `_` ones (a specific transition beats the wildcard: catalog §6 NG6, Q12)."""
         specific = [r for r in refs if r.trigger.src == state]
         return specific or [r for r in refs
-                            if _pseudo(self.prog.units, r.trigger.src) == "any"]
+                            if _pseudo(self.prog, r.trigger.src) == "any"]
 
     def _ignored(self, task: _Task, event: str, label: str, owner: str, state) -> None:
         self._event("ignored", task, event=event, label=label, owner=owner, state=state)
@@ -1652,7 +1673,7 @@ class _Run:
             self.bound[t.owner].pop(0)
         state = self.machines.get(t.owner)
         pick = None
-        if state is not None and _pseudo(self.prog.units, state) != "end":
+        if state is not None and _pseudo(self.prog, state) != "end":
             mine = [r for r in self.prog.triggers.get(t.event, ()) if r.trigger.owner == t.owner]
             pick = self._pick(task, mine, t.owner, state)
         if pick is None:
@@ -1673,10 +1694,9 @@ class _Run:
                   f"{self._state_name(t.dst)}")
 
     def _state_name(self, nid: Optional[str]) -> str:
-        for u in self.prog.units:
-            n = u.graph.nodes.get(nid)
-            if n is not None:
-                return {"start": "+", "end": "$", "any": "_"}.get(n.attrs.get("pseudo"), n.name)
+        n = self.prog.unit_nodes.get(nid)
+        if n is not None:
+            return {"start": "+", "end": "$", "any": "_"}.get(n.attrs.get("pseudo"), n.name)
         return str(nid)
 
 
@@ -1847,6 +1867,18 @@ def _fails(ctx: Optional[_Ctx], fails: dict) -> bool:
     return ctx is not None and bool(fails.get(ctx))
 
 
+class _Asked(dict):
+    """failure_analysis's fails ({ctx: guards}), noting in `asked` (when set)
+    every context an activation reads, so a round re-runs only the activations
+    whose reads changed (an activation is a pure function of them)."""
+    asked = None
+
+    def get(self, key, default=None):
+        if self.asked is not None:
+            self.asked.add(key)
+        return super().get(key, default)
+
+
 def _call_effect(fl: _Flow, fails: dict, w, at: _Place) -> _Effect:
     """_call / _self_call."""
     prog = fl.prog
@@ -2007,15 +2039,25 @@ def failure_analysis(prog: Program, limits: Limits = Limits(), *,
     for nid in prog.entries.get(0, ()):
         for ctx in _entry_effect(fl, {}, 0, nid, frozenset()).started:
             known.setdefault(ctx, None)
-    fails, effects = {}, {}
+    fails, effects = _Asked(), {}
+    # ctx → the contexts its activation asked about / the step it last ran at /
+    # the step its fails last changed at: a round skips an activation none of
+    # whose reads changed since it ran (it would give the same effect).
+    asked, ran, moved, step = {}, {}, {}, 0
     changed = True
     while changed:
         changed = False
         for ctx in list(known):
+            if ctx in ran and all(moved.get(c, -1) < ran[ctx] for c in asked[ctx]):
+                continue
+            step += 1
+            fails.asked = asked[ctx] = set()
             e = _activation(fl, fails, ctx)
+            fails.asked, ran[ctx] = None, step
             effects[ctx] = e
             if e.raises != fails.get(ctx, frozenset()):
                 fails[ctx] = e.raises
+                moved[ctx] = step
                 changed = True
             for c in _started(prog, ctx, e):
                 if c not in known:
@@ -2095,15 +2137,30 @@ def _resolve_entries(prog: Program, names) -> list:
 def simulate(sc, scenario: Scenario, *, limits: Limits = Limits()) -> Trace:
     """Run a scenario over a Scene (any Scene of the document: the run uses the
     canonical one) and return its Trace. Raises KeyError for an unknown entry."""
-    return _simulate(program(canonical(sc.graph)), scenario, limits)
+    return _simulate(_program_of(sc.graph), scenario, limits)
 
 
-def _simulate(prog: Program, scenario: Scenario, limits: Limits) -> Trace:
-    """simulate over a built Program (a run never changes it)."""
-    run = _Run(prog, scenario, limits)
+_LAST_PROGRAM: list = [None, None]     # [graph, its Program]: the last one built
+
+
+def _program_of(graph) -> Program:
+    """program(canonical(graph)), built once for a run of calls on one document
+    (each scenario of `view.py --sim all`, a scenario list then its runs). A
+    Program is never changed once built, so sharing it is safe."""
+    if _LAST_PROGRAM[0] is not graph:
+        _LAST_PROGRAM[:] = [graph, program(canonical(graph))]
+    return _LAST_PROGRAM[1]
+
+
+def _simulate(prog: Program, scenario: Scenario, limits: Limits, keep: bool = True) -> Trace:
+    """simulate over a built Program (a run never changes it). keep=False keeps
+    only the last frame (an exploration reads a run's end and outcome)."""
+    run = _Run(prog, scenario, limits, keep)
     frames = []
     while True:
         frame = run.tick()
+        if frame is None:
+            continue
         frames.append(frame)
         if frame.done:
             break
@@ -2382,6 +2439,8 @@ def _oneof_points(prog: Program, wires: list, name) -> list:
 def _machine_points(prog: Program, nodes: list, name) -> list:
     """Two transitions from one state on one trigger, for reachable events."""
     events = {nid for _ui, nid in nodes}
+    driven_by = {(r.trigger.owner, r.trigger.label)
+                 for ev in events for r in prog.triggers.get(ev, ())}
     out = []
     for m in prog.machines.values():
         groups = {}
@@ -2389,9 +2448,7 @@ def _machine_points(prog: Program, nodes: list, name) -> list:
             if label:
                 groups.setdefault((src, label), []).append(dst)
         for (src, label), dsts in groups.items():
-            driven = any(r.trigger.owner == m.owner and r.trigger.label == label
-                         for ev in events for r in prog.triggers.get(ev, ()))
-            if len(dsts) < 2 or not driven:
+            if len(dsts) < 2 or (m.owner, label) not in driven_by:
                 continue
             state = _state_label(prog, src)
             names = ("",) + tuple(f"{name(m.owner)}.{_part(state)}-{_part(label)}->"
@@ -2402,10 +2459,9 @@ def _machine_points(prog: Program, nodes: list, name) -> list:
 
 
 def _state_label(prog: Program, nid: str) -> str:
-    for u in prog.units:
-        n = u.graph.nodes.get(nid)
-        if n is not None:
-            return {"start": "+", "end": "$", "any": "_"}.get(n.attrs.get("pseudo"), n.name)
+    n = prog.unit_nodes.get(nid)
+    if n is not None:
+        return {"start": "+", "end": "$", "any": "_"}.get(n.attrs.get("pseudo"), n.name)
     return nid
 
 
@@ -2435,7 +2491,7 @@ def _suffix_shared(names: list, suffix) -> list:
 def scenarios(sc, *, limits: Limits = Limits()) -> list:
     """`happy`, then one scenario per non-default option of each reachable choice
     point, in source order; capped at limits.scenarios."""
-    prog = program(canonical(sc.graph))
+    prog = _program_of(sc.graph)
     out = [Scenario("happy", (), "every default: the happy path")]
     for p in choice_points(prog, limits):
         for opt, nm, label in zip(p.options[1:], p.names[1:], p.labels[1:]):
@@ -2478,7 +2534,8 @@ class Exploration(NamedTuple):
     combination — fewest deviations first, then source order; duplicates: the
     combinations whose run repeated an earlier one's (dropped); left_out: the
     combinations the budget left unrun (deeper ones built on them are not
-    counted)."""
+    counted). A combination's Trace keeps only its last frame (its end and
+    outcome are what an exploration reads); the happy run keeps them all."""
     traces: tuple
     duplicates: int
     left_out: int
@@ -2500,7 +2557,7 @@ def combinations(sc, k: int, *, limits: Limits = Limits(), budget: int = 256) ->
     counts outlive an episode). A run whose log and outcome repeat an earlier one's
     is dropped; at most `budget` runs are made (the happy run aside), and what
     the budget cut is counted in left_out. Pure and deterministic."""
-    prog = program(canonical(sc.graph))
+    prog = _program_of(sc.graph)
     devs = deviations(prog, limits)
     happy = _simulate(prog, Scenario("happy", (), "every default: the happy path"), limits)
     seen, kept = {_signature(happy)}, [happy]
@@ -2512,7 +2569,7 @@ def combinations(sc, k: int, *, limits: Limits = Limits(), budget: int = 256) ->
             if runs >= budget:
                 return Exploration(tuple(kept), duplicates, len(level) - n)
             runs += 1
-            trace = _simulate(prog, _combined(devs, combo), limits)
+            trace = _simulate(prog, _combined(devs, combo), limits, keep=False)
             sig = _signature(trace)
             if sig in seen:
                 duplicates += 1

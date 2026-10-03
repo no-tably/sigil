@@ -471,8 +471,7 @@ class Facts:
         not a produced value. An undeclared `<->` is a guessed read-and-write
         (catalog §1.4 steps 4–5)."""
         store, principal = (w.dst, w.src) if self.kind(w.dst) == "store" else (w.src, w.dst)
-        scene = self.doc.scene
-        return (not scene.declared_access(self.doc.graph, principal, store)
+        return (not self.doc.declared_access(principal, store)
                 and self.doc.access_mode(w) in ("write", "rw"))
 
     @cached_property
@@ -489,7 +488,7 @@ class Facts:
         return out
 
     def writers(self, sid: str) -> dict:
-        return self.doc.scene.writers(self.doc.sc, sid, self.doc.read_verbs)
+        return self.doc.writers(sid)
 
     def role(self, principal: str) -> str:
         """A principal counted by role: `Worker<N>` is one principal."""

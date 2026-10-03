@@ -75,9 +75,9 @@ _BRANCH_RE = re.compile(r"^\s*(?:\\-|\*-|\{[^}]*\}-|\(\d+\)-)")
 
 @dataclass
 class Facts:
-    """The flow facts of one document (flow_facts). `effects` and `failures` are
-    the mutable part: memos filled the first time a rule asks (effect_of,
-    failures_of)."""
+    """The flow facts of one document (flow_facts). `effects`, `failures` and
+    `spread` are the mutable part: memos filled the first time a rule asks
+    (effect_of, failures_of, spread_nodes)."""
     sim: object                      # sim.py
     scene: object                    # scene.py
     prog: object                     # sim.Program of the canonical scene
@@ -88,11 +88,13 @@ class Facts:
     unit: dict                       # id(wire) → unit index
     lines: dict                      # node id → the first line naming it
     access: Callable                 # wire → access mode (Doc.access_mode)
+    declared: Callable               # (principal, store) → modes (Doc.declared_access)
     read_verbs: tuple
     label: Callable                  # node id → glyph text
     text: tuple                      # the document's lines
     effects: dict = field(default_factory=dict)
     failures: Optional["Failures"] = None
+    spread: Optional[frozenset] = None    # memo of spread_nodes
 
     def kind(self, nid: str) -> str:
         n = self.nodes.get(nid)
@@ -124,6 +126,7 @@ def build_facts(doc) -> Facts:
         sim=doc.sim, scene=doc.scene, prog=prog, graph=doc.graph, nodes=nodes,
         mods=node_mods(graphs), flows=work_flows(prog), unit=dict(prog.wire_unit),
         lines=first_lines(graphs, kit.node_lines), access=doc.access_mode,
+        declared=doc.declared_access,
         read_verbs=tuple(doc.read_verbs),
         label=lambda nid: kit.node_label(nodes[nid]) if nid in nodes else nid,
         text=tuple(doc.lines))
@@ -316,12 +319,17 @@ def instances(facts: Facts, nid: str) -> bool:
     n = facts.nodes.get(nid)
     if n is not None and n.params:
         return True
-    if any(w.dst == nid and w.edge is not None and w.edge.card for w in facts.flows):
-        return True
-    for g in _graphs(facts):
-        if any(t.node == nid and (t.spawn or t.rel == "*") for t in g.tree):
-            return True
-    return False
+    return nid in spread_nodes(facts)
+
+
+def spread_nodes(facts: Facts) -> frozenset:
+    """The nodes a flow with a cardinality enters (`-> [App]×3`), and the dynamic
+    composition children: two of instances' readings, gathered once."""
+    if facts.spread is None:
+        facts.spread = frozenset(
+            [w.dst for w in facts.flows if w.edge is not None and w.edge.card]
+            + [t.node for g in _graphs(facts) for t in g.tree if t.spawn or t.rel == "*"])
+    return facts.spread
 
 
 def _graphs(facts: Facts) -> list:
@@ -348,23 +356,32 @@ def effect_of(facts: Facts, w) -> Optional[Effect]:
     """What durable effect a work wire may have: a store write, an external call,
     an emit, or a callee whose body has one (transitively). A callee with no body
     and a non-read verb may change state (a guess). None: no effect."""
-    return _effect_memo(facts, w, frozenset())[0]
+    key = id(w)
+    if key not in facts.effects:
+        facts.effects[key] = _effect(facts, w, {key})[0]
+    return facts.effects[key]
 
 
-def _effect_memo(facts: Facts, w, seen: frozenset) -> tuple:
-    """(effect, cut): cut when the walk skipped a wire already on the path (a
-    cycle), so the effect is partial and is not kept in facts.effects (the
-    answer must not depend on which wire of a cycle was asked first)."""
+def _effect_memo(facts: Facts, w, seen: set) -> tuple:
+    """(effect, cut): cut when the walk skipped a wire this query already
+    visited (on the path, a cycle; or explored and found empty), so the effect
+    is partial and is not kept in facts.effects (the answer must not depend on
+    which wire of a cycle was asked first). One visited set per query keeps a
+    cyclic call graph linear: a wire explored once with no effect has nothing
+    new to offer a second path, since all it reaches was explored too."""
     key = id(w)
     if key in facts.effects:
         return facts.effects[key], False
-    out, cut = _effect(facts, w, seen | {key})
-    if not cut or not seen:
+    if key in seen:
+        return None, True
+    seen.add(key)
+    out, cut = _effect(facts, w, seen)
+    if not cut:
         facts.effects[key] = out
     return out, cut
 
 
-def _effect(facts: Facts, w, seen: frozenset) -> tuple:
+def _effect(facts: Facts, w, seen: set) -> tuple:
     kind = facts.kind(w.dst)
     if kind == "store":
         return store_effect(facts, w), False
@@ -381,9 +398,6 @@ def _effect(facts: Facts, w, seen: frozenset) -> tuple:
         cut = False
         for x in body:
             if is_route(x) or x.kind in ("~>", "=>"):
-                continue
-            if id(x) in seen:
-                cut = True
                 continue
             inner, inner_cut = _effect_memo(facts, x, seen)
             cut = cut or inner_cut
@@ -405,7 +419,7 @@ def store_effect(facts: Facts, w) -> Optional[Effect]:
     (access_mode reads a produced value as a read)."""
     mode = facts.access(w)
     store = facts.name(w.dst)
-    exact = bool(facts.scene.declared_access(facts.graph, w.src, w.dst))
+    exact = bool(facts.declared(w.src, w.dst))
     verb = verb_of(facts, w)
     if mode in ("write", "rw"):
         if exact:

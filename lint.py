@@ -998,14 +998,40 @@ def lint_composition(lines: list, result: LintResult, relations: str = CORE_RELA
     return out
 
 
-def _edit_distance(a: str, b: str) -> int:
+def _edit_distance(a: str, b: str, most: Optional[int] = None) -> int:
+    """Levenshtein distance; with `most`, any distance over it may come back as
+    most + 1 (a row's minimum never falls, so the rest is skipped)."""
+    if most is not None and abs(len(a) - len(b)) > most:
+        return most + 1
     prev = list(range(len(b) + 1))
     for i, ca in enumerate(a, 1):
         cur = [i]
         for j, cb in enumerate(b, 1):
             cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        if most is not None and min(cur) > most:
+            return most + 1
         prev = cur
     return prev[-1]
+
+
+def _deletions(word: str, k: int) -> set:
+    """word and every string k or fewer deletions make of it."""
+    out = edge = {word}
+    for _ in range(k):
+        edge = {w[:i] + w[i + 1:] for w in edge for i in range(len(w))}
+        out = out | edge
+    return out
+
+
+def _deletion_index(words) -> dict:
+    """{variant: [word]} over _deletions(word, 2): two words within edit distance
+    k <= 2 share a variant of k or fewer deletions each, so a typo hint looks up
+    its candidates instead of measuring every word (symmetric-delete search)."""
+    out = {}
+    for word in words:
+        for v in _deletions(word, 2):
+            out.setdefault(v, []).append(word)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -2189,7 +2215,7 @@ def lint_graph(text: str, result: LintResult, dialect=None, graph=None):
                                f"under `{path[-2]}` in a composition tree.")
     events = {n.name.lower(): n.name for sub, _o, _l in render._walk(g)
               for n in sub.nodes.values() if n.kind == "event" and not n.is_hole}
-    seen = set()
+    seen, close = set(), None
     for sub, _owner, _lvl in render._walk(g):
         if sub.role != "state":
             continue
@@ -2200,8 +2226,11 @@ def lint_graph(text: str, result: LintResult, dialect=None, graph=None):
                 continue
             seen.add(key)
             limit = 2 if len(key) >= 5 else 1
-            near = sorted((d, name) for low, name in events.items()
-                          if (d := _edit_distance(key, low)) <= limit)
+            if close is None:
+                close = _deletion_index(events)
+            maybe = {low for v in _deletions(key, limit) for low in close.get(v, ())}
+            near = sorted((d, events[low]) for low in maybe
+                          if (d := _edit_distance(key, low, limit)) <= limit)
             if near:
                 result.add("info", line_of(f"-<{trig}>->"), "SGL091",
                            f"trigger <{trig}> matches no event; did you mean <{near[0][1]}>?")

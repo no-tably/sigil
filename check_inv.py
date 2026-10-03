@@ -292,7 +292,7 @@ class Facts:
     def writes(self, actors: tuple, sid: str) -> bool:
         """Some actor writes the store: a writer by declaration, ownership or a
         write flow, or a flow into it whose mode is unknown."""
-        if set(actors) & set(self.doc.scene.writers(self.doc.sc, sid, self.doc.read_verbs)):
+        if set(actors) & set(self.doc.writers(sid)):
             return True
         return any(w.src in actors and w.dst == sid and self.doc.access_mode(w) == "unknown"
                    for w in self.flows)

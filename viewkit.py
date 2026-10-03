@@ -764,16 +764,23 @@ def edge_blocks(g) -> dict:
     compensation, Block.after)."""
     out = {}
     blocks = getattr(g, "blocks", None) or []
+    holding, after = {}, {}                     # edge key → [block index], in order
+    for bi, b in enumerate(blocks):
+        for key in dict.fromkeys(b.edges):
+            holding.setdefault(key, []).append(bi)
+        for key in dict.fromkeys(b.after):
+            after.setdefault(key, []).append(bi)
     for k, e in enumerate(g.edges):
         key, best = (e.src, e.dst, e.kind), None
-        for bi, b in enumerate(blocks):
-            lo, hi = b.lines
-            if key in b.edges and (lo <= e.line <= hi or not e.line):
+        for bi in holding.get(key, ()):
+            lo, hi = blocks[bi].lines
+            if lo <= e.line <= hi or not e.line:
                 if best is None or hi - lo < blocks[best].lines[1] - blocks[best].lines[0]:
                     best = bi
         if best is None:
-            for bi, b in enumerate(blocks):
-                if key in b.after and e.line >= b.lines[1]:
+            for bi in after.get(key, ()):
+                b = blocks[bi]
+                if e.line >= b.lines[1]:
                     if best is None or b.lines[1] > blocks[best].lines[1]:
                         best = bi
         if best is not None:

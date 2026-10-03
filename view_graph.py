@@ -623,13 +623,15 @@ class _Trace:
         return _Route(self.edge.src, self.edge.dst, self.edge.kind,
                       cells[::-1] if self.rev else cells)
 
-    def to_head(self, cell) -> int:
-        """How many cells from `cell` (its first pass) to this chain's nearest head."""
-        i = self.cells.index(cell)
-        ahead, behind = len(self.cells) - 1 - i, i
-        if self.both:
-            return min(ahead, behind)
-        return behind if self.rev else ahead
+    def to_head(self) -> dict:
+        """{cell: how many cells from it (its first pass) to this chain's nearest head}."""
+        out, last = {}, len(self.cells) - 1
+        for i, cell in enumerate(self.cells):
+            if cell not in out:
+                ahead, behind = last - i, i
+                out[cell] = (min(ahead, behind) if self.both
+                             else behind if self.rev else ahead)
+        return out
 
     def runs(self) -> dict:
         """{cell: the set of directions (dx, dy) the chain leaves it by}."""
@@ -661,9 +663,10 @@ def _nearest_owners(traces: list, lines: dict) -> dict:
     earlier chain. Style only: the cell's stroke (its glyph) stays."""
     seen = {}                                   # cell → [(distance, dirs, style)]
     for tr in traces:
+        dist = tr.to_head()
         for cell, dirs in tr.runs().items():
             if cell in lines:
-                seen.setdefault(cell, []).append((tr.to_head(cell), dirs, tr.style))
+                seen.setdefault(cell, []).append((dist[cell], dirs, tr.style))
     out = {}
     for cell, chains in seen.items():
         cur = lines[cell][2]

@@ -376,7 +376,8 @@ class Doc:
     The model's facts, for rule modules (catalog §1.4): `doc.graph` (render's
     Graph: Edge.card / src_mods / implied, Graph.narrowed / dropped), `doc.scene`
     (scene.py: call_policy, declared_access, writers), `doc.sc` / `doc.prog` (the
-    simulator's canonical scene and program), and `doc.access_mode(w)`, which
+    simulator's canonical scene and program), and `doc.access_mode(w)` (with
+    `doc.declared_access` and `doc.writers`, memoised), which
     reads the dialect's extra read verbs (catalog §1 CG6). `doc.inv_heads` is the recognised
     `@inv` heads: the core's INV_HEADS and the dialect's rule pack's. `doc.budget` and `doc.limits`
     bound the simulator's exploration; they are reported in `--json` (catalog §1.3)."""
@@ -426,10 +427,35 @@ class Doc:
         core = self.scene.READ_VERBS
         return core + tuple(v for v in self.extra_read_verbs if v not in core)
 
+    @cached_property
+    def access_index(self):
+        """scene.access_index of the document, built once for every wire."""
+        return self.scene.access_index(self.graph)
+
+    @cached_property
+    def _modes(self) -> dict:
+        return {}                    # id(wire) → (wire, access_mode), filled on first ask
+
     def access_mode(self, w) -> Optional[str]:
         """How a flow wire touches a store (scene.access_mode with this document's
         graph and read verbs)."""
-        return self.scene.access_mode(w, self.graph, read_verbs=self.read_verbs)
+        hit = self._modes.get(id(w))
+        if hit is None or hit[0] is not w:
+            hit = self._modes[id(w)] = (w, self.scene.access_mode(
+                w, self.graph, self.read_verbs, self.access_index))
+        return hit[1]
+
+    def declared_access(self, principal: str, store: str) -> set:
+        """scene.declared_access over this document."""
+        return self.scene.declared_access(self.graph, principal, store, self.access_index)
+
+    @cached_property
+    def _writers(self) -> dict:
+        return self.scene.all_writers(self.sc, self.read_verbs, self.access_index)
+
+    def writers(self, store: str) -> dict:
+        """scene.writers over the canonical scene, with this document's read verbs."""
+        return self._writers.get(store, {})
 
     @cached_property
     def graph(self):

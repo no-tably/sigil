@@ -125,6 +125,8 @@ STATIC FACTS (what a check reads off the wiring; no view draws them)
   access_mode(w, graph) "read" | "write" | "rw" | "unknown" | None: how a flow
                         touches a store (declarations first, then the wiring)
   writers(scene, store) {principal: {"decl", "owns", "flow"}}: who writes it
+  all_writers(scene)    {store: writers(scene, store)}, in one pass
+  access_index(graph)   what access_mode reads, gathered once for many wires
 
 THE COLOUR POLICY (one rule for every view)
 
@@ -330,8 +332,11 @@ def outline_ids(g) -> list:
         for c in kids.get(i, []):
             entry(c)
 
+    roots_of = {}
+    for i in kids.get(None, []):
+        roots_of.setdefault(tree[i].node, []).append(i)
     for nid in g.nodes:
-        roots = [i for i in kids.get(None, []) if tree[i].node == nid]
+        roots = roots_of.get(nid, [])
         for i in roots:
             entry(i)
         if not roots and nid not in placed:
@@ -694,7 +699,37 @@ def call_policy(w: Wire) -> list:
     return own + [p for p in src if p not in own]
 
 
-def access_mode(w: Wire, graph, read_verbs: tuple = READ_VERBS) -> Optional[str]:
+class AccessIndex(NamedTuple):
+    """What access_mode reads off the whole document, gathered in one walk
+    (access_index): a caller classifying many wires builds it once."""
+    nodes: dict                # id → render.Node, first seen over every graph
+    declared: dict             # (principal, store) → {"read", "write"} declared
+    produced: frozenset        # (src, line) of every `=>` edge
+    continued: frozenset       # (src, cont) of every `=>` edge continuing a line
+    units: tuple               # per graph, walk order: (access entries, (id, Node) …)
+
+
+def access_index(graph) -> AccessIndex:
+    nodes, declared, produced, continued, units = {}, {}, set(), set(), []
+    for u in walked_units(graph):
+        access = tuple(getattr(u.graph, "access", None) or [])
+        units.append((access, tuple(u.graph.nodes.items())))
+        for nid, n in u.graph.nodes.items():
+            nodes.setdefault(nid, n)
+        for a in access:
+            mode = a.narrow if a.mode == "borrow" else a.mode
+            if mode in ("read", "write"):
+                declared.setdefault((a.principal, a.store), set()).add(mode)
+        for e in u.graph.edges:
+            if e.kind == "=>":
+                produced.add((e.src, e.line))
+                continued.add((e.src, e.cont))
+    return AccessIndex(nodes, declared, frozenset(produced), frozenset(continued),
+                       tuple(units))
+
+
+def access_mode(w: Wire, graph, read_verbs: tuple = READ_VERBS,
+                index: Optional[AccessIndex] = None) -> Optional[str]:
     """How a flow wire touches a store: "read" | "write" | "rw" | "unknown", or
     None when neither end is a store (`|S|`; a data glyph is never one). In order:
     a `@read(P)` / `@write(P)` / `@borrow(read|write)` declared for the wire's
@@ -702,36 +737,31 @@ def access_mode(w: Wire, graph, read_verbs: tuple = READ_VERBS) -> Optional[str]
     flow out of a store reads; a flow into one that produces a value (`=> X` on
     its payload or line, or a `=>` continuing it) reads; one with no payload is
     unknown (`[Svc] -> |DB|` says "uses"); else it writes, unless its op verb is
-    one of `read_verbs`. The verb reading is a heuristic."""
-    nodes = _all_nodes(graph)
-    into, out_of = _is_store(nodes.get(w.dst)), _is_store(nodes.get(w.src))
+    one of `read_verbs`. The verb reading is a heuristic. `index`: the
+    document's access_index, when the caller has one."""
+    ix = index or access_index(graph)
+    into, out_of = _is_store(ix.nodes.get(w.dst)), _is_store(ix.nodes.get(w.src))
     if w.role != "flow" or w.src == w.dst or not (into or out_of):
         return None
     store, principal = (w.dst, w.src) if into else (w.src, w.dst)
-    declared = declared_access(graph, principal, store)
+    declared = ix.declared.get((principal, store))
     if declared:
         return "rw" if declared == {"read", "write"} else next(iter(declared))
     if w.kind == "<->":
         return "rw"
-    if not into or _produces(w, graph):
+    if not into or _produces(w, ix):
         return "read"
     if not w.payload:
         return "unknown"
     return "read" if _verb(w).lower() in read_verbs else "write"
 
 
-def declared_access(graph, principal: str, store: str) -> set:
+def declared_access(graph, principal: str, store: str,
+                    index: Optional[AccessIndex] = None) -> set:
     """The modes ("read", "write") declared for `principal` on `store` anywhere
     in the document: `@read(P)` / `@write(P)` on the store, `@borrow(read|write)`."""
-    out = set()
-    for u in walked_units(graph):
-        for a in getattr(u.graph, "access", None) or []:
-            if a.principal != principal or a.store != store:
-                continue
-            mode = a.narrow if a.mode == "borrow" else a.mode
-            if mode in ("read", "write"):
-                out.add(mode)
-    return out
+    ix = index or access_index(graph)
+    return set(ix.declared.get((principal, store), ()))
 
 
 def writers(sc: Scene, store: str, read_verbs: tuple = READ_VERBS) -> dict:
@@ -741,29 +771,30 @@ def writers(sc: Scene, store: str, read_verbs: tuple = READ_VERBS) -> dict:
     `read_verbs`, is write or rw). A principal is a node id, or the name as
     written when a declaration names no node. A flow of unknown mode is no
     writer."""
+    return all_writers(sc, read_verbs).get(store, {})
+
+
+def all_writers(sc: Scene, read_verbs: tuple = READ_VERBS,
+                index: Optional[AccessIndex] = None) -> dict:
+    """{store: writers(sc, store)} for every store something writes, in one pass."""
     g = sc.graph
+    ix = index or access_index(g)
     out = {}
-    for u in walked_units(g):
-        for a in getattr(u.graph, "access", None) or []:
-            if a.store == store and a.mode == "write":
-                out.setdefault(a.principal or a.name, set()).add("decl")
-        for nid, n in u.graph.nodes.items():
-            if store in _owned(n):
-                out.setdefault(nid, set()).add("owns")
+    add = lambda store, principal, how: (
+        out.setdefault(store, {}).setdefault(principal, set()).add(how))
+    for access, nodes in ix.units:
+        for a in access:
+            if a.mode == "write":
+                add(a.store, a.principal or a.name, "decl")
+        for nid, n in nodes:
+            for store in _owned(n):
+                add(store, nid, "owns")
     legs = [leg for w in sc.wires if w.role == "emit" for leg in w.legs]
     for w in [w for w in sc.wires if w.role == "flow"] + legs:
-        if w.dst == store and access_mode(w, g, read_verbs) in ("write", "rw"):
-            out.setdefault(w.src, set()).add("flow")
-    return {p: frozenset(srcs) for p, srcs in out.items()}
-
-
-def _all_nodes(graph) -> dict:
-    """{id: render.Node} over every graph of the document, first seen."""
-    out = {}
-    for u in walked_units(graph):
-        for nid, n in u.graph.nodes.items():
-            out.setdefault(nid, n)
-    return out
+        if access_mode(w, g, read_verbs, ix) in ("write", "rw"):
+            add(w.dst, w.src, "flow")
+    return {store: {p: frozenset(srcs) for p, srcs in found.items()}
+            for store, found in out.items()}
 
 
 def _is_store(n) -> bool:
@@ -782,7 +813,7 @@ def _owned(n) -> set:
     return out
 
 
-def _produces(w: Wire, graph) -> bool:
+def _produces(w: Wire, ix: AccessIndex) -> bool:
     """Whether a flow returns a value: `=> X` in its payload or Call, or a `=>`
     edge on its line from its target (`-> |DB| => {Row}`) or continuing it from
     its subject (`[Auth] -> |UserDB|` then `=> {Session}`)."""
@@ -790,12 +821,7 @@ def _produces(w: Wire, graph) -> bool:
         return True
     if w.payload and "=>" in w.payload:
         return True
-    for u in walked_units(graph):
-        for e in u.graph.edges:
-            if e.kind == "=>" and ((e.src == w.dst and e.line == w.line)
-                                   or (e.src == w.src and e.cont == w.line)):
-                return True
-    return False
+    return (w.dst, w.line) in ix.produced or (w.src, w.line) in ix.continued
 
 
 def _verb(w: Wire) -> str:
