@@ -1,7 +1,7 @@
 """Regression tests for view.py review fixes.
 
 Covers:
-  - re-centre (c) followed by a scroll key in the same read doesn't crash;
+  - re-centre (z) followed by a scroll key in the same read doesn't crash;
   - a tree row that is both a lane's target and another lane's source keeps the
     incoming lane's stroke between its ◀ and that lane;
   - --depth with a bad value is a usage error (exit 2), not a traceback;
@@ -66,7 +66,7 @@ class TestKeys(_TempDoc):
 
     def test_recentre_then_scroll_in_one_read(self):
         self.st.frame(60, 20)
-        for k in view.parse_keys("cj"):
+        for k in view.parse_keys("zj"):
             self.st.key(k)
         frame = self.st.frame(60, 20)
         self.assertEqual(len(frame), 20)

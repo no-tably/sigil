@@ -925,6 +925,39 @@ itself (see "Streams, generators, backpressure").
 
 Mode declaration goes on the first non-empty line of the document. `#!craft` documents should normally be promoted to `#!spec` or `#!sketch` when authoring concludes — craft is a process mode, not a resting state.
 
+
+---
+
+## Checks
+
+Lint asks whether a document is well formed; the **composition checks**
+(`check.py`, rules `SGCnnn`, RFC 0003) ask whether it says how its risks are
+handled — an external call with no `@timeout`, a retry on a write with no
+idempotency, two writers on one store, a failure with no route, an event nothing
+handles. A finding never forbids a shape; it names a risk the document leaves
+undeclared. Severity follows the mode: hidden in `#!sketch` (`--all` shows them),
+questions (`warn`) in `#!craft`, errors for binding rules in `#!spec`.
+
+`check.py FILE` prints the findings on their own; `lint.py FILE --deep` runs lint and
+the checks together and merges the two reports into one list sorted by line, with
+the acknowledged findings last as `accepted:` lines. Its exit code is the worse of
+the two reports (2 if either has an error). Fix lint errors first: a malformed line
+can explain a finding. `view.py FILE --checks` (live key `c`) marks the findings on
+the drawing.
+
+A finding is resolved in one of two ways only:
+
+- **declare** the handling in notation the language already has — `@timeout(t)`,
+  `×N`, `@fallback(x)`, a `!>` route, `@inv idempotent(key)`, `@owns |S|`,
+  `@write(…)`, a `?>` exit, … — whatever is true of the system;
+- or **acknowledge** an accepted risk with a comment on the line (or the line above,
+  or a block's header to cover the block): `# accepts: rule-name — the reason`. The
+  reason is required; the finding is then listed as `accepted:` and no longer counts.
+
+Never reshape the design to make a finding go away — removing a call, a writer, a
+retry or a branch, merging components or rerouting flows is a design change for its
+author to choose, not a fix. An unusual shape with its risks declared passes.
+
 ---
 
 ## Sigil Normal Form (SNF)

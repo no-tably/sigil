@@ -235,6 +235,43 @@ class BuildTestCase(unittest.TestCase):
             self.assertIn(str(dest / "skills" / "sigil" / "scripts" / "lint.py"), text)
             self.assertNotIn("<sigil-skill-dir>", text)
 
+    def test_every_rule_module_is_a_required_tool(self):
+        """check.py loads every check_*.py beside it: each one must ship."""
+        modules = {p.name for p in ROOT.glob("check*.py")}
+        self.assertIn("check.py", modules)
+        self.assertLessEqual(modules, build.REQUIRED_TOOLS)
+        self.assertLessEqual({"sim.py", "scene.py", "viewkit.py"}, build.REQUIRED_TOOLS)
+
+    def test_every_archive_ships_every_tool(self):
+        archives = sorted(p for p in self.out.iterdir()
+                          if p.name.endswith(build.ARCHIVE_EXTS))
+        self.assertEqual(len(archives), 2 * 6)        # 4 targets + 2 marketplaces
+        for archive in archives:
+            if archive.suffix == ".zip":
+                with zipfile.ZipFile(archive) as z:
+                    modes = {n: (z.getinfo(n).external_attr >> 16) & 0o777
+                             for n in z.namelist()}
+            else:
+                with tarfile.open(archive) as t:
+                    modes = {m.name: m.mode for m in t.getmembers() if m.isfile()}
+            shipped = {n.rsplit("/", 1)[1]: mode for n, mode in modes.items()
+                       if "/skills/sigil/scripts/" in n}
+            for tool in build.REQUIRED_TOOLS:
+                self.assertIn(tool, shipped, archive.name)
+                self.assertEqual(shipped[tool], 0o755, f"{archive.name}: {tool}")
+
+    def test_packaged_check_and_deep_lint_run(self):
+        import subprocess
+        sample = ("#!spec\n\n--- T ---\n(User) -> [Api] : go()\n"
+                  "[Api] -> |Doc| : put({Doc})\n[Job] -> |Doc| : put({Doc})\n"
+                  "|Doc| @write(Api, Job)\n")
+        scripts = self.out / "opencode" / "skills" / "sigil" / "scripts"
+        for argv in ([scripts / "check.py", "-"], [scripts / "lint.py", "-", "--deep"]):
+            r = subprocess.run([sys.executable, *map(str, argv)], input=sample,
+                               capture_output=True, text=True, encoding="utf-8")
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertIn("warn:5:SGC131: shared-writable-store", r.stdout)
+
     def test_packaged_lint_runs(self):
         import subprocess
         sample = "#!sketch\n\n--- T ---\n(User) -> [API] -> |DB|\n"

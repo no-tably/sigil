@@ -205,7 +205,7 @@ def _sim_legend() -> list:
 def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
                  notes: str = "off", payloads: bool = False, width: int | None = None,
                  access: bool = False, mods: bool = False, events: str = "land",
-                 trace=None, tick: int = 0):
+                 trace=None, tick: int = 0, checks=None):
     """The drawing as outline rows with a lane gutter; same return shape as compose().
     `triggers`: draw event → state lanes. `events`: "land" draws a pass-through
     event where it lands — no row of its own, its emitters wired straight to its
@@ -244,7 +244,13 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     named as this drawing's Scene: sim.project(trace, scene.build_scene(g,
     events=events, triggers=triggers, access=access, depth=depth)). See
     the overlay section for what a frame paints. Raises IndexError for a
-    tick past the trace's end."""
+    tick past the trace's end.
+
+    `checks` (kit.CheckMarks, named as that same Scene names things): the
+    checks overlay — a marked wire's lane in its worst finding's style
+    (ui.error / ui.warn; an acknowledged one muted), each finding's number
+    (`▲1`, `◆2`, `✓3`) after its node's label, a wire's on its target's row;
+    None: no overlay."""
     scn = scene.build_scene(g, events=events, triggers=triggers, access=access, depth=depth)
     rows = [r for r in _tree_rows(g, depth)
             if not (r.depth == 0 and r.node.id in scn.collapsed)]
@@ -258,6 +264,9 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     rows, brackets = _tree_banners(rows, g)
     xs, x0 = _bracket_cols(brackets)
     after_label = _tree_extras(scn, mods)
+    if checks is not None:
+        for nid, runs in check_extras(scn, checks).items():
+            after_label[nid] = after_label.get(nid, []) + runs
     calls = _self_call_rows(scn, rows)
     marks = _call_marks(scn, rows, calls, frame)
     sim_rows = _sim_rows(scn, rows, trace, frame) if trace is not None else None
@@ -282,6 +291,8 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
                                 x0=x0, extra=after_label, marks=marks, sim=sim_rows)
             _draw_brackets(cv, brackets, xs, x0)
             lanes = _pack_lanes(_collect_lanes(cv, wires, out), max(out.ends) + 3, frame)
+            if checks is not None:
+                lanes = _check_lanes(lanes, checks)
             _draw_lanes(cv, lanes, out.ends, muted_sources=frame is not None)
             _draw_join_taps(cv, lanes, out.ends, joins)
             if frame is not None:
@@ -1047,6 +1058,28 @@ def _draw_tokens(cv: kit.Canvas, tokens, lanes, self_cells: dict):
             continue
         mark, style = _token_glyph(tok, wire)
         cv.put(x, y, mark, style)
+
+
+def check_extras(scn, checks) -> dict:
+    """{node id: runs} after a row's label for the checks overlay: the numbers
+    of the findings marked on the node, then those on the wires it is the
+    target of (each once, number order), kit.check_runs."""
+    dst = {w.ident: w.dst for w in scn.wires}
+    marks = {nid: set(ms) for nid, ms in checks.nodes.items()}
+    for ident, ms in checks.wires.items():
+        if ident in dst:
+            marks.setdefault(dst[ident], set()).update(ms)
+    return {nid: kit.check_runs(sorted(ms)) for nid, ms in marks.items()}
+
+
+def _check_lanes(lanes, checks) -> list:
+    """Each lane whose stroke stands for a marked wire restyled in its worst
+    finding's style (kit.check_mark_style); the rest as they are."""
+    out = []
+    for ln in lanes:
+        ms = [m for ident in ln.idents for m in checks.wires.get(ident, ())]
+        out.append(ln._replace(style=kit.check_mark_style(kit.check_worst(ms))) if ms else ln)
+    return out
 
 
 def _mods_texts(g) -> dict:

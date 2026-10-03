@@ -48,6 +48,10 @@ Options:
                      or `a+b` to combine two. With --once: the final frame of the
                      run drawn over the view, the sim legend, then the outcome and
                      the run's log. Live: start in sim mode on that scenario.
+    --checks         The composition checks overlay (check.py, the document's mode):
+                     with --once, the findings marked on the drawing, the checks
+                     legend, then the findings list (each finding's question) after
+                     lint. Live: start with the overlay on (key c).
 
 Keys (live view):
     d  cycle depth (0 → 1 → all)   p  payloads   m  modifiers   a  access
@@ -56,7 +60,8 @@ Keys (live view):
     s  spacing between units      v  events: where they land / as nodes (per view)
     n  notes: off → #N markers + list → margin callouts (tree view)
     f  fit to the window (rearranged, centred) / the natural layout, free to pan
-    arrows / h j k L pan   pgup / pgdn / space page   g home   c  re-centre   q  quit
+    c  checks: the composition checks overlay (check.py) and the findings panel
+    arrows / h j k L pan   pgup / pgdn / space page   g home   z  re-centre   q  quit
     mouse: drag to pan; wheel scrolls (shift+wheel or a sideways wheel: across)
     x  sim mode: play the chosen scenario's run over the drawing (both views play
        the same run). In sim mode: space play / pause   , .  step back / on
@@ -113,6 +118,16 @@ is not drawn; ◉ before a drawn machine's current state. The status bar shows
 `sim <scenario> ▶ <speed> · t<tick>/<last> · episode <k>: <entry>` (the outcome
 on the last frame) and the bottom row the run's latest log line.
 
+Checks (c, --checks): check.py's findings, as the document's mode shows them,
+marked on the drawing in the theme's ui.error / ui.warn colours — a box's
+border, a wire's stroke (graph) or lane (tree) in its worst finding's colour,
+and each finding's number after the label (◆ error, ▲ warning, △ info; a
+wire's beside its head in the graph, on its target's row in the tree).
+Acknowledged findings (`# accepts: rule — reason`) are drawn dimmed, numbered
+✓N. The panel under the drawing lists each finding's line, rule and the
+question it asks (an acknowledged one: its reason). A finding anchored on no
+drawn node or wire (a block, the document) is listed only.
+
 Modules: this file is the app (the --once printer, the live view, the CLI). The
 drawing lives beside it — viewkit.py (styles, canvas, runs, notes, fit panels),
 view_graph.py (the graph view) and view_tree.py (the tree view) — and every name
@@ -129,7 +144,9 @@ import select
 import shutil
 import signal
 import sys
+import textwrap
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import NamedTuple
 
@@ -218,10 +235,10 @@ def wrap_legend(row, cols: int):
     return out
 
 
-KEY_LEGEND = (("t", "tree/graph"), ("x", "sim"), ("n", "notes"), ("e", "triggers"),
-              ("v", "events"), ("s", "spacing"), ("f", "fit"),
+KEY_LEGEND = (("t", "tree/graph"), ("x", "sim"), ("c", "checks"), ("n", "notes"),
+              ("e", "triggers"), ("v", "events"), ("s", "spacing"), ("f", "fit"),
               ("d", "depth"), ("p", "payloads"), ("m", "mods"), ("a", "access"),
-              ("l", "lint"), ("c", "centre"), ("g", "home"), ("r", "reload"), ("q", "quit"))
+              ("l", "lint"), ("z", "centre"), ("g", "home"), ("r", "reload"), ("q", "quit"))
 
 
 def drawn_call_marks(graph, depth: int, payloads: bool) -> frozenset:
@@ -245,7 +262,8 @@ def keys_legend(state):
     """The hotkeys row for a ViewState; toggles that are on are shown bright (the
     events mode: when the active view's differs from its default)."""
     dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
-    on = {"t": state.tree, "x": state.sim_on, "e": state.show_triggers, "s": state.spaced,
+    on = {"t": state.tree, "x": state.sim_on, "c": state.show_checks,
+          "e": state.show_triggers, "s": state.spaced,
           "p": state.payloads, "l": state.show_lint, "n": state.notes != "off",
           "m": state.show_mods, "a": state.show_access, "f": state.fit}
     row = [("keys   ", dim)]
@@ -466,49 +484,224 @@ def sim_report(player: SimPlayer) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Checks — check.py's findings on one document, mapped onto the Scene a view
+# draws (kit.CheckMarks; the views mark them) and listed in a panel. Running
+# the checker is the edge (run_checks); the rest is pure.
+# ---------------------------------------------------------------------------
+
+CHECK_ROWS = 10                                 # live panel rows (with its summary row)
+
+
+class ChecksUnavailable(RuntimeError):
+    """The checker can't run here (no check.py beside view.py)."""
+
+
+def run_checks(text: str, dialect=None):
+    """check.py's Report on `text` in its document mode. Raises ChecksUnavailable
+    without check.py; the checker's own errors pass through."""
+    if not (_HERE / "check.py").exists():
+        raise ChecksUnavailable("checks need check.py next to view.py")
+    return _sibling("sigil_check", "check.py").check(text, dialect=dialect)
+
+
+def checks_summary(report) -> str:
+    """check.py's one-line summary of a Report."""
+    return _sibling("sigil_check", "check.py").summary(report)
+
+
+class CheckEntry(NamedTuple):
+    """A finding as the overlay lists and marks it."""
+    mark: object                                # kit.CheckMark
+    finding: object                             # check.Finding
+
+
+def check_entries(report) -> list:
+    """[CheckEntry]: the findings the report shows, then the acknowledged ones,
+    numbered from 1 in that order (check.py's own output order)."""
+    found = [(f, False) for f in report.shown] + [(f, True) for f in report.acknowledged]
+    return [CheckEntry(kit.CheckMark(n, f.severity, acked), f)
+            for n, (f, acked) in enumerate(found, 1)]
+
+
+def _line_of(at) -> int:
+    try:
+        return int(at)
+    except (TypeError, ValueError):
+        return 0
+
+
+def finding_targets(anchor: tuple, view, idmap: dict, hosts: dict) -> tuple:
+    """(node ids, wire idents) of `view` (a Scene) that a finding's anchor names.
+    `idmap` / `hosts`: sim.ident_map / sim.host_map from the canonical Scene
+    (the checker's) to `view`. A node: the drawn node standing for it, or the
+    wires a landed event rides; a machine: its owner; a wire: the view's wires
+    for it; a line (or an acknowledgement's comment): the wires written on it;
+    anything else (a block, the document, a limit): nothing."""
+    kind, at = anchor
+    if kind in ("node", "machine"):
+        host = hosts.get(at, at if at in view.nodes else None)
+        if host is not None:
+            return {host}, set()
+        return set(), {w.ident for w in view.wires if w.via == at}
+    if kind == "wire":
+        return set(), {v for v, _off, _scale in idmap.get(tuple(at), ())}
+    if kind in ("line", "comment"):
+        line = _line_of(at)
+        return set(), {w.ident for w in view.wires if line and w.line == line}
+    return set(), set()
+
+
+def check_marks(entries: list, canon, view):
+    """kit.CheckMarks: every entry's mark on what its anchor names in `view`
+    (finding_targets), from the canonical Scene `canon`."""
+    idmap = simulator.ident_map(canon, view)
+    hosts = simulator.host_map(canon, view)
+    nodes, wires = {}, {}
+    for e in entries:
+        ns, ws = finding_targets(e.finding.hit.anchor, view, idmap, hosts)
+        for nid in sorted(ns):
+            nodes.setdefault(nid, []).append(e.mark)
+        for ident in sorted(ws):
+            wires.setdefault(ident, []).append(e.mark)
+    return kit.CheckMarks({k: tuple(v) for k, v in nodes.items()},
+                          {k: tuple(v) for k, v in wires.items()})
+
+
+def finding_question(f) -> str:
+    """What the panel says of a finding: the question it asks (its craft-mode
+    message, with what it guessed and the findings folded into it), or
+    `accepted: <reason>` for an acknowledged one."""
+    if f.ack is not None:
+        return f"accepted: {f.ack.reason}"
+    return replace(f, mode="craft").message
+
+
+def entry_rows(e: CheckEntry, cols: int) -> list:
+    """An entry's panel rows: `▲1 12:rule-name the question…`, wrapped to `cols`
+    under its text; the glyph in its finding's style, the text dimmed when
+    acknowledged."""
+    glyph = kit.check_glyph(e.mark)
+    f = e.finding
+    text = f"{glyph} {f.line}:{f.rule.name} {finding_question(f)}"
+    lines = textwrap.wrap(text, width=max(cols, len(glyph) + 12), break_long_words=False,
+                          subsequent_indent=" " * (len(glyph) + 1)) or [glyph]
+    body = (kit.GREY["dim"] if e.mark.acked else kit.GREY["light"], None, False)
+    return ([[(glyph, kit.check_mark_style(e.mark)), (lines[0][len(glyph):], body)]]
+            + [[(ln, body)] for ln in lines[1:]])
+
+
+def checks_panel(summary: str, entries: list, cols: int, limit: int | None = None) -> list:
+    """The findings panel: check.py's summary, then each entry's rows
+    (entry_rows); at most `limit` rows (None: all), the last then saying how
+    many entries are left out."""
+    rows = [[(summary, (kit.GREY["mid"], None, False))]]
+    for k, e in enumerate(entries):
+        more = entry_rows(e, cols)
+        if limit is not None and len(rows) + len(more) > limit - (k < len(entries) - 1):
+            rows.append([(f"… {len(entries) - k} more (check.py)", (kit.GREY["mid"], None, False))])
+            break
+        rows += more
+    return rows
+
+
+def checks_legend() -> list:
+    """The legend row of the checks overlay's marks, one row for both views."""
+    dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
+    error, warn = kit.CheckMark(0, "error"), kit.CheckMark(0, "warn")
+    acked = kit.CheckMark(0, "warn", True)
+    return [("checks ", dim),
+            (kit.CHECK_GLYPH["error"] + "N", kit.check_mark_style(error)), (" error  ", mid),
+            (kit.CHECK_GLYPH["warn"] + "N", kit.check_mark_style(warn)), (" warning  ", mid),
+            (kit.CHECK_GLYPH["info"] + "N", kit.check_mark_style(kit.CheckMark(0, "info"))),
+            (" info  ", mid),
+            (kit.ACKED_GLYPH + "N", kit.check_mark_style(acked)), (" acknowledged (dimmed)  ", mid),
+            ("─", kit.check_mark_style(warn)), (" a marked wire / box  ", mid),
+            ("N", mid), (" the finding's number in the checks list", mid)]
+
+
+class ChecksOverlay:
+    """One document's findings for the overlay: its Report, the numbered
+    entries, and their marks named as each view's Scene names things (marks(),
+    cached per scene.SceneOptions, like SimPlayer.shown). `summary`: the
+    panel's first row (checks_summary)."""
+
+    def __init__(self, graph, report, summary: str):
+        self.graph = graph
+        self.report = report
+        self.summary = summary
+        self.entries = check_entries(report)
+        self._canon = None
+        self._marks = {}
+
+    def marks(self, options):
+        """kit.CheckMarks for a view drawn with `options` (scene.SceneOptions)."""
+        if options not in self._marks:
+            if self._canon is None:
+                self._canon = simulator.canonical(self.graph)
+            view = scene.build_scene(self.graph, **options._asdict())
+            self._marks[options] = check_marks(self.entries, self._canon, view)
+        return self._marks[options]
+
+    def panel(self, cols: int, limit: int | None = None) -> list:
+        return checks_panel(self.summary, self.entries, cols, limit)
+
+
+# ---------------------------------------------------------------------------
 # --once
 # ---------------------------------------------------------------------------
 
 def compose_view(g, tree: bool, *, depth: int, payloads: bool, notes: str, triggers: bool,
                  spaced: bool, width: int | None, access: bool, mods: bool, events: str,
-                 trace=None, tick: int = 0):
+                 trace=None, tick: int = 0, checks=None):
     """(rows, width): the drawing of `g` in the tree or the graph view (see
     compose_tree / compose). `trace`, `tick`: a simulation run drawn over it at
     frame `tick`, named as this view's scene names it (SimPlayer.shown — the same
     Trace object for every frame, so the graph view's per-trace badge slots are
-    worked out once), or None."""
+    worked out once), or None. `checks`: the checks overlay's kit.CheckMarks,
+    named as this view's scene names things (ChecksOverlay.marks), or None."""
     if tree:
         return vtree.compose_tree(g, depth, triggers, spaced, notes, payloads, width, access,
-                                  mods, events, trace=trace, tick=tick)
+                                  mods, events, trace=trace, tick=tick, checks=checks)
     return vgraph.compose(g, depth, payloads, notes, triggers, width, access, mods, events,
-                          trace=trace, tick=tick)
+                          trace=trace, tick=tick, checks=checks)
 
 
 def once(path: Path, depth: int, payloads: bool, do_lint: bool,
          dialect=None, colour: bool = False, tree: bool = False,
          triggers: bool = True, spaced: bool = True, notes: str = "off",
          width: int | None = None, access: bool = False, mods: bool = False,
-         events: str | None = None, sim: str | None = None) -> int:
+         events: str | None = None, sim: str | None = None, checks: bool = False) -> int:
     """Print the drawing once. `width`: the columns to fit it to (None: its
     natural width); the legend wraps at the narrower of that and LEGEND_WIDTH.
     `events`: "land" | "nodes" (None: the view's default, DEFAULT_EVENTS).
     `sim`: a scenario name — the run's final frame is drawn over the view and its
     legend, outcome and log printed after the summary (raises UnknownScenario
-    for an unknown one).
+    for an unknown one). `checks`: the checks overlay over the drawing, its
+    legend, and the findings panel after lint (the checker failing: why, in
+    its place; the exit status stays lint's).
     The summary line ends with the document's `#!mode`, when it has one."""
     kit.use_dialect(dialect)
     text = path.read_text()
     g = kit._call(kit.render.parse_document, text, dialect)
     events = events or DEFAULT_EVENTS[view_name(tree)]
+    options = scene.SceneOptions(events, triggers, access, depth)
     player = shown = None
     if sim is not None:
         player = SimPlayer(g, sim)
         player.at = player.last
-        shown = player.shown(scene.SceneOptions(events, triggers, access, depth))
+        shown = player.shown(options)
+    overlay = check_failed = None
+    if checks:
+        try:
+            report = run_checks(text, dialect)
+            overlay = ChecksOverlay(g, report, checks_summary(report))
+        except Exception as exc:       # the drawing still prints
+            check_failed = f"checks failed: {type(exc).__name__}: {exc}"
     rows, _w = compose_view(g, tree, depth=depth, payloads=payloads, notes=notes,
                             triggers=triggers, spaced=spaced, width=width, access=access,
                             mods=mods, events=events, trace=shown,
-                            tick=player.at if player else 0)
+                            tick=player.at if player else 0,
+                            checks=overlay.marks(options) if overlay else None)
     out = [kit.ansi(r, colour) for r in rows]
     if tree:
         legend = vtree.tree_legend(triggers, payloads, access, mods, events,
@@ -516,8 +709,9 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
     else:
         legend = []
     legend += [sim_legend(tree)] if player is not None else []
+    legend += [checks_legend()] if overlay is not None else []
+    legend_w = LEGEND_WIDTH if width is None else min(LEGEND_WIDTH, width)
     if legend:
-        legend_w = LEGEND_WIDTH if width is None else min(LEGEND_WIDTH, width)
         out += [""] + [kit.ansi(ln, colour) for r in legend for ln in wrap_legend(r, legend_w)]
     out.append("")
     mode = kit.doc_mode(text)
@@ -531,6 +725,10 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
         else:
             out.append("lint: OK")
         status = 1 if any(d.severity == "error" for d in diags) else 0
+    if overlay is not None:
+        out += [""] + [kit.ansi(r, colour) for r in overlay.panel(legend_w)]
+    elif check_failed:
+        out += ["", check_failed]
     if player is not None:
         out += [""] + sim_report(player)
     print("\n".join(out))
@@ -603,10 +801,11 @@ class ViewState:
                  do_lint: bool = True, dialect=None, tree: bool = False,
                  triggers: bool = True, spaced: bool = True, notes: str = "off",
                  access: bool = False, mods: bool = False, events: str | None = None,
-                 sim: str | None = None):
+                 sim: str | None = None, checks: bool = False):
         """`events`: the events mode both views start in (None: each view's
         default, DEFAULT_EVENTS); each view then keeps its own (key v). `sim`: a
-        scenario to start in sim mode on (None: sim mode off until x)."""
+        scenario to start in sim mode on (None: sim mode off until x).
+        `checks`: start with the checks overlay on (key c)."""
         self.path = path
         self.show_access = access
         self.show_mods = mods
@@ -639,6 +838,9 @@ class ViewState:
         self.player = None             # SimPlayer, made on the first sim mode with a graph
         self.sim_error = None          # why the simulator could not run (a footer row)
         self._sim_name = sim           # the scenario that player starts on
+        self.show_checks = checks      # c: the checks overlay and its panel
+        self.checks = None             # ChecksOverlay of the current text (made while on)
+        self.check_error = None        # why the checker could not run (a footer row)
 
     @property
     def events_mode(self) -> str:
@@ -670,6 +872,7 @@ class ViewState:
         except Exception as exc:       # keep the last good graph on screen
             self.error = f"parse failed: {type(exc).__name__}: {exc}"
         self.diags = kit.run_lint(text, self.dialect)
+        self.checks = None             # re-checked when next shown
         self.updated = time.strftime("%H:%M:%S")
         if self.error is None and self.player is not None:
             self.player = self._sim(self.player.rebuilt, self.graph)
@@ -702,6 +905,25 @@ class ViewState:
             self.player = self._sim(SimPlayer, self.graph)
             self.sim_error = f"sim: {exc}"
 
+    def _ensure_checks(self) -> None:
+        """Checks on with a graph and no findings yet: run the checker on the
+        current text (it failing: check_error says why, the view runs on)."""
+        if not self.show_checks or self.checks is not None or self.graph is None:
+            return
+        try:
+            report = run_checks(self.text, self.dialect)
+            self.checks = ChecksOverlay(self.graph, report, checks_summary(report))
+            self.check_error = None
+        except Exception as exc:
+            self.check_error = f"checks failed: {type(exc).__name__}: {exc}"
+
+    def check_marks(self):
+        """The checks overlay as the active view draws it (kit.CheckMarks), or
+        None: the overlay is off or has no findings to mark."""
+        if not self.show_checks or self.checks is None:
+            return None
+        return self.checks.marks(self._scene_options())
+
     def _scene_options(self):
         """The SceneOptions the active view is drawn with."""
         return scene.SceneOptions(self.events_mode, self.show_triggers, self.show_access,
@@ -718,6 +940,7 @@ class ViewState:
         """Something drawn changed: drop the composed drawings (frame() composes
         the one it shows, natural or fitted, when it needs it)."""
         self._ensure_player()
+        self._ensure_checks()
         self._fit = None
         self._natural = None
 
@@ -743,7 +966,8 @@ class ViewState:
                             notes=self.notes, triggers=self.show_triggers, spaced=self.spaced,
                             width=width, access=self.show_access, mods=self.show_mods,
                             events=self.events_mode, trace=self.sim_trace(),
-                            tick=self.player.at if self.player else 0)
+                            tick=self.player.at if self.player else 0,
+                            checks=self.check_marks())
 
     def fitted(self, cols: int):
         """(rows, width): the drawing rearranged to fit `cols` columns when it can
@@ -765,6 +989,9 @@ class ViewState:
             self.sim_on = not self.sim_on
             if self.player is not None:
                 self.player.playing = False
+            self._recompose()
+        elif k == "c":
+            self.show_checks = not self.show_checks
             self._recompose()
         elif k == "d":                 # the next larger depth, wrapping to the first
             self.depth = next((d for d in DEPTHS if d > self.depth), DEPTHS[0])
@@ -816,7 +1043,7 @@ class ViewState:
             self.fit = not self.fit
         elif k in ("home", "g"):
             self._place = "home"
-        elif k == "c":
+        elif k == "z":
             self._place = "centre"
         else:
             return False
@@ -875,9 +1102,9 @@ class ViewState:
 
     def _footer_rows(self, cols: int):
         """Everything under the drawing: the kind-legend rule, the view's legend
-        (and the sim legend), the keys (and the sim keys), then the parse error,
-        the simulator's error and the lint panel; in sim mode the run's latest
-        log line last."""
+        (and the sim and checks legends), the keys (and the sim keys), then the
+        parse error, the simulator's error, the lint panel and the checks panel
+        (or why the checker failed); in sim mode the run's latest log line last."""
         rows = []
         if self.error:
             rows.append([(self.error, (kit.SEVERITY_COLOR["error"], None, True))])
@@ -894,6 +1121,10 @@ class ViewState:
             if len(self.diags) > len(shown):
                 rows[-1] = [(f"… {len(self.diags) - len(shown) + 1} more (view.py --once)",
                              (kit.GREY["mid"], None, False))]
+        if self.show_checks and self.check_error:
+            rows.append([(self.check_error, (kit.SEVERITY_COLOR["error"], None, True))])
+        elif self.show_checks and self.checks is not None:
+            rows += self.checks.panel(cols, CHECK_ROWS)
         if self.tree:
             legend = vtree.tree_legend(self.show_triggers, self.payloads, self.show_access,
                                        self.show_mods, self.events_mode,
@@ -903,6 +1134,7 @@ class ViewState:
             legend = [vgraph.graph_legend(self.show_triggers, self.payloads, self.show_access,
                                           self.show_mods, self.events_mode)]
         legend += [sim_legend(self.tree)] if self.sim_on else []
+        legend += [checks_legend()] if self.show_checks else []
         keys = [keys_legend(self)] + ([sim_keys_legend(self.player)] if self.sim_on else [])
         rows[0:0] = [ln for r in legend + keys for ln in wrap_legend(r, cols)]
         rows.insert(0, self._legend_rule(cols))
@@ -1136,6 +1368,9 @@ def main() -> int:
     ap.add_argument("--sim", default=None, metavar="SCENARIO",
                     help="simulate a pathway: happy, a scenario's name, or a+b (--once: "
                          "the run's final frame, outcome and log; live: start in sim mode)")
+    ap.add_argument("--checks", action="store_true",
+                    help="the composition checks overlay (check.py): findings marked on the "
+                         "drawing, listed with their questions (live: start with it on, key c)")
     ap.add_argument("--color", choices=("auto", "always", "never"), default="auto")
     ap.add_argument("--theme", default=None,
                     help="colour theme: a name in themes/ or a .yaml path (default: $SIGIL_THEME or sigil)")
@@ -1162,13 +1397,13 @@ def main() -> int:
         try:
             return once(a.file, a.depth, a.payloads, not a.no_lint, dialect, colour, a.tree,
                         not a.no_triggers, not a.compact, a.notes, width, a.access, a.mods,
-                        a.events, a.sim)
+                        a.events, a.sim, a.checks)
         except UnknownScenario as exc:     # the message lists the known ones
             print(f"view.py: --sim: {exc}", file=sys.stderr)
             return 2
     tui(ViewState(a.file, a.depth, a.payloads, not a.no_lint, dialect, a.tree,
                   not a.no_triggers, not a.compact, a.notes, a.access, a.mods, a.events,
-                  a.sim))
+                  a.sim, a.checks))
     return 0
 
 

@@ -136,9 +136,9 @@
 
 <section id="playground" class="panel">
   <h2><span class="sec-rail">---</span> playground <span class="sec-rail">---</span></h2>
-  <p>Write a design and watch it draw, lint and run. This is not a copy of the tools:
-  the repository's own <code>view.py</code>, <code>lint.py</code> and <code>sim.py</code>
-  run in your browser on <a href="https://pyodide.org">Pyodide</a> (Python compiled to
+  <p>Write a design and watch it draw, lint, check and run. This is not a copy of the
+  tools: the repository's own <code>view.py</code>, <code>lint.py</code>,
+  <code>check.py</code> and <code>sim.py</code> run in your browser on <a href="https://pyodide.org">Pyodide</a> (Python compiled to
   WebAssembly — about 10&nbsp;MB, fetched once when you start).</p>
   <div class="pg" id="pg" data-state="idle">
     <div class="pg-start">
@@ -176,9 +176,17 @@
         <span class="pg-tick" id="pg-tick"></span>
       </div>
       <div class="pg-status">
-        <span id="pg-lint"></span><span id="pg-count"></span>
+        <span id="pg-lint"></span><span id="pg-check"></span><span id="pg-count"></span>
+        <label class="pg-mode">check as <select id="pg-mode" aria-label="Check as mode">
+          <option value="">its mode line</option><option value="sketch">sketch</option>
+          <option value="craft">craft</option><option value="spec">spec</option>
+        </select></label>
+        <button type="button" id="pg-recheck" title="Run the check now" hidden>check</button>
       </div>
-      <ol class="pg-diags" id="pg-diags"></ol>
+      <div class="pg-reports">
+        <ol class="pg-diags" id="pg-diags" aria-label="Lint diagnostics"></ol>
+        <ol class="pg-diags pg-findings" id="pg-findings" aria-label="Composition findings"></ol>
+      </div>
       <pre class="pg-log" id="pg-log" hidden></pre>
     </div>
   </div>

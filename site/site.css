@@ -539,6 +539,23 @@ table.ref td:last-child { color: var(--muted); }
 .pg-diags button { font: inherit; background: none; border: 0; padding: 0; cursor: pointer; color: var(--ui-warn); }
 .pg-diags li.error button { color: var(--ui-error); }
 .pg-diags li.info button { color: var(--dim); }
+/* lint and the composition findings side by side; stacked when narrow. The 1px
+   column gap shows the line colour between them; an empty list takes no column. */
+.pg-reports {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: 0 1px;
+  background: var(--line);
+}
+.pg-reports .pg-diags { background: var(--bg); }
+.pg-reports .pg-diags:empty { display: none; }
+.pg-findings { max-height: 14rem; transition: opacity 0.2s; }
+.pg-findings.stale { opacity: 0.55; }
+.pg-diags li.accepted { color: var(--dim); }
+.pg-diags li.accepted button { color: var(--dim); }
+.pg-why { display: block; color: var(--dim); }
+.pg-mode { display: flex; gap: 0.5em; align-items: center; margin-left: auto; }
+.pg-mode select { font-size: var(--fs-s); }
 .pg-log { max-height: 9rem; border-top: 1px solid var(--line); color: var(--muted); }
 
 /* ---------------------------------------------------------------- install */
@@ -629,10 +646,12 @@ body[data-released="true"] .pending { display: none; }
   .pg-edit > * { min-height: 16rem; max-height: 22rem; padding: 0.7rem 0.6rem; }
   .pg-draw { min-height: 12rem; max-height: 28rem; padding: 0.7rem 0.6rem; }
   .pg-sim label { flex-basis: 100%; }
+  .pg-mode { margin-left: 0; }
+  .pg-diags li { padding: 0.35em 0.6em; overflow-wrap: anywhere; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  #scene, .stage, .plane, .plane.view .frame { transition: none; }
+  #scene, .stage, .plane, .plane.view .frame, .pg-findings { transition: none; }
   .plane.grid .node, .caret { animation: none; }
 }

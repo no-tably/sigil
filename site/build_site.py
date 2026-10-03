@@ -19,7 +19,7 @@ What it does:
       typing. Colours are stored as theme roles (e.g. "kinds-service"), so the
       background follows a theme change like everything else;
     - copies the playground's Python into py/ — the repo's own view.py, lint.py,
-      sim.py and the rest, byte for byte, plus frames.py and playground.py — for
+      sim.py, check.py and the rest, byte for byte, plus frames.py and playground.py — for
       Pyodide to run in the browser (loaded only when the playground opens).
 
 --out is wiped and rebuilt, so it must be empty, missing, or a previous build
@@ -48,7 +48,8 @@ ASSETS = ["site.css", "site.js"]     # copied verbatim
 # the repo's own tools, then the two site helpers — the browser runs these files,
 # never a port of them.
 PY_TOOLS = ["render.py", "lint.py", "themes.py", "viewkit.py", "view_graph.py",
-            "view_tree.py", "scene.py", "sim.py", "view.py"]
+            "view_tree.py", "scene.py", "sim.py", "view.py", "dialects.py", "check.py",
+            "check_flow.py", "check_state.py", "check_trace.py", "check_inv.py"]
 PY_SITE = ["frames.py", "playground.py"]
 PLACEHOLDER_REPO = "OWNER/sigil"
 MAX_DEPTH = 99                       # expand every := block in the frames

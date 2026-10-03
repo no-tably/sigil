@@ -1,6 +1,6 @@
 ---
 name: sigil
-description: Sigil is a compact, non-executable notation for system designs — glyphs like [Component], {Data}, <Event>, (Actor), |Store| wired with arrows like ->, ~>, =>, !>. Use whenever the user wants to (1) compress a design or prose spec into Sigil; (2) expand Sigil into prose; (3) compare two designs structurally; (4) tighten or normalize hand-written Sigil; (5) craft a design iteratively ("help me design X", or a craft-mode document); (6) lint or validate a .sigil document (bundled scripts/lint.py); (7) draw a Sigil document as a terminal graph (scripts/view.py) or a Mermaid diagram (scripts/render.py); (8) mentions Sigil, glyphs, or writes bracket-and-arrow notation; (9) describes architectures, state machines, data flows, workflows or pipelines where a compact notation clarifies the design. Prefer Sigil over prose for architecture once it has been introduced.
+description: Sigil is a compact, non-executable notation for system designs — glyphs like [Component], {Data}, <Event>, (Actor), |Store| wired with arrows like ->, ~>, =>, !>. Use whenever the user wants to (1) compress a design or prose spec into Sigil; (2) expand Sigil into prose; (3) compare two designs structurally; (4) tighten or normalize hand-written Sigil; (5) craft a design iteratively ("help me design X", or a craft-mode document); (6) lint or validate a .sigil document (bundled scripts/lint.py), or check whether its design declares how its risks are handled (scripts/check.py); (7) draw a Sigil document as a terminal graph (scripts/view.py) or a Mermaid diagram (scripts/render.py); (8) mentions Sigil, glyphs, or writes bracket-and-arrow notation; (9) describes architectures, state machines, data flows, workflows or pipelines where a compact notation clarifies the design. Prefer Sigil over prose for architecture once it has been introduced.
 license: MIT
 ---
 
@@ -48,16 +48,19 @@ defined in `references/language.md`.
 ## Tools
 
 All scripts are Python 3 standard library only. Write the document to a file
-(e.g. `/tmp/doc.sigil`) first; `lint.py` and `render.py` also accept `-` for stdin.
+(e.g. `/tmp/doc.sigil`) first; `lint.py`, `check.py` and `render.py` also accept `-` for stdin.
 
 | Task | Command | Result |
 | --- | --- | --- |
 | Validate | `python3 scripts/lint.py FILE` | one `severity:line:rule: message` per issue; exit 0 clean, 1 warnings, 2 errors |
+| Check the design | `python3 scripts/check.py FILE [--mode sketch\|craft\|spec] [--k N] [--json] [--all]` | composition findings, one `severity:line:SGCnnn: name: message` each (in craft the message is a question), then `accepted:line:SGCnnn: name: reason` per acknowledged one; `--json` adds each rule's why and the declaration that satisfies it; `--rules` lists the rules; exit codes as lint |
+| Both at once | `python3 scripts/lint.py FILE --deep` | lint diagnostics and check findings merged by line, acknowledged findings last; exits with the worse of the two codes |
 | Draw in the terminal | `python3 scripts/view.py FILE --once [--depth N\|all] [--payloads] [--mods] [--access] [--no-lint]` | box-drawing graph + lint summary; exit 1 on lint error; control blocks as titled frames, joins as bars, sections as dividers; `--mods` modifier chips, `--access` the permission graph (`r` / `w` / `b` heads, `1w` / `Nw` writer badges) |
 | Show comments | `python3 scripts/view.py FILE --once --notes markers` (`--notes callouts` in `--tree`) | commented nodes tagged `#N`, notes listed (or drawn as margin boxes) |
 | Hierarchy + wiring | `python3 scripts/view.py FILE --once --tree [--compact]` | composition tree as an outline, each flow as a lane (`●` source, `◀` targets) + legend; `--compact` drops the blank row between top-level units |
-| Live view for a human | `python3 scripts/view.py FILE` | full-screen view that redraws on every save (tell the user to run it in their own terminal); keys: `t` tree/graph, `x` sim mode (in it: space play / pause, `,` `.` step, `[` `]` scenario, `-` `+` speed), `n` notes, `e` triggers, `v` events (where they land / as nodes), `s` spacing, `f` fit to the window / natural layout with free pan, `d` depth, `p` payloads, `m` modifiers, `a` access, `l` lint, arrows / `h j k L` or mouse drag / wheel pan, `c` centre, `g` home, `r` reload, `q` quit |
+| Live view for a human | `python3 scripts/view.py FILE` | full-screen view that redraws on every save (tell the user to run it in their own terminal); keys: `t` tree/graph, `x` sim mode (in it: space play / pause, `,` `.` step, `[` `]` scenario, `-` `+` speed), `n` notes, `e` triggers, `v` events (where they land / as nodes), `s` spacing, `f` fit to the window / natural layout with free pan, `c` checks overlay, `d` depth, `p` payloads, `m` modifiers, `a` access, `l` lint, arrows / `h j k L` or mouse drag / wheel pan, `z` centre, `g` home, `r` reload, `q` quit |
 | Walk a pathway | `python3 scripts/view.py FILE --once --tree --sim SCENARIO` | the run's last frame over the drawing (`✕` failed, `◉` a machine's state, lit vs muted wires), then `sim NAME (label): ok\|failed\|cut · N frames` and the run's log, one `tNNN …` line per step; exit 2 for an unknown scenario, listing the known ones |
+| Mark the findings | `python3 scripts/view.py FILE --once --checks [--tree]` | the check findings marked on the drawing, a checks legend, then each finding's question after lint |
 | Mermaid diagram | `python3 scripts/render.py FILE [--depth N\|all] [--composition subgraphs\|edges\|none]` | `flowchart TD` source; present it in a fenced `mermaid` block. Composition trees draw as subgraphs by default |
 
 `--depth 0` shows the top level only, `1` (default) opens direct `:=` expansions,
@@ -122,6 +125,11 @@ document after every substantive change; offer a tighten pass every few turns;
 propose promotion to `#!sketch` / `#!spec` once holes are resolved. Do not
 produce a finished-looking spec prematurely or drop into algorithm internals.
 
+After each change run `python3 scripts/lint.py FILE --deep` (lint plus the
+composition checks — see **check** below) and put the findings' questions to the
+user alongside your next step; before promoting to `#!spec`, run
+`python3 scripts/check.py FILE --mode spec` and resolve every error.
+
 Keep the craft document in a file and rewrite that file after every change: a user
 running `python3 scripts/view.py FILE` in a side pane sees the graph redraw live, and
 you check the same drawing with `python3 scripts/view.py FILE --once` before replying.
@@ -129,7 +137,41 @@ you check the same drawing with `python3 scripts/view.py FILE --once` before rep
 ### lint — validate
 Run `python3 scripts/lint.py FILE`. Report each diagnostic with a suggested fix
 (the rule ID and message explain the problem; `references/language.md` has the
-rule). Surface issues before rewriting — let the user decide.
+rule). Surface issues before rewriting — let the user decide. Fix lint errors
+before reading check findings (`--deep` shows both): a malformed line can explain
+a finding.
+
+### check — does the design say how its risks are handled?
+`scripts/check.py` asks of a design what lint cannot: an external call with no
+timeout, a retry on a write with no idempotency, two writers on one store, a failure
+with no route, a race, an event nothing handles, an unbounded recursion. A finding
+never forbids a shape; it names a risk the document leaves undeclared. Run it in
+**craft** (findings are `warn` questions) and **spec** (findings of binding rules
+are errors); in sketch they are hidden (`--all` shows them).
+1. Run `python3 scripts/check.py FILE` (or `lint.py FILE --deep`). For a rule's
+   rationale and the declarations that satisfy it, use `--json` (`why`, `fix`).
+2. Put each finding to the user **as its question** (craft prints it; in spec turn
+   the statement into one), in the design's own terms, and let the user answer.
+   A finding marked `(guessed: …)` rests on a guess about a name — say so.
+3. Resolve it in one of two ways only:
+   - **declare** the handling in the notation the spec already has — `@timeout(t)`,
+     `×N`, `@fallback`, a `!>` route, `@inv idempotent(key)`, `@owns |S|`,
+     `@write(X)`, `@cap(…)`, `@deadline(…)`, a `?>` exit, … — whatever the user's
+     answer says is true of the system;
+   - or **acknowledge** it, when the user accepts the risk: a comment on the line
+     (or the line above, or a block's header to cover the block)
+     `# accepts: rule-name — the reason`. The reason is required; the finding is
+     then listed as `accepted:` and no longer counts.
+4. **Never reshape the design to make a finding go away** — do not remove a call,
+   a writer, a retry or a branch, merge components or reroute flows unless the user
+   asks for that change. An unusual shape with its risks declared is a passing
+   design; the check asks for explicitness, not for a different architecture.
+5. Fix the acknowledgement itself when check reports `ack-unknown-rule`,
+   `ack-without-reason` or `ack-unused` (correct the name, add the reason, delete
+   the stale line); these three cannot be acknowledged.
+
+To show the user where the findings sit, draw them: `python3 scripts/view.py FILE
+--once --checks` (or `c` in the live view).
 
 ### simulate — walk the pathways
 Sigil does not execute; `view.py --sim` is the viewer's reading of a design — tokens

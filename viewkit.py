@@ -12,6 +12,8 @@ draw with it. It holds:
                 access, sections, control blocks, notes and their tags
     fit panels  the corner panels that take comments and payloads when a
                 drawing is wider than the window (_fit_panel)
+    checks      CheckMarks (findings named as a Scene names things) and their
+                marks and styles, in the theme's ui.error / ui.warn roles
     output      ansi(), clip(), row_len(); doc_title(), doc_mode(), run_lint()
 
 Theme application rebinds this module's style globals (GREY, EDGE_COLOR,
@@ -27,6 +29,7 @@ import re
 import sys
 import textwrap
 from pathlib import Path
+from typing import NamedTuple
 
 
 _DIR = Path(__file__).resolve().parent
@@ -129,7 +132,7 @@ _MUTED: dict = {}
 def muted(colour: "Colour") -> "Colour":
     """A glyph name's colour: its kind's colour at NAME_SATURATION of the
     saturation (HSL). Its role, "muted:<role>", lets the page do the same."""
-    key = (str(colour), NAME_SATURATION)
+    key = (str(colour), getattr(colour, "role", ""), NAME_SATURATION)   # one hex, two roles
     if key not in _MUTED:
         r, g, b = (int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5))
         h, light, s = colorsys.rgb_to_hls(r, g, b)
@@ -1064,6 +1067,69 @@ ARROW_LEGEND = (("->", "call"), ("~>", "async"), ("=>", "produces"), ("!>", "err
 def _stroke_sample(kind: str) -> str:
     return {"heavy": "━", "double": "═", "dashed": "╌", "dotted": "┄",
             "hdash": "╍"}.get(_stroke(kind), "─")
+
+
+# ---------------------------------------------------------------------------
+# Checks overlay — composition-check findings (check.py) marked on a drawing.
+# view.py maps each finding's anchor onto the Scene a view draws (CheckMarks);
+# both views then mark what it names alike: a marked box's border / a marked
+# wire's stroke in its worst finding's colour, and each finding's number after
+# the node's label (graph: beside a wire's head; tree: on its target's row).
+# Colours are the theme's ui.error / ui.warn roles only; an acknowledged
+# finding is drawn dimmed (the role's muted colour), never bold.
+# ---------------------------------------------------------------------------
+
+CHECK_GLYPH = {"error": "◆", "warn": "▲", "info": "△"}
+ACKED_GLYPH = "✓"                                 # an acknowledged finding, dimmed
+_CHECK_RANK = {"info": 0, "warn": 1, "error": 2}
+
+
+class CheckMark(NamedTuple):
+    """One finding as a drawing marks it: its number in the checks list, its
+    severity ("error" | "warn" | "info") and whether it is acknowledged."""
+    number: int
+    severity: str
+    acked: bool = False
+
+
+class CheckMarks(NamedTuple):
+    """The findings a drawing marks, named as its Scene names things:
+    {node id: (CheckMark, …)} and {wire ident: (CheckMark, …)}, number order."""
+    nodes: dict
+    wires: dict
+
+    def by_key(self) -> dict:
+        """{wire key: (CheckMark, …)}: the wires' marks gathered by the stroke
+        that draws them (a wire's ident is its key and an ordinal)."""
+        out = {}
+        for ident, marks in self.wires.items():
+            out.setdefault(tuple(ident[:-1]), []).extend(marks)
+        return {key: tuple(sorted(set(ms))) for key, ms in out.items()}
+
+
+def check_mark_style(m: CheckMark) -> tuple:
+    """A finding's style: ui.error for an error, ui.warn for a warning (bold)
+    or an info (not bold); acknowledged, that colour muted."""
+    colour = SEVERITY_COLOR["error" if m.severity == "error" else "warn"]
+    if m.acked:
+        return (muted(colour), None, False)
+    return (colour, None, m.severity != "info")
+
+
+def check_worst(marks) -> CheckMark:
+    """The mark a stroke or border is drawn in: an open finding before an
+    acknowledged one, then the most severe, then the first."""
+    return max(marks, key=lambda m: (not m.acked, _CHECK_RANK.get(m.severity, 0), -m.number))
+
+
+def check_glyph(m: CheckMark) -> str:
+    """`◆3` / `▲3` / `△3`, or `✓3` for an acknowledged finding."""
+    return (ACKED_GLYPH if m.acked else CHECK_GLYPH.get(m.severity, "△")) + str(m.number)
+
+
+def check_runs(marks) -> list:
+    """The runs after a label (or beside a head) for its findings: ` ▲1 ◆3`."""
+    return [(" " + check_glyph(m), check_mark_style(m)) for m in marks]
 
 
 def doc_title(text: str) -> str:

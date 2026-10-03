@@ -165,7 +165,7 @@ class TestPan(_Doc):
         st.frame(60, 20)
         self.assertEqual(st.sy, 0)
         self.assertIn("[N0]", "\n".join(plain(st.frame(60, 20))))
-        st.key("c")
+        st.key("z")
         st.frame(60, 20)
         self.assertEqual(st.sy, (len(st._rows) - st._vh) // 2)
         st.key("g")

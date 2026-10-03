@@ -11,8 +11,11 @@ Covers:
     site.js parseYaml; both parse every shipped theme identically;
   - with node available: site.js highlights Sigil into the theme's syntax roles;
   - the playground: py/ holds the repo's tools byte for byte (the browser runs
-    them, never a port), the manifest is complete (playground.py runs from py/
-    alone, in a fresh interpreter), and what it draws is what view.py draws.
+    them, never a port) including check.py and every rule module, the manifest
+    is complete (playground.py runs from py/ alone, in a fresh interpreter), what
+    it draws is what view.py draws, and its findings on every bundled example
+    are what check.py finds at k = 1;
+  - with node available: the findings panel's list items (findingsHtml).
 
 Run:  python3 -m unittest discover tests
 """
@@ -133,15 +136,61 @@ class TestBuild(unittest.TestCase):
         for t in man["themes"]:
             self.assertTrue((self.out / "themes" / t).is_file(), t)
 
+    def test_playground_ships_every_check_module(self):
+        check = _load("sigil_check_site_t", _DIR / "check.py")
+        for name in ("check.py", "dialects.py") + check.RULE_MODULES:
+            self.assertIn(name, site.PY_TOOLS, name)
+
+    def _manifest_dir(self, tmp: str) -> Path:
+        """The browser's file system: py/* and themes/* in one directory, nothing else."""
+        man = json.loads((self.out / "py" / "manifest.json").read_text())
+        (Path(tmp) / "themes").mkdir()
+        for f in man["files"]:
+            shutil.copyfile(self.out / "py" / f, Path(tmp) / f)
+        for f in man["themes"]:
+            shutil.copyfile(self.out / "themes" / f, Path(tmp) / "themes" / f)
+        return Path(tmp)
+
+    def test_playground_checks_the_bundled_examples(self):
+        examples = sorted((SITE / "examples").glob("*.sigil"))
+        modes = [None, "craft", "spec"]
+        texts = [p.read_text(encoding="utf-8") for p in examples]
+        code = ("import json, sys; sys.path.insert(0, '.'); import playground as p\n"
+                "texts, modes = json.loads(sys.stdin.read())\n"
+                "print(json.dumps([[json.loads(p.check(json.dumps({'text': t, 'mode': m})))"
+                " for m in modes] for t in texts]))")
+        with tempfile.TemporaryDirectory() as tmp:
+            run = subprocess.run([sys.executable, "-I", "-c", code], cwd=self._manifest_dir(tmp),
+                                 input=json.dumps([texts, modes]), capture_output=True,
+                                 text=True, timeout=300)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        got = json.loads(run.stdout)
+        check = _load("sigil_check_site_t2", _DIR / "check.py")
+        asked = 0
+        for path, text, per_mode in zip(examples, texts, got):
+            for mode, r in zip(modes, per_mode):
+                with self.subTest(example=path.name, mode=mode):
+                    self.assertNotIn("error", r)
+                    self.assertEqual(r["k"], 1)
+                    want = check.check(text, mode=mode, k=1)
+                    self.assertEqual(r["mode"], want.mode)
+                    self.assertEqual([(f["line"], f["rule"], f["severity"], f["message"])
+                                      for f in r["findings"]],
+                                     [(f.line, f.rule.id, f.severity, f.message)
+                                      for f in want.shown])
+                    self.assertEqual(r["hidden"], len(want.findings) - len(want.shown))
+                    asked += len(r["findings"])
+        self.assertGreater(asked, 0, "no example raised a finding in craft or spec")
+
+    def test_playground_check_reports_a_bad_mode(self):
+        pg = _load("sigil_playground_t2", SITE / "playground.py")
+        r = json.loads(pg.check(json.dumps({"text": "[A] -> [B]", "mode": "strict"})))
+        self.assertIn("unknown mode", r["error"])
+
     def test_playground_runs_from_the_manifest_alone(self):
         # The browser's file system: py/* and themes/* in one directory, nothing else.
         with tempfile.TemporaryDirectory() as tmp:
-            man = json.loads((self.out / "py" / "manifest.json").read_text())
-            (Path(tmp) / "themes").mkdir()
-            for f in man["files"]:
-                shutil.copyfile(self.out / "py" / f, Path(tmp) / f)
-            for f in man["themes"]:
-                shutil.copyfile(self.out / "themes" / f, Path(tmp) / "themes" / f)
+            self._manifest_dir(tmp)
             text = (SITE / "examples" / "01-checkout.sigil").read_text()
             code = ("import json, sys; sys.path.insert(0, '.'); import playground as p\n"
                     "t = sys.stdin.read()\n"
@@ -314,6 +363,20 @@ class TestSiteJs(unittest.TestCase):
         self.assertIn('<span class="t-name">Paid</span>', out[3])
         self.assertIn("t-shebang", out[4])
         self.assertIn('<span class="t-section">arena</span>', out[5])
+
+    def test_findings_panel_items(self):
+        code = _js_section("  function findingsHtml", "  function initPlayground")
+        found = [{"severity": "warn", "line": 11, "rule": "SGC104", "name": "retry-without-backoff",
+                  "message": "`f` retries ×3 <at once>?", "why": "a storm"}]
+        accepted = [{"severity": "warn", "line": 4, "rule": "SGC101", "name": "call-without-timeout",
+                     "message": "unused", "why": "", "acknowledged": "an upsert"}]
+        out = self._run(code + f"\nprocess.stdout.write(findingsHtml({json.dumps(found)}, "
+                        f"{json.dumps(accepted)}));")
+        self.assertIn('<li class="warn"><button type="button" data-line="11">warn:11:SGC104</button>', out)
+        self.assertIn("retry-without-backoff: `f` retries ×3 &lt;at once&gt;?", out)
+        self.assertIn('<span class="pg-why">a storm</span>', out)
+        self.assertIn('<li class="accepted"><button type="button" data-line="4">accepted:4:SGC101'
+                      '</button> call-without-timeout: an upsert</li>', out)
 
 
 if __name__ == "__main__":

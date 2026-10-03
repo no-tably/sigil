@@ -1,6 +1,6 @@
 """
-playground.py — the page's playground: the repo's own view.py, lint.py and
-sim.py run in the browser by Pyodide. build_site.py copies this file, frames.py
+playground.py — the page's playground: the repo's own view.py, lint.py,
+sim.py and check.py run in the browser by Pyodide. build_site.py copies this file, frames.py
 and the tool modules verbatim into _site/py/; site.js writes them into one
 directory of Pyodide's file system and calls the functions below, each taking
 and returning JSON text. Nothing here re-implements the notation: it only asks
@@ -8,10 +8,11 @@ the tools for a drawing and packs it (frames.py) the way frames.json is packed.
 
     draw(request)    the document drawn in one view, its lint and its scenarios
     sim(request)     one frame of a scenario's run, drawn over the same view
+    check(request)   the document's composition findings (check.py at k = 1)
 
 A request: {"text", "view": "tree"|"graph", "width": cols|null, "depth",
-"payloads", "notes", "events"} (+ "scenario", "frame" for sim). Every response
-carries "styles": the style table so far (ids are stable for the session, so
+"payloads", "notes", "events"} (+ "scenario", "frame" for sim; "text" and
+"mode" for check). Every drawing response carries "styles": the style table so far (ids are stable for the session, so
 the page only adds the entries it has not seen).
 
 Standard library only; runs under CPython too (tests/test_site.py drives it).
@@ -41,10 +42,12 @@ def _load(name: str, path: Path):
 
 view = _load("sigil_view", _TOOLS / "view.py")
 frames = _load("sigil_site_frames", _HERE / "frames.py")
+checker = _load("sigil_check", _TOOLS / "check.py")
 view.use_dialect(None)
 view.use_theme(None)
 
 MAX_DEPTH = 99
+CHECK_K = 1                 # failure combinations per scenario: the RFC's playground k
 STYLES = frames.Styles()
 _player: dict = {}          # the run being shown: {"key": (text, scenario), "player"}
 
@@ -136,4 +139,32 @@ def sim(request: str) -> str:
            "choice": player.choice(), "log": log[-40:],
            "outcome": player.trace.outcome if player.at == player.last else None,
            "styles": STYLES.table}
+    return json.dumps(out, ensure_ascii=False)
+
+
+def _finding(f) -> dict:
+    """The fields the findings panel shows (check.py's --json record, trimmed)."""
+    d = f.to_dict()
+    return {key: d[key] for key in ("severity", "line", "rule", "name", "message", "tier",
+                                    "why", "fix", "acknowledged")}
+
+
+def check(request: str) -> str:
+    """{"mode", "k", "findings": [{severity, line, rule, name, message, tier, why,
+    fix}], "hidden": count, "acknowledged": [… + "acknowledged" (the reason)]};
+    a document check.py cannot read: {"error"}. "mode" in the request overrides
+    the document's mode line (null: the document's). Always k = CHECK_K with the
+    trace module's run budget: the page bounds the time a check may take itself."""
+    req = json.loads(request)
+    text = frames.autoclose(req.get("text", "").split("\n"))
+    try:
+        report = checker.check(text, mode=req.get("mode") or None, k=CHECK_K)
+    except ValueError as exc:                # an unknown mode
+        return json.dumps({"error": str(exc)})
+    except Exception as exc:                 # a half-typed document must not break the page
+        return json.dumps({"error": f"no check: {type(exc).__name__}"})
+    out = {"mode": report.mode, "k": report.k,
+           "findings": [_finding(f) for f in report.shown],
+           "hidden": len(report.findings) - len(report.shown),
+           "acknowledged": [_finding(f) for f in report.acknowledged]}
     return json.dumps(out, ensure_ascii=False)

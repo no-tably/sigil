@@ -764,11 +764,25 @@
   // ------------------------------------------------------------------ playground
   // The repo's own Python (copied byte for byte into py/ by build_site.py) run by
   // Pyodide: playground.py asks view.py / lint.py / sim.py for a drawing and packs
-  // it the way frames.json is packed. Nothing about the notation is decided here.
+  // it the way frames.json is packed, and check.py for the design's findings.
+  // Nothing about the notation is decided here.
 
   const PYODIDE = "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/";
   const SHARE = "play=";
   const SIM_FPS = 8;
+  const CHECK_WAIT = 450;          // ms of quiet typing before a check (a draw waits 180)
+  const CHECK_BUDGET = 1500;       // ms a check may take before checking waits for the button
+
+  // The findings panel's list items: check.py's findings, then the acknowledged
+  // ones (dimmed, with their reason). data-line is the line a click selects.
+  function findingsHtml(findings, accepted) {
+    const item = (f, cls, tail) =>
+      `<li class="${esc(cls)}"><button type="button" data-line="${Number(f.line)}">` +
+      `${esc(cls)}:${Number(f.line)}:${esc(f.rule)}</button> ${esc(f.name)}: ${esc(tail)}` +
+      (f.why ? `<span class="pg-why">${esc(f.why)}</span>` : "") + "</li>";
+    return findings.map((f) => item(f, f.severity, f.message)).join("") +
+      accepted.map((f) => item(f, "accepted", f.acknowledged || "")).join("");
+  }
 
   const b64url = {
     encode(text) {
@@ -807,10 +821,12 @@
       src: $("#pg-src"), hl: $("#pg-hl"), draw: $("#pg-draw"), legend: $("#pg-legend"),
       scenario: $("#pg-scenario"), back: $("#pg-back"), play: $("#pg-play"), fwd: $("#pg-fwd"),
       scrub: $("#pg-scrub"), tick: $("#pg-tick"), lint: $("#pg-lint"), count: $("#pg-count"),
-      diags: $("#pg-diags"), log: $("#pg-log"),
+      diags: $("#pg-diags"), log: $("#pg-log"), check: $("#pg-check"),
+      findings: $("#pg-findings"), mode: $("#pg-mode"), recheck: $("#pg-recheck"),
     };
     const st = { view: "tree", scenario: "", frame: 0, last: 0, playing: false,
-      timer: null, typing: null, styles: 0, api: null, booting: false };
+      timer: null, typing: null, styles: 0, api: null, booting: false,
+      checkTimer: null, checked: "", checkPaused: false };
 
     el.example.innerHTML = examples.map((e, i) =>
       `<option value="${i}">${esc(e.file)}</option>`).join("");
@@ -943,6 +959,7 @@
         const b = e.target.closest("button[data-i]");
         if (b) goToLine(r.lint[Number(b.dataset.i)].line);
       };
+      scheduleCheck();
       const keep = r.scenarios.some((s) => s.name === st.scenario) ? st.scenario : "";
       el.scenario.innerHTML = `<option value="">— off —</option>` + r.scenarios.map((s) =>
         `<option value="${esc(s.name)}">${esc(s.name)}${s.label ? ` · ${esc(s.label)}` : ""}</option>`).join("");
@@ -950,6 +967,55 @@
       st.scenario = keep;
       if (keep) frame(0);
       else simOff();
+    }
+
+    // the findings panel: check.py at k = 1, after the drawing, within CHECK_BUDGET
+    const checkRequest = () => ({ text: el.src.value, mode: el.mode.value || null });
+
+    function scheduleCheck() {
+      clearTimeout(st.checkTimer);
+      if (JSON.stringify(checkRequest()) === st.checked) {
+        el.findings.classList.remove("stale");     // back to the text last checked
+        return;
+      }
+      if (st.checkPaused) {
+        el.check.textContent = "check: waiting (press check)";
+        el.check.className = "";
+        return;
+      }
+      st.checkTimer = setTimeout(runCheck, CHECK_WAIT);
+    }
+
+    function runCheck() {
+      clearTimeout(st.checkTimer);
+      const req = checkRequest();
+      const started = performance.now();
+      const r = call("check", req);
+      const ms = performance.now() - started;
+      st.checked = JSON.stringify(req);
+      st.checkPaused = ms > CHECK_BUDGET;          // too slow to run on every pause
+      el.recheck.hidden = !st.checkPaused;
+      showFindings(r, ms);
+    }
+
+    function showFindings(r, ms) {
+      el.findings.classList.remove("stale");
+      if (r.error) {
+        el.check.textContent = `check: ${r.error}`;
+        el.check.className = "bad";
+        el.findings.innerHTML = "";
+        return;
+      }
+      const n = (sev) => r.findings.filter((f) => f.severity === sev).length;
+      const [errs, warns, infos] = [n("error"), n("warn"), n("info")];
+      const counts = errs || warns || infos ? `${errs}E ${warns}W ${infos}i` : "OK";
+      const extra = [r.hidden ? `${r.hidden} hidden` : "",
+        r.acknowledged.length ? `${r.acknowledged.length} accepted` : ""].filter(Boolean);
+      el.check.textContent = `check (${r.mode}, k=${r.k}): ${counts}` +
+        (extra.length ? ` · ${extra.join(" · ")}` : "");
+      el.check.className = errs || warns ? "bad" : "ok";
+      el.check.title = `${Math.round(ms)} ms`;
+      el.findings.innerHTML = findingsHtml(r.findings, r.acknowledged);
     }
 
     function goToLine(n) {
@@ -1020,9 +1086,16 @@
     el.src.addEventListener("input", () => {
       paint();
       stop();
+      el.findings.classList.add("stale");
       clearTimeout(st.typing);
       st.typing = setTimeout(refresh, 180);
     });
+    el.findings.addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-line]");
+      if (b) goToLine(Number(b.dataset.line));
+    });
+    el.mode.addEventListener("change", runCheck);
+    el.recheck.addEventListener("click", runCheck);
     el.src.addEventListener("scroll", syncScroll);
     el.src.addEventListener("keydown", (e) => {
       if (e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {

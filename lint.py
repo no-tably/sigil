@@ -3,19 +3,25 @@
 lint.py — Sigil syntax and structural validator.
 
 Usage:
-    ./lint.py <file.sigil> [--dialect NAME]
-    cat doc.sigil | ./lint.py - [--dialect NAME]
+    ./lint.py <file.sigil> [--dialect NAME] [--deep]
+    cat doc.sigil | ./lint.py - [--dialect NAME] [--deep]
 
 Options:
     --dialect NAME   Load a dialect (a name, or a path to a dialect.py) that
                      extends the core vocabulary and rules. Default: the
                      SIGIL_DIALECT environment variable; unset = core Sigil.
                      See dialects.py.
+    --deep           Also run the composition checks (check.py, beside this
+                     file) in the document's own mode, and merge the two
+                     reports: lint diagnostics and check findings in one list
+                     sorted by line, then the acknowledged findings
+                     (`accepted:` lines). A malformed document is still
+                     checked; fix lint errors first, they can explain findings.
 
 Exit codes:
     0 — no issues
     1 — warnings only
-    2 — errors present
+    2 — errors present (with --deep: in either report)
 
 Output format (one diagnostic per line):
     <severity>:<line>:<rule>: <message>
@@ -2258,51 +2264,87 @@ def _load_dialect(spec):
     return _load_sibling("sigil_dialects_for_lint", "dialects.py").load(spec)
 
 
+def exit_code(severities) -> int:
+    """2 if any error, 1 if any warning, else 0."""
+    sev = set(severities)
+    return 2 if "error" in sev else 1 if "warn" in sev else 0
+
+
+def lint_summary(result: LintResult) -> str:
+    counts = Counter(d.severity for d in result.diagnostics)
+    return (f"sigil: {len(result.diagnostics)} issue(s) "
+            f"({counts['error']} error, {counts['warn']} warn, {counts['info']} info)")
+
+
+def deep_lines(result: LintResult, report) -> list:
+    """The merged --deep listing: lint diagnostics and the check findings the
+    mode shows, sorted by line (lint first on a line, each in its own order),
+    then the acknowledged findings. `report` is a check.Report."""
+    issues = ([(d.line, 0, d.format()) for d in result.diagnostics]
+              + [(f.line, 1, f.line_text()) for f in report.shown])
+    issues.sort(key=lambda row: row[:2])
+    return [text for _line, _src, text in issues] + [
+        f.accepted_text() for f in report.acknowledged]
+
+
+def _read_text(path: str) -> str:
+    """The document at `path` (`-` = stdin). Raises OSError."""
+    if path == "-":
+        if hasattr(sys.stdin, "reconfigure"):
+            sys.stdin.reconfigure(encoding="utf-8")
+        return sys.stdin.read()
+    return Path(path).read_text(encoding="utf-8")
+
+
+def _report_lint(result: LintResult) -> int:
+    """Print the plain lint report; return its exit code."""
+    if not result.diagnostics:
+        print("sigil: OK (no issues)")
+        return 0
+    for d in result.diagnostics:
+        print(d.format())
+    print("\n" + lint_summary(result), file=sys.stderr)
+    return exit_code(d.severity for d in result.diagnostics)
+
+
+def _report_deep(result: LintResult, report, check) -> int:
+    """Print the merged lint + check report; return the worse exit code."""
+    out = deep_lines(result, report)
+    print("\n".join(out) if out else "sigil: OK (no issues, no findings)")
+    print("\n" + lint_summary(result) + "\n" + check.summary(report), file=sys.stderr)
+    return max(exit_code(d.severity for d in result.diagnostics), report.exit_code())
+
+
 def main(argv=None, default_dialect=None):
     import argparse
     ap = argparse.ArgumentParser(prog="lint.py", description="Lint a Sigil document.")
     ap.add_argument("file", help="a .sigil file, or - for stdin")
     ap.add_argument("--dialect", default=default_dialect,
                     help="dialect name or path (default: $SIGIL_DIALECT)")
+    ap.add_argument("--deep", action="store_true",
+                    help="also run the composition checks (check.py) and merge the reports")
     a = ap.parse_args(argv)
     try:
         dialect = _load_dialect(a.dialect)
     except ValueError as exc:
         print(f"lint.py: {exc}", file=sys.stderr)
         sys.exit(2)
-
-    if a.file == "-":
-        if hasattr(sys.stdin, "reconfigure"):
-            sys.stdin.reconfigure(encoding="utf-8")
-        text = sys.stdin.read()
-    else:
-        try:
-            text = Path(a.file).read_text(encoding="utf-8")
-        except OSError as exc:
-            print(f"lint.py: cannot read {a.file}: {exc.strerror or exc}", file=sys.stderr)
-            sys.exit(2)
+    try:
+        text = _read_text(a.file)
+    except OSError as exc:
+        print(f"lint.py: cannot read {a.file}: {exc.strerror or exc}", file=sys.stderr)
+        sys.exit(2)
 
     result = lint(text, dialect=dialect)
-
-    if not result.diagnostics:
-        print("sigil: OK (no issues)")
-        sys.exit(0)
-
-    for d in result.diagnostics:
-        print(d.format())
-
-    counts = Counter(d.severity for d in result.diagnostics)
-    print(
-        f"\nsigil: {len(result.diagnostics)} issue(s) "
-        f"({counts['error']} error, {counts['warn']} warn, {counts['info']} info)",
-        file=sys.stderr,
-    )
-
-    if result.has_errors():
+    if not a.deep:
+        sys.exit(_report_lint(result))
+    check = _load_sibling("sigil_check_for_lint", "check.py")
+    try:
+        report = check.check(text, dialect=dialect)
+    except ValueError as exc:            # a refused rule pack or registry
+        print(f"lint.py: --deep: {exc}", file=sys.stderr)
         sys.exit(2)
-    if result.has_warnings():
-        sys.exit(1)
-    sys.exit(0)
+    sys.exit(_report_deep(result, report, check))
 
 
 if __name__ == "__main__":

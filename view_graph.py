@@ -103,6 +103,7 @@ class _Layout:
     drops: list = field(default_factory=list)       # per layer: rows its stubs take under it
     sim: Optional["SimLook"] = None                 # a simulation frame drawn over it
     marked: set = field(default_factory=set)        # node ids whose box ends in a self mark
+    borders: dict = field(default_factory=dict)     # node id → its border's style (checks)
 
     def centre(self, vid):
         v = self.V[vid]
@@ -149,7 +150,7 @@ def _break_cycles(ids, succ):
 
 def layout(g, expanded: set, collapsed: set, tags: dict | None = None,
            styles: dict | None = None, selfs: dict | None = None,
-           sim: Optional["SimLook"] = None) -> kit.Canvas:
+           sim: Optional["SimLook"] = None, borders: dict | None = None) -> kit.Canvas:
     """g drawn as boxes and edges. `tags`: runs after a box's label (node id) or
     beside an edge's head (its wire key); `styles`: each wire key's stroke style
     (_wire_styles), an edge without one drawn in its arrow's style; `selfs`:
@@ -157,8 +158,10 @@ def layout(g, expanded: set, collapsed: set, tags: dict | None = None,
     (a self-edge without an entry is marked ↺). `sim` (sim_look): a simulation
     frame over the drawing — boxes styled by status, a state machine's states
     led by their ◉ slot, tokens on the edges' cells (styles then come from it
-    too, an edge without one muted)."""
+    too, an edge without one muted). `borders` ({node id: style}): a box's
+    border drawn in that style whatever its look (the checks overlay)."""
     lay = _prepare(g, expanded, collapsed, tags, styles, selfs or {}, sim)
+    lay.borders = borders or {}
     _layer(lay)
     _order(lay)
     _place_x(lay)
@@ -582,7 +585,8 @@ def _draw(lay: _Layout) -> kit.Canvas:
 
 def _place_box(cv: kit.Canvas, lay: _Layout, vid, x, y, w, spots: "_SelfSpots") -> None:
     """A node's box at (x, y), w wide, as lay draws it: its look under a sim
-    frame (an active box's border a _Probe style in a probe drawing), its tags
+    frame (an active box's border a _Probe style in a probe drawing), its
+    border in a checks mark's style (lay.borders), its tags
     re-coloured, its self-call stubs; where its self-calls' tokens sit goes
     into spots."""
     n, label = lay.g.nodes[vid], lay.labels[vid]
@@ -591,6 +595,9 @@ def _place_box(cv: kit.Canvas, lay: _Layout, vid, x, y, w, spots: "_SelfSpots") 
     if look is None and lay.sim is not None and vid in lay.sim.probe:
         border, text = kit.node_styles(n)           # drawn as ever, its border findable
         look = _BoxLook(_Probe(border), text, None, True)
+    if vid in lay.borders:                          # a checks mark: the border only
+        look = (look or _BoxLook(*kit.node_styles(n), None, True))._replace(
+            border=lay.borders[vid])
     _draw_box(cv, x, y, w, label, n, look, lead)
     _colour_tags(cv, x + kit.row_len(lead), y, n, lay.tags.get(vid))
     spots.stubs.update(_draw_stubs(cv, x, y, w, n, lay.stubs.get(vid, ()), lay.styles))
@@ -1088,7 +1095,8 @@ def _stack(main: "kit.Canvas", frames: list) -> "kit.Canvas":
 def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None = None,
              payloads: bool = False, scn=None, fit: int | None = None,
              marks: list | None = None, mods: bool = False, _secs=None, _level=None,
-             _owner: Optional[str] = None, sim: Optional[SimLook] = None):
+             _owner: Optional[str] = None, sim: Optional[SimLook] = None,
+             checks: Optional["kit.CheckMarks"] = None):
     """Yield (title, graph, canvas) for the graph and its expansions up to depth.
     `scn`: the document's Scene (scene.build_scene; None: built without triggers
     or permissions) — what drives each machine draws as a dashed edge into it,
@@ -1103,7 +1111,10 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
     title a Rule); control blocks are drawn as titled frames under their part's
     flows. `mods` puts modifiers on chips (edges) and after labels (nodes).
     `sim` (sim_look over scn): a simulation frame drawn over every part —
-    strokes, boxes and tokens (its badges come in `tags`)."""
+    strokes, boxes and tokens (its badges come in `tags`). `checks`
+    (kit.CheckMarks named as scn names things): each marked wire's stroke and
+    marked box's border in its worst finding's style, over the sim's (the
+    findings' numbers come in `tags`, check_tags)."""
     if scn is None:
         scn = scene.build_scene(g, triggers=False, depth=depth)
     g = _landed(g, scn, _owner)
@@ -1118,12 +1129,18 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
                                          for e in g.edges)
     drivers = _drivers(scn) if g.role != "state" else None    # a machine has its own
     styles = sim.styles if sim is not None else _wire_styles(scn)
+    borders = {}
+    if checks is not None:
+        styles = {**styles, **{key: kit.check_mark_style(kit.check_worst(ms))
+                               for key, ms in checks.by_key().items()}}
+        borders = {nid: kit.check_mark_style(kit.check_worst(ms))
+                   for nid, ms in checks.nodes.items()}
 
     def draw_all(part, chip_marks):
         def draw(sub):
             gc = with_chips(sub, payloads, scn, chip_marks, mods, chips)
             return layout(gc, show, collapsed, tags, styles,
-                          _self_calls(sub, calls, payloads, mods, chip_marks), sim)
+                          _self_calls(sub, calls, payloads, mods, chip_marks), sim, borders)
         main = draw(part.graph) if part.graph.nodes else kit.Canvas()
         frames = [_framed(_frame_content(g, bi, eb, draw), kit.block_title_runs(g.blocks[bi]))
                   for bi in part.blocks]
@@ -1153,7 +1170,7 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
             if getattr(sub, "role", "") == "state":
                 sub = scene.with_trigger_sources(scn, sub, nid)
             yield from sections(sub, depth, sub_title, level + 1, tags, payloads, scn,
-                                fit, marks, mods, secs, zoom or _level, nid, sim)
+                                fit, marks, mods, secs, zoom or _level, nid, sim, checks)
 
 
 def _drivers(scn) -> dict:
@@ -1557,7 +1574,7 @@ def all_payload_lines(g):
 
 def compose(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = True,
             width: int | None = None, access: bool = False, mods: bool = False,
-            events: str = "nodes", trace=None, tick: int = 0):
+            events: str = "nodes", trace=None, tick: int = 0, checks=None):
     """The whole drawing as rows of (text, style) runs, plus its width. Each
     section's canvas is centred within the widest section. `payloads` draws each
     flow's payload as a chip on its edge; `triggers` wires each event to the owner
@@ -1586,9 +1603,15 @@ def compose(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = 
     sim.project(trace, scene.build_scene(g, events=events, triggers=triggers,
     access=access, depth=depth)). Each box's badges are padded to their widest
     over the trace (badge_slots, worked out once per trace), so the layout
-    holds still from frame to frame."""
+    holds still from frame to frame.
+
+    `checks` (kit.CheckMarks, named as that same Scene names things): the
+    checks overlay — a marked box's border and a marked wire's stroke in its
+    worst finding's style (ui.error / ui.warn; an acknowledged one muted), each
+    finding's number (`▲1`, `◆2`, `✓3`) after the box's label or beside the
+    wire's head; None: no overlay."""
     return _compose(g, depth, payloads, notes, triggers, width, access, mods, events,
-                    trace, tick, probe=False)
+                    trace, tick, probe=False, checks=checks)
 
 
 def sim_focus(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = True,
@@ -1621,7 +1644,7 @@ def _probed_box(rows) -> Optional[tuple]:
 
 
 def _compose(g, depth, payloads, notes, triggers, width, access, mods, events,
-             trace, tick, probe: bool):
+             trace, tick, probe: bool, checks=None):
     """compose, with the frame's tokens and active boxes in _Probe styles when
     `probe` (sim_focus)."""
     scn = scene.build_scene(g, events=events, triggers=triggers, access=access, depth=depth)
@@ -1631,7 +1654,10 @@ def _compose(g, depth, payloads, notes, triggers, width, access, mods, events,
             if trace is not None else None)
     for nid, runs in (look.badges if look else {}).items():
         tags[nid] = tags.get(nid, []) + runs
-    parts = list(sections(g, depth, tags=tags, payloads=payloads, scn=scn, mods=mods, sim=look))
+    for at, runs in (check_tags(checks) if checks is not None else {}).items():
+        tags[at] = tags.get(at, []) + runs
+    parts = list(sections(g, depth, tags=tags, payloads=payloads, scn=scn, mods=mods, sim=look,
+                          checks=checks))
     rows, drawing_w = _section_rows(parts)
     natural = rows + ([[], kit.section_rule("notes"), []] + kit.note_rows(idx) if idx else [])
     natural_w = max([drawing_w] + [kit.row_len(r) for r in natural])
@@ -1641,7 +1667,7 @@ def _compose(g, depth, payloads, notes, triggers, width, access, mods, events,
     marks = []
     if (payloads or mods) and drawing_w > width:
         parts = list(sections(g, depth, tags=tags, payloads=payloads, scn=scn,
-                              fit=width, marks=marks, mods=mods, sim=look))
+                              fit=width, marks=marks, mods=mods, sim=look, checks=checks))
         rows, _w = _section_rows(parts)
     listed = sorted(e for entries in idx.values() for e in entries)
     block = [([(f"#{num}", kit.NOTE_STYLE[kind])], [(text, kind)])
@@ -1686,6 +1712,14 @@ def _tags(scn, notes: bool, mods: bool) -> dict:
         parts = [h[key] for h in heads if key in h]
         tags[key] = [run for k, runs in enumerate(parts) for run in [(" ", None)][:k] + runs]
     return tags
+
+
+def check_tags(checks) -> dict:
+    """{node id / wire key: runs}: the numbers of the findings marked on each
+    box (after its label) and each stroke (beside its head), kit.check_runs."""
+    out = {nid: kit.check_runs(ms) for nid, ms in checks.nodes.items()}
+    out.update({key: kit.check_runs(ms) for key, ms in checks.by_key().items()})
+    return out
 
 
 def _return_tags(scn) -> dict:
