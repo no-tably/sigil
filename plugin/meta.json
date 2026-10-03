@@ -1,6 +1,6 @@
 {
   "name": "sigil",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Sigil: a compact notation for system designs, with a linter, a terminal graph viewer and a Mermaid renderer.",
   "author": {
     "name": "Ian Patrick"
