@@ -738,6 +738,19 @@ class Cli(unittest.TestCase):
                 self.assertEqual(len(outs), 1)
                 self.assertTrue(next(iter(outs)))
 
+    def test_same_report_under_a_runner(self):
+        """Run in a runner's namespace (cProfile execs the file as its __main__), the
+        rule modules still see check.py's own API, and the report is the same."""
+        args = ["-", "--json", "--mode", "spec"]
+        plain = self.cli(*args)
+        with tempfile.TemporaryDirectory() as tmp:
+            prof = subprocess.run([sys.executable, "-m", "cProfile", "-o", str(Path(tmp) / "p"),
+                                   str(_DIR / "check.py"), *args], input=SAMPLE,
+                                  capture_output=True, text=True,
+                                  env=dict(os.environ, PYTHONHASHSEED="0"))
+        self.assertEqual(prof.stdout, plain.stdout)          # (cProfile drops the exit code)
+        self.assertIn("findings", prof.stdout)
+
     def test_lines_are_lint_compatible_and_sorted(self):
         p = self.cli("-")
         self.assertEqual(p.returncode, 1)

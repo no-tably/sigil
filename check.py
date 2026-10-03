@@ -849,6 +849,22 @@ def _rule_module(path: Path):
     return sys.modules[key]
 
 
+class _Api:
+    """This module as the rule modules and dialect packs see it (their `ck`): its
+    globals, read live. Not looked up in sys.modules by __name__: under a runner
+    that executes the file in its own namespace (cProfile, runpy), that name is the
+    runner's module."""
+
+    def __getattr__(self, name: str):
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(name) from None
+
+
+API = _Api()
+
+
 def _modules(here: Path, names: tuple) -> list:
     return [_rule_module(here / fname) for fname in names if (here / fname).is_file()]
 
@@ -925,7 +941,7 @@ def build_registry(rules: Iterable) -> dict:
 
 
 def default_registry(extra: Iterable = ()) -> dict:
-    return build_registry(core_rules() + module_rules(sys.modules[__name__]) + list(extra))
+    return build_registry(core_rules() + module_rules(API) + list(extra))
 
 
 def core_names():
@@ -958,7 +974,7 @@ def dialect_pack(dialect):
     mod = _dialects()
     if dialect is None:
         return mod.RulePack()
-    pack = mod.checked_pack(dialect, sys.modules[__name__], core_names())
+    pack = mod.checked_pack(dialect, API, core_names())
     problems = prefix_problems(pack)
     if problems:
         name = getattr(dialect, "NAME", "?")
