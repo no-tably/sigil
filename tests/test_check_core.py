@@ -828,6 +828,19 @@ class ModelFacts(unittest.TestCase):
         self.assertEqual(extended.access_mode(w), "read")
         self.assertEqual(extended.read_verbs[:len(plain.read_verbs)], plain.read_verbs)
 
+    def test_inv_heads_are_the_core_and_the_packs(self):
+        seen = []
+
+        def match(d):
+            seen.append(d.inv_heads)
+            return ()
+        spy = ck.Rule("TST002", "spy", "advisory", ask="?", why="a test rule",
+                      fix="nothing", match=match)
+        pack = ck.dialect_pack(None)._replace(inv_heads=frozenset({"breaker"}))
+        ck.check(doc("[A] -> [B] : f()\n"), registry=with_rules(spy), pack=pack)
+        self.assertEqual(seen, [ck.INV_HEADS | {"breaker"}])
+        self.assertEqual(ck.Doc("", "spec", 1, frozenset()).inv_heads, ck.INV_HEADS)
+
 
 class Unacknowledgeable(unittest.TestCase):
     def test_meta_names_override_any_flag(self):
@@ -945,6 +958,27 @@ class DialectPack(unittest.TestCase):
         d.INV_HEADS = {"idempotent"}
         with self.assertRaisesRegex(ValueError, "core head"):
             ck.dialect_pack(d)
+
+    def test_lint_code_as_rule_id_is_refused(self):
+        # SGL130 is a real lint code; no core table is patched in.
+        d = quota_dialect()
+        d.check_rules = lambda api: [api.Rule("SGL130", "my-rule", "hint", "?", "w", "f",
+                                              match=lambda doc: [])]
+        with self.assertRaisesRegex(ValueError, "SGL130 takes the core prefix SGL"):
+            ck.check(self.TEXT, dialect=d)
+
+    def test_core_prefixed_lint_code_is_refused(self):
+        for code in ("SGL999", "SGC777"):
+            with self.subTest(code=code):
+                d = quota_dialect()
+                d.LINT_CODES = {code, "QTA100"}
+                with self.assertRaisesRegex(ValueError, f"lint code {code} takes"):
+                    ck.dialect_pack(d)
+
+    def test_lint_code_rule_id_is_refused_by_the_registry(self):
+        rule = ck.Rule("SGL130", "my-rule", "hint", "?", "w", "f", match=lambda d: [])
+        with self.assertRaisesRegex(ck.RegistryError, "SGL ids are core lint codes"):
+            ck.build_registry([rule])
 
 
 class Corpus(unittest.TestCase):

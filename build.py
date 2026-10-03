@@ -17,6 +17,7 @@ Canonical sources (edit these, never dist/):
     sim.py check.py            check.py: the composition checker, and its rule
     check_state.py             modules beside it (required)
     check_trace.py check_flow.py
+    check_inv.py
     dialects.py themes.py      copied alongside when present (optional)
     themes/*.yaml              copied into skills/sigil/scripts/themes/
     language.md examples.md    copied into skills/sigil/references/
@@ -61,10 +62,10 @@ ROOT = Path(__file__).resolve().parent
 
 TOOLS = ["lint.py", "render.py", "view.py", "viewkit.py", "view_graph.py", "view_tree.py",
          "scene.py", "sim.py", "check.py", "check_state.py", "check_trace.py", "check_flow.py",
-         "dialects.py", "themes.py"]
+         "check_inv.py", "dialects.py", "themes.py"]
 REQUIRED_TOOLS = {"lint.py", "render.py", "view.py", "viewkit.py", "view_graph.py",
                   "view_tree.py", "scene.py", "sim.py", "check.py", "check_state.py",
-                  "check_trace.py", "check_flow.py"}
+                  "check_trace.py", "check_flow.py", "check_inv.py"}
 REFERENCES = ["language.md", "examples.md"]
 TARGETS = ["claude", "codex", "pi", "opencode"]
 SKILL = "sigil"

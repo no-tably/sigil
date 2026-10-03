@@ -2132,14 +2132,22 @@ is acknowledged, or checked by a dialect pack (§11).
 - **Risk.** An invariant names something its anchor never touches (a typo, a stale
   reference after a rename), so the claim protects nothing.
 - **Query.** A recognised head whose glyph arguments do not resolve:
-  `atomic(|S|, <E>)` where the anchor does not write `|S|` or emit `<E>`;
-  `serialised(|S|)` or `lock-order` naming a store no `owns` uses; `layers(…)` naming
-  a tier no `@loc` uses. Key arguments (`idempotent(order_id)`) are checked only as a
-  hint (payloads are free text).
+  any recognised head (`serialised(|S|)`, `atomic(…)`, `lock-order(…)`, …) naming a
+  store or event the design never draws; `atomic(|S|, <E>)` where the anchor does not
+  write `|S|` or emit `<E>`; `lock-order(…)` naming a store no `@owns` acquires;
+  `layers(…)` naming a tier no `@loc` uses. Key arguments (`idempotent(order_id)`)
+  are not checked.
+
+  *Retuned in P4.* (1) The key-argument hint (a key such as `order_id` in no payload)
+  was implemented, then dropped: on the fixtures it flagged all 17 keyed invariants
+  and none of them was a typo, because payloads rarely spell out the key. (2) The
+  `@owns` condition applies only to `lock-order(…)`: a serialised store needs no
+  owner (the serialisation is the claim), so `serialised(|S|)` dangles only when
+  `|S|` is drawn nowhere, the same test every recognised head gets.
 - **Declare.** Make the argument name what the anchor really touches (fix the typo
   or the stale name), move the `@inv` to the node that does touch it, or
   acknowledge it.
-- **Tier.** advisory; the key check is a hint. Ask: "`[Checkout]` never writes
+- **Tier.** advisory. Ask: "`[Checkout]` never writes
   `|Order|`. Did you mean `|Orders|`?"
 - **Example.** Flagged:
   ```

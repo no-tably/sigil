@@ -30,16 +30,20 @@ dialects = _load("dialects")
 ck = _load("check")
 lint = _load("lint")
 
-CORE = dialects.CoreNames(
-    lint_codes=frozenset(lint.HARDENING_SEVERITY),
-    rule_ids=frozenset(ck.CORE_NAMES),
-    rule_names=frozenset(ck.CORE_NAMES.values()),
-    inv_heads=frozenset({"idempotent", "dedup", "ordered", "lock-order"}))
+# check.py's own core names, plus lint's codes (check.py leaves those empty).
+CORE = dialects.CoreNames(*ck.core_names())._replace(
+    lint_codes=frozenset(lint.HARDENING_SEVERITY))
 
 DOC = textwrap.dedent("""\
     #!craft
+    [Api] -> (Pay) : op pay.charge(${amt}) @timeout(2s) ×3
+    [Api] -> (Mail) : op mail.send(${to}) @timeout(1s)
+    """)
+
+INTERNAL = textwrap.dedent("""\
+    #!craft
     [Api] -> [Pay]: charge() @timeout(2s) ×3
-    [Api] -> [Mail]: send() @timeout(1s)
+    [Api] -> [Mail]: send()
     """)
 
 
@@ -84,18 +88,25 @@ class TestPackRuns(unittest.TestCase):
         self.assertTrue(all(f.rule.id.startswith("RSL") for f in found))
 
     def test_declared_handling_satisfies(self):
-        doc = DOC.replace("[Api] -> [Pay]", "[Api] @inv breaker(5) @inv bulkhead(2) -> [Pay]")
-        names = [f.rule.name for f in _check(doc, self.pack).findings]
-        self.assertNotIn("unbroken-dependency", names)
+        doc = DOC.replace("[Api] -> (Pay)", "[Api] @inv breaker(5) @inv bulkhead(2) -> (Pay)")
+        self.assertEqual(_pack_only(_check(doc, self.pack).findings), [])
+
+    def test_caller_state_machine_satisfies_breaker(self):
+        doc = DOC + "state [Api] {\n  + -<start>-> Closed\n  Closed -<trip>-> Open\n}\n"
+        names = [f.rule.name for f in _pack_only(_check(doc, self.pack).findings)]
+        self.assertEqual(names, ["shared-pool"])
+
+    def test_internal_calls_are_not_asked_about(self):
+        self.assertEqual(_pack_only(_check(INTERNAL, self.pack).findings), [])
 
     def test_craft_only(self):
         report = _check(DOC.replace("#!craft", "#!spec"), self.pack)
         self.assertEqual([f for f in report.findings if f.rule.id.startswith("RSL")], [])
 
     def test_pack_rule_can_be_acknowledged(self):
-        doc = DOC.replace("[Api] -> [Pay]: charge() @timeout(2s) ×3",
+        doc = DOC.replace("[Api] -> (Pay)",
                           "# accepts: unbroken-dependency, shared-pool — the callee sheds load\n"
-                          "[Api] -> [Pay]: charge() @timeout(2s) ×3")
+                          "[Api] -> (Pay)")
         report = _check(doc, self.pack)
         self.assertEqual(_pack_only(report.findings), [])
         self.assertEqual(sorted(f.rule.name for f in _pack_only(report.acknowledged)),
@@ -135,6 +146,10 @@ class TestNamesRefused(unittest.TestCase):
             dialects.checked_pack(d, ck, CORE)
         self.assertIn("SGL188", str(cm.exception))
         self.assertIn("#=", str(cm.exception))
+
+    def test_check_refuses_a_clashing_dialect(self):
+        with self.assertRaises(ValueError):
+            ck.check(DOC, dialect=_dialect(INV_HEADS={"idempotent"}))
 
     def test_example_pack_is_clean(self):
         self.assertEqual(dialects.name_problems(

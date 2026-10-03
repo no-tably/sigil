@@ -65,6 +65,8 @@ store's races.
   noted — hint (catalog §12)
 - language.md · unbounded-buffer · info · `[Primary] ~> [Replica]×2`
   noted — hint for a `~>` queue (catalog SGC161)
+- language.md · inv-unchecked · info · `} @inv write-only-primary`
+  noted — hint: an unrecognised @inv is listed as taken on trust, never failed (catalog SGC301)
 
 ## examples.md
 - examples.md · capacity-mismatch · info · `(User) -> [Web]  : {creds}`
@@ -151,3 +153,21 @@ store's races.
   noted — hint: the composition sketch shows conditional and standby children; a route or `@fallback` would say what happens when one is absent
 - examples.md · shared-writable-store · warn · `[Planner] -> |Shared|`
   accepted — the permission example lists three writers to show a shared store; a list states no resolution (catalog evidence 814)
+- examples.md · inv-unchecked · info · `} @inv write-only-primary`
+  noted — hint: an unrecognised @inv is listed as taken on trust, never failed (catalog SGC301)
+- examples.md · inv-unchecked · info · `[MCP.r] @inv excludes({Entity}.state ∈ {superseded, retracted})`
+  noted — hint: an unrecognised @inv is listed as taken on trust, never failed (catalog SGC301)
+- examples.md · inv-unchecked · info · `[MCP.r] @inv surfaces-flagged({Entity}.state = disputed)`
+  noted — hint: an unrecognised @inv is listed as taken on trust, never failed (catalog SGC301)
+- examples.md · inv-unchecked · info · `{Summary} @inv wasDerivedFrom({Concept}.hash)`
+  noted — hint: an unrecognised @inv is listed as taken on trust, never failed (catalog SGC301)
+- examples.md · inv-unchecked · info · `|PROV|    @inv content-addressed(id = hash(canonical))`
+  noted — hint: an unrecognised @inv is listed as taken on trust, never failed (catalog SGC301)
+- examples.md · inv-unchecked · info · `{Payload} @inv extension-only`
+  noted — hint: an unrecognised @inv is listed as taken on trust, never failed (catalog SGC301)
+- examples.md · inv-unchecked · info · `[MCP.r]   @inv semantic-surface(no raw graph queries)`
+  noted — hint: an unrecognised @inv is listed as taken on trust, never failed (catalog SGC301)
+- examples.md · inv-unchecked · info · `[MCP.w]   @inv validates-before-commit`
+  noted — hint: an unrecognised @inv is listed as taken on trust, never failed (catalog SGC301)
+- examples.md · inv-unchecked · info · `{Entity}  @inv lifecycle-transitions-explicit`
+  noted — hint: an unrecognised @inv is listed as taken on trust, never failed (catalog SGC301)

@@ -146,6 +146,10 @@ CORE_NAMES = {
     "SGC304": "layer-inversion", "SGC306": "timeout-below-sla",
 }
 RETIRED_IDS = frozenset({"SGC105", "SGC164", "SGC305"})
+# Core id spaces: lint codes are SGL…, check ids SGC…. lint.py keeps no table of
+# its codes, so the core reserves both prefixes whole: a dialect's rule id or
+# lint code may start with neither (registry_problem, dialect_pack).
+CORE_ID_PREFIXES = {"SGL": "lint codes", "SGC": "check ids"}
 # Fixed by editing a line, never by a decision about the design (catalog §5): the
 # ack-* rules (SGC001-SGC003) and SGC004 policy-in-prose (writing the modifier is
 # the fix). No Rule or Hit flag can make these acknowledgeable. SGC090 is
@@ -374,11 +378,13 @@ class Doc:
     Graph: Edge.card / src_mods / implied, Graph.narrowed / dropped), `doc.scene`
     (scene.py: call_policy, declared_access, writers), `doc.sc` / `doc.prog` (the
     simulator's canonical scene and program), and `doc.access_mode(w)`, which
-    reads the dialect's extra read verbs (CG6). `doc.budget` and `doc.limits`
+    reads the dialect's extra read verbs (CG6). `doc.inv_heads` is the recognised
+    `@inv` heads: the core's INV_HEADS and the dialect's rule pack's. `doc.budget` and `doc.limits`
     bound the simulator's exploration; they are reported in `--json` (catalog §1.3)."""
 
     def __init__(self, text: str, mode: str, k: int, known: frozenset, dialect=None,
                  read_verbs: tuple = (), policy_words: tuple = (),
+                 inv_heads: frozenset = frozenset(),
                  budget: Optional[int] = None, limits=None):
         self.text = text
         self.lines = text.splitlines()
@@ -388,6 +394,7 @@ class Doc:
         self.dialect = dialect
         self.extra_read_verbs = tuple(sorted(read_verbs))     # a dialect's (CG6)
         self.policy_words = POLICY_WORDS + tuple(policy_words)
+        self.inv_heads = INV_HEADS | frozenset(inv_heads)  # the recognised @inv heads
         self.findings = []           # first-pass Findings (set before after_acks rules)
         self.ack_used = frozenset()  # lines of the acknowledgements that covered one
         self._budget = budget        # None: the defaults (see budget, limits)
@@ -821,6 +828,11 @@ def exploration_rule(causes: list) -> Rule:
                 acknowledgeable=False, ack_document=False)
 
 
+def core_prefix(code: str) -> Optional[str]:
+    """The core id prefix `code` starts with (CORE_ID_PREFIXES), or None."""
+    return next((p for p in CORE_ID_PREFIXES if code.startswith(p)), None)
+
+
 def registry_problem(rule: Rule, seen_ids: set, seen_names: set) -> Optional[str]:
     """Why `rule` cannot join a registry already holding seen_ids / seen_names."""
     if rule.tier not in TIERS:
@@ -833,8 +845,9 @@ def registry_problem(rule: Rule, seen_ids: set, seen_names: set) -> Optional[str
         if CORE_NAMES[rule.id] != rule.name:
             return f"{rule.id} is `{CORE_NAMES[rule.id]}` in the catalog, not `{rule.name}`"
         return None
-    if rule.id.startswith("SGC"):
-        return f"{rule.id}: not in the catalog (SGC ids are core)"
+    prefix = core_prefix(rule.id)
+    if prefix:
+        return f"{rule.id}: not in the catalog ({prefix} ids are core {CORE_ID_PREFIXES[prefix]})"
     if rule.name in CORE_NAMES.values():
         return f"{rule.id}: `{rule.name}` is a core name"
     return None
@@ -858,10 +871,21 @@ def default_registry(extra: Iterable = ()) -> dict:
 
 def core_names():
     """What the core names, for refusing a clashing dialect pack (dialects.CoreNames).
-    Lint codes are left empty: lint.py exposes no list of them."""
+    Lint codes are left empty: lint.py keeps no table of them, so the core reserves
+    their whole prefix instead (CORE_ID_PREFIXES, enforced by dialect_pack and
+    registry_problem)."""
     return _dialects().CoreNames(
         rule_ids=frozenset(CORE_NAMES) | RETIRED_IDS,
         rule_names=frozenset(CORE_NAMES.values()), inv_heads=INV_HEADS)
+
+
+def prefix_problems(pack) -> list:
+    """Every id of a dialect rule pack that takes a core prefix, sorted."""
+    out = [f"lint code {c} takes the core prefix {core_prefix(c)}"
+           for c in pack.lint_codes if core_prefix(c)]
+    out += [f"rule id {r.id} takes the core prefix {core_prefix(r.id)}"
+            for r in pack.rules if core_prefix(r.id)]
+    return sorted(out)
 
 
 def _dialects():
@@ -871,11 +895,16 @@ def _dialects():
 def dialect_pack(dialect):
     """The dialect's rule pack (rules, read verbs, policy words, @inv heads); an
     empty one for no dialect. Raises dialects.DialectError (a ValueError) when the
-    pack reuses a core name."""
+    pack reuses a core name or takes a core id prefix (SGL, SGC)."""
     mod = _dialects()
     if dialect is None:
         return mod.RulePack()
-    return mod.checked_pack(dialect, sys.modules[__name__], core_names())
+    pack = mod.checked_pack(dialect, sys.modules[__name__], core_names())
+    problems = prefix_problems(pack)
+    if problems:
+        name = getattr(dialect, "NAME", "?")
+        raise mod.DialectError(f"sigil dialect {name!r}: " + "; ".join(problems))
+    return pack
 
 
 # ---------------------------------------------------------------------------
@@ -1018,8 +1047,8 @@ def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
           dialect=None, registry: Optional[dict] = None, pack=None,
           budget: Optional[int] = None, limits=None) -> Report:
     """Check a document. `mode` overrides its mode line; `pack` defaults to the
-    dialect's rule pack (dialect_pack), whose read verbs and policy words the
-    rules read; `registry` defaults to the core rules, every rule module beside
+    dialect's rule pack (dialect_pack), whose read verbs, policy words and
+    `@inv` heads the rules read; `registry` defaults to the core rules, every rule module beside
     this file and the pack's rules. `budget` (runs per exploration) and `limits`
     (a sim.Limits) bound the simulator; None takes the defaults."""
     pack = dialect_pack(dialect) if pack is None else pack
@@ -1031,7 +1060,8 @@ def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
     k = DEFAULT_K[mode] if k is None else k
     known = frozenset(CORE_NAMES.values()) | {r.name for r in registry.values()}
     doc = Doc(text, mode, k, known, dialect, read_verbs=pack.read_verbs,
-              policy_words=pack.policy_words, budget=budget, limits=limits)
+              policy_words=pack.policy_words, inv_heads=pack.inv_heads,
+              budget=budget, limits=limits)
     first = [r for r in registry.values() if not r.after_acks]
     findings = run_rules(doc, first)
     fold(findings)
