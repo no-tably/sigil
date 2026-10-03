@@ -1077,20 +1077,9 @@ def default_budget(here: Path = _HERE) -> Optional[int]:
 
 
 def limits_from(pairs: Iterable, base):
-    """`base` (a sim.Limits) with each "name=N" of `pairs` set. Raises ValueError
-    naming a malformed pair, an unknown name or a value below 1."""
-    out = base
-    for pair in pairs:
-        name, sep, value = pair.partition("=")
-        name = name.strip()
-        if not sep or not value.strip().isdigit():
-            raise ValueError(f"--limit {pair!r}: expected NAME=N")
-        if name not in base._fields:
-            raise ValueError(f"--limit {name!r}: unknown (one of {', '.join(base._fields)})")
-        if int(value) < 1:
-            raise ValueError(f"--limit {name}: must be at least 1")
-        out = out._replace(**{name: int(value)})
-    return out
+    """`base` (a sim.Limits) with each "name=N" of `pairs` set (sim.limits_from).
+    Raises ValueError naming a malformed pair, an unknown name or a value below 1."""
+    return _sim().limits_from(pairs, base)
 
 
 def limits_of(doc: Doc) -> dict:

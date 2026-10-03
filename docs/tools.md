@@ -82,6 +82,11 @@ Options:
   left open, `bounds:` base case, visit limit, spawn cap, a capped loop, a cut) and a
   summary line. It always exits 0; diff two versions' tables to see what changed.
   `--json` prints either as JSON.
+- `--limit NAME=N` raises one simulator bound for `--sim` (repeatable): `iterations`
+  (loop repetitions, 2), `depth` (recursion, 3), `spawn` / `spawns`, `visits`, `stack`,
+  and the per-episode `frames` (2000) and `activations` (500). Each entry point runs
+  as its own episode with its own `frames` and `activations`, so a large design runs
+  every entry in full; a run that still ends `cut` names the bound it hit.
 - `--checks` marks composition-check findings on the drawing, with a checks legend.
   Each finding's question follows the lint summary.
 - `--compact` starts without the blank row between top-level units.

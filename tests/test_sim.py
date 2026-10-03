@@ -742,6 +742,31 @@ class TestTermination(unittest.TestCase):
         self.assertEqual((tr.outcome, tr.end["cut"]), ("cut", ["activations"]))
         self.assertTrue(tr.frames[-1].done)
 
+    def test_frame_and_activation_caps_count_per_episode(self):
+        """Many entries each run in full: the caps bound one episode, not the run."""
+        one = "(U0) -> [A0] -> [B0] -> [C0]\n"
+        many = "".join(f"(U{i}) -> [A{i}] -> [B{i}] -> [C{i}]\n" for i in range(12))
+        single = run(build(one))
+        caps = sim.Limits(frames=len(single.frames) + 2, activations=4)
+        self.assertEqual(run(build(one), limits=caps).outcome, "ok")
+        tr = run(build(many), limits=caps)
+        self.assertEqual((tr.outcome, tr.end["cut"]), ("ok", []))
+        self.assertGreater(len(tr.frames), caps.frames)
+        self.assertTrue(logs(tr, "episode 12"))
+
+    def test_keep_false_keeps_the_final_frame(self):
+        sc = load("executions.sigil")
+        full = sim.simulate(sc, sim.scenarios(sc)[0])
+        last = sim.simulate(sc, sim.scenarios(sc)[0], keep=False)
+        self.assertEqual(last.frames, full.frames[-1:])
+        self.assertEqual((last.outcome, last.end["log"]), (full.outcome, full.end["log"]))
+        most = {}
+        for f in full.frames:
+            for key, k in f.loops.items():
+                most[key] = max(most.get(key, 0), k)
+        for key, k in most.items():                # end["loops"] sees every iteration
+            self.assertGreaterEqual(last.end["loops"][key], k)
+
     def test_deterministic(self):
         for path in EXAMPLES + FIXTURES:
             sc = build(path.read_text())

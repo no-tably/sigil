@@ -150,5 +150,17 @@ class TestCommandLine(unittest.TestCase):
         self.assertIn("--json needs --sim list or --sim all", res.stderr)
 
 
+    def test_limit_raises_a_bound(self):
+        res = self.run_view(EXECUTIONS, "--sim", "all", "--limit", "iterations=3")
+        self.assertEqual(res.returncode, 0)
+        self.assertIn("ran 3/3 (the cap, no @times)", res.stdout)
+        self.assertNotIn("ran 2/2", res.stdout)
+
+    def test_limit_rejects_an_unknown_bound(self):
+        res = self.run_view(ORDERS, "--sim", "all", "--limit", "bogus=3")
+        self.assertEqual(res.returncode, 2)
+        self.assertIn("--limit 'bogus': unknown", res.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

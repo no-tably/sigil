@@ -352,16 +352,18 @@ class SimPlayer:
     SceneOptions draws it (sim.project, cached per options); `at` the frame shown.
 
     `name`: the scenario to start on (None: `happy`; `a+b` combines two and is
-    added to the list). Raises UnknownScenario for an unknown name."""
+    added to the list); `limits`: the simulator's bounds (None: its defaults).
+    Raises UnknownScenario for an unknown name."""
 
-    def __init__(self, graph, name: str | None = None):
+    def __init__(self, graph, name: str | None = None, limits=None):
         self.graph = graph
+        self.limits = limits or simulator.Limits()
         self.canon = simulator.canonical(graph)
-        self.scenarios = simulator.scenarios(self.canon)
+        self.scenarios = simulator.scenarios(self.canon, limits=self.limits)
         names = [sc.name for sc in self.scenarios]
         if name is not None and name not in names:
             try:
-                self.scenarios.append(simulator.scenario(self.canon, name))
+                self.scenarios.append(simulator.scenario(self.canon, name, limits=self.limits))
             except KeyError as exc:
                 raise UnknownScenario(exc.args[0]) from None
             names.append(name)
@@ -373,7 +375,8 @@ class SimPlayer:
 
     def _run(self) -> None:
         """Simulate the chosen scenario and show its first frame."""
-        self.trace = simulator.simulate(self.canon, self.scenarios[self.index])
+        self.trace = simulator.simulate(self.canon, self.scenarios[self.index],
+                                        limits=self.limits)
         self.at = 0
         self._shown = {}                # SceneOptions → the trace projected onto them
 
@@ -390,9 +393,9 @@ class SimPlayer:
         """A player on a re-parsed document keeping this one's scenario (when it
         still exists, else `happy`), position (clamped), play state and speed."""
         try:
-            new = SimPlayer(graph, self.scenario.name)
+            new = SimPlayer(graph, self.scenario.name, self.limits)
         except UnknownScenario:
-            new = SimPlayer(graph)
+            new = SimPlayer(graph, None, self.limits)
         new.at = min(self.at, new.last)
         new.playing, new.speed, new.due = self.playing, self.speed, self.due
         return new
@@ -503,10 +506,13 @@ SIM_NAME = 24                                   # the name column (a longer name
 SIM_FACTS = ("states", "failed", "routes", "ignored", "waiting", "open", "bounds")
 
 
-def run_all(graph) -> list:
-    """[Trace]: every scenario of the document (sim.scenarios), each run once."""
+def run_all(graph, limits=None) -> list:
+    """[Trace]: every scenario of the document (sim.scenarios), each run once,
+    keeping only its final frame (sim_facts reads the rest from `end`)."""
+    limits = limits or simulator.Limits()
     canon = simulator.canonical(graph)
-    return [simulator.simulate(canon, sc) for sc in simulator.scenarios(canon)]
+    return [simulator.simulate(canon, sc, limits=limits, keep=False)
+            for sc in simulator.scenarios(canon, limits=limits)]
 
 
 def _state_text(scn, nid) -> str:
@@ -554,7 +560,7 @@ def sim_facts(trace, limits=None) -> dict:
                      + ", ".join(name(m) for m in d["missing"]) for d in end["deposits"]]
     facts = {k: list(dict.fromkeys(v)) for k, v in facts.items()}
     return {"name": sc.name, "label": sc.label, "outcome": trace.outcome,
-            "frames": len(trace.frames), **facts}
+            "frames": trace.frames[-1].tick + 1, **facts}
 
 
 _BOUND_TEXT = {"depth": "base case", "visits": "visit limit", "spawns": "spawn cap",
@@ -584,10 +590,7 @@ def _bound_text(ev: dict, name, scn) -> str:
 def _capped_loops(trace, limits, name) -> list:
     """Loops with no `@times` that ran the simulator's cap of iterations (the
     design says nothing about when they stop)."""
-    most = {}
-    for f in trace.frames:
-        for key, k in f.loops.items():
-            most[key] = max(most.get(key, 0), k)
+    most = trace.end["loops"]
     out = []
     for (owner, index), k in most.items():
         ref = _block_ref(trace.scene, owner, index)
@@ -648,18 +651,19 @@ def sim_summary(facts: list) -> str:
             f"{n['ok']} ok, {n['failed']} failed, {n['cut']} cut")
 
 
-def sim_batch(path: Path, mode: str, dialect=None, as_json: bool = False) -> int:
+def sim_batch(path: Path, mode: str, dialect=None, as_json: bool = False,
+              limits=None) -> int:
     """--sim list | all: print the scenarios (list) or every run's facts (all),
     as text or JSON; no drawing, no lint. Exit status 0: a run is information,
-    not a verdict."""
+    not a verdict. `limits`: the simulator's bounds (None: its defaults)."""
     kit.use_dialect(dialect)
     g = kit._call(kit.render.parse_document, path.read_text(), dialect)
     if mode == "list":
-        found = simulator.scenarios(simulator.canonical(g))
+        found = simulator.scenarios(simulator.canonical(g), limits=limits or simulator.Limits())
         text = (json.dumps([{"name": sc.name, "label": sc.label} for sc in found], indent=2,
                            ensure_ascii=False) if as_json else "\n".join(sim_list(found)))
     else:
-        facts = [sim_facts(t) for t in run_all(g)]
+        facts = [sim_facts(t, limits) for t in run_all(g, limits)]
         text = (json.dumps({"scenarios": facts, "summary": sim_summary(facts)}, indent=2,
                            ensure_ascii=False) if as_json else "\n".join(sim_table(facts)))
     print(text)
@@ -853,7 +857,8 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
          dialect=None, colour: bool = False, tree: bool = False,
          triggers: bool = True, spaced: bool = True, notes: str = "off",
          width: int | None = None, access: bool = False, mods: bool = False,
-         events: str | None = None, sim: str | None = None, checks: bool = False) -> int:
+         events: str | None = None, sim: str | None = None, checks: bool = False,
+         limits=None) -> int:
     """Print the drawing once. `width`: the columns to fit it to (None: its
     natural width); the legend wraps at the narrower of that and LEGEND_WIDTH.
     `events`: "land" | "nodes" (None: the view's default, DEFAULT_EVENTS).
@@ -870,7 +875,7 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
     options = scene.SceneOptions(events, triggers, access, depth)
     player = shown = None
     if sim is not None:
-        player = SimPlayer(g, sim)
+        player = SimPlayer(g, sim, limits)
         player.at = player.last
         shown = player.shown(options)
     overlay = check_failed = None
@@ -984,12 +989,13 @@ class ViewState:
                  do_lint: bool = True, dialect=None, tree: bool = False,
                  triggers: bool = True, spaced: bool = True, notes: str = "off",
                  access: bool = False, mods: bool = False, events: str | None = None,
-                 sim: str | None = None, checks: bool = False):
+                 sim: str | None = None, checks: bool = False, limits=None):
         """`events`: the events mode both views start in (None: each view's
         default, DEFAULT_EVENTS); each view then keeps its own (key v). `sim`: a
         scenario to start in sim mode on (None: sim mode off until x).
         `checks`: start with the checks overlay on (key c)."""
         self.path = path
+        self.limits = limits                   # the simulator's bounds (None: defaults)
         self.show_access = access
         self.show_mods = mods
         self.mode = ""
@@ -1083,9 +1089,9 @@ class ViewState:
             return
         name, self._sim_name = self._sim_name, None
         try:
-            self.player = self._sim(SimPlayer, self.graph, name)
+            self.player = self._sim(SimPlayer, self.graph, name, self.limits)
         except UnknownScenario as exc:  # say so, play `happy`
-            self.player = self._sim(SimPlayer, self.graph)
+            self.player = self._sim(SimPlayer, self.graph, None, self.limits)
             self.sim_error = f"sim: {exc}"
 
     def _ensure_checks(self) -> None:
@@ -1551,6 +1557,9 @@ def main(argv=None) -> int:
                     help="simulate a pathway: happy, a scenario's name, or a+b (--once: "
                          "the run's final frame, outcome and log; live: start in sim mode); "
                          "list: the scenarios; all: run every one, a table of outcomes")
+    ap.add_argument("--limit", action="append", default=[], metavar="NAME=N",
+                    help="raise one simulator bound for --sim (repeatable; e.g. frames=5000, "
+                         "depth=5)")
     ap.add_argument("--json", action="store_true",
                     help="with --sim list / all: print JSON instead of text")
     ap.add_argument("--checks", action="store_true",
@@ -1575,6 +1584,11 @@ def main(argv=None) -> int:
     elif a.dialect:
         print("view.py: --dialect needs dialects.py next to view.py", file=sys.stderr)
         return 2
+    try:
+        limits = simulator.limits_from(a.limit) if a.limit else None
+    except ValueError as exc:
+        print(f"view.py: {exc}", file=sys.stderr)
+        return 2
     if a.json and a.sim not in SIM_BATCH:
         print("view.py: --json needs --sim list or --sim all", file=sys.stderr)
         return 2
@@ -1584,20 +1598,20 @@ def main(argv=None) -> int:
     if (batch or once_out) and not _readable(a.file):
         return 2
     if batch:
-        return sim_batch(a.file, a.sim, dialect, a.json)
+        return sim_batch(a.file, a.sim, dialect, a.json, limits)
     if once_out:
         colour = a.color == "always" or (a.color == "auto" and tty_out)
         width = a.width or (shutil.get_terminal_size().columns if tty_out else ONCE_WIDTH)
         try:
             return once(a.file, a.depth, a.payloads, not a.no_lint, dialect, colour, a.tree,
                         not a.no_triggers, not a.compact, a.notes, width, a.access, a.mods,
-                        a.events, a.sim, a.checks)
+                        a.events, a.sim, a.checks, limits)
         except UnknownScenario as exc:     # the message lists the known ones
             print(f"view.py: --sim: {exc}", file=sys.stderr)
             return 2
     tui(ViewState(a.file, a.depth, a.payloads, not a.no_lint, dialect, a.tree,
                   not a.no_triggers, not a.compact, a.notes, a.access, a.mods, a.events,
-                  a.sim, a.checks))
+                  a.sim, a.checks, limits))
     return 0
 
 

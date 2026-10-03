@@ -207,7 +207,9 @@ run it to find out what the design does, not only to show the user.
    fan-out or `&` reaches everyone (no `open:` join, no `waiting:` node); `ignored:`
    events are ones the state should ignore; no `cut` and no `bounds:` the design
    should have stated — a base case, visit limit or spawn cap is a recursion, cycle
-   or spawn the design leaves open, and a loop at the cap has no `@times`.
+   or spawn the design leaves open, and a loop at the cap has no `@times`. To see
+   past a bound, rerun with `--limit NAME=N` (e.g. `depth=6`, `frames=5000`); that
+   explores further, it never fixes the design.
 3. A surprising row: `--once --tree --sim NAME` draws its last frame and prints the
    log, one `tNNN …` line per step; find where the run diverged from the intent.
 4. Propose the Sigil change (or ask) in the design's own terms; once it is made,

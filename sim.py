@@ -196,17 +196,36 @@ class Limits(NamedTuple):
     """The bounds that make every run end. `depth` is checked at every
     arrival (the base case: nothing runs); `activations`, `stack` and `frames` end
     the run with outcome "cut" — `stack` keeps a long sync chain inside Python's
-    recursion limit (each activation nests a few generator frames)."""
+    recursion limit (each activation nests a few generator frames). `activations`
+    and `frames` count per episode, so a design with many entries runs each of them
+    in full; a run's length is bounded by its entries times `frames`."""
     hop: int = 4               # ticks per hop
     iterations: int = 2        # loop repetitions
     depth: int = 3             # recursion depth / re-entry on one task's stack
     spawn: int = 2             # instances per dynamic child per parent; symbolic ×N
     spawns: int = 8            # instances per node in total
     visits: int = 3            # task-root activations of one node per episode (async cycles)
-    activations: int = 500     # activations per trace
+    activations: int = 500     # activations per episode
     stack: int = 64            # activations on one task's stack (nested sync work)
-    frames: int = 2000         # frames per trace
+    frames: int = 2000         # frames per episode
     scenarios: int = 64        # scenarios listed
+
+
+def limits_from(pairs, base: Limits = Limits()) -> Limits:
+    """`base` with each "name=N" of `pairs` set (the tools' --limit). Raises
+    ValueError naming a malformed pair, an unknown name or a value below 1."""
+    out = base
+    for pair in pairs:
+        name, sep, value = pair.partition("=")
+        name = name.strip()
+        if not sep or not value.strip().isdigit():
+            raise ValueError(f"--limit {pair!r}: expected NAME=N")
+        if name not in base._fields:
+            raise ValueError(f"--limit {name!r}: unknown (one of {', '.join(base._fields)})")
+        if int(value) < 1:
+            raise ValueError(f"--limit {name}: must be at least 1")
+        out = out._replace(**{name: int(value)})
+    return out
 
 
 class Scenario(NamedTuple):
@@ -738,6 +757,7 @@ class _Run:
         self.choices = dict(sc.choices)
         self.entries = list(_resolve_entries(prog, sc.entries))
         self.t, self.episode, self.entry = 0, 0, None
+        self.episode_t = 0             # the tick the current episode began
         self.tasks: list = []          # every task forked (numbers the next id)
         self.alive: list = []          # the tasks not ended yet, in fork order
         self.status: dict = {}
@@ -747,6 +767,7 @@ class _Run:
         self.changed, self.lit_now, self.ghosts = set(), set(), []
         self.counts = _setup_instances(prog, limits)
         self.loops, self.blocks, self.held = {}, Counter(), Counter()
+        self.loops_most: dict = {}     # (owner, block index) → the most iterations it ran
         self.visits, self.activations = Counter(), 0
         self.gates: dict = {}
         self.one_of = _one_of_groups(prog)
@@ -784,7 +805,7 @@ class _Run:
                 self.start_next = True
             else:
                 self.done = True
-        if not self.done and t + 1 >= self.limits.frames:
+        if not self.done and t + 1 - self.episode_t >= self.limits.frames:
             self._cut("frames")
         if self.done:
             self._log(f"done: {self.outcome()}")
@@ -799,7 +820,8 @@ class _Run:
         ui, nid = self.entries.pop(0)
         self.episode += 1
         self.entry = nid
-        self.visits = Counter()
+        self.episode_t = self.t
+        self.visits, self.activations = Counter(), 0
         self._log(f"episode {self.episode}: {self._name(nid)}")
         self._fork(lambda task: self._entry_gen(task, ui, nid), why="entry", node=nid)
 
@@ -946,7 +968,8 @@ class _Run:
         return {"machines": dict(self.machines), "routes": list(self.routes),
                 "stalled": list(dict.fromkeys(stalled)), "deposits": self._deposits(),
                 "cut": list(self.cut),
-                "visited": list(self.status), "log": list(self.log_all),
+                "visited": list(self.status), "loops": dict(self.loops_most),
+                "log": list(self.log_all),
                 "events": list(self.events)}
 
     # ---- helpers -----------------------------------------------------------
@@ -1539,6 +1562,7 @@ class _Run:
                     self._log(f"loop capped: @times {times} runs {n}")
                 for k in range(1, n + 1):
                     self.loops[key] = k
+                    self.loops_most[key] = max(self.loops_most.get(key, 0), k)
                     self._log(f"iteration {k}/{n}")
                     yield from self._items(task, r.items, arm)
             elif kind == "parallel":
@@ -2134,10 +2158,12 @@ def _resolve_entries(prog: Program, names) -> list:
 # simulate
 # ---------------------------------------------------------------------------
 
-def simulate(sc, scenario: Scenario, *, limits: Limits = Limits()) -> Trace:
+def simulate(sc, scenario: Scenario, *, limits: Limits = Limits(), keep: bool = True) -> Trace:
     """Run a scenario over a Scene (any Scene of the document: the run uses the
-    canonical one) and return its Trace. Raises KeyError for an unknown entry."""
-    return _simulate(_program_of(sc.graph), scenario, limits)
+    canonical one) and return its Trace. keep=False keeps only the final frame (its
+    tick + 1 is the run's length; `end` holds the rest). Raises KeyError for an
+    unknown entry."""
+    return _simulate(_program_of(sc.graph), scenario, limits, keep)
 
 
 _LAST_PROGRAM: list = [None, None]     # [graph, its Program]: the last one built
