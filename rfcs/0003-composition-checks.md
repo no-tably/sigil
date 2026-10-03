@@ -1,6 +1,6 @@
 # RFC 0003 — Composition checks
 
-- **Status:** Proposed 2026-10-02 (awaiting owner review)
+- **Status:** Proposed 2026-10-02; reviewed 2026-10-03 — all decided but Q10 (see Decisions)
 - **Date:** 2026-10-02
 - **Spec (to change on acceptance):** language.md "Recursion" (a bound may be
   stated), "Invariants" (a "Recognised invariants" table), "State machines"
@@ -371,6 +371,29 @@ and names that never reuse a core name.
   affect a run.
 - **Acknowledgements in a separate file.** Rejected: an acknowledgement belongs next
   to what it accepts, and comments are already parsed and anchored.
+
+## Decisions (owner review, 2026-10-03)
+
+| Q | Decision |
+|---|---|
+| 1 | **Accepted.** Only binding findings become errors in `#!spec`; advisory stay warnings, hints info; k ≥ 2-only and (until B1–B4 are fixed) trace findings cap at warn. |
+| 2 | **Yes, the route fires** ("notify, then yield"): `[A] -> [B] : f() @fallback(x)` with `!> <Degraded>` under it alerts *and* returns `x`. Degrade-and-alert then needs no new notation; a route with no fallback still means "fail and route". Revisit if a more ergonomic spelling appears. |
+| 3 | **Non-blocking deposit** (recommended): each `&` member deposits and goes on; the last arrival fires the target. Fixes the happy-path stall. |
+| 4 | **Accepted** — the 17 recognised `@inv` heads, the self-loop `S -<T>-> S` for "ignored on purpose", and their addition to language.md. |
+| 5 | **Yes** — a recursion may state a bound: `@inv depth <= N` or `@inv terminates`. |
+| 6 | **Accepted** — glued / node `×N` is cardinality (`Edge.card`); a `×N` trailing a call payload is a retry; payload-less trailing `×N` reads as cardinality with an info hint. |
+| 7 | **Reserve `#=` now** (unused until the decorated form lands; lint notes a stray `#=`). |
+| 8 | **Max** over the members that can win (a race can be won by its slow member when the fast one fails). |
+| 9 | **Allowed** — `@write(<stop>)` may name an event (the notation must not force a component in). |
+| 10 | **Open** — see below. |
+| 11 | **Non-atomic** (draft): `~|n| : ${state.n} + 1` is a read then a write; `@inv atomic` declares otherwise. |
+| 12 | **Accepted** — a specific transition beats `_`, in the spec and the simulator. |
+| 13 | **Yes** — a failed (timed-out) write is an access with an unknown outcome. |
+
+Recommendation for Q10: an actor is **one sequential caller** by default (fewer
+false findings), and a design declares concurrent callers with the cardinality it
+already has — `(User)×N` (Q6) — which makes every entry from that actor concurrent
+with itself for `lost-update` and `race`.
 
 ## Open questions for the reviewer
 
