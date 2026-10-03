@@ -286,7 +286,7 @@ view_graph.py · view_tree.py   the graph and tree views              │
 themes.py    YAML themes (themes/), shared with the page             ┘
 build.py     packaging (maintainers only)
 site/  the page and playground · tools/  golden drawings, doc regeneration
-docs/  the tools reference · rfcs/  design records
+docs/  the tools reference, viewer coverage audit · rfcs/  design records
 tests/  unit tests, fixtures and golden drawings · highlight/  editor grammars
 ```
 

@@ -1,5 +1,5 @@
-"""Regression tests for the lint.py review fixes — each test feeds the review's
-reproduction input and checks the corrected behaviour.
+"""lint.py parsing edge cases: block strings, state blocks, inert strings, arrows,
+payloads, modifiers, mode lines and the CLI entry point.
 
 Run:  python3 -m unittest discover tests
 """
@@ -19,7 +19,7 @@ def _load(name: str, fname: str):
     return mod
 
 
-lint = _load("sigil_lint_review", "lint.py")
+lint = _load("sigil_lint_parsing", "lint.py")
 
 
 def rules(text: str):

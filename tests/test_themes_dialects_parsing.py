@@ -1,4 +1,5 @@
-"""Regression tests for the review of themes.py and dialects.py.
+"""themes.py and dialects.py edge cases: the YAML parser, resolve, extends, the
+CLI and dialect module loading.
 
 Covers:
   - themes.parse: escaped double quotes, '' in single-quoted keys and values,
@@ -38,8 +39,8 @@ def _load(name: str, fname: str):
     return mod
 
 
-themes = _load("sigil_themes_review", "themes.py")
-dialects = _load("sigil_dialects_review", "dialects.py")
+themes = _load("sigil_themes_parsing", "themes.py")
+dialects = _load("sigil_dialects_parsing", "dialects.py")
 
 
 def _run(main, argv):
@@ -276,7 +277,7 @@ class TestDialects(_EnvCase):
 
     def test_one_module_across_copies_of_dialects(self):              # item 2
         d = self._dialect("sigil-shared")
-        other = _load("sigil_dialects_review_copy", "dialects.py")
+        other = _load("sigil_dialects_parsing_copy", "dialects.py")
         self.assertIsNot(other, dialects)
         self.assertIs(dialects.load(str(d)), other.load(str(d / "dialect.py")))
 

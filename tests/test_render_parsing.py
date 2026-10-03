@@ -1,4 +1,5 @@
-"""Regression tests for the render.py review fixes (one class per finding).
+"""render.py parsing edge cases: mid-line modifiers, expansions, one-line state
+machines, aliases, triggers, strings and payload modifiers (one class per case).
 
 Run:  python3 -m unittest discover tests
 """

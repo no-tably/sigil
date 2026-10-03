@@ -1,6 +1,6 @@
-"""Regression tests for build.py review fixes: install.sh argument handling and
-paths, --check robustness (archives, broken frontmatter), --version validation
-and Codex command paths.
+"""build.py robustness: install.sh argument handling and paths, --check on
+missing archives and broken frontmatter, --version validation, Codex command
+paths and byte-identical builds.
 
 Every install.sh run is isolated: HOME, XDG_CONFIG_HOME and OPENCODE_CONFIG_DIR
 all point into a temporary directory.
@@ -22,9 +22,9 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def _load_build():
-    spec = importlib.util.spec_from_file_location("sigil_build_review", ROOT / "build.py")
+    spec = importlib.util.spec_from_file_location("sigil_build_robustness", ROOT / "build.py")
     mod = importlib.util.module_from_spec(spec)
-    sys.modules["sigil_build_review"] = mod
+    sys.modules["sigil_build_robustness"] = mod
     spec.loader.exec_module(mod)
     return mod
 

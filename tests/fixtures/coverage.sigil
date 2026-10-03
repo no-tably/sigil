@@ -1,7 +1,7 @@
 #!sketch
 
 # Coverage fixture: exercises every core construct in language.md once.
-# Used by tests/fixtures/coverage-notes.md (viewer coverage audit).
+# Used by docs/coverage-notes.md (viewer coverage audit).
 retry := @after(exp-backoff, cap=1min)
 
 --- L1: Shop ---

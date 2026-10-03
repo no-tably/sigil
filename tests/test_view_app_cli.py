@@ -1,4 +1,4 @@
-"""Regression tests for view.py review fixes.
+"""view.py app edge cases: keys, lane strokes, the CLI, theme validation, legends.
 
 Covers:
   - re-centre (z) followed by a scroll key in the same read doesn't crash;
@@ -36,7 +36,7 @@ def _load(name: str, fname: str):
     return mod
 
 
-view = _load("sigil_view_review", "view.py")
+view = _load("sigil_view_app_cli", "view.py")
 
 
 def plain(rows):

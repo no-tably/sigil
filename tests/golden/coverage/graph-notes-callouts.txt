@@ -64,8 +64,8 @@
 
 #1  Coverage fixture: exercises every core                                                ┌────────────┐   ┌──────────────┐   ┌────────┐
     construct in language.md once. Used by                                                │ [Payments] │   │ [Checkout] ▾ │   │ <Push> │
-    tests/fixtures/coverage-notes.md (viewer                                              └────────────┘   └──────────────┘   └────────┘
-    coverage audit).                                                                               ╎                   ▲           │ ╏
+    docs/coverage-notes.md (viewer coverage                                               └────────────┘   └──────────────┘   └────────┘
+    audit).                                                                                        ╎                   ▲           │ ╏
 #2  entities: five glyphs, holes, generics,                                                        ╎                 ┌╌┘           └─┼──┐
     mutability, stream store                                                                       ╎                 ╎               └┐ │
 #3  arrows: each kind once, plus unicode                                                           ▼                 ▼                ▼ ▼

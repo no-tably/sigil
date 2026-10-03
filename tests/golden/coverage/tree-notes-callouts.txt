@@ -10,7 +10,7 @@
 #13 │ route by request kind                    │
 #1  ╭ Coverage fixture: exercises every core   ╮
     │ construct in language.md once. Used by   │
-    ╰ tests/fixtures/coverage-notes.md (viewe… ╯
+    ╰ docs/coverage-notes.md (viewer coverage… ╯
 #10 │ recursion                                │
 
                ── L1 · Shop ───────────────────────────────────────────────────────────────────────────────────────────
