@@ -48,6 +48,13 @@ Options:
                      or `a+b` to combine two. With --once: the final frame of the
                      run drawn over the view, the sim legend, then the outcome and
                      the run's log. Live: start in sim mode on that scenario.
+                     `list`: the scenarios, one a line with its label. `all`: run
+                     every scenario and print, with no drawing, a line per run —
+                     name, outcome, frames, label — then its facts (machines' end
+                     states, what failed, routes taken, ignored events, nodes left
+                     waiting, open joins, bounds hit) and a summary line; diff
+                     two versions' tables to see what changed. Exit status 0.
+    --json           With --sim list / all: the same as JSON.
     --checks         The composition checks overlay (check.py, the document's mode):
                      with --once, the findings marked on the drawing, the checks
                      legend, then the findings list (each finding's question) after
@@ -138,6 +145,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import os
 import re
 import select
@@ -481,6 +489,181 @@ def sim_report(player: SimPlayer) -> list[str]:
     head = f"sim {sc.name}" + (f" ({sc.label})" if sc.label else "")
     head += f": {trace.outcome} · {len(trace.frames)} frames"
     return [head] + list(trace.end["log"])
+
+
+# -- every scenario at once (--sim list / --sim all): text an agent reads and
+#    diffs between two versions of a design. Running is the edge (run_all); the
+#    facts and the table are pure. No scenario is named `list` or `all`: sim.py
+#    names a deviation after its choice point, always with punctuation
+#    (`API.charge:fails`, `Risk?>Review`, `Order.Open-Paid->Settled`). --------
+
+SIM_BATCH = ("list", "all")
+SIM_WIDTH = 100                                 # the table's columns
+SIM_NAME = 24                                   # the name column (a longer name pushes)
+SIM_FACTS = ("states", "failed", "routes", "ignored", "waiting", "open", "bounds")
+
+
+def run_all(graph) -> list:
+    """[Trace]: every scenario of the document (sim.scenarios), each run once."""
+    canon = simulator.canonical(graph)
+    return [simulator.simulate(canon, sc) for sc in simulator.scenarios(canon)]
+
+
+def _state_text(scn, nid) -> str:
+    """A machine state as a transition writes it (`Open`, `+`, `$`)."""
+    sn = scn.nodes.get(nid)
+    if sn is None:
+        return str(nid)
+    return {"start": "+", "end": "$", "any": "_"}.get(sn.node.attrs.get("pseudo"), sn.node.name)
+
+
+def sim_facts(trace, limits=None) -> dict:
+    """What one run did, as an agent judges it: the scenario's name and label, its
+    outcome and length, then each fact (SIM_FACTS, lists of text, written order,
+    no repeats) — `states` each machine's end state, `failed` what failed (a node,
+    or a call `A -> B`, `↩ fallback` / `critical`), `routes` the failure routes
+    taken, `ignored` events a machine's state had no transition for, `waiting`
+    nodes still blocked at the end, `open` `&` joins left open, `bounds` every
+    simulator bound hit (base case, visit limit, spawn cap, a loop capped or run
+    at the cap with no `@times`, a cut)."""
+    limits = limits or simulator.Limits()
+    scn, end, sc = trace.scene, trace.end, trace.scenario
+    name = lambda nid: kit.node_label(scn.nodes[nid].node) if nid in scn.nodes else str(nid)
+    wires = {w.ident: w for w in scn.wires}
+    wire = lambda ident: (f"{name(wires[ident].src)} {wires[ident].kind} "
+                          f"{name(wires[ident].dst)}" if ident in wires else str(ident))
+    facts = {k: [] for k in SIM_FACTS}
+    facts["states"] = [f"{name(o)} {_state_text(scn, s)}" for o, s in end["machines"].items()]
+    for ev in end["events"]:
+        kind = ev["kind"]
+        if kind == "fail":
+            what, at = ev["origin"]
+            text = name(at) if what == "node" else wire(at)
+            text += " ↩ fallback" if ev.get("fallback") else " critical" if ev.get("critical") else ""
+            facts["failed"].append(text)
+        elif kind == "route":
+            facts["routes"].append(wire(ev["wire"]))
+        elif kind == "ignored":
+            facts["ignored"].append(f"{name(ev['event'])} in {name(ev['owner'])} "
+                                    f"{_state_text(scn, ev['state'])}")
+        elif kind == "limit":
+            facts["bounds"].append(_bound_text(ev, name, scn))
+    facts["bounds"] += _capped_loops(trace, limits, name)
+    facts["waiting"] = [name(n) for n in end["stalled"]]
+    facts["open"] = [f"{name(d['target'])} missing "
+                     + ", ".join(name(m) for m in d["missing"]) for d in end["deposits"]]
+    facts = {k: list(dict.fromkeys(v)) for k, v in facts.items()}
+    return {"name": sc.name, "label": sc.label, "outcome": trace.outcome,
+            "frames": len(trace.frames), **facts}
+
+
+_BOUND_TEXT = {"depth": "base case", "visits": "visit limit", "spawns": "spawn cap",
+               "iterations": "loop capped"}
+
+
+def _block_ref(scn, owner, index):
+    """The scene.BlockRef of a unit's block (None: not in this scene)."""
+    return next((b for b in scn.blocks if b.owner == owner and b.index == index), None)
+
+
+def _block_line(scn, owner, index) -> int:
+    ref = _block_ref(scn, owner, index)
+    return ref.block.lines[0] if ref is not None and ref.block.lines else 0
+
+
+def _bound_text(ev: dict, name, scn) -> str:
+    """A `limit` event as a bound: `base case at [Walker]`, `cut: frames limit`."""
+    what = ev["name"]
+    if what not in _BOUND_TEXT:
+        return f"cut: {what} limit"
+    if what == "iterations":
+        return f"loop capped at line {_block_line(scn, ev['node'], ev.get('block'))}"
+    return f"{_BOUND_TEXT[what]} at {name(ev['node'])}" if ev.get("node") else _BOUND_TEXT[what]
+
+
+def _capped_loops(trace, limits, name) -> list:
+    """Loops with no `@times` that ran the simulator's cap of iterations (the
+    design says nothing about when they stop)."""
+    most = {}
+    for f in trace.frames:
+        for key, k in f.loops.items():
+            most[key] = max(most.get(key, 0), k)
+    out = []
+    for (owner, index), k in most.items():
+        ref = _block_ref(trace.scene, owner, index)
+        if ref is None or any(n == "times" for n, _a in ref.block.modifiers):
+            continue
+        if k >= limits.iterations:
+            out.append(f"loop at line {_block_line(trace.scene, owner, index)} "
+                       f"ran {k}/{limits.iterations} (the cap, no @times)")
+    return out
+
+
+def _fit(head: str, tail: str, width: int) -> list[str]:
+    """head + tail on one line when it fits in width, else tail on an indented
+    line of its own."""
+    if not tail:
+        return [head.rstrip()]
+    if len(head) + len(tail) <= width:
+        return [head + tail]
+    return [head.rstrip(), "    " + tail]
+
+
+def sim_list(scenarios, width: int = SIM_WIDTH) -> list[str]:
+    """--sim list: one line per scenario, its name then its label."""
+    pad = min(max((len(sc.name) for sc in scenarios), default=0), 32) + 2
+    return [ln for sc in scenarios for ln in _fit(f"{sc.name:<{pad}}", sc.label, width)]
+
+
+def sim_table(facts: list, width: int = SIM_WIDTH) -> list[str]:
+    """--sim all: per scenario a line `name  outcome  N frames  label` (the label
+    on a line of its own when it doesn't fit), then an indented line per fact it
+    has (`  failed: …`, wrapped at width); then a summary line. Columns are
+    fixed (SIM_NAME), never fitted to the other runs, so a diff between two
+    versions of a design shows only the runs that changed."""
+    out = []
+    for f in facts:
+        head = f"{f['name']:<{SIM_NAME}} {f['outcome']:<6} {f['frames']:>4} frames  "
+        out += _fit(head, f["label"], width)
+        out += [ln for k in SIM_FACTS if f[k] for ln in _fact_lines(k, f[k], width)]
+    return out + [sim_summary(facts)]
+
+
+def _fact_lines(key: str, items: list, width: int) -> list[str]:
+    """`  key: a · b · c`, wrapped between items (never inside one) at width."""
+    lines, line = [], f"  {key}: {items[0]}"
+    for item in items[1:]:
+        if len(line) + 3 + len(item) > width:
+            lines.append(line)
+            line = "      " + item
+        else:
+            line += " · " + item
+    return lines + [line]
+
+
+def sim_summary(facts: list) -> str:
+    """`N scenarios: a ok, b failed, c cut`."""
+    n = {o: sum(f["outcome"] == o for f in facts) for o in ("ok", "failed", "cut")}
+    return (f"{len(facts)} scenario{'s' if len(facts) != 1 else ''}: "
+            f"{n['ok']} ok, {n['failed']} failed, {n['cut']} cut")
+
+
+def sim_batch(path: Path, mode: str, dialect=None, as_json: bool = False) -> int:
+    """--sim list | all: print the scenarios (list) or every run's facts (all),
+    as text or JSON; no drawing, no lint. Exit status 0: a run is information,
+    not a verdict."""
+    kit.use_dialect(dialect)
+    g = kit._call(kit.render.parse_document, path.read_text(), dialect)
+    if mode == "list":
+        found = simulator.scenarios(simulator.canonical(g))
+        text = (json.dumps([{"name": sc.name, "label": sc.label} for sc in found], indent=2,
+                           ensure_ascii=False) if as_json else "\n".join(sim_list(found)))
+    else:
+        facts = [sim_facts(t) for t in run_all(g)]
+        text = (json.dumps({"scenarios": facts, "summary": sim_summary(facts)}, indent=2,
+                           ensure_ascii=False) if as_json else "\n".join(sim_table(facts)))
+    print(text)
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -1367,7 +1550,10 @@ def main() -> int:
                          f"width, or {ONCE_WIDTH} when stdout is not a terminal)")
     ap.add_argument("--sim", default=None, metavar="SCENARIO",
                     help="simulate a pathway: happy, a scenario's name, or a+b (--once: "
-                         "the run's final frame, outcome and log; live: start in sim mode)")
+                         "the run's final frame, outcome and log; live: start in sim mode); "
+                         "list: the scenarios; all: run every one, a table of outcomes")
+    ap.add_argument("--json", action="store_true",
+                    help="with --sim list / all: print JSON instead of text")
     ap.add_argument("--checks", action="store_true",
                     help="the composition checks overlay (check.py): findings marked on the "
                          "drawing, listed with their questions (live: start with it on, key c)")
@@ -1390,6 +1576,11 @@ def main() -> int:
     elif a.dialect:
         print("view.py: --dialect needs dialects.py next to view.py", file=sys.stderr)
         return 2
+    if a.json and a.sim not in SIM_BATCH:
+        print("view.py: --json needs --sim list or --sim all", file=sys.stderr)
+        return 2
+    if a.sim in SIM_BATCH:                 # never drawn: the same live or --once
+        return sim_batch(a.file, a.sim, dialect, a.json)
     tty_out = sys.stdout.isatty()
     if a.once or not tty_out or not sys.stdin.isatty():
         colour = a.color == "always" or (a.color == "auto" and tty_out)

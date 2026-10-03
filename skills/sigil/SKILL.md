@@ -59,7 +59,8 @@ All scripts are Python 3 standard library only. Write the document to a file
 | Show comments | `python3 scripts/view.py FILE --once --notes markers` (`--notes callouts` in `--tree`) | commented nodes tagged `#N`, notes listed (or drawn as margin boxes) |
 | Hierarchy + wiring | `python3 scripts/view.py FILE --once --tree [--compact]` | composition tree as an outline, each flow as a lane (`●` source, `◀` targets) + legend; `--compact` drops the blank row between top-level units |
 | Live view for a human | `python3 scripts/view.py FILE` | full-screen view that redraws on every save (tell the user to run it in their own terminal); keys: `t` tree/graph, `x` sim mode (in it: space play / pause, `,` `.` step, `[` `]` scenario, `-` `+` speed), `n` notes, `e` triggers, `v` events (where they land / as nodes), `s` spacing, `f` fit to the window / natural layout with free pan, `c` checks overlay, `d` depth, `p` payloads, `m` modifiers, `a` access, `l` lint, arrows / `h j k L` or mouse drag / wheel pan, `z` centre, `g` home, `r` reload, `q` quit |
-| Walk a pathway | `python3 scripts/view.py FILE --once --tree --sim SCENARIO` | the run's last frame over the drawing (`✕` failed, `◉` a machine's state, lit vs muted wires), then `sim NAME (label): ok\|failed\|cut · N frames` and the run's log, one `tNNN …` line per step; exit 2 for an unknown scenario, listing the known ones |
+| Run every pathway | `python3 scripts/view.py FILE --sim all [--json]` | no drawing: per scenario `NAME outcome N frames label`, then indented facts — `states:` each machine's end state, `failed:` what failed (`↩ fallback`, `critical`), `routes:` failure routes taken, `ignored:` events a state had no transition for, `waiting:` nodes left blocked, `open:` joins left open, `bounds:` a base case, visit limit, spawn cap, loop at the cap or cut — then `N scenarios: a ok, b failed, c cut`; always exit 0. `--sim list`: the scenario names and labels |
+| Walk one pathway | `python3 scripts/view.py FILE --once --tree --sim SCENARIO` | the run's last frame over the drawing (`✕` failed, `◉` a machine's state, lit vs muted wires), then `sim NAME (label): ok\|failed\|cut · N frames` and the run's log, one `tNNN …` line per step; exit 2 for an unknown scenario, listing the known ones |
 | Mark the findings | `python3 scripts/view.py FILE --once --checks [--tree]` | the check findings marked on the drawing, a checks legend, then each finding's question after lint |
 | Mermaid diagram | `python3 scripts/render.py FILE [--depth N\|all] [--composition subgraphs\|edges\|none]` | `flowchart TD` source; present it in a fenced `mermaid` block. Composition trees draw as subgraphs by default |
 
@@ -125,14 +126,26 @@ document after every substantive change; offer a tighten pass every few turns;
 propose promotion to `#!sketch` / `#!spec` once holes are resolved. Do not
 produce a finished-looking spec prematurely or drop into algorithm internals.
 
-After each change run `python3 scripts/lint.py FILE --deep` (lint plus the
-composition checks — see **check** below) and put the findings' questions to the
-user alongside your next step; before promoting to `#!spec`, run
-`python3 scripts/check.py FILE --mode spec` and resolve every error.
-
 Keep the craft document in a file and rewrite that file after every change: a user
-running `python3 scripts/view.py FILE` in a side pane sees the graph redraw live, and
-you check the same drawing with `python3 scripts/view.py FILE --once` before replying.
+running `python3 scripts/view.py FILE` in a side pane sees the graph redraw live.
+After each substantive change, test-drive it before replying:
+1. `python3 scripts/lint.py FILE --deep` — lint plus the composition checks (see
+   **check**); put the findings' questions to the user alongside your next step.
+2. `python3 scripts/view.py FILE --sim all` — run every pathway (see **simulate**)
+   and read the table against what the user said the system should do.
+3. Drill into any surprising row with `--once --tree --sim NAME` and its log.
+4. Turn what you found into a proposed design change or a question for the user —
+   never a silent fix.
+5. After the change, run `--sim all` again and compare it with the previous table:
+   a row whose outcome, states, failures or routes changed without being meant to
+   is a behaviour regression — say so.
+
+The outcomes the user confirms ("a declined card cancels the order") are the
+design's acceptance tests: re-check them on every run, and keep them in the
+document as plain comments if that helps (`# expected: Payments:fails → {Order}
+Cancelled` — free text, no tool reads it). Check the drawing with
+`python3 scripts/view.py FILE --once` before replying. Before promoting to `#!spec`,
+run `python3 scripts/check.py FILE --mode spec` and resolve every error.
 
 ### lint — validate
 Run `python3 scripts/lint.py FILE`. Report each diagnostic with a suggested fix
@@ -178,29 +191,29 @@ are errors); in sketch they are hidden (`--all` shows them).
 To show the user where the findings sit, draw them: `python3 scripts/view.py FILE
 --once --checks` (or `c` in the live view).
 
-### simulate — walk the pathways
+### simulate — run the design while you build it
 Sigil does not execute; `view.py --sim` is the viewer's reading of a design — tokens
-moving along its flows, deterministic, no values computed. Use it to check that a
-design does what the prose says: that each failure ends somewhere, a fan-out reaches
-everyone, events move each state machine where they should.
-1. List the scenarios: `python3 scripts/view.py FILE --once --sim list` (an unknown
-   name prints `known: happy, …` and exits 2). `happy` takes every default (calls
-   succeed, `?>` skipped, the first member of a race / alternative / branch wins); each
-   other name is one deviation — `Caller.verb:fails` / `:fallback`, `Src->Dst:fails`,
-   `Node:fails`, `Src?>Dst`, `Src&?Member`, `Src/Member`, `header=arm`. `a+b` combines two.
-2. Run `happy`, then each failure / branch scenario that matters, with
-   `--once --tree --sim NAME` (the tree view is the compact one; drop `--tree` for the
-   graph). Read the summary line's outcome and the log.
-3. Report what the run shows in the design's own terms: a failure with no `!>` route
-   (`failed` with nothing lit after it), a state machine that ends in an unexpected
-   state, a `*>` or `&` target never reached, a bound hit — the log says
-   `base case: X at depth n`, `spawn cap reached`, `visit limit: X` or
-   `cut: … limit` (outcome `cut`): a recursion, spawn or cycle the design leaves open.
-   A loop only logs `iteration k/n`, where n is its `@times` count capped at the
-   simulator's bound (2 by default): nothing marks a capped loop, so `iteration 2/2`
-   on a loop with no `@times` (or a larger one) means the bound stopped it.
-   Then propose the Sigil fix; the simulator's choices (bounds, written order) are not
-   part of the design, so do not present them as the design's behaviour.
+moving along its flows, deterministic, no values computed. It is your test harness:
+run it to find out what the design does, not only to show the user.
+1. `python3 scripts/view.py FILE --sim all` runs every scenario. `happy` takes every
+   default (calls succeed, `?>` skipped, the first member of a race / alternative /
+   branch wins); each other row is one deviation — `Caller.verb:fails` / `:fallback`,
+   `Src->Dst:fails`, `Node:fails`, `Src?>Dst`, `Src&?Member`, `Src/Member`,
+   `header=arm`, `Owner.State-ev->Other`. `--sim list` lists them; `a+b` combines two
+   for a single run.
+2. Judge each row against the intent: every failure ends somewhere intended (a
+   `routes:` entry, a fallback, or a `failed` the user accepts — `failed` with no
+   route is a failure nobody handles); machines end in the expected `states:`; a
+   fan-out or `&` reaches everyone (no `open:` join, no `waiting:` node); `ignored:`
+   events are ones the state should ignore; no `cut` and no `bounds:` the design
+   should have stated — a base case, visit limit or spawn cap is a recursion, cycle
+   or spawn the design leaves open, and a loop at the cap has no `@times`.
+3. A surprising row: `--once --tree --sim NAME` draws its last frame and prints the
+   log, one `tNNN …` line per step; find where the run diverged from the intent.
+4. Propose the Sigil change (or ask) in the design's own terms; once it is made,
+   `--sim all` again and diff against the previous table. The simulator's own
+   choices (bounds, written order, ticks, frame counts) are not the design's
+   behaviour — don't present them as such; a frame count moving is not a regression.
 
 The user can watch the same runs live: `python3 scripts/view.py FILE`, then `x`
 (space play / pause, `[` `]` scenario).

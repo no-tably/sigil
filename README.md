@@ -193,6 +193,26 @@ t030 episode 1 failed
 t030 done: failed
 ```
 
+An agent designing with you runs every scenario at once: `--sim all` prints, with no
+drawing, a line per run (name, outcome, frames, label) and the facts that judge it
+(each state machine's end state, what failed, the routes taken, any bound hit), then
+a summary. Diff two versions' tables to see what a change did to the design's
+behaviour; `--sim list` lists the scenarios and `--json` prints either as JSON.
+
+```sh
+view.py orders.sigil --once --sim all
+```
+
+```
+happy                    ok       32 frames  every default: the happy path
+  states: [Checkout] Idle · {Order} Settled
+Payments:fails           failed   32 frames  Payments fails → Declined
+  states: [Checkout] Idle · {Order} Cancelled
+  failed: [Payments]
+  routes: [Payments] !> <Declined>
+2 scenarios: 1 ok, 1 failed, 0 cut
+```
+
 ## Themes
 
 One YAML file colours both the terminal viewer and the web page:

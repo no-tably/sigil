@@ -60,8 +60,15 @@ Options:
   `land`, the graph view to `nodes`.
 - `--notes markers|callouts` shows comments as `#N` tags with a notes list, or as boxes
   in a left margin tied to their rows (tree view).
-- `--sim SCENARIO` runs one pathway of the design and draws its last frame (see
-  [Simulation](../README.md#simulation)).
+- `--sim SCENARIO` runs one pathway of the design and draws its last frame, then the
+  outcome and the run's log (see [Simulation](../README.md#simulation)). `--sim list`
+  prints the scenarios, one per line with its label. `--sim all` runs every scenario
+  and prints no drawing: a line per run (name, outcome, frames, label), indented
+  facts (`states:` each machine's end state, `failed:`, `routes:` the failure routes
+  taken, `ignored:` events a state had no transition for, `waiting:`, `open:` joins
+  left open, `bounds:` base case, visit limit, spawn cap, a capped loop, a cut) and a
+  summary line. It always exits 0; diff two versions' tables to see what changed.
+  `--json` prints either as JSON.
 - `--checks` marks composition-check findings on the drawing, with a checks legend.
   Each finding's question follows the lint summary.
 - `--compact` starts without the blank row between top-level units.

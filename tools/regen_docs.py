@@ -12,7 +12,9 @@ regen_docs.py — regenerate the drawings embedded in the docs from view.py.
   from the README's first ```sigil block (`view.py --once`, summary included);
 - README.md: the block after the `--sim` command in "Simulation" is the real run of
   that command on site/examples/01-checkout.sigil (published as checkout.sigil):
-  the drawing, then the `sim …` summary and log (legend and lint summary left out).
+  the drawing, then the `sim …` summary and log (legend and lint summary left out);
+- README.md: the block after `view.py orders.sigil --once --sim all` is that
+  command's output on site/examples/04-orders.sigil (published as orders.sigil).
 
 Standard library only.
 """
@@ -29,6 +31,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 SIM_EXAMPLE = ROOT / "site" / "examples" / "01-checkout.sigil"
+SIM_ALL_EXAMPLE = ROOT / "site" / "examples" / "04-orders.sigil"
 
 
 def run(src: str, *args: str) -> str:
@@ -97,10 +100,22 @@ def readme_sim(text: str) -> tuple[str, int]:
     return text.replace(old.group(0), old.group(0).replace(old.group(3), new)), 1
 
 
+def readme_sim_all(text: str) -> tuple[str, int]:
+    old = re.search(r"```sh\nview.py orders.sigil --once --sim all\n```\n\n```\n(.*?)```",
+                    text, re.S)
+    if not old:
+        return text, 0
+    new = tidy(run(SIM_ALL_EXAMPLE.read_text(encoding="utf-8"), "--sim", "all"))
+    if new == old.group(1):
+        return text, 0
+    return text.replace(old.group(0), old.group(0).replace(old.group(1), new)), 1
+
+
 def readme_all(text: str) -> tuple[str, int]:
     text, a = readme(text)
     text, b = readme_sim(text)
-    return text, a + b
+    text, c = readme_sim_all(text)
+    return text, a + b + c
 
 
 def main() -> int:
