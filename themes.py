@@ -296,7 +296,8 @@ def names() -> list[str]:
 _USAGE = "usage: themes.py [NAME|PATH] | --list | --help"
 
 
-def main(argv: list[str]) -> int:
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
     if argv[:1] in (["-h"], ["--help"]):
         print(__doc__.strip())
         return 0
@@ -316,4 +317,4 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())

@@ -3,10 +3,22 @@
 Every tool is a Python 3 script with no dependencies beyond the standard library.
 Each one takes a file, or `-` for stdin. The [README](../README.md) has the overview.
 
+## Exit codes
+
+Every tool shares one table, and prints its errors to stderr as `tool.py: message`.
+
+| Code | Means |
+| --- | --- |
+| 0 | OK: nothing to report (`--sim all` and `--rules` always exit 0) |
+| 1 | warnings or findings only |
+| 2 | errors: an error-severity diagnostic or finding, bad usage, or input the tool cannot read |
+
+One exception: `view.py --once` exits 1 on a lint error, since the drawing is its output.
+
 ## `lint.py FILE|-`
 
 Validates a document and prints one `severity:line:rule: message` line per issue.
-It exits 0 when clean, 1 on warnings and 2 on errors.
+Its exit code follows the [table](#exit-codes): 0 clean, 1 warnings, 2 errors.
 
 - `--deep` also runs the composition checks (`check.py`) and merges both reports into
   one list by line. Acknowledged findings come last, as `accepted:` lines. The exit
@@ -25,7 +37,7 @@ A finding never forbids a shape. You satisfy it by declaring the handling in the
 notation (`@timeout`, `×N`, `!>`, `@inv …`), or with a reasoned
 `# accepts: rule-name — reason` comment. Severity follows the document's mode:
 `#!sketch` hides findings, `#!craft` asks them as questions, and `#!spec` makes the
-binding rules errors. The line format and exit codes match lint.
+binding rules errors. The line format and [exit codes](#exit-codes) match lint.
 
 - `--mode sketch|craft|spec` checks as another mode.
 - `--k N` explores up to N failures per run.
@@ -46,7 +58,8 @@ beside it).
 
 Options:
 
-- `--once` prints the drawing and a lint summary, then exits (1 on a lint error).
+- `--once` prints the drawing and a lint summary, then exits (1 on a lint error; see
+  [exit codes](#exit-codes)).
 - `--tree` starts in the tree view.
 - `--depth N|all` opens `X := { … }` expansions.
 - `--payloads` shows flow payloads: chips on edges in the graph view, a list in the

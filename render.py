@@ -672,14 +672,57 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
     # Dialect line strips first (dialect-only syntax that must not leak as glyphs).
     for strip in _hook(dialect, "render_line_strips"):
         stripped = strip(stripped)
+    stripped, mods = _capture_mods(stripped)        # mods: [(column, (name, arg))]
+    stripped, payload, payload_span = _take_payload(stripped, mods)
+    tokens, event_args, glued = _tokenize_flow(stripped, layer, dialect, mods)
+    tokens, paths = _fold_paths(tokens)
+    if not any(t[0] == "glyph" for t in tokens):
+        return last_src
 
-    # Modifiers are captured with their column and blanked (length-preserving, so
-    # the columns of everything else stay put). Stream bounds first (their
-    # `@policy` is not a modifier of its own); then the permission-graph access
-    # lists `@read(…)` / `@write(…)` — principal NAMES, which must not read as
-    # actor glyphs; then every other modifier with its argument — not an `@`
-    # inside a `"…"` string (`: "ops@example.com"` is payload text).
-    mods = []                                   # (column, (name, arg))
+    # Every hole is its own node: `[?] -> [X]` and `[?] -> [Y]` are two unknowns.
+    for kind, tok, _c in tokens:
+        if kind == "glyph" and tok.is_hole:
+            graph.hole_seq[0] += 1
+            tok.id = f"{tok.id}{graph.hole_seq[0]}"
+
+    if first is not None:
+        first.append(next(t[1] for t in tokens if t[0] == "glyph"))
+
+    groups, links, link_cols = _group_endpoints(tokens, graph, last_src)
+    placed = _place_groups(groups, graph, paths, event_args, line_no)
+    new_edges, final, op_edges, link_edges = _fan_out(groups, links, line_no)
+    if payload:
+        for e in final:
+            e.payload = f"{e.target_op} : {payload}" if e.target_op else payload
+        new_edges += _return_emits(graph, final, payload, layer, line_no)
+    graph.edges.extend(new_edges)
+    _attach_mods(mods, tokens, graph, final=final, op_edges=op_edges, link_edges=link_edges,
+                 link_cols=link_cols, glued=glued, payload=payload,
+                 payload_span=payload_span, layer=layer, line_no=line_no)
+
+    if out is not None:
+        out["nodes"] = list(dict.fromkeys(placed))
+        out["edges"] = new_edges
+    head = groups[0]
+    if head.get("inherited"):
+        for e in new_edges:
+            e.cont = last_src.line
+        if any(e.kind != "!>" for e in new_edges):
+            return last_src._replace(line=line_no)
+        return last_src
+    return Subject(tuple(n.id for n in head["nodes"]), head["join_idx"],
+                   tuple(head.get("paths") or ()), line_no)
+
+
+def _capture_mods(stripped: str) -> tuple:
+    """Capture a line's modifiers with their column and blank them (length-preserving,
+    so the columns of everything else stay put). Stream bounds first (their `@policy` is not
+    a modifier of its own); then the permission-graph access lists `@read(…)` /
+    `@write(…)` — principal NAMES, which must not read as actor glyphs; then every
+    other modifier with its argument — not an `@` inside a `"…"` string (`:
+    "ops@example.com"` is payload text).
+    Returns (the blanked line, [(column, (name, arg))])."""
+    mods = []
 
     def capture(rx, s, pair):
         for start, end in _mod_spans(rx, s):
@@ -693,8 +736,14 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
     stripped = capture(STREAM_BOUND_RE, stripped, lambda tok: ("^", tok[1:]))
     stripped = capture(PERMISSION_SET_RE, stripped, mod_pair)
     stripped = capture(MODIFIER_RE, stripped, mod_pair)
-    # The terminal `: payload` (not a `:=` alias) is kept as text for the edge,
-    # less its trailing cardinality / stream-bound / `!` modifiers.
+    return stripped, mods
+
+
+def _take_payload(stripped: str, mods: list) -> tuple:
+    """Take the terminal `: payload` (not a `:=` alias), kept as text for the edge
+    less its trailing cardinality / stream-bound / `!` modifiers and alias
+    references, which join `mods`. Returns (the line with the payload
+    blanked, the payload text or None, its (start, end) span or (-1, -1))."""
     payload = None
     payload_span = (-1, -1)
     pm = PAYLOAD_RE.search(stripped)
@@ -717,8 +766,14 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
         payload = raw.replace(_GAP, "").strip() or None
         stripped = stripped[:pm.start()] + _blank(pm.end() - pm.start()) + stripped[pm.end():]
         stripped = PAYLOAD_RE.sub(lambda m: _blank(len(m.group(0))), stripped)
+    return stripped, payload, payload_span
 
-    # Tokenize into glyphs, arrows, joins, op-call targets and glued modifiers.
+
+def _tokenize_flow(stripped: str, layer: str, dialect, mods: list) -> tuple:
+    """Tokenize a blanked flow line into glyphs, arrows, joins, op-call targets
+    and glued modifiers (those join `mods`). Returns (tokens as (kind, value,
+    column), {id(event token): its `(…)` argument}, columns of `×N` glued to a
+    glyph)."""
     tokenizers = list(_hook(dialect, "render_tokenizers"))
     tokens = []                                 # (kind, value, column)
     event_args = {}                             # id(event token) -> its `(…)` argument
@@ -801,8 +856,12 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
             continue                            # prev_was_glyph unchanged
         i += 1  # skip unrecognized chars
         prev_was_glyph = False
+    return tokens, event_args, glued
 
-    # Fold `a/b/c` into one reference to `c`, remembering its qualifying path.
+
+def _fold_paths(tokens: list) -> tuple:
+    """Fold `a/b/c` into one reference to `c`, remembering its qualifying path.
+    Returns (the tokens without slashes, {id(node token): (name, …, name)})."""
     paths = {}                                  # id(node token) -> (name, …, name)
     folded = []
     for tok in tokens:
@@ -814,24 +873,16 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
             paths[id(val)] = paths.pop(id(prev), (prev.name,)) + (val.name,)
         folded.append(tok)
     tokens = [t for t in folded if t[0] != "slash"]
+    return tokens, paths
 
-    if not any(t[0] == "glyph" for t in tokens):
-        return last_src
 
-    # Every hole is its own node: `[?] -> [X]` and `[?] -> [Y]` are two unknowns.
-    for kind, tok, _c in tokens:
-        if kind == "glyph" and tok.is_hole:
-            graph.hole_seq[0] += 1
-            tok.id = f"{tok.id}{graph.hole_seq[0]}"
-
-    if first is not None:
-        first.append(next(t[1] for t in tokens if t[0] == "glyph"))
-
-    # Group the line into endpoints separated by arrows. A `&` / `&?` / `/` join
-    # extends the current endpoint; two glyphs with no operator between them are
-    # separate endpoints with no edge (None). A continuation line (leading arrow)
-    # takes the inherited subject as its first endpoint. An op-call target is an
-    # endpoint standing for the endpoint before it (the caller runs the op).
+def _group_endpoints(tokens: list, graph: Graph, last_src) -> tuple:
+    """Group the line into endpoints separated by arrows. A `&` / `&?` / `/` join
+    extends the current endpoint; two glyphs with no operator between them are
+    separate endpoints with no edge (None). A continuation line (leading arrow) takes
+    the inherited subject as its first endpoint. An op-call target is an endpoint
+    standing for the endpoint before it (the caller runs the op).
+    Returns (groups, links, link_cols)."""
     groups: list = []         # {"nodes": [Node], "join": kind, "join_idx", "op"}
     links: list = []          # links[k] joins groups[k] -> groups[k+1]
     link_cols: list = []      # the column of links[k]'s arrow (None: no arrow)
@@ -883,7 +934,14 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
             joining = None
     if cur is not None:
         groups.append(cur)
+    return groups, links, link_cols
 
+
+def _place_groups(groups: list, graph: Graph, paths: dict, event_args: dict,
+                  line_no: int) -> list:
+    """Put each written endpoint's nodes in the graph (the graph's node of an id
+    replaces the written token) and record a multi-node endpoint as a Join.
+    Returns the ids placed, in order."""
     placed = []
     for group in groups:
         if group.get("op") or group.get("inherited"):
@@ -901,8 +959,13 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
             graph.joins.append(Join(group["join"] or "&", [n.id for n in group["nodes"]],
                                     line_no))
             group["join_idx"] = len(graph.joins) - 1
+    return placed
 
-    # Fan every arrow out across both endpoints (`[A] & [B] -> [C] & [D]` is 4 edges).
+
+def _fan_out(groups: list, links: list, line_no: int) -> tuple:
+    """Fan every arrow out across both endpoints (`[A] & [B] -> [C] & [D]` is 4 edges).
+    Returns (every new edge, the final link's edges, {op-call target column: its
+    self-edges}, {link index: its edges})."""
     new_edges = []
     final = []
     op_edges = {}             # an op-call target's column → the self-edges it made
@@ -933,16 +996,16 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
         new_edges += made
         if k == len(groups) - 2:
             final = made
-    if payload:
-        for e in final:
-            e.payload = f"{e.target_op} : {payload}" if e.target_op else payload
-        new_edges += _return_emits(graph, final, payload, layer, line_no)
-    graph.edges.extend(new_edges)
+    return new_edges, final, op_edges, link_edges
 
-    # Modifiers: between a glyph and the next arrow → that glyph's node; between
-    # an op-call target and the next arrow → that self-call's edges; trailing the
-    # statement → the final link's edges (or the last glyph without one); entity
-    # declarations (_NODE_MODS) always on the node.
+
+def _attach_mods(mods: list, tokens: list, graph: Graph, *, final: list, op_edges: dict,
+                 link_edges: dict, link_cols: list, glued: set, payload: Optional[str],
+                 payload_span: tuple, layer: str, line_no: int):
+    """Modifiers: between a glyph and the next arrow → that glyph's node; between an
+    op-call target and the next arrow → that self-call's edges; trailing the statement
+    → the final link's edges (or the last glyph without one); entity declarations
+    (_NODE_MODS) always on the node."""
     glyph_at = [(c, graph.nodes[t.id]) for kind, t, c in tokens
                 if kind == "glyph" and t.id in graph.nodes]
     arrow_cols = [c for kind, _t, c in tokens if kind == "arrow"]
@@ -975,19 +1038,6 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
         else:
             for e in final:
                 _add_mod(e.mods, pair)
-
-    if out is not None:
-        out["nodes"] = list(dict.fromkeys(placed))
-        out["edges"] = new_edges
-    head = groups[0]
-    if head.get("inherited"):
-        for e in new_edges:
-            e.cont = last_src.line
-        if any(e.kind != "!>" for e in new_edges):
-            return last_src._replace(line=line_no)
-        return last_src
-    return Subject(tuple(n.id for n in head["nodes"]), head["join_idx"],
-                   tuple(head.get("paths") or ()), line_no)
 
 
 def _op_before(tokens: list, col: int) -> Optional[int]:
@@ -2350,8 +2400,8 @@ def _load_dialect(spec):
 ALL_DEPTH = 99
 
 
-def _depth_arg(value: str) -> int:
-    """argparse type for --depth: a non-negative number, or `all`."""
+def depth_arg(value: str) -> int:
+    """argparse type for --depth: a non-negative number, or `all` (view.py uses it too)."""
     import argparse
     if value == "all":
         return ALL_DEPTH
@@ -2364,12 +2414,12 @@ def _depth_arg(value: str) -> int:
     return depth
 
 
-def main(argv=None, default_dialect=None):
+def main(argv=None, default_dialect=None) -> int:
     import argparse
     ap = argparse.ArgumentParser(prog="render.py",
                                  description="Render a Sigil document as Mermaid.")
     ap.add_argument("file", help="a .sigil file, or - for stdin")
-    ap.add_argument("--depth", type=_depth_arg, default=1,
+    ap.add_argument("--depth", type=depth_arg, default=1,
                     help="expansion depth (N or 'all')")
     ap.add_argument("--composition", choices=("subgraphs", "edges", "none"), default=None,
                     help="composition trees as nested subgraphs (default), dotted "
@@ -2381,16 +2431,21 @@ def main(argv=None, default_dialect=None):
         dialect = _load_dialect(a.dialect)
     except ValueError as exc:
         print(f"render.py: {exc}", file=sys.stderr)
-        sys.exit(2)
+        return 2
 
-    if a.file == "-":
-        text = sys.stdin.read()
-    else:
-        with open(a.file, "r", encoding="utf-8") as f:
-            text = f.read()
+    try:
+        if a.file == "-":
+            text = sys.stdin.read()
+        else:
+            with open(a.file, "r", encoding="utf-8") as f:
+                text = f.read()
+    except OSError as exc:
+        print(f"render.py: cannot read {a.file}: {exc.strerror or exc}", file=sys.stderr)
+        return 2
 
     print(render(text, depth=a.depth, dialect=dialect, composition=a.composition))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

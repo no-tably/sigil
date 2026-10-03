@@ -1497,18 +1497,6 @@ def tui(state: ViewState) -> None:
 # Main
 # ---------------------------------------------------------------------------
 
-def _depth_arg(text: str) -> int:
-    if text == "all":
-        return kit.ALL_DEPTH
-    try:
-        depth = int(text)
-    except ValueError:
-        depth = -1
-    if depth < 0:
-        raise argparse.ArgumentTypeError(f"expected a number >= 0 or 'all', got {text!r}")
-    return depth
-
-
 def _width_arg(text: str) -> int:
     try:
         width = int(text)
@@ -1519,10 +1507,21 @@ def _width_arg(text: str) -> int:
     return width
 
 
-def main() -> int:
+def _readable(path: Path) -> bool:
+    """Whether path opens for reading; if not, say so on stderr. (The live view
+    waits for the file instead: reload keeps the last view while it is missing.)"""
+    try:
+        path.open("rb").close()
+    except OSError as exc:
+        print(f"view.py: cannot read {path}: {exc.strerror or exc}", file=sys.stderr)
+        return False
+    return True
+
+
+def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Live terminal view of a Sigil graph.")
     ap.add_argument("file", type=Path)
-    ap.add_argument("--depth", type=_depth_arg, default=1, help="expansion depth: N or 'all'")
+    ap.add_argument("--depth", type=kit.render.depth_arg, default=1, help="expansion depth: N or 'all'")
     ap.add_argument("--payloads", action="store_true",
                     help="show flow payloads: chips on edges (graph view), a list (tree view)")
     ap.add_argument("--no-lint", action="store_true", help="skip lint")
@@ -1560,7 +1559,7 @@ def main() -> int:
     ap.add_argument("--color", choices=("auto", "always", "never"), default="auto")
     ap.add_argument("--theme", default=None,
                     help="colour theme: a name in themes/ or a .yaml path (default: $SIGIL_THEME or sigil)")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
     try:
         kit.use_theme(a.theme)
     except ValueError as exc:
@@ -1579,10 +1578,14 @@ def main() -> int:
     if a.json and a.sim not in SIM_BATCH:
         print("view.py: --json needs --sim list or --sim all", file=sys.stderr)
         return 2
-    if a.sim in SIM_BATCH:                 # never drawn: the same live or --once
-        return sim_batch(a.file, a.sim, dialect, a.json)
+    batch = a.sim in SIM_BATCH             # never drawn: the same live or --once
     tty_out = sys.stdout.isatty()
-    if a.once or not tty_out or not sys.stdin.isatty():
+    once_out = a.once or not tty_out or not sys.stdin.isatty()
+    if (batch or once_out) and not _readable(a.file):
+        return 2
+    if batch:
+        return sim_batch(a.file, a.sim, dialect, a.json)
+    if once_out:
         colour = a.color == "always" or (a.color == "auto" and tty_out)
         width = a.width or (shutil.get_terminal_size().columns if tty_out else ONCE_WIDTH)
         try:

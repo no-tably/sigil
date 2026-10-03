@@ -2345,7 +2345,7 @@ def _report_deep(result: LintResult, report, check) -> int:
     return max(exit_code(d.severity for d in result.diagnostics), report.exit_code())
 
 
-def main(argv=None, default_dialect=None):
+def main(argv=None, default_dialect=None) -> int:
     import argparse
     ap = argparse.ArgumentParser(prog="lint.py", description="Lint a Sigil document.")
     ap.add_argument("file", help="a .sigil file, or - for stdin")
@@ -2358,24 +2358,24 @@ def main(argv=None, default_dialect=None):
         dialect = _load_dialect(a.dialect)
     except ValueError as exc:
         print(f"lint.py: {exc}", file=sys.stderr)
-        sys.exit(2)
+        return 2
     try:
         text = _read_text(a.file)
     except OSError as exc:
         print(f"lint.py: cannot read {a.file}: {exc.strerror or exc}", file=sys.stderr)
-        sys.exit(2)
+        return 2
 
     result = lint(text, dialect=dialect)
     if not a.deep:
-        sys.exit(_report_lint(result))
+        return _report_lint(result)
     check = _load_sibling("sigil_check_for_lint", "check.py")
     try:
         report = check.check(text, dialect=dialect)
     except ValueError as exc:            # a refused rule pack or registry
         print(f"lint.py: --deep: {exc}", file=sys.stderr)
-        sys.exit(2)
-    sys.exit(_report_deep(result, report, check))
+        return 2
+    return _report_deep(result, report, check)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

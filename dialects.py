@@ -357,7 +357,8 @@ def checked_pack(dialect, api, core: CoreNames) -> RulePack:
     return pack
 
 
-def main(argv: list[str]) -> int:
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
     try:
         d = load(argv[0] if argv else None)
     except ValueError as exc:
@@ -368,4 +369,4 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())
