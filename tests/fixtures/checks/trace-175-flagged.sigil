@@ -1,0 +1,5 @@
+# SGC175 unreached — nothing invokes the alias (catalog §2, Example). A hint.
+# expect: info:5:SGC175
+#!spec
+(User) -> [Api] : get()
+purge := [Api] -> |Cache| : evict()

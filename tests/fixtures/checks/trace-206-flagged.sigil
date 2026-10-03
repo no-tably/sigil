@@ -1,6 +1,6 @@
 # SGC206 stalled-join — [B] is reached only when the `?>` is taken, so on the
 # happy path [A]'s deposit is never consumed (catalog §3, Example).
-# expect: warn:8:SGC206
+# expect: error:8:SGC206
 #!spec
 [S] -> [A] : a()
 [S] ?> [B] : b()

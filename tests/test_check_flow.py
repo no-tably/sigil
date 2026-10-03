@@ -361,7 +361,7 @@ class Corpus(unittest.TestCase):
     def test_language_examples_give_no_binding_finding(self):
         """Examples 3 and 4 (the catalog §12 calibration rows this module owns)."""
         for line, expected in ((47, {"SGC111", "SGC121", "SGC122", "SGC163", "SGC165"}),
-                               (113, {"SGC161"})):
+                               (113, {"SGC161", "SGC165"})):
             with self.subTest(example_at=line):
                 rep = ck.check(block_at(_DIR / "examples.md", line), mode="spec",
                                registry=registry())
@@ -534,15 +534,17 @@ class Facts(unittest.TestCase):
         facts = facts_of("loop @times 2 {\n  [A] -> {Report}\n}\n     !> <Failed>\n")
         self.assertEqual([r.line for r in cf.dead_routes(facts)], [4])
 
-    def test_block_routes_over_requests_are_gated(self):
-        self.assertTrue(cf.BLOCK_ROUTES_GATED)
+    def test_a_block_route_over_requests_declares_their_failure(self):
         facts = facts_of("parallel @all {\n  [A] -> [B] : b()\n}\n     !> <Failed>\n")
+        self.assertTrue(cf.declares_failure(facts, (0, "A_service"), ("block", 0)))
         self.assertEqual(cf.dead_routes(facts), [])
 
-    def test_group_routes_are_gated(self):
-        self.assertTrue(cf.GROUP_ROUTES_GATED)
-        facts = facts_of("*<E>^1 *> |A| & |B|\n     !> |DLQ|\n")
-        self.assertEqual(cf.dead_routes(facts), [])
+    def test_a_route_on_a_group_line_is_live(self):
+        for text in ("*<E>^1 *> |A| & |B|\n     !> |DLQ|\n",
+                     "(U) -> [A] : go()\n[A] *> [B] & [C] : f() ×2\n     !> <Failed>\n"):
+            with self.subTest(text=text):
+                facts = facts_of(text)
+                self.assertEqual(cf.dead_routes(facts), [])
 
 
 class Determinism(unittest.TestCase):

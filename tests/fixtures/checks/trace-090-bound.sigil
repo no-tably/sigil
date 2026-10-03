@@ -1,0 +1,7 @@
+# SGC090 exploration-incomplete — the recursion declares depth 32; the
+# simulator stops it at depth 3 (CG4: bounded by design vs simulator). A hint.
+# expect: info:5:SGC090
+#!spec
+(User) -> [Walk] : go()
+[Walk] -> [Walk] : child()
+[Walk] @inv depth <= 32

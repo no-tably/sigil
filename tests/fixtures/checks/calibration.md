@@ -51,6 +51,10 @@ store's races.
   accepted — `release` is not retried if it fails (catalog §12, Example 3)
 - language.md · unbounded-buffer · warn · `!> |DLQ|`
   accepted — the dead-letter store's reader and retention are outside the example (catalog §12, Example 4)
+- language.md · fanout-tail · warn · `*<Enriched>    *> |Warehouse| & |RealtimeIdx|`
+  accepted — the fan-out member `|Warehouse|` has no timeout, so one slow member holds the `&` join (Example 4); `@timeout(t)` on the member would bound it
+- language.md · fanout-tail · warn · `*<Enriched>    *> |Warehouse| & |RealtimeIdx|`
+  accepted — the fan-out member `|RealtimeIdx|` has no timeout, so one slow member holds the `&` join (Example 4); `@timeout(t)` on the member would bound it
 - language.md · undriven-transition · warn · `+         -<submit>->    Pending`
   accepted — case 2: the example shows the lifecycle, and `<submit>` comes from a client the example leaves out; it folds the machine's waits (catalog §12, Example 5)
 - language.md · wildcard-leaves-terminal · warn · `_         -<cancel>->    Cancelled`
@@ -85,6 +89,10 @@ store's races.
   accepted — a late `<cancel>` leaving `Done` and `Dead` is what the example says; a self-loop on each would state otherwise (catalog §12, Example 5)
 - examples.md · unbounded-buffer · warn · `!> |DLQ|`
   accepted — the dead-letter store's reader and retention are outside the example (catalog §12, Example 4)
+- examples.md · fanout-tail · warn · `*<Enriched>    *> |Warehouse| & |RealtimeIdx|`
+  accepted — the fan-out member `|Warehouse|` has no timeout, so one slow member holds the `&` join (Example 4); `@timeout(t)` on the member would bound it
+- examples.md · fanout-tail · warn · `*<Enriched>    *> |Warehouse| & |RealtimeIdx|`
+  accepted — the fan-out member `|RealtimeIdx|` has no timeout, so one slow member holds the `&` join (Example 4); `@timeout(t)` on the member would bound it
 - examples.md · capacity-mismatch · info · `(Client) -> [Edge] -> [Core] -> [Data]`
   noted — hint (catalog §12)
 - examples.md · capacity-mismatch · info · `[App] -> [Data]`
@@ -125,12 +133,12 @@ store's races.
   accepted — the arena sketch spawns shards per destroyed asteroid with no ceiling stated; `×N` on `[Shard]` or `@inv concurrency <= N` on `[Spawner]` would bound it
 - examples.md · capacity-mismatch · info · `(Shopper)  -> [Checkout] -> {Order}`
   noted — hint (catalog §12)
-- examples.md · ordering-unstated · info · `+     -<Placed>->    Open`
-  noted — hint (a guess): the trace half (P3) decides whether the order matters
+- examples.md · ordering-unstated · warn · `+     -<Placed>->    Open`
+  accepted — the runs show `<Paid>` reaching `{Order}` / `[Checkout]` before `<Placed>` from two independent arrivals; `@inv ordered(order_id)` would state the order (catalog SGC205 evidence: site 04 lines 7–8, examples.md lines 655–669)
 - examples.md · wait-without-timeout · warn · `Open  -<Paid>->      Settled`
   accepted — the checkout sketch waits on the shopper's payment with no expiry; an `@after(t)` transition would state one (catalog evidence site 04, examples.md:655–669)
-- examples.md · ordering-unstated · info · `Idle  -<Placed>->    Busy`
-  noted — hint (a guess): the trace half (P3) decides whether the order matters
+- examples.md · ordering-unstated · warn · `Idle  -<Placed>->    Busy`
+  accepted — the runs show `<Paid>` reaching `{Order}` / `[Checkout]` before `<Placed>` from two independent arrivals; `@inv ordered(order_id)` would state the order (catalog SGC205 evidence: site 04 lines 7–8, examples.md lines 655–669)
 - examples.md · capacity-mismatch · info · `(User)       -> [Router] : {Query}`
   noted — hint (catalog §12)
 - examples.md · optional-callee · info · `[Search]     -> [ShardQuery] => {Hits}`

@@ -1,0 +1,10 @@
+# SGC203 event-ignored — the flagged design with the blessed self-loop: a late
+# `<Paid>` is seen and ignored on purpose.
+# expect: (none)
+#!spec
+[Shop] ~> <Paid>
+[Shop] ~> <Paid>
+state {Order} {
+  +        -<Paid>->  Settled
+  Settled  -<Paid>->  Settled
+}

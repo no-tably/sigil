@@ -1,0 +1,14 @@
+# SGC090 exploration-incomplete — the produces into `[W]` hit the simulator's
+# spawn ceiling. A hint.
+# expect: info:8:SGC090
+#!spec
+(User) -> [P] : go()
+[P]
+    \-* [W] ×4
+[P] => [W]
+[P] => [W]
+[P] => [W]
+[P] => [W]
+[P] => [W]
+[P] => [W]
+[P] => [W]

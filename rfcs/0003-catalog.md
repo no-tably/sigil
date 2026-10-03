@@ -24,7 +24,7 @@ this file uses prefixes:
 - **MG1..MG16** are model gaps from survey-model.md §2.
 - **NG1..NG8** are notation gaps from survey-principles.md.
 - **CG1..CG8** are gaps this catalog adds (listed in §1.5).
-- **B1..B13** are tool defects (listed in §6).
+- **B1..B14** are tool defects (listed in §6, each with its status).
 
 Corpus citations use `file:line`. Examples.md citations use the examples.md line
 number. "Example n" means language.md's worked example n.
@@ -78,7 +78,7 @@ number. "Example n" means language.md's worked example n.
 | SGC172 | expansion-escape | static | advisory | P2 | — |
 | SGC173 | lock-order-cycle | static | binding | P2 (declared order P4) | probe only |
 | SGC174 | optional-callee | static | hint | P2 | coverage:63 |
-| SGC175 | unreached | static | hint | P3 (gated on B4) | coverage:82, 194–197 |
+| SGC175 | unreached | static | hint | P3 (after B4, fixed in P3) | coverage:82, 194–197 |
 | SGC201 | unhandled-failure | static (+trace witness) | binding | P2 / P3 | examples.md:497–498 (satisfied at P2), executions:41 |
 | SGC202 | dead-failure-route | static (+trace witness) | binding | P2 / P3 | probe only (seed: executions E11 before d29e6b7) |
 | SGC203 | event-ignored | trace + static diamond | binding | P3 | **coverage:119–121**, examples.md:388–412 |
@@ -162,9 +162,13 @@ Adjustments to the tier:
 - **Deviation depth cap.** A trace finding whose every witness needs k ≥ 2
   deviations caps at warn, whatever its tier. Only findings with a happy-path or
   k = 1 witness may be errors.
-- **Behavioural rules warn-only until fixed.** Until B1–B4 (§6) are fixed and their
-  regression fixtures pass, every finding whose evidence comes from a trace caps at
-  warn. The static detectors of SGC201, SGC202 and SGC204 are not affected.
+- **Behavioural rules warn-only until fixed.** A rule's trace findings cap at warn
+  until every simulator fix it relies on (§6) has landed with a passing regression
+  fixture. B1–B4 were fixed in P3, each with a probe in
+  `tests/fixtures/checks/trace-fix-*.sigil`, so the cap is lifted for the rules that
+  waited on them (`check_trace.FIXED` records which fixes are in). A defect found
+  later puts the cap back on the rules it touches. The static detectors of SGC201,
+  SGC202 and SGC204 were never capped.
 - **No mode line.** A fragment with no mode line is checked as `#!sketch`. That is
   lint's default reading, and it keeps the examples.md fragments quiet.
 
@@ -314,7 +318,7 @@ The terms below are used throughout:
 | CG5 | Dead transitions caused by trigger narrowing | SGC145, SGC146 | `render.find_triggers` also returns the narrowed-away pairs (it drops them today) |
 | CG6 | The read-verb list, the `×N` reading and the policy-in-prose word list as data a dialect can extend | SGC004, 111, 131, 204 | module constants in check.py, extended through the dialect hook (MG16) |
 | CG8 | A value payload on a store glyph with no flow (`~\|total\| : ${state.count} + 1`, examples.md:488; language.md's store-slot examples): it declares the slot's contents | SGL150 | **render change (P1)**: the parser keeps the value as a fact on the store slot instead of dropping it; lint does not flag it (§8). The slot gains no writer: `scene.writers()` and SGC131, 133, 204 see only the flows into it |
-| CG7 | `failure_flow(prog) -> {(ui, node): set of arriving guards}` | SGC114, 121, 201, 202 | **sim.py**, beside the functions it mirrors: a may-fail fixpoint over bodies, regions, groups and callees that applies `_call_failed` (fallback absorbs the failure for the caller, but the call's routes are still selected: Q2, §6 B14), `_region` (relabels to the block), `_await` (today None; the member's guard after B1), `~>` (stops), stream and async edges (stop, after B13) and `_fire_routes` (guarded routes, else unguarded ones). A route is live iff its guard is selected for some arriving guard. Exact with respect to the sim. |
+| CG7 | `failure_flow(prog) -> {(ui, node): set of arriving guards}` | SGC114, 121, 201, 202 | **sim.py**, beside the functions it mirrors: a may-fail fixpoint over bodies, regions, groups and callees that applies `_call_failed` (fallback absorbs the failure for the caller, but the call's routes are still selected: Q2, §6 B14), `_region` (relabels to the block), `_await` (the member's own guard, since B1 was fixed in P3), `~>` (stops), stream and async edges (stop, since B13 was fixed in P3) and `_fire_routes` (guarded routes, else unguarded ones). A route is live iff its guard is selected for some arriving guard. Exact with respect to the sim. |
 
 CG3 (entry order as a scenario parameter) was dropped: `Scenario(entries=…)` already
 accepts an explicit node tuple (`_resolve_entries`).
@@ -630,8 +634,8 @@ The table is registry data, so a declarative front end can carry it.
 - **Principle.** Dead letter channel. Sources: Hohpe and Woolf, *Enterprise
   Integration Patterns*; Nygard, *Steady State*.
 - **Query.** Report a node fed by a stream or `~>` that can fail (failure_flow) and
-  has no route in `prog.routes` and no `@fallback` on the failing call. With B13 the
-  failure stops at this consumer. The finding anchors on the call where the failure
+  has no route in `prog.routes` and no `@fallback` on the failing call. Since B13
+  (fixed in P3) the failure stops at this consumer. The finding anchors on the call where the failure
   starts (the failing call inside the consumer, not the producer), one finding per
   origin (retuned in P2, as SGC201).
 - **Declare.** `!> |DLQ|` (Example 4), a `@fallback`, or an overflow policy upstream
@@ -642,9 +646,9 @@ The table is registry data, so a declarative front end can carry it.
 - **False positives.** Low.
 - **Suppression.** Folds SGC201 at the same anchor (§1.7). SGC201 keeps request paths
   that end at an entry or actor.
-- **Evidence.** examples.md:111–117 and coverage:71–72 are *satisfied*, though the
-  route never fires in the sim today (B1). The example below is flagged binding (it
-  retries with no `!>`).
+- **Evidence.** examples.md:111–117 and coverage:71–72 are *satisfied*, and since B1
+  (fixed in P3) the route fires in the sim when a `*>` member fails. The example
+  below is flagged binding (it retries with no `!>`).
 - **Example.** Flagged:
   ```
   *<Raw> -> [Parse] : parse() ×3
@@ -1061,19 +1065,19 @@ purpose" (NG7, §7.8).
   unless **each** of the duplicates carries a per-transition `@inv` (the spec allows
   per-transition modifiers: `Running -<done>-> Ok @inv {Job}.exit = 0`), which reads
   as the disambiguating condition. A specific transition plus a `_` wildcard on the
-  same trigger is **not** ambiguous once NG6 (specific beats wildcard; Q12) is in the
-  spec **and** in the sim. Until the sim fix lands (`_deliver` / `_trigger` take the
-  first written match today, and `_machine_points` never makes the pair a choice
-  point), the pair **is** reported when the wildcard is written first, because check
-  and simulator would disagree.
+  same trigger is **not** ambiguous: NG6 (specific beats wildcard; Q12) is in the
+  spec, and in the sim since P3 (`_deliver` / `_trigger` prefer the transition written
+  from the machine's state). While the sim took the first written match, P2 reported
+  the pair when the wildcard was written first, because check and simulator
+  disagreed; that exception goes with the fix.
 - **Declare.** Distinct triggers (`<succeeded>` / `<failed>`), a per-transition
   `@inv` on each duplicate, removing one, or an acknowledgement.
 - **Tier.** binding. Ask: "`{Job}` leaves `Running` on `<done>` for both `Ok` and
   `Failed`. Which one wins?"
 - **False positives.** Low.
 - **Evidence.** None in the corpus. Probes: the example below is flagged;
-  `_ -<Paid>-> Weird` before `Open -<Paid>-> Done` is flagged until NG6 lands in the
-  sim (it ends in `Weird` today).
+  `_ -<Paid>-> Weird` before `Open -<Paid>-> Done` was flagged while the sim ended it
+  in `Weird`; with NG6 fixed in P3 it ends in `Done` and is quiet.
 - **Example.** Flagged:
   ```
   state {Job} {
@@ -1266,8 +1270,8 @@ purpose" (NG7, §7.8).
     _       -<cancel>->  Cancelled
   }
   ```
-- **Phase.** P2, small. The self-loop satisfier needs NG6 in the sim (P3) to be
-  honoured by a run; the static rule accepts it from P2.
+- **Phase.** P2, small. The static rule accepts the self-loop satisfier from P2; a
+  run honours it since NG6 was fixed in P3.
 
 ### Termination (SGC15x)
 
@@ -1695,8 +1699,9 @@ purpose" (NG7, §7.8).
   otherwise the author names its caller (in the example the entry calls `purge`).
 - **Tier.** hint. Ask: "Nothing invokes `purge`. Is it a library fragment, or should
   something call it?"
-- **False positives.** The sim's branch defect (B4) makes every payload-field branch
-  look unreached. Not shipped before B4 is fixed.
+- **False positives.** The sim's branch defect (B4) made every payload-field branch
+  look unreached, so the rule waited for B4 (fixed in P3: a field branch decides
+  where it is written).
 - **Evidence.** coverage:82 and 194–197; executions:30 E10; coverage:151.
 - **Example.** Flagged:
   ```
@@ -1708,7 +1713,7 @@ purpose" (NG7, §7.8).
   (User) -> [Api] : purge()
   purge := [Api] -> |Cache| : evict()
   ```
-- **Phase.** P3 (gated on B4).
+- **Phase.** P3 (after B4, fixed in P3).
 
 ---
 
@@ -1726,11 +1731,13 @@ purpose" (NG7, §7.8).
   and `Router/SMS` do nothing unless the `?>` is also taken, so they are paired with
   it.
 - **Dedupe.** Traces are deduplicated by their event signature; a deviation whose log
-  matches the happy path is dropped (B3 makes 8 such today).
+  matches the happy path is dropped (B3 made 8 such before its P3 fix).
 - **Construction.** `Scenario(choices=…)` is built directly from `ChoicePoint.cid`,
   never by name (`sim.scenario(name)` re-lists every scenario on each call).
-- **Budget.** A time or trace budget, not `Limits.scenarios` truncation by source
-  order (which makes findings depend on edits to unrelated early lines). When the
+- **Budget.** A run budget (`sim.combinations(sc, k, budget=…)`, a count of traces),
+  not a time budget, so the same design gives the same findings on any machine; and
+  not `Limits.scenarios` truncation by source order (which makes findings depend on
+  edits to unrelated early lines). When the
   budget cuts exploration, SGC090 reports how many combinations were left out. Cost
   today: coverage.sigil at k = 2 is 91 pairs at about 22 ms per trace in CPython
   (about 2 s; roughly 10× in Pyodide).
@@ -1813,7 +1820,7 @@ access with an unknown outcome (Q13).
   declares no failure of its own (below). That covers the cases the first draft
   missed: a continuation `!>` under a `~>` (structurally dead: `_async` never
   consults the call choice and an async failure stops as "not awaited"), a `!>` on a
-  `*>` / `&` line (dead until B1 is fixed), block-guarded and node routes reached
+  `*>` / `&` line (dead while B1 stood; fixed in P3), block-guarded and node routes reached
   only by propagated failures. The trace (union of `end["routes"]`) only names a
   witness.
 - **A route declares its guard's failure.** The simulator lists any call a route
@@ -1839,8 +1846,9 @@ access with an unknown outcome (Q13).
   call with `@fallback` is **not** dead: under Q2 the route fires and the fallback
   is still returned ("notify, then yield"), so degrade-and-alert needs no new
   notation. The first draft's advisory "fallback shadow" case is gone.
-- **Gate.** Routes on `*>` / `&` lines are not reported until B1 is fixed (Example 4
-  would otherwise be an error).
+- **Gate.** Routes on `*>` / `&` lines were held back while B1 stood (Example 4 would
+  otherwise have been an error), and block routes over requests while B2 stood. Both
+  were fixed in P3, so failure_flow keeps these routes and the gates lift.
 - **Declare.** The rule asks a question and never moves the route: which flow should
   this route guard? It is answered by stating how the guarded flow can fail (an `op`
   call, a `@timeout`), by the author placing the route under the flow it meant, by
@@ -1849,8 +1857,8 @@ access with an unknown outcome (Q13).
   flow did you mean it to guard?"
 - **Evidence.** None true in the corpus. site/examples/05-executions.sigil:11–12
   (`@timeout(5s) ×3 @fallback(${cached})` then `!> <FetchFailed>`) is **not**
-  flagged under Q2. coverage:72 and examples.md:117 `!> |DLQ|` are live once B1 is
-  fixed (gated until then); coverage:141 is a block's `} !>` route (declared).
+  flagged under Q2. coverage:72 and examples.md:117 `!> |DLQ|` are live: since B1
+  (fixed in P3) a failing `*>` member fires them; coverage:141 is a block's `} !>` route (declared).
 - **Example.** Flagged (dead in the simulator too: a `~>` sender never sees the
   failure):
   ```
@@ -1898,7 +1906,7 @@ access with an unknown outcome (Q13).
 - **Declare.** A transition for the event, a `_ -<T>-> …` wildcard, or the blessed
   self-loop `S -<T>-> S` ("seen and ignored on purpose", NG7). `+` is not a legal
   transition target, so the self-loop is never suggested for `+`.
-- **Tier.** binding (warn until B1–B4 are fixed, §1.2). Ask: "`<Paid>` reaches
+- **Tier.** binding (warn while B1–B4 stood, §1.2; fixed in P3). Ask: "`<Paid>` reaches
   `{Order}` while it is `Settled`. Should it be ignored, or is a transition missing?"
 - **Suppression.** Folded under SGC146 case 2 on that machine.
 - **Evidence.** coverage:119–121 (`<Paid>` before `<Placed>`: SGC205 under this rule
@@ -1951,7 +1959,7 @@ access with an unknown outcome (Q13).
   `@inv cas(version)`, `@inv atomic(…)`, or `@inv ordered(key)` on a `(User)×N`
   actor (its callers' arrivals are sequential per key).
 - **Tier.** binding, with a guess downgrade when either access is a heuristic write;
-  the trace half is warn-only until B1–B4 are fixed. Ask: "`[Editor]` and `[Sync]`
+  the trace half was warn-only while B1–B4 stood (fixed in P3). Ask: "`[Editor]` and `[Sync]`
   both write `|Doc|` and nothing orders them. Which write wins?"
 - **False positives.** Medium, contained by the arrival model, declared access and
   the guess downgrade.
@@ -2036,7 +2044,7 @@ access with an unknown outcome (Q13).
 - **Declare.** `@timeout` on the members or on the join (NG3), or `@fallback`. The rule
   never asks for the join to become unawaited (`~>`); if the author makes it so, there
   is no join to stall.
-- **Tier.** binding (warn until B1–B4 are fixed). Ask: "`[C]` waits for both `[A]` and
+- **Tier.** binding (warn while B1–B4 stood; fixed in P3). Ask: "`[C]` waits for both `[A]` and
   `[B]`. What if one never arrives?"
 - **Evidence.** The example below (`[B]` is reached only when the `?>` is taken), plus
   a join on an event nothing emits. The 2026-10-02 probe is a quiet fixture.
@@ -2341,10 +2349,12 @@ the same.
   - a reachable loop is capped below its declared `@times N`. This is computed
     **statically** from `_reachable` regions and `_loop_count` (a pure function of
     `Block.modifiers` and `Limits`), so it needs no sim change and ships in P2.
-    B11's missing log line is a viewer matter.
+    B11's missing log line was fixed in P3: a capped loop logs
+    `loop capped: @times N runs n` and records a `limit` event.
 - **Declare.** Nothing in the design is wrong. A loop-cap finding can be
   acknowledged on the loop's line (the example); the other causes are answered by
-  running with larger limits or budget, and are never acknowledged.
+  running with larger limits or budget, and are never acknowledged. The budget
+  counts runs, not seconds, so a cut is the same on every machine.
 - **Tier.** hint in craft; in spec info plus a summary line. Ask: "The simulator ran
   this loop 2 of its 5 times. Are 2 iterations enough evidence?"
 - **Example.** Flagged:
@@ -2367,23 +2377,29 @@ the same.
 
 ## 6. Prerequisite tool fixes (rules misfire without them)
 
+A fixed defect keeps its row, marked **Fixed in P3** (the phase that landed it),
+so the history of each gate stays readable. Each P3 fix has a regression probe in
+`tests/fixtures/checks/trace-fix-*.sigil` (B11 is covered by the simulator's own
+tests: a capped loop logs `loop capped: @times N runs n` and records a `limit`
+event).
+
 | # | Defect | Root cause | Breaks | Fix owner |
 |---|---|---|---|---|
-| B1 | `!>` on a `*>` / `&` line never fires when a member fails (`<E> *> \|A\| & \|B\|` + `!> \|DLQ\|`) | `_group` / `_parallel` call `_await(guard=None)` for `&` and `*>` groups, which raises `_Fail(None)`, so `_fire_routes` skips the `("calls", …)` guard (`_parallel` passes `("block", i)`) | SGC202, SGC114, SGC201 | sim: raise the failed member's `("call", ident)` guard from `_await` for groups |
-| B2 | Members of `parallel @all { … } !> …` get no failure scenario | block members are not listed as call choice points | SGC202 witness, SGC121 | sim choice points |
-| B3 | `~>` failure choices are listed but ignored | `_step` forks `~>` to `_async` before any `self._choice(("call", w.ident))`, yet `choice_points` lists the wire because `resilient()` is true: 8 no-op deviations across the corpus, incl. `Primary~>Replica:fails` | SGC201, SGC112, exploration | sim: honour the call choice in `_async`, or stop listing `~>` wires as call points; a corpus test asserts every listed deviation changes the trace |
-| B4 | A `branch on {R}.field` never runs | sim reachability | SGC175, branch exploration | sim |
+| B1 | **Fixed in P3.** `!>` on a `*>` / `&` line never fires when a member fails (`<E> *> \|A\| & \|B\|` + `!> \|DLQ\|`) | `_group` / `_parallel` call `_await(guard=None)` for `&` and `*>` groups, which raises `_Fail(None)`, so `_fire_routes` skips the `("calls", …)` guard (`_parallel` passes `("block", i)`) | SGC202, SGC114, SGC201 | sim: raise the failed member's `("call", ident)` guard from `_await` for groups |
+| B2 | **Fixed in P3.** Members of `parallel @all { … } !> …` get no failure scenario | block members are not listed as call choice points | SGC202 witness, SGC121 | sim choice points |
+| B3 | **Fixed in P3.** `~>` failure choices are listed but ignored | `_step` forks `~>` to `_async` before any `self._choice(("call", w.ident))`, yet `choice_points` lists the wire because `resilient()` is true: 8 no-op deviations across the corpus, incl. `Primary~>Replica:fails` | SGC201, SGC112, exploration | sim: honour the call choice in `_async` (the fix taken: a failed send never arrives and the sender goes on), or stop listing `~>` wires as call points; a corpus test asserts every listed deviation changes the trace |
+| B4 | **Fixed in P3.** A `branch on {R}.field` never runs | sim reachability | SGC175, branch exploration | sim: a field branch decides where it is written, as a branch with no header glyph does |
 | B5 | Nested retries are not re-driven per outer attempt | — | views only (SGC102 is static) | sim, optional |
 | B6 | Trigger narrowing silently drops other machines' transitions | — | SGC145/146 (CG5), SGC203 | render, reported rather than changed |
 | B7 | `×3 Retry` (a modifier alias after `×N`) loses the `×3` | parser L39 | SGC102/104/111 | parser |
 | B8 | `<H>({C})` breaks the flow chain | parser L40 | SGC145/146, SGC152 | parser |
 | B9 | `×N` is both cardinality and retry count | — | SGC102/104/111/163/167 | CG1 (render, P1) plus §7.3 |
 | B10 | A continuation `!>` under a chained statement attaches to the first source (pitfall 4) | — | SGC202, SGC201 | parser, or a spec clarification |
-| B11 | `@times 3` runs twice with no log line | — | views (SGC090 computes it statically) | sim (MG6) |
+| B11 | **Fixed in P3.** `@times 3` runs twice with no log line | — | views (SGC090 computes it statically) | sim (MG6) |
 | B12 | Emitters the model does not see: a call's `=> <event>` return creates no wire (examples.md:487 `<rated>`); a tree alert `\-{lagging}-! <LagAlarm>` is not a flow (examples.md:752). Both events become phantom entries | parser / scene | SGC145, 146 (false positives); SGC204, 205 (false concurrency from phantom arrivals) | render + scene: both create emit wires |
-| B13 | A failing sink behind a `^10k` stream fails the producer (examples.md:113–117), so SGC201 would anchor on `[Ingest]` instead of the consumer | failure crosses a stream / `~>` boundary upstream | SGC114, 201, 202 | sim: a failure stops at the consumer of a stream or `~>` (accepted with RFC 0003; producer failure is not the semantics) |
+| B13 | **Fixed in P3.** A failing sink behind a `^10k` stream fails the producer (examples.md:113–117), so SGC201 would anchor on `[Ingest]` instead of the consumer | failure crosses a stream / `~>` boundary upstream | SGC114, 201, 202 | sim: a failure stops at the consumer of a stream or `~>` (accepted with RFC 0003; producer failure is not the semantics) |
 | B14 | A `!>` route under a call with `@fallback` never fires: `_call_failed` returns the fallback and stops, so "notify, then yield" (Q2) does not run | `_call_failed` returns before `_fire_routes` | SGC202 (would call such routes dead), CG7 | sim: fire the call's guarded routes, then return the fallback and resume the caller as ok; failure_flow mirrors it (golden note) |
-| — | NG6 not honoured: `_deliver` / `_trigger` take the first written match, so `_ -<Paid>-> Weird` before `Open -<Paid>-> Done` ends in `Weird` | sim | SGC143, SGC148 | sim: prefer a specific source over `_` (Q12; golden note) |
+| NG6 | **Fixed in P3.** NG6 not honoured: `_deliver` / `_trigger` take the first written match, so `_ -<Paid>-> Weird` before `Open -<Paid>-> Done` ends in `Weird` | sim | SGC143, SGC148 | sim: prefer a specific source over `_` (Q12; golden note) |
 | — | Source-join arrival is a blocking barrier; Q3 chose a non-blocking deposit | `_gate` | SGC206 | sim: each `&` member deposits and goes on, the last arrival fires the target (golden note) |
 
 ---
@@ -2605,7 +2621,7 @@ Expected findings for language.md's examples under this rule set:
 | 2 auth + audit | SGC145 advisory: `<Unauthorized>` is a route target nothing is named as receiving. It surfaces on its own: SGC202, which would fold it, is quiet here (the route continues the `=>` of a request, pitfall 4) | reviewed ack, or the example adds `-> (User)` |
 | | (`[Auth] -> \|UserDB\|` then `=>` is a read; `<LoginEvent> -> \|AuditLog\|` is `unknown`, so SGC113, 131, 133 and 204 stay quiet) | retuned (access unknown) |
 | 3 parallel checkout | SGC111 advisory (guess: `[Payment]` has no body); SGC165 advisory (`charge ×3`, no timeout); SGC122 advisory (`release` not retryable); SGC121 hints on `charge` and on `score` (guess: each is a strict-join sibling of the other's effects, and no route names `[Payment]` or `[Fraud]`); SGC163 hint | reviewed acks or example edits; `reserve` no longer fires (retuned SGC165) |
-| 4 stream pipeline | SGC161 advisory (`\|DLQ\|` has no reader and no retention); SGC202 not reported until B1 is fixed (gate) | reviewed ack; SGC112 retuned so re-emitting stages are quiet; SGC165 quiet (the `*>` members cannot fail on their own) |
+| 4 stream pipeline | SGC161 advisory (`\|DLQ\|` has no reader and no retention); SGC202 quiet: `!> \|DLQ\|` is live since B1 (fixed in P3), and a failing sink stops at its consumer, not `[Ingest]` (B13) | reviewed ack; SGC112 retuned so re-emitting stages are quiet; SGC165 quiet (the `*>` members cannot fail on their own) |
 | 5 state machine + worker | SGC146 advisory (case 2: nothing emits `<submit>`, so `{Job}` never leaves `+`; folds SGC203/205/147 on `{Job}` and the base hints, so no SGC147 appears); SGC148 advisory (`_ -<cancel>->` also leaves `Done` and `Dead`) | reviewed acks; SGC142 quiet (`Dead` has a wildcard exit); SGC153 quiet (`pop` drains `\|Q\|`) |
 | 6 multi-level zoom | SGC301 hint (`write-only-primary` unchecked); SGC163 hints (`(Client)`, `[App]×N → [Data]`) | none needed; SGC172 quiet (`[Core] -> [Data]` is stated); CG1 removes the phantom `Primary~>Replica:fails` |
 

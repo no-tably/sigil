@@ -47,10 +47,7 @@ Not covered yet (catalog clauses this module leaves out): SGC102's crossing into
 retrying stream consumers and fan-out widths other than a destination's `×N`;
 SGC121's choreography across `~>`; SGC166's dominator clause (b); SGC202 does not
 judge the routes of an activation that only route-made failures reach (a route's
-target that fires only because another route declared its failure), and its
-routes on `*>` / `&` lines are held back until the simulator fixes B1
-(GROUP_ROUTES_GATED), and block routes over requests until it fixes B2
-(BLOCK_ROUTES_GATED).
+target that fires only because another route declared its failure).
 
 Standard library only. Deterministic: written and wire order, never set order.
 """
@@ -59,7 +56,7 @@ from __future__ import annotations
 
 import re
 import weakref
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Callable, NamedTuple, Optional
 
 
@@ -67,8 +64,6 @@ SYNC_KINDS = ("->", "→", "<->", "*>", "?>")      # the caller waits
 CALL_KINDS = ("->", "→")                         # a plain request (SGC163)
 NOT_CALLEES = ("actor", "event", "data", "store", "state")
 AMPLIFICATION = 9                # SGC102: attempts at the bottom worth asking about
-GROUP_ROUTES_GATED = True        # routes on `*>` / `&` lines wait for B1
-BLOCK_ROUTES_GATED = True        # SGC202: block routes over requests wait for B2
 _VALUE_RE = re.compile(r'^\s*(?:\$\{[^}]*\}|"[^"]*"|-?\d+(?:\.\d+)?|[A-Za-z_]\w*)\s*$')
 _VERB_RE = re.compile(r"\s*(?:op\s+)?(?:[A-Za-z_]\w*\.)*([A-Za-z_]\w*)")
 _BRANCH_RE = re.compile(r"^\s*(?:\\-|\*-|\{[^}]*\}-|\(\d+\)-)")
@@ -508,25 +503,13 @@ class Failures(NamedTuple):
 
 def failures_of(facts: Facts) -> Failures:
     if facts.failures is None:
-        sim, prog = facts.sim, b1_program(facts)
+        sim, prog = facts.sim, facts.prog
         flow = sim.failure_analysis(prog)
         own = sim.failure_analysis(prog, route_induced=False)
         sources = frozenset(p.cid[1] for p in sim.choice_points(prog) if p.cid[0] == "call")
         facts.failures = Failures(flow.arriving, flow.absorbed, sources, facts.prog.routes,
                                   flow.live, own.arriving, own.live)
     return facts.failures
-
-
-def b1_program(facts: Facts):
-    """The program the failure facts read: while B1 stands, without the routes on
-    `*>` / `&` lines. Such a route makes its members fail, and the simulator then
-    drops the guard at the join (B1), so the failure the author routed would
-    escape as unrouted; the route itself never fires either way."""
-    if not GROUP_ROUTES_GATED:
-        return facts.prog
-    routes = {k: tuple((w, g) for w, g in rs if not on_group_line(facts, g))
-              for k, rs in facts.prog.routes.items()}
-    return replace(facts.prog, routes={k: v for k, v in routes.items() if v})
 
 
 def guarded_by(g, guard) -> bool:
@@ -2173,42 +2156,17 @@ def unbounded_spawn_rule(ck):
 # SGC202 dead-failure-route
 # ---------------------------------------------------------------------------
 
-def on_group_line(facts: Facts, g) -> bool:
-    """A route continuing a `*>` / `&` line (gated until B1)."""
-    if g is None or g[0] != "calls":
-        return False
-    wires = {w.ident: w for w in facts.flows}
-    for _c, ident in g[1]:
-        w = wires.get(ident)
-        if w is not None and (w.kind == "*>" or (w.edge is not None and (
-                w.edge.dst_join is not None or w.edge.src_join is not None))):
-            return True
-    return False
-
-
-def held_back(facts: Facts, key: tuple, g) -> bool:
-    """A route the simulator's known defects keep dead: one on a `*>` / `&` line
-    (B1), or a block route over requests (B2: block members get no failure
-    choice, so a route under `parallel @all { … }` never fires)."""
-    if GROUP_ROUTES_GATED and on_group_line(facts, g):
-        return True
-    return BLOCK_ROUTES_GATED and g is not None and g[0] == "block" and any(
-        call_like(facts, w) for w in guarded_wires(facts, key, g))
-
-
 def declares_failure(facts: Facts, key: tuple, g) -> bool:
     """A route under a request states, by being there, that the request can fail
     (catalog SGC202): it guards a call_like flow, or a `=> {X}` continuing one
-    (guarded_wires). A node's own route states that the node's unwritten work can
-    fail when the node waits on nothing written (`[Payments] ~> <Paid>` then
-    `[Payments] !> <Declined>`); once the node's sync work is written, the route
-    guards that work (`[A] -> {Report}` then `[A] !> …` is dead). A block route
-    over requests is held_back's (B2)."""
+    (guarded_wires), or closes a block over one (`} !> …`, coverage:141). A node's
+    own route states that the node's unwritten work can fail when the node waits
+    on nothing written (`[Payments] ~> <Paid>` then `[Payments] !> <Declined>`); once the node's sync work is written, the route
+    guards that work (`[A] -> {Report}` then `[A] !> …` is dead)."""
     if g is None:
         return not any(is_sync(w) or call_like(facts, w)
                        for w in callee_wires(facts, *key) if not is_route(w))
-    return g[0] == "calls" and any(
-        call_like(facts, w) for w in guarded_wires(facts, key, g))
+    return any(call_like(facts, w) for w in guarded_wires(facts, key, g))
 
 
 def guards_halting(facts: Facts, fl: Failures, key: tuple, g) -> bool:
@@ -2224,12 +2182,11 @@ def guards_halting(facts: Facts, fl: Failures, key: tuple, g) -> bool:
 
 def route_live(facts: Facts, fl: Failures, key: tuple, r, g) -> bool:
     """SGC202's liveness: the failures that exist without any route select r
-    (Failures.own_live), r declares its guard's failure, it guards a `!` call that
-    can fail, or a known simulator defect holds it back. A route of an activation
-    only route-made failures reach is not judged (live)."""
+    (Failures.own_live), r declares its guard's failure, or it guards a `!` call
+    that can fail. A route of an activation only route-made failures reach is not
+    judged (live)."""
     return (r.ident in fl.own_live or key not in fl.own_arriving
-            or declares_failure(facts, key, g) or guards_halting(facts, fl, key, g)
-            or held_back(facts, key, g))
+            or declares_failure(facts, key, g) or guards_halting(facts, fl, key, g))
 
 
 def dead_routes(facts: Facts) -> list:

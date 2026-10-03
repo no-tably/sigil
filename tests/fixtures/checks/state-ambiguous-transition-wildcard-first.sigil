@@ -1,9 +1,8 @@
 #!craft
-# SGC143 ambiguous-transition — `_` written first: reported until the simulator prefers the specific transition.
+# SGC143 ambiguous-transition — `_` written first: quiet, the specific transition wins (NG6).
+# expect: 8:SGC146
+# expect: 8:SGC148
 # expect: 9:SGC146
-# expect: 9:SGC148
-# expect: 10:SGC143
-# expect: 10:SGC146
 
 state {Order} {
   _    -<Paid>-> Weird

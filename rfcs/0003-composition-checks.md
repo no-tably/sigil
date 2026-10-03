@@ -75,7 +75,9 @@ judgement calls and making them errors would limit what can be built.
 - A finding built on a heuristic (a read/write guess, a name-based pairing) drops
   one tier and says what it guessed.
 - A trace finding whose every witness needs two or more deviations caps at warn.
-- Until the simulator defects B1–B4 are fixed, trace-based findings cap at warn.
+- While the simulator defects B1–B4 stood, trace-based findings capped at warn. All
+  four were fixed in P3 with regression probes, so the cap is lifted; a rule's trace
+  findings cap at warn again only if a defect it relies on is found.
 - A fragment with no mode line is checked as `#!sketch`.
 
 The tier ceiling **amends Decision 1** ("spec findings are errors"): only binding
@@ -126,7 +128,8 @@ behavioural layer adds structured events to a trace and checks properties of the
   combinations of up to k (1 in craft and the playground, 2 in spec). A deviation is
   a *persistent per-site failure* ("this call always fails"). Pairs are chosen by
   dependency (B is paired with A only if A's deviation reaches or enables B),
-  duplicates are removed by trace signature, and a time budget replaces silent
+  duplicates are removed by trace signature, and a run budget (a count of traces,
+  not a time limit, so results are the same on every machine) replaces silent
   truncation; anything left out is reported.
 - **Happens-before race detection.** sim.py records fork, await/resume and gate
   arrive/fire/resume events, plus an access event for every store access with the
@@ -305,7 +308,7 @@ rule. Expected findings for language.md's examples:
 | 1 request-response | `capacity-mismatch` hint |
 | 2 auth + audit | `orphan-event` advisory (`<Unauthorized>`: nothing is named as receiving it) |
 | 3 parallel checkout | `retry-without-idempotency` (guess), `fanout-tail`, `fragile-compensation` advisories; `saga-uncompensated` hint (guess); `capacity-mismatch` hint |
-| 4 stream pipeline | `unbounded-buffer` advisory (`\|DLQ\|` has no reader or retention); `dead-failure-route` held back until B1 is fixed |
+| 4 stream pipeline | `unbounded-buffer` advisory (`\|DLQ\|` has no reader or retention); `dead-failure-route` quiet: `!> \|DLQ\|` fires when a `*>` member fails (B1, fixed in P3) |
 | 5 state machine + worker | `undriven-transition` advisory (nothing emits `<submit>`; folds the machine's other findings); `wildcard-leaves-terminal` advisory |
 | 6 multi-level zoom | `inv-unchecked` hint; `capacity-mismatch` hints |
 
@@ -401,7 +404,7 @@ and names that never reuse a core name.
 
 | Q | Decision |
 |---|---|
-| 1 | **Accepted.** Only binding findings become errors in `#!spec`; advisory stay warnings, hints info; k ≥ 2-only and (until B1–B4 are fixed) trace findings cap at warn. |
+| 1 | **Accepted.** Only binding findings become errors in `#!spec`; advisory stay warnings, hints info; k ≥ 2-only and (until B1–B4 are fixed) trace findings cap at warn. B1–B4 were fixed in P3, so the second cap is lifted. |
 | 2 | **Yes, the route fires** ("notify, then yield"): `[A] -> [B] : f() @fallback(x)` with `!> <Degraded>` under it alerts *and* returns `x`. Degrade-and-alert then needs no new notation; a route with no fallback still means "fail and route". Revisit if a more ergonomic form appears. |
 | 3 | **Non-blocking deposit** (recommended): each `&` member deposits and goes on; the last arrival fires the target. Fixes the happy-path stall. |
 | 4 | **Accepted** — the 17 recognised `@inv` heads, the self-loop `S -<T>-> S` for "ignored on purpose", and their addition to language.md. |

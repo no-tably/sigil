@@ -1,0 +1,9 @@
+# SGC204 race — the fan-out design with its resolution stated.
+# expect: (none)
+#!spec
+(User) -> [Api] : go()
+[Api] *> [A] & [B] : run()
+[A] -> [W] : save()
+[B] -> [W] : save()
+[W] -> |Doc| : put({Doc})
+|Doc| @inv serialised(|Doc|)

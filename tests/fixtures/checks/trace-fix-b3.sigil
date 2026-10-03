@@ -1,0 +1,6 @@
+# Regression probe B3: a `~>` send's failure is honoured — it never arrives,
+# and the sender goes on.
+# expect: (none)
+(U) -> [A] : go()
+[A] ~> [B] : send() ×2
+[B] -> [C] : next()

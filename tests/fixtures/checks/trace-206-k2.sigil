@@ -1,0 +1,11 @@
+# SGC206 stalled-join — `[B]` fails to arrive only when the `?>` is taken and
+# `x.q` fails: a witness of two deviations, so binding caps at warn.
+# expect: warn:11:SGC206
+#!spec
+(User) -> [S] : go()
+[S] ?> [P] : p()
+[P] -> [A] : a()
+[P] -> (Ext) : op x.q() @timeout(1s)
+     !> (User) : <Failed>
+[P] -> [B] : b()
+[A] & [B] -> [C] : c()

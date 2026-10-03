@@ -1,0 +1,7 @@
+# Regression probe B4: a branch on a value's field runs its chosen arm.
+# expect: (none)
+(U) -> [Api] : req({Request})
+branch on {Request}.kind {
+  read  => [Api] -> |Cache|
+  write => [Api] -> |DB|
+}

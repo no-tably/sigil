@@ -1,0 +1,6 @@
+# Regression probe B1: a failing `&` / `*>` member raises its own call's guard,
+# so the route on the member's line fires (catalog §6). Lifts the trace caps.
+# expect: (none)
+(U) -> [A] : go()
+[A] *> [B] & [C] : f() ×2
+     !> <Failed>

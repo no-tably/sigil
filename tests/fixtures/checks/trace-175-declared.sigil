@@ -1,0 +1,5 @@
+# SGC175 unreached — the entry names the alias.
+# expect: (none)
+#!spec
+(User) -> [Api] : purge()
+purge := [Api] -> |Cache| : evict()

@@ -1,6 +1,8 @@
 #!craft
-# SGC202 dead-failure-route — routes on `*>` / `&` lines wait for the B1 fix (gated).
-# expect: none
+# SGC202 dead-failure-route — a route on a `*>` / `&` line is live: a member's
+# failure selects it (B1 fixed). Example 4: the members' fan-out tail stays (SGC165).
+# expect: 7:SGC165
+# expect: 7:SGC165
 
 *<Enriched>^10k *> |Warehouse| & |RealtimeIdx|
                !> |DLQ|

@@ -1,0 +1,6 @@
+# SGC175 unreached — no default entry at all (examples.md's provenance loop): no
+# reach to measure, so the rule stays quiet; SGC152 asks about the cycle.
+# expect: (none)
+#!spec
+|S| -> [Read] -> [Agent]
+[Agent] ~> <Did> -> [Write] -> |S|

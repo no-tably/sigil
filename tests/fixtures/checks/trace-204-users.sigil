@@ -1,0 +1,7 @@
+# SGC204 race — `(User)×3` declares concurrent callers (Q10), so the entry's
+# write races with its own copies. The static half reports it (the trace half
+# agrees and is merged into it).
+# expect: warn:7:SGC204
+#!spec
+(User)×3 -> [Api] : go()
+[Api] -> |Doc| : put({Doc})

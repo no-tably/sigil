@@ -1,0 +1,10 @@
+# Regression probe NG6 (Q12): a transition written from the machine's state
+# beats a `_` one, wherever it is written.
+# expect: (none)
+(U) -> [A] : go()
+[A] ~> <Paid>
+state {X} {
+  _ -<Paid>-> Weird
+  + -<Paid>-> Done
+  Done -<Paid>-> Done
+}

@@ -1,0 +1,11 @@
+# SGC203 event-ignored — the first `<Paid>` takes `{Order}` to `$`; the second
+# arrives after the end pseudo-state, which takes no transition, so it is
+# dropped exactly as in a named state with none for it (catalog §3).
+# expect: error:10:SGC203
+#!spec
+(User) -> [Shop] : go() @sla(1s)
+[Shop] ~> <Paid>
+[Shop] ~> <Paid>
+state {Order} {
+  + -<Paid>-> $
+}

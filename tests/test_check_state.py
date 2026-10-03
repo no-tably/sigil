@@ -285,6 +285,7 @@ class Fixtures(unittest.TestCase):
     def test_a_clean_twin_is_quiet_for_its_rule(self):
         quiet = {"race-one-caller": "SGC204", "unreachable-state-no-start": "SGC141",
                  "ambiguous-transition-wildcard-last": "SGC143",
+                 "ambiguous-transition-wildcard-first": "SGC143",
                  "ambiguous-transition-invs": "SGC143", "no-exit-self-loop": "SGC144",
                  "no-exit-retention": "SGC144", "async-cycle-scheduled": "SGC152",
                  "shared-data-order-chained": "SGC136", "unbounded-loop-pop": "SGC153",
@@ -410,6 +411,13 @@ class Severity(unittest.TestCase):
                                registry=state_registry())
                 self.assertEqual({f.severity for f in rep.findings if f.rule.id == rid},
                                  {"error"})
+
+    def test_a_specific_transition_beats_a_wildcard_written_first(self):
+        """NG6: `_` before a specific transition on one trigger is not ambiguous."""
+        path = _FIXTURES / "trace-fix-ng6.sigil"
+        rep = ck.check(path.read_text(encoding="utf-8"), mode="spec",
+                       registry=state_registry())
+        self.assertNotIn("SGC143", [f.rule.id for f in rep.findings])
 
     def test_a_guessed_write_drops_a_binding_race_to_advisory(self):
         rep = fixture("race-read")[1]

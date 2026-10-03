@@ -119,7 +119,7 @@ state {Job} {
 
 **Prose:**
 
-> The ingestion service produces an unbounded stream of raw events, buffered at 10,000 items with a drop-oldest overflow policy. The parse stage transforms raw events into parsed events (buffered at 10,000, default backpressure). The enrichment stage transforms parsed events into enriched events (buffered at 10,000, default backpressure) with a p99 latency requirement of 50ms. Enriched events are broadcast to both the warehouse and the realtime index; the broadcast requires both destinations to succeed. If the broadcast of enriched events fails, they are routed to a dead-letter queue.
+> The ingestion service produces an unbounded stream of raw events, buffered at 10,000 items with a drop-oldest overflow policy. The parse stage transforms raw events into parsed events (buffered at 10,000, default backpressure). The enrichment stage transforms parsed events into enriched events (buffered at 10,000, default backpressure) with a p99 latency requirement of 50ms. Enriched events are broadcast to both the warehouse and the realtime index; the broadcast requires both destinations to succeed. If either destination fails, the enriched event is routed to a dead-letter queue. A failure there stops at this last stage: ingestion, parsing and enrichment go on, because nothing upstream waits on a stream.
 >
 > Unspecified in this Sigil: the transport between stages, serialization format, failure detection mechanism, failure handling of the parse/enrich stages, DLQ retention policy.
 

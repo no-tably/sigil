@@ -1,0 +1,6 @@
+# SGC175 unreached — a cycle nothing outside enters: one finding for the group.
+# expect: info:5:SGC175
+#!spec
+(User) -> [Api] : get()
+[Ping] ~> [Pong] : ping()
+[Pong] ~> [Ping] : pong()

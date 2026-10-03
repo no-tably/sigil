@@ -1,0 +1,14 @@
+# SGC204 race — concurrent ownership: both fan-out tasks hold `[W]`'s `owns`
+# region on `|Doc|` at once. The simulator never blocks on `owns`, so the region
+# orders nothing; this is reported, never passed (catalog SGC204). The write is
+# declared, so the finding is exact.
+# expect: error:13:SGC204
+#!spec
+(User) -> [Api] : go()
+[Api] *> [A] & [B] : run()
+[A] -> [W] : save()
+[B] -> [W] : save()
+|Doc| @write(W)
+[W] @owns |Doc| {
+  [W] -> |Doc| : put({Doc})
+}

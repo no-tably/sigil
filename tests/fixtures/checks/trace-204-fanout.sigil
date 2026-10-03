@@ -1,0 +1,10 @@
+# SGC204 race (trace half) — one writer, run twice at once inside one episode by
+# the `*>` fan-out. One arrival, so the static half is quiet; the write is read
+# off its verb (a guess), so binding drops to advisory.
+# expect: warn:10:SGC204
+#!spec
+(User) -> [Api] : go()
+[Api] *> [A] & [B] : run()
+[A] -> [W] : save()
+[B] -> [W] : save()
+[W] -> |Doc| : put({Doc})

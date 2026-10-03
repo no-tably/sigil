@@ -1,0 +1,10 @@
+# SGC203 event-ignored — the second `<Paid>` reaches `{Order}` in `Settled`,
+# which has no transition for it. One sender, so no order explains the drop
+# (catalog §3, Example).
+# expect: error:9:SGC203
+#!spec
+[Shop] ~> <Paid>
+[Shop] ~> <Paid>
+state {Order} {
+  +  -<Paid>->  Settled
+}

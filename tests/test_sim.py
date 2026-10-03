@@ -13,7 +13,10 @@ Covers:
   6. project(): one trace named as a view draws it (land mode, a shallow depth);
   7. failure_flow(): the static failure flow agrees with the traces of every
      corpus document, and the public static helpers (reachable, route_guard,
-     loop_count).
+     loop_count);
+  8. the simulator defect fixes of RFC 0003 (B1, B2, B3, B4, B13) and NG6;
+  9. the structured events of Trace.end["events"] (MG1, MG2, MG5, MG6, MG9, MG11);
+ 10. combinations(): bounded k-deviation exploration (MG10).
 
 Run:  python3 -m unittest discover tests
 """
@@ -868,11 +871,13 @@ class TestFailureFlow(unittest.TestCase):
     """CG7: a route is live per failure_flow iff some scenario fires it — one
     deviation, or (for a route behind a route or an arm) two."""
 
-    # Dead in both today, each for a listed simulator defect (RFC 0003 catalog §6):
-    # a `*>` / `&` member's failure reaches its line's route as None (B1); a
-    # `parallel @all` member gets no failure scenario of its own (B2).
-    KNOWN_DEAD = {("coverage", 72): "B1", ("examples-04", 7): "B1",
-                  (worked_example("Example 4:"), 5): "B1", ("coverage", 141): "B2"}
+    # Dead in both until the simulator defects were fixed (RFC 0003 catalog §6):
+    # a `*>` / `&` member's failure reached its line's route as None (B1); a
+    # `parallel @all` member got no failure scenario of its own (B2). No corpus
+    # route is dead now.
+    FIXED = {("coverage", 72): "B1", ("examples-04", 7): "B1",
+             (worked_example("Example 4:"), 5): "B1", ("coverage", 141): "B2"}
+    KNOWN_DEAD: dict = {}
 
     def test_live_iff_fired_over_the_corpus(self):
         for name, text in corpus():
@@ -889,14 +894,16 @@ class TestFailureFlow(unittest.TestCase):
                     if ident not in live:
                         self.assertIn((name, w.line), self.KNOWN_DEAD)
 
-    def test_known_dead_routes_exist(self):
+    def test_routes_the_fixes_revived_fire(self):
         docs = dict(corpus())
-        for (name, line), _defect in self.KNOWN_DEAD.items():
-            with self.subTest(doc=name, line=line):
-                prog = sim.program(sim.canonical(build(docs[name]).graph))
-                dead = [w for i, w in routes_of(prog).items()
-                        if i not in sim.failure_analysis(prog).live]
-                self.assertIn(line, [w.line for w in dead])
+        for (name, line), defect in self.FIXED.items():
+            with self.subTest(doc=name, line=line, defect=defect):
+                sc = build(docs[name])
+                prog = sim.program(sim.canonical(sc.graph))
+                live = sim.failure_analysis(prog).live
+                (ident,) = [i for i, w in routes_of(prog).items() if w.line == line]
+                self.assertIn(ident, live)
+                self.assertIn(ident, fired(sc, sim.scenarios(sc, limits=ALL)[1:]))
 
     def probe(self, text: str):
         sc = build(text)
@@ -917,9 +924,7 @@ class TestFailureFlow(unittest.TestCase):
                 # a critical call ends the run: no route fires
                 "(U) -> [A]\n[A] -> [B] : pay() !\n     !> <Failed>\n",
                 # parallel @none forks and does not wait
-                "(U) -> [A]\nparallel @none {\n  [A] -> [B] : f() ×2\n} !> <Failed>\n",
-                # a race member's failure reaches the line's route as None (B1)
-                "(U) -> [A]\n[A] -> [B] &? [C] : f() ×2\n     !> <Failed>\n"]:
+                "(U) -> [A]\nparallel @none {\n  [A] -> [B] : f() ×2\n} !> <Failed>\n"]:
             with self.subTest(text=text):
                 _ff, live = self.probe(text)
                 self.assertEqual(live, {"Failed_event": False})
@@ -993,6 +998,392 @@ class TestFailureFlow(unittest.TestCase):
         prog = sim.program(sim.canonical(load("executions.sigil").graph))
         self.assertEqual(sim.failure_flow(prog), sim.failure_analysis(prog).arriving)
         self.assertEqual(sim.failure_flow(prog), sim.failure_flow(prog))
+
+
+# ---------------------------------------------------------------------------
+# 8. The simulator defect fixes (RFC 0003 catalog §6) and NG6
+# ---------------------------------------------------------------------------
+
+STREAM = ("(U) -> [In]\n[In] => *<Raw>^10k@drop\n*<Raw> -> [Parse] => *<Parsed>^10k\n"
+          "*<Parsed> *> |Warehouse| & |Index|\n          !> |DLQ|\n")
+
+
+SHOP = "(U) -> [Shop]\n[Shop] ~> <Paid>\n[Shop] ~> <Paid>\nstate {Order} {\n"
+WILDCARD_ONLY = SHOP + "  + -<Paid>-> A\n  _ -<Paid>-> Weird\n  _ -<Paid>-> Other\n}\n"
+JOIN_206 = "[S] -> [A] : a()\n[S] ?> [B] : b()\n[A] & [B] -> [C] : go() @timeout(5s)\n"
+# Beyond the golden corpus: a `_`-only machine ambiguity, a source join whose
+# members are choice points (Q3), and every checks fixture.
+B3_PROBES = ([("wildcard-only", WILDCARD_ONLY), ("join-206", JOIN_206)]
+             + [(p.stem, p.read_text()) for p in
+                sorted((_DIR / "tests" / "fixtures" / "checks").glob("*.sigil"))])
+
+
+def _changes_with_another(sc, s, listed) -> bool:
+    """Whether s changes the trace of some other single deviation it joins."""
+    for o in listed[1:]:
+        if o is s:
+            continue
+        both = sim.scenario(sc, f"{o.name}+{s.name}", limits=ALL)
+        if sim.simulate(sc, both).end["log"] != sim.simulate(sc, o).end["log"]:
+            return True
+    return False
+
+
+class TestDefectFixes(unittest.TestCase):
+    def test_b1_a_fan_out_member_failure_fires_its_lines_route(self):
+        sc = build(STREAM)
+        dlq = wire(sc, "Parsed_event", "DLQ_store", "!>")
+        for name in ("Parsed*>Warehouse:fails", "Parsed*>Index:fails"):
+            with self.subTest(name=name):
+                tr = run(sc, name)
+                self.assertEqual(tr.end["routes"], [dlq])
+                (fail,) = [e for e in tr.end["events"] if e["kind"] == "route"]
+                self.assertEqual(fail["guard"][0], "call")
+
+    def test_b1_a_join_target_member_failure_fires_its_lines_route(self):
+        sc = build("(U) -> [A]\n[A] -> [B] & [C] : f() ×2\n     !> <Failed>\n")
+        for s in sim.scenarios(sc)[1:]:
+            with self.subTest(scenario=s.name):
+                tr = sim.simulate(sc, s)
+                self.assertEqual(tr.end["routes"], [wire(sc, "A_service", "Failed_event", "!>")])
+
+    def test_b2_block_members_fail_when_only_the_route_says_so(self):
+        sc = build("(U) -> [Api]\nparallel @all {\n  [Api] -> [Inv] : reserve\n"
+                   "  [Api] -> [Fraud] : score\n}\n       !> [Inv] : release\n")
+        self.assertEqual(names(sc), ["happy", "Api->Inv:fails", "Api->Fraud:fails"])
+        route = wire(sc, "Api_service", "Inv_service", "!>")
+        for name in names(sc)[1:]:
+            with self.subTest(name=name):
+                self.assertEqual(run(sc, name).end["routes"], [route])
+
+    def test_b2_values_and_sends_in_a_block_are_no_choice(self):
+        sc = build("(U) -> [A]\nparallel @all {\n  [A] -> {Report}\n  [A] ~> [B]\n}\n"
+                   "     !> <Failed>\n")
+        self.assertEqual(names(sc), ["happy"])
+
+    def test_b3_a_failing_send_never_arrives_and_the_sender_goes_on(self):
+        sc = build("(U) -> [A]\n[A] ~> [B] : go() ×2\n[B] -> [C]\n")
+        self.assertEqual(names(sc), ["happy", "A.go:fails"])
+        tr = run(sc, "A.go:fails")
+        self.assertEqual(tr.outcome, "ok")
+        self.assertEqual(len(logs(tr, "failed")), 5)        # 3 attempts, the call, the stop
+        self.assertNotIn("C_service", tr.frames[-1].nodes)
+        self.assertTrue(logs(tr, "[B] failed (not awaited)"))
+
+    def test_b3_every_listed_deviation_changes_the_trace_over_the_corpus(self):
+        """A deviation whose choice point the happy run meets changes the trace
+        alone; one behind another deviation (a `?>` not taken by default) changes
+        it together with some other listed one."""
+        for name, text in corpus() + B3_PROBES:
+            sc = build(text)
+            listed = sim.scenarios(sc, limits=ALL)
+            happy = sim.simulate(sc, listed[0])
+            met = {e["cid"] for e in events(happy, "choice")}
+            for s in listed[1:]:
+                with self.subTest(doc=name, scenario=s.name):
+                    ((cid, _opt),) = s.choices
+                    if cid in met:
+                        self.assertNotEqual(sim.simulate(sc, s).end["log"], happy.end["log"])
+                    else:
+                        self.assertTrue(_changes_with_another(sc, s, listed))
+
+    def test_b4_a_branch_on_a_field_runs(self):
+        sc = build("(U) -> [Api] : req({Request})\nbranch on {Request}.kind {\n"
+                   "  read  => [Api] -> |Cache|\n  write => [Api] -> |DB|\n}\n")
+        self.assertEqual(names(sc), ["happy", "Request.kind=write"])
+        self.assertEqual(run(sc).frames[-1].nodes.get("Cache_store"), "visited")
+        tr = run(sc, "Request.kind=write")
+        self.assertEqual(tr.frames[-1].nodes.get("DB_store"), "visited")
+        self.assertNotIn("Cache_store", tr.frames[-1].nodes)
+
+    def test_b13_a_failure_behind_a_stream_stops_at_its_consumer(self):
+        sc = build("(U) -> [A]\n[A] => *<S>^4\n*<S> -> [B] : f() ×2\n")
+        tr = run(sc, "S.f:fails")
+        self.assertEqual(tr.outcome, "ok")
+        self.assertEqual(tr.frames[-1].nodes["A_service"], "visited")
+        self.assertTrue(logs(tr, "*<S> failed (not awaited)"))
+        prog = sim.program(sim.canonical(sc.graph))
+        ff = sim.failure_flow(prog)
+        self.assertEqual(ff[(0, "A_service")], frozenset())
+        self.assertEqual(ff[(0, "S_event")], {("call", wire(sc, "S_event", "B_service", "->"))})
+
+    def test_b13_the_stream_examples_route_fires_and_the_producer_goes_on(self):
+        sc = build(STREAM)
+        tr = run(sc, "Parsed*>Index:fails")
+        self.assertEqual(tr.outcome, "ok")
+        self.assertEqual([e["how"] for e in tr.end["events"] if e["kind"] == "stop"],
+                         ["unawaited"])
+
+    def test_ng6_a_specific_transition_beats_the_wildcard(self):
+        sc = build("(U) -> [A]\n[A] ~> <Paid>\nstate {X} {\n  _ -<Paid>-> Weird\n"
+                   "  + -<Paid>-> Done\n  Done -<Paid>-> Done\n}\n")
+        self.assertEqual(names(sc), ["happy"])          # no ambiguity left to choose
+        self.assertEqual(run(sc).end["machines"], {"X_data": "X_state_Done"})
+
+    def test_ng6_two_deliveries_across_a_state_change_resolve_on_arrival(self):
+        """Both `<Paid>` are delivered in the start state; the second arrives after
+        the first moved the machine to Open, where Open's own transition takes it
+        (no false `ignored`)."""
+        sc = build(SHOP + "  + -<Init>-> Idle\n  _ -<Paid>-> Open\n  Open -<Paid>-> Done\n}\n")
+        tr = run(sc)
+        self.assertEqual(tr.end["machines"], {"Order_data": "Order_state_Done"})
+        self.assertEqual([line.split(" ", 1)[1] for line in logs(tr, "-<Paid>->")],
+                         ["{Order} + -<Paid>-> Open", "{Order} Open -<Paid>-> Done"])
+        self.assertEqual(events(tr, "ignored"), [])
+
+    def test_ng6_a_second_delivery_rematches_in_the_state_the_first_reached(self):
+        """`+ -<Paid>-> Settled` then `Settled -<Paid>-> Settled`: the second
+        `<Paid>` takes Settled's own transition, never a phantom `ignored`."""
+        sc = build(SHOP + "  + -<Paid>-> Settled\n  Settled -<Paid>-> Settled\n}\n")
+        tr = run(sc)
+        self.assertEqual([line.split(" ", 1)[1] for line in logs(tr, "-<Paid>->")],
+                         ["{Order} + -<Paid>-> Settled", "{Order} Settled -<Paid>-> Settled"])
+        self.assertEqual(events(tr, "ignored"), [])
+
+    def test_a_delivery_is_judged_after_the_senders_earlier_trigger_lands(self):
+        """Per-sender FIFO: `<Placed>` then `<Paid>` from one sender — `<Paid>` is
+        judged in Open, where `<Placed>` takes the machine, not dropped in `+`."""
+        sc = build("(U) -> [Shop]\n[Shop] ~> <Placed>\n[Shop] ~> <Paid>\nstate {Order} {\n"
+                   "  + -<Placed>-> Open\n  Open -<Paid>-> Settled\n}\n")
+        tr = run(sc)
+        self.assertEqual(tr.end["machines"], {"Order_data": "Order_state_Settled"})
+        self.assertEqual(events(tr, "ignored"), [])
+
+    def test_ng6_a_deviation_on_the_state_reached_by_an_earlier_delivery_is_honoured(self):
+        sc = build(SHOP + "  + -<Paid>-> Open\n  Open -<Paid>-> Done\n  _ -<Paid>-> Weird\n"
+                   "  Open -<Paid>-> Twice\n}\n")
+        self.assertEqual(names(sc), ["happy", "Order.Open-<Paid>->Twice"])
+        self.assertEqual(run(sc).end["machines"], {"Order_data": "Order_state_Done"})
+        self.assertEqual(run(sc, "Order.Open-<Paid>->Twice").end["machines"],
+                         {"Order_data": "Order_state_Twice"})
+
+    def test_ng6_a_wildcard_ambiguity_is_chosen_by_its_written_source(self):
+        sc = build(WILDCARD_ONLY)
+        self.assertEqual(names(sc), ["happy", "Order._-<Paid>->Other"])
+        self.assertEqual(run(sc).end["machines"], {"Order_data": "Order_state_Weird"})
+        self.assertEqual(run(sc, "Order._-<Paid>->Other").end["machines"],
+                         {"Order_data": "Order_state_Other"})
+
+    def test_q3_a_deposit_is_no_failure_choice_point(self):
+        # a member deposits and goes on, so it cannot time out: the join's
+        # @timeout bounds the target's wait for the missing member (the open
+        # deposit), not the arriver's call — the catalog's SGC206 Declared twin
+        sc = build(JOIN_206)
+        self.assertEqual(names(sc), ["happy", "S?>B"])
+        happy = run(sc)
+        self.assertEqual(happy.outcome, "ok")
+        self.assertEqual(events(happy, "fail"), [])
+        self.assertEqual([d["missing"] for d in happy.end["deposits"]], [["B_service"]])
+        both = run(sc, "S?>B")
+        self.assertEqual([e["node"] for e in events(both, "gate-arrive")],
+                         ["A_service", "B_service"])
+        self.assertEqual([e["node"] for e in events(both, "gate-fire")], ["C_service"])
+        self.assertEqual(both.end["deposits"], [])
+        ff = sim.failure_flow(sim.program(sim.canonical(sc.graph)))
+        self.assertEqual(ff[(0, "A_service")], frozenset())
+
+    def test_ng6_the_wildcard_still_takes_what_nothing_specific_does(self):
+        sc = build("(U) -> [A]\n[A] ~> <Stop>\nstate {X} {\n  + -<Go>-> Run\n"
+                   "  _ -<Stop>-> Halted\n}\n")
+        self.assertEqual(run(sc).end["machines"], {"X_data": "X_state_Halted"})
+
+
+# ---------------------------------------------------------------------------
+# 9. Structured events (Trace.end["events"])
+# ---------------------------------------------------------------------------
+
+def events(trace, kind: str) -> list:
+    return [e for e in trace.end["events"] if e["kind"] == kind]
+
+
+class TestEvents(unittest.TestCase):
+    def test_every_event_names_its_kind_tick_task_and_episode(self):
+        for path in EXAMPLES + FIXTURES:
+            sc = build(path.read_text())
+            for s in sim.scenarios(sc)[:4]:
+                tr = sim.simulate(sc, s)
+                with self.subTest(file=path.name, scenario=s.name):
+                    ticks = [e["t"] for e in tr.end["events"]]
+                    self.assertEqual(ticks, sorted(ticks))
+                    for e in tr.end["events"]:
+                        self.assertLessEqual({"kind", "t", "task", "episode"}, set(e))
+
+    def test_forks_name_their_parent_and_why(self):
+        sc = build("(U) -> [A]\n[A] ~> [B]\n[A] *> [C] & [D]\n")
+        tr = run(sc)
+        forks = [(e["task"], e["parent"], e["why"]) for e in events(tr, "fork")]
+        self.assertEqual(forks, [(1, None, "entry"), (2, 1, "async"), (3, 1, "fan"),
+                                 (4, 1, "fan")])
+        (aw,) = events(tr, "await")
+        self.assertEqual((aw["task"], aw["members"]), (1, [3, 4]))
+        self.assertEqual([e["task"] for e in events(tr, "resume")], [1])
+        self.assertEqual({e["task"]: e["how"] for e in events(tr, "end")},
+                         {1: "ok", 2: "ok", 3: "ok", 4: "ok"})
+
+    def test_a_trigger_task_is_forked_by_the_delivering_task(self):
+        tr = run(load("04-orders.sigil"))
+        triggers = events(tr, "fork")
+        delivered = [e for e in triggers if e["why"] == "trigger"]
+        self.assertTrue(delivered)
+        tasks = {e["task"] for e in triggers}
+        self.assertTrue(all(e["parent"] in tasks for e in delivered))
+        self.assertEqual([(e["owner"], e["dst"]) for e in events(tr, "transition")][:2],
+                         [("Order_data", "Order_state_Open"),
+                          ("Checkout_service", "Checkout_state_Busy")])
+
+    def test_episode_is_recorded_at_fork(self):
+        sc = build("[A] & [B] -> [C]\n")
+        tr = run(sc)
+        self.assertEqual([(e["task"], e["episode"]) for e in events(tr, "fork")],
+                         [(1, 1), (2, 2)])
+        arrive = events(tr, "gate-arrive")
+        self.assertEqual([(e["task"], e["node"], e["round"]) for e in arrive],
+                         [(1, "A_service", 0), (2, "B_service", 0)])
+        (fire,) = events(tr, "gate-fire")
+        self.assertEqual((fire["task"], fire["node"], fire["key"]), (2, "C_service", (0, 0, "C_service")))
+
+    def test_access_events_carry_mode_and_held_stores(self):
+        sc = build("(U) -> [W]\n[W] @owns |S| {\n  [W] -> |S| : put(x)\n}\n"
+                   "[W] -> |S| : get() => {Row}\n[W] -> |T| : op db.insert(x) @timeout(1s)\n")
+        happy = run(sc)
+        got = [(e["store"], e["mode"], e["held"], e["outcome"]) for e in events(happy, "access")]
+        self.assertEqual(got, [("S_store", "write", ["S_store"], "done"),
+                               ("S_store", "read", [], "done"),
+                               ("T_store", "write", [], "done")])
+        failed = run(sc, "W.db.insert:fails")
+        self.assertEqual([(e["store"], e["outcome"]) for e in events(failed, "access")][-1],
+                         ("T_store", "unknown"))
+
+    def test_failures_routes_and_stops(self):
+        tr = run(load("04-orders.sigil"), "Payments:fails")
+        (fail,) = events(tr, "fail")
+        self.assertEqual(fail["origin"], ("node", "Payments_service"))
+        (route,) = events(tr, "route")
+        self.assertEqual((route["node"], route["guard"]), ("Payments_service", None))
+        self.assertEqual([e["how"] for e in events(tr, "stop")], ["entry"])
+
+    def test_a_fallback_stops_its_failure(self):
+        sc = build("(U) -> [A]\n[A] -> (Ext) : op x.get() @timeout(1s) @fallback(none)\n")
+        tr = run(sc, "A.x.get:fallback")
+        (fail,) = events(tr, "fail")
+        self.assertTrue(fail["fallback"])
+        self.assertEqual([e["how"] for e in events(tr, "stop")], ["fallback"])
+        self.assertEqual(tr.outcome, "ok")
+
+    def test_limits(self):
+        cases = [("(U) -> [A]\n[A] -> [A] : again()\n", "depth"),
+                 ("[P] -> [Q]\n[Q] ~> [R]\n[R] ~> [Q]\n", "visits"),
+                 ("(U) -> [A]\nloop @times 5 {\n  [A] -> |Q| : push()\n}\n", "iterations")]
+        for text, name in cases:
+            with self.subTest(limit=name):
+                self.assertIn(name, [e["name"] for e in events(run(build(text)), "limit")])
+        tr = run(build("(U) -> [A]\nloop @times 5 {\n  [A] -> |Q| : push()\n}\n"))
+        self.assertTrue(logs(tr, "loop capped: @times 5 runs 2"))
+        cut = sim.simulate(load("coverage.sigil"), sim.scenarios(load("coverage.sigil"))[0],
+                           limits=sim.Limits(frames=10))
+        self.assertEqual([e["name"] for e in events(cut, "limit")][-1], "frames")
+
+    def test_ignored_deliveries(self):
+        sc = build("(U) -> [A]\n[A] ~> <Go>\n[A] ~> <Go>\n"
+                   "state {X} {\n  Idle -<Go>-> Busy\n}\n<Go> -> {X}\n")
+        (ign,) = events(run(sc), "ignored")
+        self.assertEqual((ign["owner"], ign["state"], ign["label"]),
+                         ("X_data", "X_state_Busy", "<Go>"))
+
+    def test_sgc206_probe_is_quiet_and_its_flagged_twin_leaves_a_deposit(self):
+        probe = run(build("[S] -> [A] : a()\n[S] -> [B] : b()\n[A] & [B] -> [C] : go()\n"))
+        self.assertEqual((probe.end["stalled"], probe.end["deposits"]), ([], []))
+        self.assertEqual([e["node"] for e in events(probe, "gate-arrive")],
+                         ["A_service", "B_service"])
+        self.assertEqual(len(events(probe, "gate-fire")), 1)
+        self.assertEqual([e["waiting"] for e in events(probe, "quiet")], [[]])
+        flagged = run(build("[S] -> [A] : a()\n[S] ?> [B] : b()\n[A] & [B] -> [C] : go()\n"))
+        self.assertEqual([d["missing"] for d in flagged.end["deposits"]], [["B_service"]])
+        self.assertEqual(events(flagged, "gate-fire"), [])
+
+    def test_quiet_names_the_tasks_left_waiting(self):
+        tr = run(build("(U) -> [A]\n[A] *> [B] & [C]\n"))
+        self.assertEqual([e["waiting"] for e in events(tr, "quiet")], [[]])
+
+    def test_choices_record_what_a_run_met(self):
+        sc = load("01-checkout.sigil")
+        tr = run(sc, "API.charge:fails")
+        met = [e for e in events(tr, "choice") if not e["default"]]
+        self.assertEqual([e["option"] for e in met], ["fails"])
+
+    def test_events_are_deterministic(self):
+        sc = load("coverage.sigil")
+        a, b = run(sc), run(load("coverage.sigil"))
+        self.assertEqual(a.end["events"], b.end["events"])
+
+
+# ---------------------------------------------------------------------------
+# 10. combinations() — bounded k-deviation exploration (MG10)
+# ---------------------------------------------------------------------------
+
+CROSS_EPISODE = ("(A) -> [P]\n[P] -> (Ext) : op x.get() @timeout(1s)\n  !> <Declined>\n"
+                 "(B) -> [Q]\n[Q] -> (Ext) : op y.get() @timeout(1s)\n  !> <Voided>\n"
+                 "state {Trip} {\n  + -<Declined>-> Cancelled\n  + -<Voided>-> Void\n"
+                 "  Void -<Declined>-> Void\n}\n")
+
+
+class TestCombinations(unittest.TestCase):
+    def test_k1_is_happy_and_every_single_deviation(self):
+        sc = load("executions.sigil")
+        ex = sim.combinations(sc, 1)
+        self.assertEqual([t.scenario.name for t in ex.traces], names(sc))
+        self.assertEqual((ex.duplicates, ex.left_out), (0, 0))
+
+    def test_k0_is_the_happy_run(self):
+        ex = sim.combinations(load("executions.sigil"), 0)
+        self.assertEqual([t.scenario.name for t in ex.traces], ["happy"])
+
+    def test_pairs_grow_only_along_a_dependency(self):
+        # Push's call is met only when Router?>Push is taken, so alone it repeats
+        # the happy run and grows nothing; V's failure, in the last episode, meets
+        # no choice point after it. Router?>Push pairs with what its run meets
+        # later: Push's call, and V's call in the next episode (state outlives one)
+        sc = build("(U) -> [Router]\n[Router] ?> [Push] : notify()\n"
+                   "[Push] -> (Ext) : op p.send() @timeout(1s)\n"
+                   "(V) -> [Other] : op o.get() @timeout(1s)\n")
+        ex = sim.combinations(sc, 2)
+        pairs = [t.scenario.name for t in ex.traces if len(t.scenario.choices) == 2]
+        self.assertEqual(pairs, ["Router?>Push+Push.p.send:fails", "Router?>Push+V.o.get:fails"])
+        both = next(t for t in ex.traces if len(t.scenario.choices) == 2)
+        self.assertEqual(both.scenario.choices,
+                         sim.scenario(sc, "Router?>Push+Push.p.send:fails").choices)
+
+    def test_a_deviation_pairs_with_one_it_enables_in_a_later_episode(self):
+        # P's failure in episode 1 moves {Trip} to Cancelled; only then does Q's
+        # failure in episode 2 deliver <Voided> to a state that ignores it
+        sc = build(CROSS_EPISODE)
+        ex = sim.combinations(sc, 2)
+        self.assertEqual([t.scenario.name for t in ex.traces],
+                         ["happy", "P.x.get:fails", "Q.y.get:fails",
+                          "P.x.get:fails+Q.y.get:fails"])
+        self.assertEqual([e["label"] for t in ex.traces for e in events(t, "ignored")],
+                         ["<Voided>"])
+        self.assertEqual(sim.combinations(sc, 1).traces[-1].scenario.name, "Q.y.get:fails")
+
+    def test_runs_that_repeat_are_dropped(self):
+        sc = load("coverage.sigil")
+        ex = sim.combinations(sc, 3)
+        logs_seen = [tuple(t.end["log"]) for t in ex.traces]
+        self.assertEqual(len(logs_seen), len(set(logs_seen)))
+        self.assertGreater(ex.duplicates, 0)
+
+    def test_the_budget_counts_what_it_left_out(self):
+        sc = load("coverage.sigil")
+        full = sim.combinations(sc, 1)
+        cut = sim.combinations(sc, 1, budget=3)
+        self.assertEqual(len(cut.traces), 4)
+        self.assertEqual(cut.left_out, len(full.traces) - 4)
+        self.assertEqual([t.scenario for t in cut.traces], [t.scenario for t in full.traces[:4]])
+
+    def test_deterministic(self):
+        sc = load("coverage.sigil")
+        a, b = sim.combinations(sc, 2), sim.combinations(load("coverage.sigil"), 2)
+        self.assertEqual([t.scenario for t in a.traces], [t.scenario for t in b.traces])
 
 
 class TestStaticHelpers(unittest.TestCase):

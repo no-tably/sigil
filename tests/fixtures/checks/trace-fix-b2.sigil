@@ -1,0 +1,9 @@
+# Regression probe B2: members of `parallel @all { … } !> …` get failure
+# scenarios of their own, and the block's route fires.
+# expect: (none)
+(U) -> [Api] : go()
+parallel @all {
+  [Api] -> [Inv] : reserve()
+  [Api] -> [Fraud] : score()
+}
+       !> [Inv] : release()

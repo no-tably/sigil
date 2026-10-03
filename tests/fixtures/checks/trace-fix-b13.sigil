@@ -1,0 +1,6 @@
+# Regression probe B13: a failure behind a stream stops at its consumer; the
+# producer goes on.
+# expect: (none)
+(U) -> [A] : go()
+[A] => *<S>^4
+*<S> -> [B] : f() ×2

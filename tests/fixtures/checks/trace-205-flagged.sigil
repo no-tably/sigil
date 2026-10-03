@@ -1,0 +1,10 @@
+# SGC205 ordering-unstated — two independent arrivals drive `{Order}`; `<Paid>`
+# reaches it in `+`, before `<Placed>` starts it (catalog §3, Example).
+# expect: warn:8:SGC205
+#!spec
+[Payments] ~> <Paid>
+[Checkout] ~> <Placed>
+state {Order} {
+  +     -<Placed>->  Open
+  Open  -<Paid>->    Settled
+}

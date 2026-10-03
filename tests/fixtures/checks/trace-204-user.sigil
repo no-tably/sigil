@@ -1,0 +1,5 @@
+# SGC204 race — a plain `(User)` is one sequential caller (Q10): quiet.
+# expect: (none)
+#!spec
+(User) -> [Api] : go()
+[Api] -> |Doc| : put({Doc})

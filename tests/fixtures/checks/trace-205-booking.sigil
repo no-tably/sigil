@@ -1,0 +1,35 @@
+# SGC205 ordering-unstated — the 2026-10-02 booking demo (its seed finding):
+# when the charge fails, `<Declined>` reaches `{Trip}` while it is still in `+`.
+# expect: warn:33:SGC205
+#!spec
+# a trip booking: every piece of the new machinery in one design
+
+--- booking ---
+
+(Traveller) -> [Booking] : book({Trip})
+# the planner works out the legs on its own, then recurses per stopover
+[Booking] -> plan({Trip}) => {Itinerary}
+[Planner] -> [Planner] : stopover
+[Booking] -> [Planner] : legs({Itinerary}) => {Legs}
+
+# a hold, then the charge; only a failed charge releases the hold
+[Booking] -> |Seats| : hold({Legs}) => {Hold}
+[Booking] -> [Payments] : charge({Hold}) @timeout(2s) ×3
+          !> |Seats| : release({Hold})
+          !> <Declined>
+
+# the card network is outside: host-provided, and it may fail
+[Payments] -> (Bank) : op card.auth(${amount}) @timeout(1s) @fallback(${retry_later})
+
+# two quotes race; the first answer wins
+[Booking] -> [FastQuote] &? [CheapQuote] : quote({Legs})
+
+# confirmations fan out; a loyalty bonus only sometimes
+[Booking] ~> <Confirmed> *> [Email] & [Calendar] & |Ledger|
+[Booking] ?> [Loyalty] : points({Trip})
+
+# a trip's lifecycle, driven by the events above
+state {Trip} {
+  +        -<Confirmed>->  Booked
+  Booked   -<Declined>->   Cancelled
+}

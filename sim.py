@@ -48,7 +48,11 @@ view draws (events drawn where they land, a shallower depth).
   arrival runs the target (`&?`: the first; later ones are dropped).
   A failure stops the activation it reaches, fires its routes (those guarded
   by the failed block or call first, else its unguarded ones), ends it failed and
-  unwinds the sync stack.
+  unwinds the sync stack. An awaited member (`*>`, an `&` target, a race's
+  winner) fails its waiter as its own call, so its line's routes fire. A
+  failure never crosses an async edge: a `~>` send (whose own failure the
+  scenario may choose too), a `=>` produce hop or a flow into a stream stops
+  it at the consumer ("not awaited"); the producer goes on.
 
   Resilience: a failing call makes attempts() tries, then `@fallback(x)` fires
   the caller's routes guarded by that call ("notify, then yield"), returns x and
@@ -57,9 +61,11 @@ view draws (events drawn where they land, a shallower depth).
   op's far node is opaque. Blocks: `loop` repeats its region (`@times N`, capped
   by Limits.iterations), `parallel` forks it (@all waits, @any races, @none
   doesn't wait), `branch` runs the chosen arm only; a block repeats or forks only
-  on its outermost entry on a task. State machines start in `+` (or the source of
-  their first written transition); an event delivers its triggers, then runs its
-  body. An expansion is a closer reading of the same node: its entries run first,
+  on its outermost entry on a task; a branch on a value's field (`branch on
+  {R}.kind`) decides where it is written, as one with no header glyph does. State
+  machines start in `+` (or the source of their first written transition); an
+  event delivers its triggers (a transition written from the machine's state
+  beats a `_` one), then runs its body. An expansion is a closer reading of the same node: its entries run first,
   then the node's body minus its summary wires. An alias runs when called by name.
   Composition children are instances: static ones once per parent (×N
   multiplies), dynamic ones Limits.spawn per parent, a `=>` into one spawns
@@ -72,9 +78,17 @@ SCENARIOS
 scenarios(scene) lists `happy` (every default) and then one scenario per
 non-default option of each reachable choice point (call outcomes, node
 outcomes, `?>`, `/`, `&?`, `parallel @any`, branch arms, `\\-_` siblings,
-ambiguous machine transitions), ordered by source line. scenario(scene,
+ambiguous machine transitions), ordered by source line. A route makes what it
+guards a choice point: the calls on its line, and — when nothing in it fails
+on its own — the awaited calls of the block whose `}` it follows. scenario(scene,
 "a+b") combines deviations. Scenario(name, choices, label, entries): choices a
 tuple of (choice id, option).
+
+combinations(scene, k, budget=…) explores up to k deviations at once: a
+combination grows only by a deviation its own run meets after its first
+deviation took effect; runs that repeat an earlier one are dropped; the budget
+caps the runs and says how many it left out (Exploration). deviations(prog)
+lists the single ones.
 
 STATIC FACTS (pure, over program(canonical(graph)); no run changes)
 
@@ -83,16 +97,42 @@ STATIC FACTS (pure, over program(canonical(graph)); no run changes)
   loop_count(block, limits)       how often the simulator runs a loop
   failure_flow(prog)      {(ui, node): the failure guards that can arrive there};
                           failure_analysis(prog) adds what fallbacks absorbed and
-                          the live routes — mirrors the run, defects included (B1)
+                          the live routes — mirrors the run
 
 THE TRACE
 
 Trace(scenario, frames, outcome, end, scene)
   outcome   "ok" | "failed" | "cut"
-  end       {"machines", "routes", "stalled", "deposits", "cut", "visited", "log"}
+  end       {"machines", "routes", "stalled", "deposits", "cut", "visited", "log",
+             "events"}
             deposits: the `&` source joins left open — [{"join": (unit, index),
             "target", "arrived", "missing"}] (node ids); a member deposits and goes
             on, so an open join is a deposit no last arrival consumed
+            events: the run as data, in order — dicts with "kind", "t" (tick),
+            "task" (id, or None for the run) and "episode" (the task's, recorded
+            when it was forked), plus by kind:
+              fork        parent (task id | None), why (entry | async | fan | join |
+                          race | parallel | trigger), wire, node
+              end         how (ok | failed | cancelled)
+              await       members, need (task ids)   resume  failed (bool)
+              gate-arrive key (unit, join, target), round, node, wire
+              gate-fire   key, round, node (the target)
+              gate-drop   key, round, node (an `&?` arrival after the winner)
+              access      store, mode (read | write | rw | unknown), wire, held
+                          (stores the task's `owns` blocks hold), outcome (done |
+                          unknown: a failed attempt)
+              choice      cid, option, default (bool): a choice point consulted
+              fail        origin (("call", ident) | ("node", id)), node; for a call
+                          fallback, critical (bool)
+              route       node, wire, guard        transition  owner, label, src, dst
+              stop        how (entry | unawaited | fallback | route-failed |
+                          abort), node, guard
+              limit       name (depth | visits | spawns | iterations | activations
+                          | stack | frames), node
+              ignored     event, label, owner, state
+              quiet       waiting (task ids still waiting when the run went quiet)
+            A source join is a deposit, so its arrivers never wait: there is no
+            gate resume; a gate's round counts the times it fired.
   scene     the Scene its frames name (the canonical one, or project()'s)
 
 Frame — a full, immutable snapshot (a view draws frame i alone)
@@ -332,10 +372,20 @@ def _fill_unit(prog: Program, ui: int, u, wires: list) -> None:
             prog.arm_wire[(ui, w.block, w.label)] = w
     for bi, b in enumerate(blocks):
         if b.kind == "branch":
-            if b.refs:
+            if b.refs and not _field_header(b):
                 prog.branches[(ui, b.refs[0])] = prog.branches.get((ui, b.refs[0]), ()) + (bi,)
             else:
                 prog.decisions[scene_mod.decision_id(u.owner, bi)] = (ui, bi)
+
+
+_FIELD_HEADER = re.compile(r"^\s*\{[^{}]*\}\s*\.\s*\w")
+
+
+def _field_header(b) -> bool:
+    """A branch on a field of a value (`branch on {Request}.kind`): it tests the
+    value, nothing activates it, so it decides where it is written, as a branch
+    with no header glyph does (B4)."""
+    return bool(_FIELD_HEADER.match(b.header or ""))
 
 
 def _arm_membership(blocks: list, wires: list) -> dict:
@@ -653,6 +703,8 @@ class _Task:
     entry: bool = False
     members: list = field(default_factory=list)   # tasks it waits for (cancelled with it)
     scopes: Counter = field(default_factory=Counter)  # block keys it runs inside
+    episode: int = 0                              # the episode it was forked in
+    guard: object = None                          # the failure guard it ended with
 
 
 _BUSY = {"active": 5, "waiting": 4, "failed": 3, "visited": 2, "opaque": 1, "cancelled": 0}
@@ -670,12 +722,16 @@ class _Run:
         self.status: dict = {}
         self.taken, self.failed_w, self.routes = set(), set(), []
         self.machines = {o: m.initial for o, m in prog.machines.items()}
+        self.bound: dict = {}          # owner → [state, …]: in-flight triggers' targets, FIFO
         self.changed, self.lit_now, self.ghosts = set(), set(), []
         self.counts = _setup_instances(prog, limits)
         self.loops, self.blocks, self.held = {}, Counter(), Counter()
         self.visits, self.activations = Counter(), 0
         self.gates: dict = {}
         self.one_of = _one_of_groups(prog)
+        self.owned = _owned_stores(prog)
+        self.modes: dict = {}
+        self.events: list = []
         self.lines, self.log_all = [], []
         self.failed_episode = self.aborted = False
         self.cut: list = []
@@ -700,6 +756,8 @@ class _Run:
         self._wake()
         pending = any(not x.ended and x.resume is not None for x in self.tasks)
         if not self.done and not pending:
+            self._event("quiet", None, waiting=[x.id for x in self.tasks
+                                                if not x.ended and x.wait is not None])
             if self.entries:
                 self.start_next = True
             else:
@@ -720,27 +778,42 @@ class _Run:
         self.entry = nid
         self.visits = Counter()
         self._log(f"episode {self.episode}: {self._name(nid)}")
-        self._fork(lambda task: self._entry_gen(task, ui, nid), entry=True)
+        self._fork(lambda task: self._entry_gen(task, ui, nid), why="entry", node=nid)
 
-    def _fork(self, factory, parent: Optional[_Task] = None, entry: bool = False) -> _Task:
+    def _fork(self, factory, parent: Optional[_Task] = None, *, why: str,
+              wire=None, node: Optional[str] = None) -> _Task:
         """A new task running factory(task); it starts inside the control blocks its
-        parent runs at the fork (a region it re-enters there is a plain scope)."""
-        task = _Task(len(self.tasks) + 1, resume=self.t, entry=entry)
+        parent runs at the fork (a region it re-enters there is a plain scope).
+        `why` names the fork site (the `fork` event); an "entry" task is an
+        episode's root."""
+        task = _Task(len(self.tasks) + 1, resume=self.t, entry=why == "entry",
+                     episode=self.episode)
         if parent is not None:
             task.scopes = Counter(+parent.scopes)
-        task.gen = factory(task)
         self.tasks.append(task)
+        self._event("fork", task, parent=parent.id if parent is not None else None, why=why,
+                    wire=wire, node=node)
+        task.gen = factory(task)
         return task
+
+    def _event(self, kind: str, task: Optional[_Task], **fields) -> None:
+        """Record one structured event (THE TRACE: events)."""
+        ev = {"kind": kind, "t": self.t, "task": task.id if task is not None else None,
+              "episode": task.episode if task is not None else self.episode}
+        ev.update(fields)
+        self.events.append(ev)
 
     def _advance(self, task: _Task) -> None:
         try:
             req = next(task.gen)
         except StopIteration:
             self._end(task, failed=False)
-        except _Fail:
+        except _Fail as f:
+            task.guard = f.guard
             self._end(task, failed=True)
             if task.entry:
                 self.failed_episode = True
+                self._event("stop", task, how="entry", node=self.entry, guard=f.guard)
                 self._log(f"episode {self.episode} failed")
         except _Abort:
             self._abort()
@@ -753,6 +826,7 @@ class _Run:
 
     def _cut(self, limit: str) -> None:
         self.cut.append(limit)
+        self._event("limit", None, name=limit, node=None)
         self._log(f"cut: {limit} limit")
         self.done = True
 
@@ -772,6 +846,7 @@ class _Run:
 
     def _end(self, task: _Task, failed: bool) -> None:
         task.ended, task.failed, task.resume = True, failed, None
+        self._event("end", task, how="failed" if failed else "ok")
 
     def _wake(self) -> None:
         for task in self.tasks:
@@ -790,6 +865,7 @@ class _Run:
             self.status[act.node] = "cancelled"
         task.gen.close()
         task.ended, task.resume, task.wait = True, None, None
+        self._event("end", task, how="cancelled")
 
     def _abort(self) -> None:
         self._log("critical call failed: the run ends")
@@ -846,7 +922,8 @@ class _Run:
         return {"machines": dict(self.machines), "routes": list(self.routes),
                 "stalled": list(dict.fromkeys(stalled)), "deposits": self._deposits(),
                 "cut": list(self.cut),
-                "visited": list(self.status), "log": list(self.log_all)}
+                "visited": list(self.status), "log": list(self.log_all),
+                "events": list(self.events)}
 
     # ---- helpers -----------------------------------------------------------
 
@@ -875,8 +952,13 @@ class _Run:
         what = carried(w)
         return f"{text} : {what}" if what else text
 
-    def _choice(self, cid: tuple, default):
-        return self.choices.get(cid, default)
+    def _choice(self, task: Optional[_Task], cid: tuple, default):
+        """The scenario's option at choice point cid (default: none chosen); every
+        consultation is a `choice` event, so an exploration sees which points a
+        run met."""
+        option = self.choices.get(cid, default)
+        self._event("choice", task, cid=cid, option=option, default=option == default)
+        return option
 
     def _ui(self, w) -> int:
         return self.prog.wire_unit.get(id(w), 0)
@@ -915,6 +997,7 @@ class _Run:
     def _depth_capped(self, task: _Task, nid: str) -> bool:
         n = sum(1 for a in task.stack if a.node == nid)
         if n >= self.limits.depth:
+            self._event("limit", task, name="depth", node=nid)
             self._log(f"base case: {self._name(nid)} at depth {n}")
             return True
         return False
@@ -942,23 +1025,39 @@ class _Run:
             total += n
         return min(total, self.limits.spawns)
 
-    def _spawn(self, w) -> None:
+    def _access(self, task: _Task, w, outcome: str) -> None:
+        """An `access` event when w touches a store (scene.access_mode, the static
+        rules' reading): outcome "done", or "unknown" for a failed attempt (Q13);
+        `held` the stores the task's `owns` blocks hold."""
+        if w.ident not in self.modes:
+            self.modes[w.ident] = scene_mod.access_mode(w, self.prog.scene.graph)
+        mode = self.modes[w.ident]
+        if mode is None:
+            return
+        store = w.dst if self._kind(w.dst) == "store" else w.src
+        held = sorted({n for key, k in task.scopes.items() if k > 0
+                       for n in self.owned.get(key, ())})
+        self._event("access", task, store=store, mode=mode, wire=w.ident, held=held,
+                    outcome=outcome)
+
+    def _spawn(self, task: _Task, w) -> None:
         """A `=>` into a dynamic or `\\-?` child: one more instance (capped)."""
         for idx, (_ui, _k, t) in enumerate(self.prog.tree):
             if t.node == w.dst and (t.spawn or t.rel in ("$", "?")):
                 if sum(n for (_u, _kk, x), n in zip(self.prog.tree, self.counts)
                        if x.node == w.dst) >= self.limits.spawns:
+                    self._event("limit", task, name="spawns", node=w.dst)
                     self._log("spawn cap reached")
                     return
                 self.counts[idx] += 1
                 self._log(f"spawn {self._name(w.dst)} ({self.counts[idx]})")
                 return
 
-    def _inactive_sibling(self, nid: str) -> bool:
+    def _inactive_sibling(self, task: _Task, nid: str) -> bool:
         """A `\\-_` sibling not chosen (the first of its group is the default)."""
         for key, members in self.one_of.items():
             if nid in members:
-                return self._choice(("oneof", key), members[0]) != nid
+                return self._choice(task, ("oneof", key), members[0]) != nid
         return False
 
     # ---- semantics: entries, activations, items ------------------------------
@@ -983,11 +1082,12 @@ class _Run:
         on to the caller."""
         node = self.prog.scene.nodes[act.node].node if act.node in self.prog.scene.nodes else None
         try:
-            if self._choice(("node", act.node), "ok") == "fails":
+            if self._choice(task, ("node", act.node), "ok") == "fails":
                 self._log(f"{self._name(act.node)} fails")
+                self._event("fail", task, origin=("node", act.node), node=act.node)
                 raise _Fail(None)
             if node is not None and node.kind == "event":
-                self._deliver(act)
+                self._deliver(task, act)
             if alias is not None:
                 yield from self._activate(task, alias[0], alias[1], act.cause)
             else:
@@ -1018,19 +1118,22 @@ class _Run:
         """The failed activation's routes, in written order: those
         guarded by what failed, else the unguarded ones."""
         for w in selected_routes(self.prog.routes.get((act.ui, act.node), ()), f.guard):
-            yield from self._route(task, act, w)
+            yield from self._route(task, act, w, f.guard)
 
-    def _route(self, task: _Task, act: _Act, w):
-        """Take one failure route out of act's node. A route target's own failure
-        ends that route only; the remaining routes still fire."""
+    def _route(self, task: _Task, act: _Act, w, guard):
+        """Take one failure route out of act's node for the failure `guard`. A
+        route target's own failure ends that route only; the remaining routes
+        still fire."""
         self.failed_w.add(w.ident)
         self.routes.append(w.ident)
+        self._event("route", task, node=act.node, wire=w.ident, guard=guard)
         self._log(f"{self._name(act.node)} failed → {self._name(w.dst)}")
         task.open.append(w.ident)
         try:
             yield from self._hop(task, w, state="failed", carries=carried(w))
             yield from self._land(task, w, None)
         except _Fail:
+            self._event("stop", task, how="route-failed", node=w.dst, guard=("node", w.dst))
             self._log(f"route failed: {self._name(w.dst)}")
         finally:
             task.open.remove(w.ident)
@@ -1046,9 +1149,9 @@ class _Run:
 
     def _step(self, task: _Task, w, arm):
         if w.kind == "~>":
-            self._fork(lambda t, w=w: self._async(t, w, arm), task)
+            self._fork(lambda t, w=w: self._async(t, w, arm), task, why="async", wire=w.ident)
             return
-        if w.kind == "?>" and self._choice(("cond", w.ident), "skip") != "take":
+        if w.kind == "?>" and self._choice(task, ("cond", w.ident), "skip") != "take":
             return
         gate = _gate_of(self.prog, w)
         if gate is not None:
@@ -1057,15 +1160,31 @@ class _Run:
         yield from self._call(task, w, arm)
 
     def _async(self, task: _Task, w, arm):
-        """A `~>` send in its own task: hop, then the receiver's work."""
-        if self._inactive_sibling(w.dst):
+        """A `~>` send in its own task: hop, then the receiver's work. A send the
+        scenario fails makes its attempts and never arrives; neither that nor the
+        receiver's failure reaches the sender (B3)."""
+        if self._inactive_sibling(task, w.dst):
+            return
+        if self._choice(task, ("call", w.ident), "ok") == "fails":
+            yield from self._failing(task, w, self.limits.hop)
+            self.failed_w.add(w.ident)
+            self._event("fail", task, origin=("call", w.ident), node=w.src, fallback=False,
+                        critical=False)
+            self._log(self._failure_text(w))
+            self._unawaited(task, w.dst, ("call", w.ident))
             return
         self._log(f"send {self._wire_text(w)}")
         yield from self._hop(task, w, carries=carried(w), reach=self._reach_of(w))
         try:
             yield from self._land(task, w, arm)
-        except _Fail:
-            self._log(f"{self._name(w.dst)} failed (not awaited)")
+        except _Fail as f:
+            self._unawaited(task, w.dst, f.guard)
+
+    def _unawaited(self, task: _Task, nid: str, guard) -> None:
+        """A failure that stops where nothing awaits it: a `~>` send, or the
+        consumer behind a stream or a `=>` hop (B13)."""
+        self._event("stop", task, how="unawaited", node=nid, guard=guard)
+        self._log(f"{self._name(nid)} failed (not awaited)")
 
     # ---- calls -------------------------------------------------------------
 
@@ -1074,10 +1193,10 @@ class _Run:
         if w.src == w.dst or (w.call is not None and w.call.self_call):
             yield from self._self_call(task, w)
             return
-        if self._inactive_sibling(w.dst):
+        if self._inactive_sibling(task, w.dst):
             self._log(f"not taken: {self._name(w.dst)} is not the active one")
             return
-        if self._choice(("call", w.ident), "ok") == "fails":
+        if self._choice(task, ("call", w.ident), "ok") == "fails":
             yield from self._failing(task, w, self.limits.hop)
             yield from self._call_failed(task, w)
             return
@@ -1088,8 +1207,12 @@ class _Run:
                              attempt=(1, a) if a > 1 else None)
         try:
             yield from self._land(task, w, arm)
-        except _Fail:
+        except _Fail as f:
             task.open.remove(w.ident)
+            if _detached(self.prog, w):
+                self._unawaited(task, w.dst, f.guard)
+                self._resume_caller(task)
+                return
             yield from self._call_failed(task, w)
             return
         yield from self._return(task, w)
@@ -1103,7 +1226,8 @@ class _Run:
         dst = w.dst
         sn = self.prog.scene.nodes.get(dst)
         if w.kind == "=>":
-            self._spawn(w)
+            self._spawn(task, w)
+        self._access(task, w, "done")
         if self._reach_of(w) == 0:
             self._log(f"no instance of {self._name(dst)}")
             yield ("turn",)
@@ -1120,6 +1244,7 @@ class _Run:
         if not task.stack:              # a task's root: what an async cycle repeats
             self.visits[dst] += 1
             if self.visits[dst] > self.limits.visits:
+                self._event("limit", task, name="visits", node=dst)
                 self._log(f"visit limit: {self._name(dst)}")
                 yield ("turn",)
                 return
@@ -1148,6 +1273,7 @@ class _Run:
                                       attempt=(k, a))
             fl.state = "failed"
             self.status[w.dst] = "failed"
+            self._access(task, w, "unknown")
             self._log(f"attempt {k}/{a} failed")
             yield ("turn",)
 
@@ -1156,21 +1282,29 @@ class _Run:
         fallback comes back (the caller goes on: "notify, then yield"), or the
         failure travels."""
         fb = mod(w, "fallback")
+        critical = fb is None and mod(w, "!") is not None
+        self._event("fail", task, origin=("call", w.ident), node=w.src,
+                    fallback=fb is not None, critical=critical)
         if fb is not None:
             yield from self._guarded_routes(task, ("call", w.ident))
+            self._event("stop", task, how="fallback", node=w.src, guard=("call", w.ident))
             self._log(f"{self._name(w.src)} falls back to {fb}")
             yield from self._hop(task, w, back=True, state="fallback", carries=fb)
             self._resume_caller(task)
             yield ("turn",)
             return
         self.failed_w.add(w.ident)
+        self._log(self._failure_text(w))
+        if critical:
+            self._event("stop", task, how="abort", node=w.src, guard=("call", w.ident))
+            raise _Abort()
+        raise _Fail(("call", w.ident))
+
+    def _failure_text(self, w) -> str:
         what = carried(w) or self._name(w.dst)
         a = attempts(w, self.limits)
         tries = f" failed after {a} attempt{'s' if a > 1 else ''}" if resilient(w) else ""
-        self._log(f"{self._name(w.src)} failed: {what}{tries}")
-        if mod(w, "!") is not None:
-            raise _Abort()
-        raise _Fail(("call", w.ident))
+        return f"{self._name(w.src)} failed: {what}{tries}"
 
     def _guarded_routes(self, task: _Task, guard: tuple):
         """The caller's routes guarded by `guard` (never its unguarded ones: the
@@ -1180,7 +1314,7 @@ class _Run:
         act = task.stack[-1]
         for w, g in self.prog.routes.get((act.ui, act.node), ()):
             if _guards(g, guard):
-                yield from self._route(task, act, w)
+                yield from self._route(task, act, w, guard)
 
     def _self_call(self, task: _Task, w):
         """A self-call: a one-tick pulse; an alias body or a
@@ -1191,7 +1325,7 @@ class _Run:
         target = alias[1] if alias else (w.src if glyph else None)
         if target is not None and self._depth_capped(task, target):
             return
-        if self._choice(("call", w.ident), "ok") == "fails":
+        if self._choice(task, ("call", w.ident), "ok") == "fails":
             yield from self._failing(task, w, 1)
             yield from self._call_failed(task, w)
             return
@@ -1218,37 +1352,41 @@ class _Run:
         """A join or fan-out group: first who takes part (_group_members), then how
         the arrow runs them — `~>` forks them unawaited (a race: the winner only),
         an alternative is one step, a race and an `&` / `*>` fork and await."""
-        kept, winner = self._group_members(g)
+        kept, winner = self._group_members(task, g)
         if not kept:
             return
         if kept[0].kind == "~>":
             for w in ([winner] if g.kind == "race" else kept):
-                self._fork(lambda t, w=w: self._async(t, w, arm), task)
+                self._fork(lambda t, w=w: self._async(t, w, arm), task, why="async",
+                           wire=w.ident)
             return
         if g.kind == "alt":
             yield from self._step(task, winner, arm)
             return
         if g.kind == "race":
             members = [self._fork(lambda t, w=w: (self._call(t, w, arm) if w is winner
-                                                  else self._lose(t, w)), task)
+                                                  else self._lose(t, w)), task,
+                                  why="race", wire=w.ident)
                        for w in kept]
             task.members = members
             won = [m for m, w in zip(members, kept) if w is winner]
             yield from self._await(task, members, need=won, failing=won, guard=None)
             return
-        members = [self._fork(lambda t, w=w: self._call(t, w, arm), task) for w in kept]
+        members = [self._fork(lambda t, w=w: self._call(t, w, arm), task,
+                              why="fan" if w.kind == "*>" else "join", wire=w.ident)
+                   for w in kept]
         task.members = members
         yield from self._await(task, members, need=members, failing=members, guard=None)
 
-    def _group_members(self, g: Group) -> tuple:
+    def _group_members(self, task: _Task, g: Group) -> tuple:
         """(kept wires, the chosen one): the members whose `?>` the scenario takes
         (an unconditional member always), and among them the alternative / race
         winner the scenario picks — the first kept when it picks none of them."""
         kept = [w for w in g.wires
-                if w.kind != "?>" or self._choice(("cond", w.ident), "skip") == "take"]
+                if w.kind != "?>" or self._choice(task, ("cond", w.ident), "skip") == "take"]
         if not kept or g.kind == "all":
             return kept, None
-        pick = self._choice((g.kind, g.key), kept[0].dst)
+        pick = self._choice(task, (g.kind, g.key), kept[0].dst)
         winner = next((w for w in kept if w.dst == pick), kept[0])
         return ([winner] if g.kind == "alt" else kept), winner
 
@@ -1265,34 +1403,44 @@ class _Run:
         """Block until every task in `need` ended or one in `failing` failed; then
         cancel the rest of `members`. A failure among `failing` (every member of an
         `&` / `*>` / `@all`; the winner of a race / `@any`) fails the waiter with
-        `guard`; the others' failures are theirs alone."""
+        `guard` — None: the failed member's own (its call), so the routes of the
+        member's line fire (B1); the others' failures are theirs alone."""
+        self._event("await", task, members=[m.id for m in members], need=[m.id for m in need])
         yield ("wait", lambda: all(m.ended for m in need) or any(m.failed for m in failing))
-        failed = any(m.failed for m in failing)
+        failed = next((m for m in failing if m.failed), None)
         for m in members:
             if not m.ended:
                 self._log(f"cancelled: task {m.id}")
                 self._cancel(m)
         task.members = []
+        self._event("resume", task, failed=failed is not None)
         self._resume_caller(task)
-        if failed:
-            raise _Fail(guard)
+        if failed is not None:
+            raise _Fail(guard if guard is not None else failed.guard)
 
     def _gate(self, task: _Task, w, gate: tuple, arm):
         """A source join: each member deposits at the gate and goes on (never a
         barrier); `&` runs the target once when the last arrives, `&?` when the first
-        does (later arrivals are dropped)."""
+        does (later arrivals are dropped). A deposit is not a call the arriver
+        awaits, so it is no failure choice point: a join's `@timeout` bounds the
+        target's wait for the missing members (the open deposit), not the arrival
+        (Q3)."""
         ui, j, kind = gate
         members = self.prog.units[ui].graph.joins[j].members
-        state = self.gates.setdefault((ui, j, w.dst), {"arrived": [], "fired": False})
+        key = (ui, j, w.dst)
+        state = self.gates.setdefault(key, {"arrived": [], "fired": False, "round": 0})
         self._log(self._wire_text(w))
         task.open.append(w.ident)
         yield from self._hop(task, w, carries=carried(w))
         state["arrived"].append(w.src)
+        self._event("gate-arrive", task, key=key, round=state["round"], node=w.src,
+                    wire=w.ident)
         everyone = all(m in state["arrived"] for m in members)
         if kind == "&?" and state["fired"]:
+            self._event("gate-drop", task, key=key, round=state["round"], node=w.src)
             self._log(f"race lost: {self._wire_text(w)}")
             if everyone:
-                state.update(arrived=[], fired=False)
+                self._reset_gate(state)
             task.open.remove(w.ident)
             yield ("turn",)
             return
@@ -1302,13 +1450,19 @@ class _Run:
             self._resume_caller(task)
             return
         state["fired"] = True
+        self._event("gate-fire", task, key=key, round=state["round"], node=w.dst)
         try:
             yield from self._land(task, w, arm)
         finally:
             if kind == "&" or everyone:
-                state.update(arrived=[], fired=False)
+                self._reset_gate(state)
         task.open.remove(w.ident)
         self._resume_caller(task)
+
+    @staticmethod
+    def _reset_gate(state: dict) -> None:
+        """A gate's round is over: the next arrivals start the next one."""
+        state.update(arrived=[], fired=False, round=state["round"] + 1)
 
     def _deposits(self) -> list:
         """The `&` joins a run leaves open: deposits no last arrival consumed."""
@@ -1346,6 +1500,10 @@ class _Run:
         try:
             if kind == "loop":
                 n = loop_count(b, self.limits)
+                times = _declared_times(b)
+                if times is not None and n < times:
+                    self._event("limit", task, name="iterations", node=key[0], block=r.index)
+                    self._log(f"loop capped: @times {times} runs {n}")
                 for k in range(1, n + 1):
                     self.loops[key] = k
                     self._log(f"iteration {k}/{n}")
@@ -1376,16 +1534,18 @@ class _Run:
         guard = ("block", r.index)
         if "any" in mods:
             heads = [_flat((it,))[0] for it in r.items]
-            win = self._choice(("any", (r.ui, r.index)), heads[0].dst)
+            win = self._choice(task, ("any", (r.ui, r.index)), heads[0].dst)
             k = next((j for j, h in enumerate(heads) if h.dst == win), 0)
             members = [self._fork(lambda t, it=it, h=h, j=j: (
-                self._items(t, (it,), arm) if j == k else self._lose(t, h)), task)
+                self._items(t, (it,), arm) if j == k else self._lose(t, h)), task,
+                why="parallel", wire=h.ident)
                 for j, (it, h) in enumerate(zip(r.items, heads))]
             task.members = members
             yield from self._await(task, members, need=[members[k]], failing=[members[k]],
                                    guard=guard)
             return
-        members = [self._fork(lambda t, it=it: self._items(t, (it,), arm), task)
+        members = [self._fork(lambda t, it=it: self._items(t, (it,), arm), task,
+                              why="parallel", wire=_flat((it,))[0].ident)
                    for it in r.items]
         if "none" in mods:
             return
@@ -1399,7 +1559,7 @@ class _Run:
         arms = [(label, ids) for label, ids in b.arm_nodes if ids]
         if not arms:
             return
-        label = self._choice(("branch", (ui, bi)), arms[0][0])
+        label = self._choice(task, ("branch", (ui, bi)), arms[0][0])
         ids = next((i for lab, i in arms if lab == label), arms[0][1])
         w = self.prog.arm_wire.get((ui, bi, label))
         key = (self.prog.units[ui].owner, bi)
@@ -1418,43 +1578,87 @@ class _Run:
 
     # ---- state machines ------------------------------------------------------
 
-    def _deliver(self, act: _Act) -> None:
-        """An event's triggers: a task per machine with a matching transition."""
+    def _deliver(self, task: _Task, act: _Act) -> None:
+        """An event's triggers: a task per machine with a matching transition (a
+        specific one beats `_`: NG6), forked by the delivering task. A machine
+        heading for `$`, or with no transition from its heading state, ignores it."""
         refs = self.prog.triggers.get(act.node, ())
         for owner in dict.fromkeys(r.trigger.owner for r in refs):
             mine = [r for r in refs if r.trigger.owner == owner]
-            state = self.machines.get(owner)
-            if state is None or _pseudo(self.prog.units, state) == "end":
+            state = self._heading(owner)
+            if state is None:
                 continue
-            match = [r for r in mine if r.trigger.src == state
-                     or _pseudo(self.prog.units, r.trigger.src) == "any"]
-            if not match:
-                self._log(f"ignored: {mine[0].trigger.label} — {self._name(owner)} in "
-                          f"{self._state_name(state)}")
+            pick = (None if _pseudo(self.prog.units, state) == "end"
+                    else self._pick(task, mine, owner, state))
+            if pick is None:
+                self._ignored(task, act.node, mine[0].trigger.label, owner, state)
                 continue
-            pick = match[0]
-            if len(match) > 1:
-                dst = self._choice(("machine", (owner, state, pick.trigger.label)),
-                                   pick.trigger.dst)
-                pick = next((r for r in match if r.trigger.dst == dst), pick)
-            self._fork(lambda t, r=pick: self._trigger(t, r))
+            self.bound.setdefault(owner, []).append(pick.trigger.dst)
+            self._fork(lambda t, r=pick: self._trigger(t, r), task, why="trigger",
+                       wire=pick.wire.ident, node=act.node)
+
+    def _heading(self, owner: str) -> Optional[str]:
+        """The state a delivery to owner is judged in: where its last in-flight
+        trigger takes it (triggers land in send order), else its state now."""
+        bound = self.bound.get(owner)
+        return bound[-1] if bound else self.machines.get(owner)
+
+    def _pick(self, task: _Task, refs: list, owner: str, state: str) -> Optional[TriggerRef]:
+        """The transition the owner's refs take from `state` (None: none leaves
+        it). Two from one written source are the scenario's choice, keyed by that
+        source — the state, or the `_` the wildcard transitions are written from —
+        as _machine_points lists it."""
+        match = self._matching(refs, state)
+        if not match:
+            return None
+        pick = match[0]
+        if len(match) > 1:
+            t = pick.trigger
+            dst = self._choice(task, ("machine", (owner, t.src, t.label)), t.dst)
+            pick = next((r for r in match if r.trigger.dst == dst), pick)
+        return pick
+
+    def _matching(self, refs: list, state: str) -> list:
+        """The refs whose transition leaves `state`: those written from it, else
+        the `_` ones (a specific transition beats the wildcard: NG6, Q12)."""
+        specific = [r for r in refs if r.trigger.src == state]
+        return specific or [r for r in refs
+                            if _pseudo(self.prog.units, r.trigger.src) == "any"]
+
+    def _ignored(self, task: _Task, event: str, label: str, owner: str, state) -> None:
+        self._event("ignored", task, event=event, label=label, owner=owner, state=state)
+        self._log(f"ignored: {label} — {self._name(owner)} in {self._state_name(state)}")
 
     def _trigger(self, task: _Task, ref: TriggerRef):
+        """A trigger's hop, then the transition the machine's state on arrival
+        takes (resolved again there: another delivery may have moved it since; a
+        specific transition beats `_`: NG6, Q12) — or none, and it is ignored."""
         t = ref.trigger
-        yield from self._hop(task, ref.wire, carries=t.label)
+        try:
+            yield from self._hop(task, ref.wire, carries=t.label)
+        finally:
+            self.bound[t.owner].pop(0)
         state = self.machines.get(t.owner)
-        ok = (state is not None and _pseudo(self.prog.units, state) != "end"
-              and (t.src == state or _pseudo(self.prog.units, t.src) == "any"))
-        if ok:
-            self.machines[t.owner] = t.dst
-            self.changed.add(t.owner)
-            if ref.transition is not None:
-                self.lit_now.add(ref.transition)
-            self._log(f"{self._name(t.owner)} {self._state_name(state)} -{t.label}-> "
-                      f"{self._state_name(t.dst)}")
+        pick = None
+        if state is not None and _pseudo(self.prog.units, state) != "end":
+            mine = [r for r in self.prog.triggers.get(t.event, ()) if r.trigger.owner == t.owner]
+            pick = self._pick(task, mine, t.owner, state)
+        if pick is None:
+            self._ignored(task, t.event, t.label, t.owner, state)
         else:
-            self._log(f"ignored: {t.label} — {self._name(t.owner)} in {self._state_name(state)}")
+            self._transition(task, pick, state)
         yield ("turn",)
+
+    def _transition(self, task: _Task, ref: TriggerRef, state: str) -> None:
+        """The machine leaves `state` along ref's transition."""
+        t = ref.trigger
+        self.machines[t.owner] = t.dst
+        self.changed.add(t.owner)
+        if ref.transition is not None:
+            self.lit_now.add(ref.transition)
+        self._event("transition", task, owner=t.owner, label=t.label, src=state, dst=t.dst)
+        self._log(f"{self._name(t.owner)} {self._state_name(state)} -{t.label}-> "
+                  f"{self._state_name(t.dst)}")
 
     def _state_name(self, nid: Optional[str]) -> str:
         for u in self.prog.units:
@@ -1468,10 +1672,14 @@ def loop_count(b, limits: Limits) -> int:
     """How often a loop runs: `@times N` capped by Limits.iterations, else the limit.
     A pure function of Block.modifiers and the limits (the checks compare it with
     the declared N: a loop the simulator runs fewer times than written)."""
+    times = _declared_times(b)
+    return limits.iterations if times is None else min(times, limits.iterations)
+
+
+def _declared_times(b) -> Optional[int]:
+    """A loop's numeric `@times N`, else None."""
     times = next((a for n, a in b.modifiers if n == "times"), None)
-    if times and times.strip().isdigit():
-        return min(int(times), limits.iterations)
-    return limits.iterations
+    return int(times) if times and times.strip().isdigit() else None
 
 
 # ---------------------------------------------------------------------------
@@ -1492,9 +1700,12 @@ def loop_count(b, limits: Limits) -> int:
 #                 times runs nothing; `parallel` forks its members (a member's
 #                 fallback fires no route), @all / @any await, @none does not
 #   _group        `~>` members are forked unawaited; an alternative is a step; an
-#                 `&` / `*>` / race member's failure fails the waiter with None (B1)
+#                 `&` / `*>` / race member's failure fails the waiter with the
+#                 member's own ("call", ident) (B1)
 #   _gate         a source join's target failing raises ("node", target)
-#   _async        a `~>` send: the receiver's failure stops there
+#   _async        a `~>` send: its own and the receiver's failure stop there (B3)
+#   _detached     a `=>` hop or a flow into a stream: the callee's failure stops
+#                 there; only the hop's own outcome fails the call (B13)
 #   _branch       an arm entry's failure travels as ("node", arm entry)
 #   _fire_routes  routes guarded by the arriving guard, else the unguarded ones
 # Every choice may go either way (each is a scenario option); limits that only
@@ -1518,6 +1729,30 @@ def _gate_of(prog: Program, w) -> Optional[tuple]:
     if not 0 <= j < len(joins) or joins[j].kind == "/":
         return None
     return (ui, j, joins[j].kind)
+
+
+def _detached(prog: Program, w) -> bool:
+    """Whether a failure landing along w stops there instead of failing the
+    sender (B13): a `=>` produce hop, or a flow into a stream — the producer
+    deposits and goes on, so a failure stops at the consumer."""
+    if w.kind == "=>":
+        return True
+    sn = prog.scene.nodes.get(w.dst)
+    return sn is not None and sn.node.is_stream
+
+
+def _owned_stores(prog: Program) -> dict:
+    """{(owner, block index): (store id, …)} of every `owns` block: the stores a
+    task inside it holds (the key _region counts in task.scopes)."""
+    out = {}
+    for u in prog.units:
+        for bi, b in enumerate(getattr(u.graph, "blocks", None) or []):
+            if b.kind == "owns":
+                stores = tuple(n for n in b.refs
+                               if (sn := prog.scene.nodes.get(n)) is not None
+                               and sn.node.kind == "store")
+                out[(u.owner, bi)] = out.get((u.owner, bi), ()) + stores
+    return out
 
 
 class _Ctx(NamedTuple):
@@ -1616,13 +1851,15 @@ def _call_effect(fl: _Flow, fails: dict, w, at: _Place) -> _Effect:
         returns = _walk(fl, fails, prog.returns.get(w.ident, ()), at._replace(arm=None))
         return _merge(failed, returns, _Effect(started=(target,) if target else ()))
     target = _land_ctx(prog, w, at.arm, at.scopes)
-    failed = _failed_call(w, at) if chosen or _fails(target, fails) else _Effect()
+    landed = _fails(target, fails) and not _detached(prog, w)
+    failed = _failed_call(w, at) if chosen or landed else _Effect()
     return _merge(failed, _Effect(started=(target,) if target else ()))
 
 
 def _step_effect(fl: _Flow, fails: dict, w, at: _Place) -> _Effect:
     """_step: `~>` forks (its failure stops there), a source join's target fails
-    the arriving member raw, anything else is a call."""
+    the arriving member raw (the deposit itself never fails, Q3), anything else
+    is a call."""
     if w.kind == "~>":
         target = _land_ctx(fl.prog, w, at.arm, at.scopes)
         return _Effect(started=(target,) if target else ())
@@ -1636,12 +1873,12 @@ def _step_effect(fl: _Flow, fails: dict, w, at: _Place) -> _Effect:
 
 
 def _group_effect(fl: _Flow, fails: dict, g: Group, at: _Place) -> _Effect:
-    """_group: any kept member may be the alternative or the race's winner."""
+    """_group: any kept member may be the alternative or the race's winner; an
+    awaited member's failure reaches the waiter as its own call's guard (B1)."""
     if g.wires[0].kind == "~>" or g.kind == "alt":
         return _merge(*(_step_effect(fl, fails, w, at) for w in g.wires))
     forked = at._replace(node=None, on_task=False)
-    members = _merge(*(_call_effect(fl, fails, w, forked) for w in g.wires))
-    return members._replace(raises=frozenset({None}) if members.raises else frozenset())
+    return _merge(*(_call_effect(fl, fails, w, forked) for w in g.wires))
 
 
 def _region_effect(fl: _Flow, fails: dict, r: Region, at: _Place) -> _Effect:
@@ -1846,15 +2083,19 @@ def _resolve_entries(prog: Program, names) -> list:
 def simulate(sc, scenario: Scenario, *, limits: Limits = Limits()) -> Trace:
     """Run a scenario over a Scene (any Scene of the document: the run uses the
     canonical one) and return its Trace. Raises KeyError for an unknown entry."""
-    canon = canonical(sc.graph)
-    run = _Run(program(canon), scenario, limits)
+    return _simulate(program(canonical(sc.graph)), scenario, limits)
+
+
+def _simulate(prog: Program, scenario: Scenario, limits: Limits) -> Trace:
+    """simulate over a built Program (a run never changes it)."""
+    run = _Run(prog, scenario, limits)
     frames = []
     while True:
         frame = run.tick()
         frames.append(frame)
         if frame.done:
             break
-    return Trace(scenario, tuple(frames), run.outcome(), run.end(), canon)
+    return Trace(scenario, tuple(frames), run.outcome(), run.end(), prog.scene)
 
 
 # ---------------------------------------------------------------------------
@@ -1955,11 +2196,13 @@ def choice_points(prog: Program, limits: Limits = Limits(), *,
     called = set()
     guarded = {c for routes in prog.routes.values() for _w, g in routes
                if route_induced and g is not None and g[0] == "calls" for c in g[1]}
+    if route_induced:
+        guarded |= _block_guarded(prog, limits)
     for w in wires:
         if id(w) not in work:
             continue
-        if (w.call is not None and w.call.external) or resilient(w) \
-                or ("call", w.ident) in guarded:
+        if _gate_of(prog, w) is None and ((w.call is not None and w.call.external)
+                                          or resilient(w) or ("call", w.ident) in guarded):
             called.add((prog.wire_unit.get(id(w)), w.src))
             if w.call is not None and w.call.op:
                 verb = _part(scene_mod.op_verb(w.call.op))
@@ -1989,6 +2232,64 @@ def choice_points(prog: Program, limits: Limits = Limits(), *,
     points = list({p.cid: p for p in points}.values())
     points.sort(key=lambda p: (p.line, p.order))
     return _dedup(points)
+
+
+def _block_guarded(prog: Program, limits: Limits) -> set:
+    """{("call", ident)} of the calls a block's `} !>` route makes choice points
+    (B2): a route declares that its block can fail, so when nothing in the block
+    fails on its own (no route of the block is live without route-made
+    failures), each awaited call in it may — a `parallel @any`'s default winner
+    only, nothing under `@none` or in a loop run no time."""
+    routes = {}
+    for (ui, _n), rs in prog.routes.items():
+        for w, g in rs:
+            if g is not None and g[0] == "block":
+                routes.setdefault((ui, g[1]), []).append(w.ident)
+    if not routes:
+        return set()
+    own = failure_analysis(prog, limits, route_induced=False).live
+    blocks = {key for key, idents in routes.items() if not own & set(idents)}
+    out = set()
+    for items in list(prog.bodies.values()) + [i for body in prog.arm_bodies.values()
+                                               for i in body.values()]:
+        for r in _regions(items):
+            if (r.ui, r.index) in blocks:
+                out |= {("call", w.ident) for w in _awaited_calls(prog, r, limits)}
+    return out
+
+
+def _regions(items):
+    for it in items:
+        if isinstance(it, Region):
+            yield it
+            yield from _regions(it.items)
+
+
+def _awaited_calls(prog: Program, r: Region, limits: Limits) -> list:
+    """The requests inside region r whose failure leaves it: not `~>` sends,
+    untaken `?>`, source-join deposits or flows into a value (data, an event, a
+    state: a produced value cannot fail), nor what a `@none` block or a loop run
+    no time holds; under `@any` the default winner's only."""
+    b = r.block
+    mods = {n for n, _a in b.modifiers}
+    if (b.kind == "parallel" and "none" in mods) or (b.kind == "loop"
+                                                     and loop_count(b, limits) == 0):
+        return []
+    items = r.items[:1] if b.kind == "parallel" and "any" in mods else r.items
+    out = []
+    for it in items:
+        if isinstance(it, Region):
+            out += _awaited_calls(prog, it, limits)
+        else:
+            out += [w for w in _flat((it,)) if w.kind not in ("~>", "?>")
+                    and _gate_of(prog, w) is None and _requests(prog, w)]
+    return out
+
+
+def _requests(prog: Program, w) -> bool:
+    """Whether w asks something of its destination (not a value it produces)."""
+    sn = prog.scene.nodes.get(w.dst)
+    return sn is None or sn.node.kind not in ("data", "event", "state")
 
 
 def _call_label(w, limits: Limits, name) -> str:
@@ -2145,6 +2446,103 @@ def scenario(sc, name: str, *, limits: Limits = Limits()) -> Scenario:
         choices.update(dict(listed[p].choices))
     return Scenario(name, tuple(choices.items()),
                     " + ".join(listed[p].label for p in parts if listed[p].label))
+
+
+# ---------------------------------------------------------------------------
+# Exploration — bounded combinations of deviations (MG10)
+# ---------------------------------------------------------------------------
+
+class Deviation(NamedTuple):
+    """One non-default option of one choice point: a persistent per-site choice
+    ("this call always fails"), applied at every activation that meets it."""
+    cid: tuple
+    option: object
+    name: str
+    label: str
+
+
+class Exploration(NamedTuple):
+    """combinations' result. traces: the happy run, then one Trace per kept
+    combination — fewest deviations first, then source order; duplicates: the
+    combinations whose run repeated an earlier one's (dropped); left_out: the
+    combinations the budget left unrun (deeper ones built on them are not
+    counted)."""
+    traces: tuple
+    duplicates: int
+    left_out: int
+
+
+def deviations(prog: Program, limits: Limits = Limits()) -> list:
+    """Every Deviation of the reachable choice points, in source order (the
+    scenarios() list without `happy` and without its cap)."""
+    return [Deviation(p.cid, opt, nm, label) for p in choice_points(prog, limits)
+            for opt, nm, label in zip(p.options[1:], p.names[1:], p.labels[1:])]
+
+
+def combinations(sc, k: int, *, limits: Limits = Limits(), budget: int = 256) -> Exploration:
+    """The runs of up to k deviations at once, built from choice ids (never by
+    name). Level 1 is every deviation; a combination grows by a deviation its
+    own run depends on — one whose choice point the run meets at or after its
+    first deviation's tick, in that episode or a later one (it lies on the
+    deviated path, or the deviation enabled it: machine state, gates and spawn
+    counts outlive an episode). A run whose log and outcome repeat an earlier one's
+    is dropped; at most `budget` runs are made (the happy run aside), and what
+    the budget cut is counted in left_out. Pure and deterministic."""
+    prog = program(canonical(sc.graph))
+    devs = deviations(prog, limits)
+    happy = _simulate(prog, Scenario("happy", (), "every default: the happy path"), limits)
+    seen, kept = {_signature(happy)}, [happy]
+    level = [(i,) for i in range(len(devs))] if k >= 1 else []
+    runs = duplicates = 0
+    for depth in range(1, k + 1):
+        grown = []
+        for n, combo in enumerate(level):
+            if runs >= budget:
+                return Exploration(tuple(kept), duplicates, len(level) - n)
+            runs += 1
+            trace = _simulate(prog, _combined(devs, combo), limits)
+            sig = _signature(trace)
+            if sig in seen:
+                duplicates += 1
+                continue
+            seen.add(sig)
+            kept.append(trace)
+            if depth < k:
+                grown += _grown(devs, combo, trace)
+        level = list(dict.fromkeys(grown))
+    return Exploration(tuple(kept), duplicates, 0)
+
+
+def _combined(devs: list, combo: tuple) -> Scenario:
+    picked = [devs[i] for i in combo]
+    return Scenario("+".join(d.name for d in picked),
+                    tuple((d.cid, d.option) for d in picked),
+                    " + ".join(d.label for d in picked if d.label))
+
+
+def _signature(trace: Trace) -> tuple:
+    return (trace.outcome, tuple(trace.end["log"]))
+
+
+def _grown(devs: list, combo: tuple, trace: Trace) -> list:
+    """combo plus each deviation (of another choice point) its run depends on, as
+    sorted index tuples."""
+    cids = {devs[i].cid for i in combo}
+    met = _met_after_deviation(trace.end["events"], cids)
+    return [tuple(sorted(combo + (j,))) for j, d in enumerate(devs)
+            if d.cid not in cids and d.cid in met]
+
+
+def _met_after_deviation(events: list, cids: set) -> set:
+    """The choice ids a run consulted at or after the first consultation that
+    took one of `cids`' deviations — in that episode or any later one, since what
+    a deviation changes (machine state, gates, spawn counts) outlives its
+    episode. Ticks run on across episodes, so the tick alone orders them."""
+    choices = [e for e in events if e["kind"] == "choice"]
+    first = next((e for e in choices if e["cid"] in cids and not e["default"]), None)
+    if first is None:
+        return set()
+    return {e["cid"] for e in choices if e["t"] >= first["t"]}
 
 
 # ---------------------------------------------------------------------------

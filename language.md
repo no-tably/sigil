@@ -622,6 +622,12 @@ A stream is a sequence of elements over time: `*<X>` (events) or `*{X}` (data). 
 
 `*<X>` (stream) is distinct from `*>` (broadcast fan-out) and `×N` (static cardinality). A stream is temporal; fan-out is topological; cardinality is quantity.
 
+**Failures stop at the consumer.** A stream decouples its producer from its
+consumers: nothing awaits an element once it is in the stream, so a consumer's
+failure stops at that consumer and never fails the producer upstream (the same holds
+behind a `~>` send). Route it where it happens. In Example 4 a failing `|Warehouse|`
+fires the `!> |DLQ|` under the `*>` line, and `[Ingest]` goes on producing.
+
 **Store kinds.** The same prefixes classify a **store**: a bare `|X|` or mutable
 `~|X|` is a **scalar** store (one held value), and `*|X|` is a **stream** store (a
 sequence that accumulates over time). The kind is what decides how concurrent
@@ -885,6 +891,11 @@ This is **distinct** from the `!>` error *path* (which routes a failure to
 another flow) and `@after` (a backoff schedule): `@timeout`/`×N`/`@fallback`
 declare the **per-call resilience policy**, which a consumer maps onto its
 target's error-handling mechanism.
+
+A `!>` under a fan-out or join line (`*> |A| & |B|`, `-> [A] & [B]`) guards each
+awaited member: when one member fails, the route fires. A failure does not cross an
+unawaited hop (a `~>` send, a stream): it stops at the receiver, which routes it
+itself (see "Streams, generators, backpressure").
 
 **Capabilities:**
 ```

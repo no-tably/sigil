@@ -1074,37 +1074,27 @@ def find_dead_end_state(ck, f: Facts):
                              fix="a triggered transition out (to `$` or elsewhere)")
 
 
-def ambiguous_pairs(m: MachineView) -> list:
-    """(the transitions, why) of every (state, trigger) with two targets: written
-    duplicates unless each carries its own `@inv`; and a wildcard written before a
-    specific transition on its trigger (the simulator takes the first written
-    match until the specific-beats-wildcard fix lands)."""
+def ambiguous_groups(m: MachineView) -> list:
+    """The transitions of every (state, trigger) written twice with two targets,
+    unless each carries its own `@inv`. A specific transition beside a `_` one on
+    its trigger is not ambiguous: the specific one wins (NG6), in spec and sim."""
     out, groups = [], {}
     for t in m.transitions:
         groups.setdefault((t.src, t.label), []).append(t)
     for (_src, _label), ts in groups.items():
         if len({t.dst for t in ts}) > 1 and not all(has_mod(t.mods, "inv") for t in ts):
-            out.append((ts, "dup"))
-    for wild in (t for t in m.transitions if t.src in m.any):
-        for t in m.transitions:
-            if (t.src not in m.any and t.label == wild.label and t.line > wild.line
-                    and t.dst != wild.dst):
-                out.append(([wild, t], "wildcard"))
+            out.append(ts)
     return out
 
 
 def find_ambiguous_transition(ck, f: Facts):
     """SGC143: two transitions leave one state on one trigger."""
     for m in f.machines:
-        for ts, why in ambiguous_pairs(m):
+        for ts in ambiguous_groups(m):
             last = ts[-1]
             state = m.name(last.src)
             targets = listing(f"`{m.name(t.dst)}`" for t in ts)
-            if why == "wildcard":
-                text = (f"`{m.transition_text(ts[0])}` is written before "
-                        f"`{m.transition_text(last)}`, and the simulator takes the first")
-            else:
-                text = f"`{m.owner_glyph}` leaves `{state}` on `{last.label}` for {targets}"
+            text = f"`{m.owner_glyph}` leaves `{state}` on `{last.label}` for {targets}"
             yield ck.Hit(last.line, text,
                          f"`{m.owner_glyph}` leaves `{state}` on `{last.label}` for "
                          f"{targets}. Which one wins?",

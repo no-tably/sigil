@@ -1,0 +1,12 @@
+# SGC205 ordering-unstated — one sender sends `<Placed>` then `<Paid>`: they
+# arrive in send order (per-sender FIFO), so the runs show no reordering. The
+# static half still guesses from the two emits (info, a guess).
+# expect: info:10:SGC205
+#!spec
+(User) -> [Shop] : go()
+[Shop] ~> <Placed>
+[Shop] ~> <Paid>
+state {Order} {
+  +     -<Placed>->  Open
+  Open  -<Paid>->    Settled
+}

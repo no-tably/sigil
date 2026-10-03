@@ -11,14 +11,19 @@ a reasoned acknowledgement:
     [API] -> [Payments] : charge(total) ×3   # accepts: retry-without-idempotency — an upsert
 
 Usage:
-    ./check.py <file.sigil> [--mode sketch|craft|spec] [--k N] [--json] [--all]
+    ./check.py <file.sigil> [--mode sketch|craft|spec] [--k N] [--budget N]
+               [--limit NAME=N ...] [--json] [--all]
     ./check.py --rules
     cat doc.sigil | ./check.py -
 
 Options:
     --mode M     check as mode M (default: the document's mode line; none = sketch)
     --k N        failure combinations explored per scenario (default: 1, spec 2)
-    --json       one JSON object: mode, k, limits, findings, acknowledged
+    --budget N   runs one exploration may make (default: check_trace.BUDGET)
+    --limit NAME=N  raise one simulator bound (sim.Limits: depth, iterations,
+                 spawn, activations, …); repeatable
+    --json       one JSON object: mode, k, limits (with budget), findings,
+                 acknowledged
     --all        also print the findings the mode hides (sketch's info)
     --rules      list the rule registry and exit
     --dialect D  load a dialect (as lint.py does; default $SIGIL_DIALECT)
@@ -28,7 +33,8 @@ Output (lint-compatible, sorted by line, then rule id, then anchor):
     accepted:<line>:<SGCnnn>: <name>: <reason>        (acknowledged findings)
 
 Exit codes: 0 no warnings or errors · 1 warnings only · 2 errors (or bad input).
-Acknowledged and hidden findings never count.
+Acknowledged, hidden and folded findings never count; a cause keeps its own
+severity (catalog §1.7).
 
 Severity follows the mode, capped by the rule's tier (catalog §1.2):
 
@@ -47,7 +53,9 @@ defines `rules(ck)` and returns a list of `ck.Rule`, where `ck` is this module
 yields `ck.Hit`s; `doc` is a `ck.Doc` (lines, mode, k, graph, comments, acks, and
 the simulator's canonical scene and program, all computed on first use). A module
 may also define `exploration_causes(ck)`, match functions whose Hits check.py
-gathers into the one SGC090 rule. A loaded dialect's rule pack (dialects.py,
+gathers into the one SGC090 rule, and `extend_rules(ck, rules)`, which returns the
+whole registered list with its own additions to rules other modules register
+(idempotent; applied after every module's `rules`). A loaded dialect's rule pack (dialects.py,
 `check_rules`, `READ_VERBS`, `policy_words`) joins the registry and the Doc. The
 registry, the finding record, tiers × modes, acknowledgements and folding live
 here; rule modules hold only matches and their data.
@@ -366,10 +374,12 @@ class Doc:
     Graph: Edge.card / src_mods / implied, Graph.narrowed / dropped), `doc.scene`
     (scene.py: call_policy, declared_access, writers), `doc.sc` / `doc.prog` (the
     simulator's canonical scene and program), and `doc.access_mode(w)`, which
-    reads the dialect's extra read verbs (CG6)."""
+    reads the dialect's extra read verbs (CG6). `doc.budget` and `doc.limits`
+    bound the simulator's exploration; they are reported in `--json` (catalog §1.3)."""
 
     def __init__(self, text: str, mode: str, k: int, known: frozenset, dialect=None,
-                 read_verbs: tuple = (), policy_words: tuple = ()):
+                 read_verbs: tuple = (), policy_words: tuple = (),
+                 budget: Optional[int] = None, limits=None):
         self.text = text
         self.lines = text.splitlines()
         self.mode = mode
@@ -380,6 +390,18 @@ class Doc:
         self.policy_words = POLICY_WORDS + tuple(policy_words)
         self.findings = []           # first-pass Findings (set before after_acks rules)
         self.ack_used = frozenset()  # lines of the acknowledgements that covered one
+        self._budget = budget        # None: the defaults (see budget, limits)
+        self._limits = limits
+
+    @cached_property
+    def budget(self) -> Optional[int]:
+        """Runs one exploration may make (--budget; default: the trace module's)."""
+        return default_budget() if self._budget is None else self._budget
+
+    @cached_property
+    def limits(self):
+        """The sim.Limits every run is bounded by (--limit; default: the sim's)."""
+        return self.sim.Limits() if self._limits is None else self._limits
 
     @cached_property
     def render(self):
@@ -767,9 +789,13 @@ def _modules(here: Path, names: tuple) -> list:
 
 def module_rules(api, here: Path = _HERE, names: tuple = RULE_MODULES) -> list:
     """The rules of every rule module in `here` that exists (each `rules(api)`),
-    then SGC090 built from the causes they contribute."""
+    extended by each module's `extend_rules(api, rules)`, then SGC090 built from
+    the causes they contribute."""
     mods = _modules(here, names)
     rules = [rule for mod in mods if hasattr(mod, "rules") for rule in mod.rules(api)]
+    for mod in mods:
+        if hasattr(mod, "extend_rules"):
+            rules = mod.extend_rules(api, rules)
     causes = [c for mod in mods if hasattr(mod, "exploration_causes")
               for c in mod.exploration_causes(api)]
     return rules + ([exploration_rule(causes)] if causes else [])
@@ -790,7 +816,8 @@ def exploration_rule(causes: list) -> Rule:
                     "evidence?",
                 why="Behavioural findings are only as complete as the exploration "
                     "behind them.",
-                fix="run with larger limits or budget", match=match, family="0",
+                fix="run with larger limits (--limit NAME=N) or budget (--budget N)",
+                match=match, family="0",
                 acknowledgeable=False, ack_document=False)
 
 
@@ -888,7 +915,8 @@ def scopes_of(hit: Hit) -> dict:
 def fold(findings: list) -> None:
     """One defect, one finding (§1.7): a finding that another finding's rule
     implies at the same scope is folded into that cause (followed up to the cause
-    nothing folds; a cycle of implications folds nothing). Mutates the findings."""
+    nothing folds; a cycle of implications folds nothing). The cause keeps its own
+    severity. Mutates the findings."""
     scopes = [scopes_of(f.hit) for f in findings]
     parent = {}
     for i, f in enumerate(findings):
@@ -953,18 +981,47 @@ def is_acknowledged(f: Finding) -> bool:
     return bool(f.ack or root.ack)
 
 
-def limits_of(k: int) -> dict:
-    out = dict(_sim().Limits()._asdict())
-    out["k"] = k
+def default_budget(here: Path = _HERE) -> Optional[int]:
+    """The trace module's exploration budget (its BUDGET); None without one, since
+    then nothing explores."""
+    path = here / "check_trace.py"
+    return _rule_module(path).BUDGET if path.is_file() else None
+
+
+def limits_from(pairs: Iterable, base):
+    """`base` (a sim.Limits) with each "name=N" of `pairs` set. Raises ValueError
+    naming a malformed pair, an unknown name or a value below 1."""
+    out = base
+    for pair in pairs:
+        name, sep, value = pair.partition("=")
+        name = name.strip()
+        if not sep or not value.strip().isdigit():
+            raise ValueError(f"--limit {pair!r}: expected NAME=N")
+        if name not in base._fields:
+            raise ValueError(f"--limit {name!r}: unknown (one of {', '.join(base._fields)})")
+        if int(value) < 1:
+            raise ValueError(f"--limit {name}: must be at least 1")
+        out = out._replace(**{name: int(value)})
+    return out
+
+
+def limits_of(doc: Doc) -> dict:
+    """The bounds in effect, as --json prints them: the Limits, the trace budget
+    and k (catalog §1.3)."""
+    out = dict(doc.limits._asdict())
+    out["budget"] = doc.budget
+    out["k"] = doc.k
     return out
 
 
 def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
-          dialect=None, registry: Optional[dict] = None, pack=None) -> Report:
+          dialect=None, registry: Optional[dict] = None, pack=None,
+          budget: Optional[int] = None, limits=None) -> Report:
     """Check a document. `mode` overrides its mode line; `pack` defaults to the
     dialect's rule pack (dialect_pack), whose read verbs and policy words the
     rules read; `registry` defaults to the core rules, every rule module beside
-    this file and the pack's rules."""
+    this file and the pack's rules. `budget` (runs per exploration) and `limits`
+    (a sim.Limits) bound the simulator; None takes the defaults."""
     pack = dialect_pack(dialect) if pack is None else pack
     registry = default_registry(pack.rules) if registry is None else registry
     lines = text.splitlines()
@@ -974,7 +1031,7 @@ def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
     k = DEFAULT_K[mode] if k is None else k
     known = frozenset(CORE_NAMES.values()) | {r.name for r in registry.values()}
     doc = Doc(text, mode, k, known, dialect, read_verbs=pack.read_verbs,
-              policy_words=pack.policy_words)
+              policy_words=pack.policy_words, budget=budget, limits=limits)
     first = [r for r in registry.values() if not r.after_acks]
     findings = run_rules(doc, first)
     fold(findings)
@@ -985,7 +1042,7 @@ def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
     emitted = [f for f in findings if f.severity is not None]
     roots = [f for f in emitted if f.folded_into is None]
     return Report(
-        mode=mode, k=k, limits=limits_of(k),
+        mode=mode, k=k, limits=limits_of(doc),
         findings=[f for f in roots if not is_acknowledged(f)],
         acknowledged=[f for f in roots if is_acknowledged(f)],
         folded=[f for f in emitted if f.folded_into is not None])
@@ -1035,6 +1092,9 @@ def main(argv=None) -> int:
     ap.add_argument("file", nargs="?", help="a .sigil file, or - for stdin")
     ap.add_argument("--mode", choices=MODES, help="check as this mode")
     ap.add_argument("--k", type=int, help="failure combinations per scenario")
+    ap.add_argument("--budget", type=int, help="runs one exploration may make")
+    ap.add_argument("--limit", action="append", default=[], metavar="NAME=N",
+                    help="raise one simulator limit (repeatable; e.g. depth=5)")
     ap.add_argument("--json", action="store_true", help="print one JSON object")
     ap.add_argument("--all", action="store_true", help="also print hidden findings")
     ap.add_argument("--rules", action="store_true", help="list the rules and exit")
@@ -1043,12 +1103,15 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     if a.k is not None and a.k < 1:
         ap.error("--k must be at least 1")
+    if a.budget is not None and a.budget < 1:
+        ap.error("--budget must be at least 1")
     if not (a.rules or a.file):
         ap.error("a file is required (or --rules)")
     try:
         dialect = _dialects().load(a.dialect)
         pack = dialect_pack(dialect)
         registry = default_registry(pack.rules)
+        limits = limits_from(a.limit, _sim().Limits()) if a.limit else None
         text = None if a.rules else _read_input(a.file)
     except RegistryError as exc:
         print(f"check.py: rule registry: {exc}", file=sys.stderr)
@@ -1059,7 +1122,8 @@ def main(argv=None) -> int:
     if a.rules:
         print("\n".join(registry_lines(registry)))
         return 0
-    report = check(text, mode=a.mode, k=a.k, dialect=dialect, registry=registry, pack=pack)
+    report = check(text, mode=a.mode, k=a.k, dialect=dialect, registry=registry, pack=pack,
+                   budget=a.budget, limits=limits)
     if a.json:
         print(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
     else:

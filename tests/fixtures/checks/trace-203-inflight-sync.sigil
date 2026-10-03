@@ -1,0 +1,14 @@
+# SGC203 event-ignored — `[Shop]` sends `<A>` then `<C>` (sync `->`). Per-sender
+# FIFO lands `<A>` first, taking `{M}` to `X`, where `<C>` has no transition.
+# The run judges `<C>` against that heading state; the check must not replay the
+# in-flight `<A>` a second time (it would step X -<A>-> Z -<C>-> W, no drop).
+# expect: error:11:SGC203
+#!spec
+(User) -> [Shop] : go()
+[Shop] -> <A>
+[Shop] -> <C>
+state {M} {
+  + -<A>-> X
+  X -<A>-> Z
+  Z -<C>-> W
+}

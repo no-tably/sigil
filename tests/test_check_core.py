@@ -557,6 +557,20 @@ class Folding(unittest.TestCase):
         self.assertEqual([f.rule.name for f in rep.acknowledged], ["shared-probe"])
         self.assertEqual(rep.exit_code(), 0)
 
+    def test_cause_keeps_its_own_severity(self):
+        """§1.7: the cause keeps its tier × mode severity; what it folds does not
+        count toward the exit code (RFC 0003 Q1: advisory stays warn in spec)."""
+        cause = scoped_rule("TST010", "shared-probe", tier="advisory",
+                            implies=(("race-probe", "store"),))
+        implied = scoped_rule("TST011", "race-probe", line=3)
+        rep = ck.check(self.text, registry=with_rules(cause, implied))
+        (root,) = rep.findings
+        self.assertEqual((root.rule.name, root.severity, root.hidden),
+                         ("shared-probe", "warn", False))
+        self.assertEqual([(f.rule.name, f.severity) for f in root.also],
+                         [("race-probe", "error")])
+        self.assertEqual(rep.exit_code(), 1)
+
     def test_after_acks_rules_see_usage(self):
         seen = {}
 
@@ -579,6 +593,36 @@ class Folding(unittest.TestCase):
         self.assertEqual(seen["used"], frozenset({2}))
         self.assertEqual([(f.rule.name, f.line) for f in rep.findings],
                          [("probe", 3), ("stale-probe", 3)])
+
+
+class Bounds(unittest.TestCase):
+    """The exploration's bounds: threaded into the Doc and reported (§1.3)."""
+    text = "#!spec\n[A] -> [B] : f()\n"
+
+    def test_defaults_are_reported(self):
+        rep = ck.check(self.text, registry=with_rules())
+        self.assertEqual(rep.limits["budget"], ck.default_budget())
+        self.assertEqual(rep.limits["depth"], ck._sim().Limits().depth)
+
+    def test_budget_and_limits_reach_the_rules(self):
+        seen = {}
+
+        def match(d):
+            seen["bounds"] = (d.budget, d.limits.depth)
+            return []
+        rule = ck.Rule("TST030", "bounds-probe", "hint", "?", "w", "f", match=match)
+        limits = ck._sim().Limits()._replace(depth=7)
+        rep = ck.check(self.text, registry=with_rules(rule), budget=9, limits=limits)
+        self.assertEqual(seen["bounds"], (9, 7))
+        self.assertEqual((rep.limits["budget"], rep.limits["depth"]), (9, 7))
+
+    def test_limits_from(self):
+        base = ck._sim().Limits()
+        self.assertEqual(ck.limits_from(["depth=5", "spawn=3"], base),
+                         base._replace(depth=5, spawn=3))
+        for bad in ("depth", "depth=x", "nope=2", "depth=0"):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                ck.limits_from([bad], base)
 
 
 class Registry(unittest.TestCase):
@@ -684,12 +728,20 @@ class Cli(unittest.TestCase):
         data = json.loads(self.cli("-", "--json", "--mode", "spec").stdout)
         self.assertEqual((data["mode"], data["k"], data["limits"]["k"]), ("spec", 2, 2))
         self.assertIn("depth", data["limits"])
+        self.assertIn("budget", data["limits"])
         f = data["findings"][0]
         for key in ("severity", "line", "rule", "message", "name", "tier", "mode",
                     "anchor", "why", "fix", "guess", "k", "witness", "acknowledged",
                     "also"):
             self.assertIn(key, f)
         self.assertEqual(data["acknowledged"], [])
+
+    def test_budget_and_limit_flags(self):
+        data = json.loads(self.cli("-", "--json", "--budget", "7", "--limit", "depth=5").stdout)
+        self.assertEqual((data["limits"]["budget"], data["limits"]["depth"]), (7, 5))
+        for args in (["--budget", "0"], ["--limit", "nope=3"]):
+            with self.subTest(args=args):
+                self.assertEqual(self.cli("-", *args).returncode, 2)
 
     def test_clean_document(self):
         p = self.cli("-", stdin="#!spec\n[A] -> [B] : f() @timeout(2s) @fallback(x)\n")

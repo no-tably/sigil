@@ -1,0 +1,17 @@
+# SGC203 event-ignored — `[Shop]` sends `<A>` then `<C>` (async `~>`). Per-sender
+# FIFO lands `<A>` first, taking `{M}` to `X`, where `<C>` has no transition.
+# The run judges `<C>` against that heading state; the check must not replay the
+# in-flight `<A>` a second time (it would step X -<A>-> Z -<C>-> W, no drop).
+# The static half still guesses an order from the two emits (info, as in
+# trace-205-fifo).
+# expect: error:14:SGC203
+# expect: info:14:SGC205
+#!spec
+(User) -> [Shop] : go()
+[Shop] ~> <A>
+[Shop] ~> <C>
+state {M} {
+  + -<A>-> X
+  X -<A>-> Z
+  Z -<C>-> W
+}
