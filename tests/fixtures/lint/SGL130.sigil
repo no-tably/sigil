@@ -1,0 +1,11 @@
+# expect: SGL130@4 SGL130@5 SGL130@6 SGL130@7 SGL130@8 SGL130@9 SGL130@11
+# SGL130 dangling arrow / missing endpoint — catalog §8 L2, L3, L4, L32, L45, L46
+#!spec
+-> [B]
+[A] ->
+[A] -> : {X}
+[A] -> op
+[A] -> ()
+[A] -> # oops
+--- Section ---
+!> <E>

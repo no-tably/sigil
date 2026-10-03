@@ -3,10 +3,11 @@
 - **Status:** Accepted 2026-10-03 (owner review; see Decisions)
 - **Date:** 2026-10-02
 - **Spec (to change on acceptance):** language.md "Recursion" (a bound may be
-  stated), "Invariants" (a "Recognised invariants" table), "State machines"
-  (specific beats `_`; the self-loop idiom), grammar (`(mod)*` after any block's
-  closing `}`), a new "Checks" section; examples.md: a deliberately risky design and
-  its fixed twin
+  stated, Q5), "Invariants" (a "Recognised invariants" table, Q4), "State machines"
+  (specific beats `_`, Q12; the self-loop idiom), "Call resilience" (`×N` placement,
+  Q6; a `!>` under a call with `@fallback` fires, then the fallback is returned, Q2),
+  grammar (`(mod)*` after any block's closing `}`), comments (`#=` reserved, Q7), a
+  new "Checks" section; examples.md: a deliberately risky design and its fixed twin
 - **Tools (to add or change):** `check.py` (new), `lint.py` (`--deep`, SGL120–188),
   render.py (`Edge.card`, emit wires, dropped lines), scene.py (`call_policy`,
   `access_mode`, `writers`), sim.py (`failure_flow`, structured events, defect
@@ -78,7 +79,12 @@ judgement calls and making them errors would limit what can be built.
 - A fragment with no mode line is checked as `#!sketch`.
 
 The tier ceiling **amends Decision 1** ("spec findings are errors"): only binding
-findings become errors in spec. This needs explicit sign-off (open question 1).
+findings become errors in spec. The owner accepted it (Q1).
+
+One rule departs from the table on purpose: `ack-unknown-rule` (SGC001) is a warn
+even in `#!sketch`, where binding findings are otherwise hidden, because a typo'd
+acknowledgement fails silently and sketch is where acknowledgements are first
+written.
 
 ## Three rule sources
 
@@ -98,14 +104,16 @@ carry most rules:
   is `unknown`, and no rule that needs a write fires on it.
 - **failure flow** — `sim.failure_flow(prog)`, a may-fail fixpoint that mirrors the
   simulator's own failure handling (fallback absorbs, blocks relabel, groups
-  await, `~>` and streams stop, routes choose). "Can fail", "is this route
+  await, `~>` and streams stop, routes choose; under Q2 a fallback that absorbs a
+  failure still lets the call's routes fire). "Can fail", "is this route
   reachable", and "does this failure reach an entry unhandled" are exact static
   answers over it.
 - **concurrency** — a static predicate (cardinality, spawns, generic roles, stream
   feeds, concurrent arrivals) shared by every rule that asks "can this run twice at
   once?", plus an explicit **arrival model**: actor flows, outside-cause events,
-  stream sources and work-starting nodes are independent arrivals; lines from the
-  same actor are program-ordered.
+  stream sources and work-starting nodes are independent arrivals. An actor is one
+  sequential caller, so lines from the same actor are program-ordered; `(User)×N`
+  declares concurrent callers (Q10).
 
 ### 2. Behavioural properties over simulator traces (dynamic)
 
@@ -157,8 +165,9 @@ dictionary.
 
 ## Acknowledgements
 
-The "never limits" valve. Any finding except the meta rules can be acknowledged with
-a reason:
+The "never limits" valve. Any finding can be acknowledged with a reason, except the
+meta findings that are fixed by editing a line rather than by a decision about the
+design (see the list below):
 
 ```
 [API] -> [Payments] : charge(total) ×3 @timeout(2s)   # accepts: retry-without-idempotency — charge is an upsert on order_id
@@ -175,10 +184,22 @@ a reason:
   toward the exit code. Meta findings catch the failure modes of the valve itself:
   an unknown rule name (`ack-unknown-rule`), a missing reason (`ack-without-reason`,
   which voids the acknowledgement), and a stale acknowledgement (`ack-unused`).
-- **Later: a decorated form.** A reserved marker after `#` (candidates: `#=`
-  preferred, `#+`, `#:`) lets tools and readers tell an acknowledgement from prose
-  without reading words: `#= retry-without-idempotency — upsert on order_id`. Both
-  forms would stay valid and mean the same. Choosing the marker is open question 7.
+- **What cannot be acknowledged.** Those three meta rules: each is fixed by editing
+  the acknowledgement (correct the name, give the reason, delete the stale line).
+  An acknowledgement of `ack-unused` would only stack a second stale line, and
+  `ack-unused` never misfires on mode or k: it judges only static findings and
+  trace findings with a k = 1 witness, and counts findings the mode hides.
+  `policy-in-prose` can be acknowledged: its match reads prose, so it misfires on a
+  comment that names a policy the design delegates elsewhere (`# the timeout is
+  enforced by the gateway`). `exploration-incomplete` can be acknowledged for its
+  loop-cap cause only, on the loop's line; its budget, cut and spawn causes
+  describe a run, not the design. Every structural, behavioural and invariant rule can be acknowledged.
+- **Later: a decorated form.** A reserved marker after `#` lets tools and readers
+  tell an acknowledgement from prose without reading words:
+  `#= retry-without-idempotency — upsert on order_id`. Both forms will stay valid
+  and mean the same. `#=` is **reserved now** (Q7): it acknowledges nothing until the
+  form lands, lint notes any `#=` (SGL188), and dialects may not claim it as a
+  comment marker.
 
 ## Output surfaces
 
@@ -207,8 +228,8 @@ questions on that call). Implied findings are folded into the cause's message as
 Ids are `SGC` + 3 digits (hundreds: 0 meta, 1 structural, 2 behavioural, 3
 invariants; tens: the family). People type the **name**, never the id. The full
 entries — risk, principle and sources, query, satisfying declarations, tier and ask,
-false-positive analysis, corpus evidence — are in
-[0003-catalog.md](./0003-catalog.md).
+false-positive analysis, corpus evidence, and an example (a flagged design and the
+same design with the risk declared) — are in [0003-catalog.md](./0003-catalog.md).
 
 | Id | Name | Layer | Phase |
 |---|---|---|---|
@@ -316,13 +337,15 @@ updated in the same phase).
   - Defect fixes: a failed `&` / `*>` member raises its own guard, so the line's
     `!>` fires (B1); block members get failure choices (B2); `~>` failure choices
     are honoured or not listed (B3); field branches run (B4); a failure stops at the
-    consumer of a stream or `~>` (B13); a specific transition beats `_`; and,
-    depending on open question 3, a source join becomes a non-blocking deposit.
+    consumer of a stream or `~>` (B13); a route under a call with `@fallback` fires
+    before the fallback is returned (Q2, B14); a specific transition beats `_`
+    (Q12); and a source join becomes a non-blocking deposit (Q3).
   - Declared bounds never change a run: check.py compares `@inv depth <= N` with the
     simulator's limits and reports both.
 - **lint.py**: SGL120–188 (unclosed glyphs, dangling arrows, malformed arrows and
   joins, unclosed payloads and blocks, transitions without triggers, modifier
-  arguments, ambiguous `×N`, the reserved acknowledgement marker, …); `--deep`.
+  arguments, ambiguous `×N`, the reserved acknowledgement marker `#=`, …);
+  `--deep`.
 - **dialects.py**: a rule-pack hook (rules, recognised `@inv` heads, read verbs,
   prose policy words), and refusal of the reserved acknowledgement marker in
   `COMMENT_MARKERS`.
@@ -377,7 +400,7 @@ and names that never reuse a core name.
 | Q | Decision |
 |---|---|
 | 1 | **Accepted.** Only binding findings become errors in `#!spec`; advisory stay warnings, hints info; k ≥ 2-only and (until B1–B4 are fixed) trace findings cap at warn. |
-| 2 | **Yes, the route fires** ("notify, then yield"): `[A] -> [B] : f() @fallback(x)` with `!> <Degraded>` under it alerts *and* returns `x`. Degrade-and-alert then needs no new notation; a route with no fallback still means "fail and route". Revisit if a more ergonomic spelling appears. |
+| 2 | **Yes, the route fires** ("notify, then yield"): `[A] -> [B] : f() @fallback(x)` with `!> <Degraded>` under it alerts *and* returns `x`. Degrade-and-alert then needs no new notation; a route with no fallback still means "fail and route". Revisit if a more ergonomic form appears. |
 | 3 | **Non-blocking deposit** (recommended): each `&` member deposits and goes on; the last arrival fires the target. Fixes the happy-path stall. |
 | 4 | **Accepted** — the 17 recognised `@inv` heads, the self-loop `S -<T>-> S` for "ignored on purpose", and their addition to language.md. |
 | 5 | **Yes** — a recursion may state a bound: `@inv depth <= N` or `@inv terminates`. |
@@ -395,7 +418,9 @@ false findings), and a design declares concurrent callers with the cardinality i
 already has — `(User)×N` (Q6) — which makes every entry from that actor concurrent
 with itself for `lost-update` and `race`.
 
-## Open questions for the reviewer
+## Questions as put to the reviewer (answered in Decisions)
+
+Kept as asked, for the record; the Decisions table above is binding.
 
 1. **Tier ceiling (amends Decision 1).** Only binding findings become errors in
    `#!spec`; advisory ones stay warnings, hints stay info; k ≥ 2-only findings and

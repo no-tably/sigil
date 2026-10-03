@@ -43,13 +43,16 @@ view draws (events drawn where they land, a shallower depth).
   `/` the chosen member; `=>` a produce hop (into a spawned child: one more
   instance); `?>` only when the scenario takes it (a join's `?>` members too);
   `!>` only on failure. A join's members are resolved first, then its arrow
-  runs them: on `~>` forked unawaited.
+  runs them: on `~>` forked unawaited. A source join (`[A] & [B] -> [C]`) is
+  a deposit, never a barrier: each member deposits and goes on, and the last
+  arrival runs the target (`&?`: the first; later ones are dropped).
   A failure stops the activation it reaches, fires its routes (those guarded
   by the failed block or call first, else its unguarded ones), ends it failed and
   unwinds the sync stack.
 
-  Resilience: a failing call makes attempts() tries, then `@fallback(x)` returns
-  x and the caller goes on as ok; `!` critical ends the run. A self-call is a
+  Resilience: a failing call makes attempts() tries, then `@fallback(x)` fires
+  the caller's routes guarded by that call ("notify, then yield"), returns x and
+  the caller goes on as ok; `!` critical ends the run. A self-call is a
   one-tick pulse; recursion stops at Limits.depth (the base case). An external
   op's far node is opaque. Blocks: `loop` repeats its region (`@times N`, capped
   by Limits.iterations), `parallel` forks it (@all waits, @any races, @none
@@ -60,7 +63,8 @@ view draws (events drawn where they land, a shallower depth).
   then the node's body minus its summary wires. An alias runs when called by name.
   Composition children are instances: static ones once per parent (×N
   multiplies), dynamic ones Limits.spawn per parent, a `=>` into one spawns
-  another. Declarations (`@read`, `@inv`, `@sla`, notes, …) do not affect a run.
+  another. A flow's destination cardinality (`-> [App]×N`, Edge.card) is how
+  many instances it reaches, never a retry: only a `×N` in Wire.mods retries. Declarations (`@read`, `@inv`, `@sla`, notes, …) do not affect a run.
 
 SCENARIOS
 
@@ -75,7 +79,10 @@ THE TRACE
 
 Trace(scenario, frames, outcome, end, scene)
   outcome   "ok" | "failed" | "cut"
-  end       {"machines", "routes", "stalled", "cut", "visited", "log"}
+  end       {"machines", "routes", "stalled", "deposits", "cut", "visited", "log"}
+            deposits: the `&` source joins left open — [{"join": (unit, index),
+            "target", "arrived", "missing"}] (node ids); a member deposits and goes
+            on, so an open join is a deposit no last arrival consumed
   scene     the Scene its frames name (the canonical one, or project()'s)
 
 Frame — a full, immutable snapshot (a view draws frame i alone)
@@ -822,7 +829,8 @@ class _Run:
         stalled = [x.stack[-1].node for x in self.tasks
                    if not x.ended and x.wait is not None and x.stack]
         return {"machines": dict(self.machines), "routes": list(self.routes),
-                "stalled": list(dict.fromkeys(stalled)), "cut": list(self.cut),
+                "stalled": list(dict.fromkeys(stalled)), "deposits": self._deposits(),
+                "cut": list(self.cut),
                 "visited": list(self.status), "log": list(self.log_all)}
 
     # ---- helpers -----------------------------------------------------------
@@ -897,9 +905,14 @@ class _Run:
         return False
 
     def _reach_of(self, w) -> int:
-        """How many instances a flow into w.dst reaches (1 when it has none)."""
+        """How many instances a flow into w.dst reaches: its composition instances,
+        else the cardinality written on the flow (`-> [App]×3`, Edge.card; a
+        symbolic N counts Limits.spawn), else 1."""
         if not any(t.node == w.dst for _ui, _k, t in self.prog.tree):
-            return 1
+            card = w.edge.card if w.edge is not None else None
+            if not card:
+                return 1
+            return min(int(card) if card.isdigit() else self.limits.spawn, self.limits.spawns)
         ui = self._ui(w)
         path = w.paths[1] if w.paths else None
         total = 0
@@ -988,23 +1001,26 @@ class _Run:
 
     def _fire_routes(self, task: _Task, act: _Act, f: _Fail):
         """The failed activation's routes, in written order: those
-        guarded by what failed, else the unguarded ones. A route target's own
-        failure ends that route only; the remaining routes still fire."""
+        guarded by what failed, else the unguarded ones."""
         routes = self.prog.routes.get((act.ui, act.node), ())
         chosen = [w for w, g in routes if _guards(g, f.guard)]
-        chosen = chosen or [w for w, g in routes if g is None]
-        for w in chosen:
-            self.failed_w.add(w.ident)
-            self.routes.append(w.ident)
-            self._log(f"{self._name(act.node)} failed → {self._name(w.dst)}")
-            task.open.append(w.ident)
-            try:
-                yield from self._hop(task, w, state="failed", carries=carried(w))
-                yield from self._land(task, w, None)
-            except _Fail:
-                self._log(f"route failed: {self._name(w.dst)}")
-            finally:
-                task.open.remove(w.ident)
+        for w in chosen or [w for w, g in routes if g is None]:
+            yield from self._route(task, act, w)
+
+    def _route(self, task: _Task, act: _Act, w):
+        """Take one failure route out of act's node. A route target's own failure
+        ends that route only; the remaining routes still fire."""
+        self.failed_w.add(w.ident)
+        self.routes.append(w.ident)
+        self._log(f"{self._name(act.node)} failed → {self._name(w.dst)}")
+        task.open.append(w.ident)
+        try:
+            yield from self._hop(task, w, state="failed", carries=carried(w))
+            yield from self._land(task, w, None)
+        except _Fail:
+            self._log(f"route failed: {self._name(w.dst)}")
+        finally:
+            task.open.remove(w.ident)
 
     def _items(self, task: _Task, items, arm):
         for it in items:
@@ -1129,9 +1145,12 @@ class _Run:
             yield ("turn",)
 
     def _call_failed(self, task: _Task, w):
-        """A call has finally failed: its fallback comes back, or the failure travels."""
+        """A call has finally failed: the routes guarded by this call fire and its
+        fallback comes back (the caller goes on: "notify, then yield"), or the
+        failure travels."""
         fb = mod(w, "fallback")
         if fb is not None:
+            yield from self._guarded_routes(task, ("call", w.ident))
             self._log(f"{self._name(w.src)} falls back to {fb}")
             yield from self._hop(task, w, back=True, state="fallback", carries=fb)
             self._resume_caller(task)
@@ -1145,6 +1164,16 @@ class _Run:
         if mod(w, "!") is not None:
             raise _Abort()
         raise _Fail(("call", w.ident))
+
+    def _guarded_routes(self, task: _Task, guard: tuple):
+        """The caller's routes guarded by `guard` (never its unguarded ones: the
+        caller itself has not failed)."""
+        if not task.stack:
+            return
+        act = task.stack[-1]
+        for w, g in self.prog.routes.get((act.ui, act.node), ()):
+            if _guards(g, guard):
+                yield from self._route(task, act, w)
 
     def _self_call(self, task: _Task, w):
         """A self-call: a one-tick pulse; an alias body or a
@@ -1253,11 +1282,12 @@ class _Run:
         return (ui, j, joins[j].kind)
 
     def _gate(self, task: _Task, w, gate: tuple, arm):
-        """A source join: members block at the gate; `&` runs the target once when
-        the last arrives, `&?` when the first does (later arrivals are dropped)."""
+        """A source join: each member deposits at the gate and goes on (never a
+        barrier); `&` runs the target once when the last arrives, `&?` when the first
+        does (later arrivals are dropped)."""
         ui, j, kind = gate
         members = self.prog.units[ui].graph.joins[j].members
-        state = self.gates.setdefault((ui, j, w.dst), {"arrived": [], "round": 0, "fired": False})
+        state = self.gates.setdefault((ui, j, w.dst), {"arrived": [], "fired": False})
         self._log(self._wire_text(w))
         task.open.append(w.ident)
         yield from self._hop(task, w, carries=carried(w))
@@ -1271,8 +1301,7 @@ class _Run:
             yield ("turn",)
             return
         if kind == "&" and not everyone:
-            my_round = state["round"]
-            yield ("wait", lambda: state["round"] > my_round)
+            self._log(f"deposit: {self._name(w.src)} at {self._name(w.dst)}")
             task.open.remove(w.ident)
             self._resume_caller(task)
             return
@@ -1280,11 +1309,21 @@ class _Run:
         try:
             yield from self._land(task, w, arm)
         finally:
-            state["round"] += 1
             if kind == "&" or everyone:
                 state.update(arrived=[], fired=False)
         task.open.remove(w.ident)
         self._resume_caller(task)
+
+    def _deposits(self) -> list:
+        """The `&` joins a run leaves open: deposits no last arrival consumed."""
+        out = []
+        for (ui, j, dst), state in self.gates.items():
+            join = self.prog.units[ui].graph.joins[j]
+            if join.kind == "&" and state["arrived"]:
+                arrived = list(dict.fromkeys(state["arrived"]))
+                out.append({"join": (ui, j), "target": dst, "arrived": arrived,
+                            "missing": [m for m in join.members if m not in arrived]})
+        return out
 
     def _region(self, task: _Task, r: Region, arm):
         """A control block's part of a body. Only the outermost entry

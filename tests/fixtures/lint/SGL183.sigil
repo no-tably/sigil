@@ -1,0 +1,5 @@
+# expect: SGL183@4 SGL183@5
+# SGL183 flow marker on a node — catalog §8 L49
+#!spec
+[A] ! -> [B]
+[A]? -> [B]

@@ -1,0 +1,9 @@
+# expect: SGL132@4 SGL132@5 SGL132@6 SGL132@7 SGL132@8 SGL132@9
+# SGL132 stray or trailing join — catalog §8 L18–L21
+#!spec
+& [B]
+[A] -> [B] &
+[A] -> [C] &?
+[A] => {B} /
+[A] & [B]
+[A] -> [B] & -> [C]

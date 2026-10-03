@@ -1,15 +1,13 @@
                                          ── agent-memory ────────────────────────────────────────
-╭ core read/write loop ·        ╮ ────#> |PROV| ◀───────────────────────●─────────┬─○─┐
-│ summary materialization (out- │  ┌──#> [MCP.r] ◀──────────────────────┴─●       │ ╎ │
-╰ of-loop) · global invariants  ╯  │     {Payload} ◀──────────────────────┴─●┄┄┄┄┄│┄╎┄│┄┄┄┄┄┄┄┆a┆
-                                   │ ┌#> [Agent] ◀──────────────────────›───┴╍○╍○╍│╍╎╍│╍›╍›╍›
-│ hydration policy (on [MCP.r]) │ ─┘ │   [MCP.w] <Activity> ◀───────────┴─────╎─╎─● ╎ │ ╏ ╏ ╏
-                                     │   <Unroll> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘┄╎┄┄┄╎┄│┄╏┄╏┄╏┄┆b┆
-╭ aliases · mutation surface    ╮ ───┘   <Verify> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘┄┄┄╎┄│┄╏┄╏┄╏┄┆c┆
-╰ (agent-visible events)        ╯        <ΔHash> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘ │ ╏ ╏ ╏
-                                         {Concept} ─────────────────────●             │ ╏ ╏ ╏
-                                         [Renderer] ◀───────────────────┴━◆           │ ╏ ╏ ╏
-                                         {Summary} ◀━━━━━━━━━━━━━━━━━━━━━━┻───────────● ╏ ╏ ╏
+╭ core read/write loop ·        ╮ ────#> |PROV| ◀───────────────────────●─────────┬─›─┐
+│ summary materialization (out- │  ┌──#> [MCP.r] ◀──────────────────────┴─●       │ │ │
+╰ of-loop) · global invariants  ╯  │     {Payload} ◀──────────────────────┴─●┄┄┄┄┄│┄│┄│┄┄┄┄┄┄┄┆a┆
+                                   │ ┌#> [Agent] ◀──────────────────────›───┴╍○╍○╍│╍│╍│╍›╍›╍›
+│ hydration policy (on [MCP.r]) │ ─┘ │   [MCP.w] <Activity> ◀───────────┴─────╎─╎─● │ │ ╏ ╏ ╏
+                                     │   <Unroll> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘┄╎┄┄┄│┄│┄╏┄╏┄╏┄┆b┆
+╭ aliases · mutation surface    ╮ ───┘   <Verify> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘┄┄┄│┄│┄╏┄╏┄╏┄┆c┆
+╰ (agent-visible events)        ╯        [Renderer] <ΔHash> ◀───────────◆───────────┘ │ ╏ ╏ ╏
+                                         {Summary} ◀━━━━━━━━━━━━━━━━━━━━┻─────────────● ╏ ╏ ╏
                                                                                         ╏ ╏ ╏
                                          ── {Entity} state machine ──────────────────────────────
 │ entity lifecycle              │ ────#> {Entity}                                       ╏ ╏ ╏
@@ -22,6 +20,7 @@
 
                                          ── agent-memory ────────────────────────────────────────
                                          {Fact}
+                                         {Concept}
 
                                                               ┆a┆ # staged delivery
                                                               ┆b┆ # walk wasDerivedFrom backward

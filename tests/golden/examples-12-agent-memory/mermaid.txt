@@ -11,10 +11,10 @@ flowchart TD
     Supersede_event>"Supersede"]
     Retract_event>"Retract"]
     _Hash_event>"ΔHash"]
-    Concept_data{{"Concept"}}
     Renderer_service["Renderer"]
     Summary_data{{"Summary"}}
     Fact_data{{"Fact"}}
+    Concept_data{{"Concept"}}
     subgraph Entity_data["Entity"]
         direction TB
         Entity_state_start(["●"])
@@ -45,11 +45,11 @@ flowchart TD
     Agent_service -.-> Supersede_event
     Agent_service -.-> Retract_event
     PROV_store -.-> _Hash_event
-    Concept_data --> Renderer_service
+    _Hash_event --> Renderer_service
     Renderer_service ==> Summary_data
     Summary_data --> PROV_store
     class MCP_r_service,Agent_service,MCP_w_service,Renderer_service service
-    class Payload_data,Concept_data,Summary_data,Entity_data,Fact_data data
+    class Payload_data,Summary_data,Entity_data,Fact_data,Concept_data data
     class Activity_event,Unroll_event,Verify_event,Dispute_event,Supersede_event,Retract_event,_Hash_event event
     class PROV_store store
     Dispute_event -. "triggers" .-> Entity_state_disputed

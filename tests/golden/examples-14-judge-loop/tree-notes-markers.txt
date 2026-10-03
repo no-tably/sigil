@@ -1,18 +1,17 @@
-── judge-loop ──────────────
-[Loop] #1 ─────────●
-~|running| ◀───────┴─┐
-<stop> ──────────────●
-[Judge] #2 ────────●─────●─●
-[Scorer] ◀─────────┘     │ │
-<rated> #3 ──────────●   │ │
-~|history| ◀─────────┘   │ │
-~|total|                 │ │
-[Cfg] ─────────────●─●─● │ │
-~|rubric| ◀────────┘ │ │ │ │
-~|opts| ◀────────────┘ │ │ │
-~|policy| ◀────────────┘ │ │
-|Scores| ⇱ ◀─────────────┘ │
-[Index] ⇱ ◀────────────────┘
+── judge-loop ────────────────
+[Loop] #1 ───────────●
+~|running| ◀─────────┴─┐
+<stop> ────────────────●
+[Judge] #2 ──────────●─────●─●
+[Scorer] ◀───────────┴─›   │ │
+~|history| <rated> ◀───┘   │ │
+~|total|                   │ │
+[Cfg] ───────────────●─●─● │ │
+~|rubric| ◀──────────┘ │ │ │ │
+~|opts| ◀──────────────┘ │ │ │
+~|policy| ◀──────────────┘ │ │
+|Scores| ⇱ ◀───────────────┘ │
+[Index] ⇱ ◀──────────────────┘
 
 ── notes ──
 
@@ -28,4 +27,4 @@ wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  �
 blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
        ── ── section
 
-examples-14-judge-loop.sigil: 14 nodes, 9 edges, 0 expansions · #!spec
+examples-14-judge-loop.sigil: 14 nodes, 10 edges, 0 expansions · #!spec

@@ -1,0 +1,5 @@
+# expect: none
+# SGL121 empty glyph — catalog §8 L12
+#!spec
+[_] -> [B]
+[Worker] -> run()

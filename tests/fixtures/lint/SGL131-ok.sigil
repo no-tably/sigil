@@ -1,0 +1,7 @@
+# expect: none
+# SGL131 malformed arrow — catalog §8 L13–L17
+#!spec
+[A] → [B]
+[A] <-> [B]
+<E> *> [B] & [C]
+[A] ?> [B]

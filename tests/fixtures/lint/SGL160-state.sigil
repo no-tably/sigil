@@ -1,0 +1,5 @@
+# expect: SGL160@4
+# SGL160 unclosed block — catalog §8 L28 (a state block never closed)
+#!spec
+state {X} {
+  + -<a>-> S

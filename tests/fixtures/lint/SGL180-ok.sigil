@@ -1,0 +1,8 @@
+# expect: none
+# SGL180 modifier argument — catalog §8 L35, L36, L37, L44
+#!spec
+[A] -> [B] @timeout(5s)
+[A] -> [B] : charge ×3 @after(0)
+[A] -> [B] : score @deadline(2s) @fallback(0)
+[Ingest] => *<Raw>^10k@drop
+[LB] -> [App]×N

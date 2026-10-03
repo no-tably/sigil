@@ -1,0 +1,10 @@
+#!craft
+# SGC003 ack-unused (catalog §5). A `probe` rule flags line 10 only.
+# expect: 6:SGC003
+# expect: 9:SGC003
+# expect: 10:SGC003
+# accepts: probe — redundant: line 10 carries its own acknowledgement
+
+# The document acknowledgement above is stale; so is line 9's and line 10's `other-probe`.
+[API] -> [Search] : find(q)   # accepts: probe — the probe flags line 10, not this one
+[Judge] -> |Scores| : insert(s)   # accepts: probe, other-probe — only probe is used

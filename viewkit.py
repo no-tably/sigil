@@ -572,10 +572,18 @@ def _payload_is_mods(e) -> bool:
     return not rest.strip()
 
 
+def edge_mods(e) -> list:
+    """An edge's modifiers as its chip lists them: the destination's cardinality
+    written on the flow (Edge.card, `-> [App]×N`) as `×N` first, then Edge.mods
+    (where a `×N` is a retry). A wire carries no card: just its mods."""
+    card = getattr(e, "card", None)
+    return ([("×", card)] if card else []) + list(e.mods or ())
+
+
 def chip_parts(e, payloads: bool, mods: bool):
     """(payload, modifiers) an edge's chip shows — each None when not shown."""
     payload = e.payload if payloads else None
-    mtext = mods_text(e.mods) if mods else ""
+    mtext = mods_text(edge_mods(e)) if mods else ""
     if payload and mtext and _payload_is_mods(e):
         payload = None
     return payload or None, mtext or None

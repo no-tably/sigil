@@ -1,0 +1,6 @@
+# SGC206 stalled-join — the flagged design with the wait bounded on the join.
+# expect: (none)
+#!spec
+[S] -> [A] : a()
+[S] ?> [B] : b()
+[A] & [B] -> [C] : go() @timeout(5s)

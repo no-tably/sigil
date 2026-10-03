@@ -1,0 +1,6 @@
+# expect: SGL150@4 SGL150@5 SGL150@6
+# SGL150 payload with no flow — catalog §8 L22
+#!spec
+[A] : {X}
+[A] : ${x} + 1
+|S| : Total

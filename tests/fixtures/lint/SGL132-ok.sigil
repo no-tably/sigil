@@ -1,0 +1,9 @@
+# expect: none
+# SGL132 stray or trailing join — catalog §8 L18–L21
+#!spec
+[A] & [B] -> [C]
+[A] &? [B] -> [C]
+process := {Ctx} => {Resp} / {Err}
+[Bullet]
+    \-& {Transform}
+[Homing] -> [Bullet]/{Transform}

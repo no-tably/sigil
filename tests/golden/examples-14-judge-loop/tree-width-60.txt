@@ -1,18 +1,17 @@
-── judge-loop ──────────────
-[Loop] ────────────●
-~|running| ◀───────┴─┐
-<stop> ──────────────●
-[Judge] ───────────●─────●─●
-[Scorer] ◀─────────┘     │ │
-<rated> ─────────────●   │ │
-~|history| ◀─────────┘   │ │
-~|total|                 │ │
-[Cfg] ─────────────●─●─● │ │
-~|rubric| ◀────────┘ │ │ │ │
-~|opts| ◀────────────┘ │ │ │
-~|policy| ◀────────────┘ │ │
-|Scores| ⇱ ◀─────────────┘ │
-[Index] ⇱ ◀────────────────┘
+── judge-loop ────────────────
+[Loop] ──────────────●
+~|running| ◀─────────┴─┐
+<stop> ────────────────●
+[Judge] ─────────────●─────●─●
+[Scorer] ◀───────────┴─›   │ │
+~|history| <rated> ◀───┘   │ │
+~|total|                   │ │
+[Cfg] ───────────────●─●─● │ │
+~|rubric| ◀──────────┘ │ │ │ │
+~|opts| ◀──────────────┘ │ │ │
+~|policy| ◀──────────────┘ │ │
+|Scores| ⇱ ◀───────────────┘ │
+[Index] ⇱ ◀──────────────────┘
 
 tree   ─ contains  & has  * spawns  ? when  $ from data  
        @ attached  ! alerts  = gathers  _ one of  
@@ -25,4 +24,4 @@ blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›
        □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
        ── ── section
 
-examples-14-judge-loop.sigil: 14 nodes, 9 edges, 0 expansions · #!spec
+examples-14-judge-loop.sigil: 14 nodes, 10 edges, 0 expansions · #!spec

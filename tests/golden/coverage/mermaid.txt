@@ -259,6 +259,7 @@ flowchart TD
     Reader_service --> DB_store
     Writer_service --> DB_store
     DB_store --> WAL_store
+    Asteroid_service -. "? lagging" .-> Asteroid_service__LagAlarm_event
     Physics_service --> Ship_service__Transform_data
     Physics_service --> Ship_service__Bullet_service__Transform_data
     Homing_service --> Ship_service__Bullet_service__Transform_data

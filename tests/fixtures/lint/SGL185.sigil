@@ -1,0 +1,6 @@
+# expect: SGL185@6
+# SGL185 continuation across a blank line — catalog §8 L33
+#!spec
+[A] -> [B]
+
+!> <E>

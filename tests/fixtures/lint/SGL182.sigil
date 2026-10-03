@@ -1,0 +1,6 @@
+# expect: SGL182@4 SGL182@5 SGL182@6
+# SGL182 resilience modifier off a call — catalog §8 L38
+#!spec
+[A] -> {B} @fallback(0)
+[A] => {B} @timeout(5s)
+[A] -> <E> @timeout(1s)

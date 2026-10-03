@@ -1,0 +1,6 @@
+# expect: SGL181@5
+# SGL181 modifier alias after ×N names nothing — catalog §8 L39 (B7 fixed: the parser keeps it as ("alias", name))
+#!spec
+Retry := @after(exp-backoff, cap=1min)
+[A] -> [B] : charge ×3 Retyr
+[A] -> [C] : refund ×2 Retry

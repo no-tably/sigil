@@ -16,6 +16,7 @@ flowchart TD
     Loop_service --> running_store
     stop_event --> running_store
     Judge_service --> Scorer_service
+    Scorer_service ==> rated_event
     rated_event --> history_store
     Cfg_service --> rubric_store
     Cfg_service --> opts_store

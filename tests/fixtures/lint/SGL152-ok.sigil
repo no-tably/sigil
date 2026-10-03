@@ -1,0 +1,6 @@
+# expect: none
+# SGL152 glyph after payload — catalog §8 L25
+#!spec
+[Shop] -> |Catalog| : lookup(sku) => {Item}
+<Tick> -> ~|History| : ${state.history} ++ [${out}]
+[A] -> ~|opts| : ${a} || {b: 1}

@@ -1,0 +1,10 @@
+# expect: none
+# SGL162 empty block — catalog §8 L31
+#!spec
+branch on {Request}.kind {
+  read  => [Reader]  -> |DB|
+  _     => <Rejected>
+}
+loop @times 3 {
+  [A] -> [B]
+}

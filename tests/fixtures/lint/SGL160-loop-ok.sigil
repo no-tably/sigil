@@ -1,0 +1,10 @@
+# expect: none
+# SGL160 unclosed block — a loop never closed (closed by the parser at the end)
+#!spec
+loop @times 3 {
+  [A] -> [B]
+}
+[A] := { [B] -> [C] }
+state {X} {
+  + -<a>-> S
+}

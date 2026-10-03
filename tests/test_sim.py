@@ -327,6 +327,20 @@ class TestExecutions(unittest.TestCase):
         self.assertEqual(tr.frames[-1].nodes["Fetcher_service"], "failed")   # each attempt
         self.assertEqual(len(logs(tr, "attempt")) // 2, 4)
 
+    def test_fallback_fires_the_calls_guarded_route_then_yields(self):
+        sc = build("(U) -> [A]\n[A] -> [B] : f() @fallback(x)\n  !> <Degraded>\n"
+                   "[A] !> <Down>\n")
+        tr = run(sc, "A.f:fallback")
+        self.assertEqual(tr.outcome, "ok")
+        # the route guarded by f() fires; the node's own route does not (A is fine)
+        self.assertEqual(tr.end["routes"], [wire(sc, "A_service", "Degraded_event", "!>")])
+        self.assertNotIn("Down_event", tr.frames[-1].nodes)
+        log = tr.end["log"]
+        fired = next(i for i, ln in enumerate(log) if "failed → <Degraded>" in ln)
+        yielded = next(i for i, ln in enumerate(log) if "falls back to x" in ln)
+        self.assertLess(fired, yielded)
+        self.assertEqual(run(sc).end["routes"], [])
+
     def test_deadline_without_timeout_is_one_attempt(self):
         tr = run(self.sc, "Crawler.throttle:fails")
         self.assertEqual(tr.outcome, "failed")
@@ -407,11 +421,11 @@ class TestJoinsAndBlocks(unittest.TestCase):
         self.assertNotIn("Resp_data", nodes)
 
     def test_strict_join_waits_for_all_and_member_failure_fails(self):
-        sc = build("(U) -> [Api]\n[Api] -> [A] & [B] ×1\n")
+        sc = build("(U) -> [Api]\n[Api] -> [A] & [B] @timeout(1s)\n")
         tr = run(sc)
         self.assertEqual(tr.outcome, "ok")
         bad = [n for n in names(sc) if n != "happy"]
-        self.assertEqual(bad, ["Api->A:fails", "Api->B:fails"])   # ×1 is on both links
+        self.assertEqual(bad, ["Api->A:fails", "Api->B:fails"])   # on both links
         tr = run(sc, bad[1])
         self.assertEqual(tr.outcome, "failed")
         self.assertEqual(tr.frames[-1].nodes["Api_service"], "failed")
@@ -429,9 +443,32 @@ class TestJoinsAndBlocks(unittest.TestCase):
         self.assertEqual(sum(1 for ln in tr.end["log"] if "-> [C]" in ln), 2)
         self.assertEqual(tr.frames[-1].nodes["C_service"], "visited")
         self.assertEqual(tr.end["stalled"], [])
+        self.assertEqual(tr.end["deposits"], [])
         half = sim.simulate(sc, sim.Scenario("a", entries=("A_service",)))
-        self.assertEqual(half.end["stalled"], ["A_service"])
+        self.assertEqual(half.end["stalled"], [])          # a deposit, not a barrier
+        self.assertEqual(half.end["deposits"], [{"join": (0, 0), "target": "C_service",
+                                                  "arrived": ["A_service"],
+                                                  "missing": ["B_service"]}])
         self.assertNotIn("C_service", half.frames[-1].nodes)
+
+    def test_gate_members_deposit_and_go_on(self):
+        # both members reached from one caller: the first deposits, the caller goes
+        # on to the second, whose arrival fires the target (no stall)
+        sc = build("[S] -> [A] : a()\n[S] -> [B] : b()\n[A] & [B] -> [C] : go()\n")
+        tr = run(sc)
+        self.assertEqual((tr.outcome, tr.end["stalled"], tr.end["deposits"]), ("ok", [], []))
+        self.assertEqual(tr.frames[-1].nodes["C_service"], "visited")
+        self.assertTrue(logs(tr, "deposit: [A] at [C]"))
+
+    def test_gate_member_on_an_untaken_branch_leaves_its_deposit(self):
+        sc = build("[S] -> [A] : a()\n[S] ?> [B] : b()\n[A] & [B] -> [C] : go()\n")
+        happy = run(sc)
+        self.assertEqual(happy.outcome, "ok")
+        self.assertEqual([(d["target"], d["arrived"], d["missing"])
+                          for d in happy.end["deposits"]],
+                         [("C_service", ["A_service"], ["B_service"])])
+        self.assertNotIn("C_service", happy.frames[-1].nodes)
+        self.assertEqual(run(sc, "S?>B").end["deposits"], [])
 
     def test_branch_arms(self):
         sc = build("(U) -> {Req}\nbranch on {Req}.kind {\n"
@@ -455,7 +492,7 @@ class TestJoinsAndBlocks(unittest.TestCase):
         self.assertEqual(tr.end["routes"], [wire(sc, "Api_service", "Inv_service", "!>")])
 
     def test_block_failure_takes_the_route_after_a_loop(self):
-        sc = build("(U) -> [A]\nloop @times 3 {\n  [A] -> [B] ×2\n}\n  !> <LoopFailed>\n")
+        sc = build("(U) -> [A]\nloop @times 3 {\n  [A] -> [B] @timeout(1s)\n}\n  !> <LoopFailed>\n")
         tr = run(sc, "A->B:fails")
         self.assertEqual(tr.outcome, "failed")
         self.assertEqual(tr.end["routes"], [wire(sc, "A_service", "LoopFailed_event", "!>")])
@@ -471,7 +508,7 @@ class TestJoinsAndBlocks(unittest.TestCase):
         self.assertEqual((nodes["B_service"], nodes["C_service"]), ("cancelled", "visited"))
 
     def test_parallel_any_loser_failure_leaves_the_block_ok(self):
-        sc = build("(U) -> [A]\nparallel @any {\n  [A] -> [B]\n  [A] -> [C] ×1\n}\n"
+        sc = build("(U) -> [A]\nparallel @any {\n  [A] -> [B]\n  [A] -> [C] @timeout(1s)\n}\n"
                    "[B] -> [D] -> [E]\n")
         tr = run(sc, "A->C:fails")
         self.assertEqual(tr.outcome, "ok")
@@ -587,6 +624,43 @@ class TestJoinsAndBlocks(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # 5. Termination, determinism, frame invariants
 # ---------------------------------------------------------------------------
+
+class TestModelFacts(unittest.TestCase):
+    """The P1 model fixes as the simulator reads them: cardinality is no retry
+    (CG1) and implied emitters are not entries (B12)."""
+
+    def test_cardinality_is_no_choice_point(self):
+        # the phantom `Primary~>Replica:fails` (examples.md L3: [Data])
+        sc = build("(Client) -> [Core]\n[Core] := {\n  [LB] -> [App]×N\n}\n"
+                   "[Core] -> [Data]\n[Data] := {\n  [Primary] ~> [Replica]×2\n}\n")
+        self.assertEqual(names(sc), ["happy"])
+
+    def test_a_retry_still_is(self):
+        sc = build("(U) -> [A]\n[A] -> [B] : charge() ×3\n")
+        self.assertEqual(names(sc), ["happy", "A.charge:fails"])
+        self.assertEqual(len(logs(run(sc, "A.charge:fails"), "attempt ")), 8)
+
+    def test_cardinality_is_the_reach(self):
+        sc = build("(U) -> [LB]\n[LB] -> [App]×3\n[LB] -> [Db] ×N\n[LB] -> [One]\n")
+        reach = {}
+        for f in run(sc).frames:
+            for tok in f.tokens:
+                reach.setdefault(tok.wire[1], tok.reach)
+        self.assertEqual((reach["App_service"], reach["One_service"]), (3, 1))
+        self.assertEqual(reach["Db_service"], sim.Limits().spawn)
+
+    def test_implied_emitters_start_no_episode(self):
+        sc = build("(U) -> [Judge]\n[Judge] -> [Scorer] : score({Draft}) => <rated>\n"
+                   "<rated> -> ~|history| : x\n"
+                   "|Replica|\n    \\-{lagging}-! <LagAlarm>\n<LagAlarm> ~> (OnCall)\n"
+                   "[Judge] -> |Replica|\n")
+        prog = sim.program(sim.canonical(sc.graph))
+        self.assertEqual(prog.entries[0], ("U_actor",))
+        self.assertEqual(names(sc), ["happy", "Replica?>LagAlarm"])
+        self.assertEqual(run(sc).frames[-1].nodes["history_store"], "visited")
+        self.assertNotIn("OnCall_actor", run(sc).frames[-1].nodes)
+        self.assertEqual(run(sc, "Replica?>LagAlarm").frames[-1].nodes["OnCall_actor"], "visited")
+
 
 class TestTermination(unittest.TestCase):
     def test_every_scenario_of_every_input_ends(self):

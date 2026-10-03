@@ -1,9 +1,17 @@
 # RFC 0003 catalog — composition checks
 
-The full rule catalog for [RFC 0003](./0003-composition-checks.md). Status: Proposed
-2026-10-02, together with the RFC. It was drafted against main @ 8a2aeea and revised
-against an 86-point review (lenses: *never limits*, *computable*, *completeness*);
-the review log is the last section. Nothing here is implemented yet.
+The full rule catalog for [RFC 0003](./0003-composition-checks.md). Status: Accepted
+2026-10-03, together with the RFC, and brought in line with the RFC's Decisions
+(Q1–Q13; each is cited where it applies). It was drafted against main @ 8a2aeea and
+revised against an 86-point review (lenses: *never limits*, *computable*,
+*completeness*); the review log is the last section and records the state before the
+Decisions. Nothing here is implemented yet.
+
+Every rule ends with an **Example**: a small design the rule flags, and the same
+design once the risk is declared. Both halves lint clean. The flagged half shows the
+shape the rule reports; it may raise other rules' findings too (a bare fragment has
+no routes, for one), which the declared half does not try to clear. P2–P4 turn each
+pair into a fixture under `tests/fixtures/checks/`.
 
 References to `survey-*.md` and "corpus §n" point to the research notes the catalog
 was written from; they are not part of the repository. Each rule entry says in words what model fact
@@ -15,7 +23,7 @@ this file uses prefixes:
 
 - **MG1..MG16** are model gaps from survey-model.md §2.
 - **NG1..NG8** are notation gaps from survey-principles.md.
-- **CG1..CG7** are gaps this catalog adds (listed in §1.5).
+- **CG1..CG8** are gaps this catalog adds (listed in §1.5).
 - **B1..B13** are tool defects (listed in §6).
 
 Corpus citations use `file:line`. Examples.md citations use the examples.md line
@@ -27,7 +35,7 @@ number. "Example n" means language.md's worked example n.
 
 | Id | Name | Layer | Tier | Phase | Corpus hits |
 |---|---|---|---|---|---|
-| SGC001 | ack-unknown-rule | meta | binding | P1 | — |
+| SGC001 | ack-unknown-rule | meta | binding (warn in sketch, on purpose: §5) | P1 | — |
 | SGC002 | ack-without-reason | meta | binding | P1 | — |
 | SGC003 | ack-unused | meta | advisory | P2 | — |
 | SGC004 | policy-in-prose | meta | hint | P1 | site 02:13, site 01:8 |
@@ -72,11 +80,11 @@ number. "Example n" means language.md's worked example n.
 | SGC174 | optional-callee | static | hint | P2 | coverage:63 |
 | SGC175 | unreached | static | hint | P3 (gated on B4) | coverage:82, 194–197 |
 | SGC201 | unhandled-failure | static (+trace witness) | binding | P2 / P3 | examples.md:497, executions:41 |
-| SGC202 | dead-failure-route | static (+trace witness) | binding / advisory | P2 / P3 | **site 05:12** |
+| SGC202 | dead-failure-route | static (+trace witness) | binding | P2 / P3 | probe only (seed: executions E11 before d29e6b7) |
 | SGC203 | event-ignored | trace + static diamond | binding | P3 | **coverage:119–121**, examples.md:388–412 |
 | SGC204 | race | static + trace | binding | P2 (static) / P3 (trace) | examples.md:480–481 |
 | SGC205 | ordering-unstated | trace + static | advisory | P3 | site 04:7–8 |
-| SGC206 | stalled-join | trace | binding | P3 (after the join decision) | probe (§3) |
+| SGC206 | stalled-join | trace | binding | P3 (after the Q3 sim change) | probe (§3) |
 | SGC301 | inv-unchecked | invariant | hint | P4 | examples.md:159, 403–425 |
 | SGC302 | inv-dangling | invariant | advisory | P4 | — |
 | SGC303 | inv-contradicted | invariant | binding | P4 | — |
@@ -94,8 +102,9 @@ Since the revision, SGC201 and SGC202 have an exact *static* detector (the
 ids stay in the 2xx block so the numbering the first review saw does not churn; ids
 are frozen once released, and none is released yet.
 
-The rules with the strongest corpus evidence are SGC202 (site 05), SGC203
-(coverage), SGC101, SGC111 and SGC204.
+The rules with the strongest corpus evidence are SGC203 (coverage), SGC101, SGC111
+and SGC204. SGC202's corpus hit (site 05:11–12, a route under a `@fallback`) is no
+longer a finding: under Q2 that route fires.
 
 ---
 
@@ -136,8 +145,10 @@ errors in `#!spec` would limit what can be built.
 
 **This table amends Decision 1** (which reads "spec findings are errors"): only
 binding findings become errors, advisory ones stay warnings and hints stay info. The
-amendment needs the user's explicit sign-off at the P0 gate; RFC 0003 lists it as
-open question 1.
+owner accepted the amendment (RFC 0003, Q1).
+
+One meta rule departs from the table on purpose: SGC001 is a warn even in sketch,
+where binding findings are otherwise hidden (§5).
 
 Adjustments to the tier:
 
@@ -267,16 +278,19 @@ The terms below are used throughout:
   Machine self-loops are removed before any machine SCC is computed.
 - **arrivals.** The independent starts of work (MG9), stated as the **arrival model**
   (§7.10): actor flows, events with consumers and no emitter, stream sources, and
-  nodes with no incoming wire that start work. Entry lines from the **same actor**
-  are program-ordered; arrivals from distinct actors or distinct entries are
-  concurrent.
+  nodes with no incoming wire that start work. An actor is **one sequential caller**
+  by default (Q10): entry lines from the **same actor** are program-ordered, and
+  arrivals from distinct actors or distinct entries are concurrent. An actor with
+  cardinality, `(User)×N` (Q6), declares concurrent callers: each of its entries is
+  concurrent with itself and with the actor's other entries.
 - **concurrent(n).** The shared static predicate of SGC133, SGC204 (static half) and
   SGC167: `n` may run concurrently with itself when `n` or a node above it on its
   sync chain has cardinality (glued or tree `×N`, N > 1 or symbolic), a `\-*` / `*-`
-  spawn, a generic role `Worker<N>`, is fed by a stream, or is reached from two or
-  more concurrent arrivals. An actor entry alone does not make its chain
-  self-concurrent (a design that names one user); SGC163 treats actor entries as
-  unbounded for load only.
+  spawn, a generic role `Worker<N>`, is fed by a stream, is reached from two or
+  more concurrent arrivals, or is entered from an actor with cardinality
+  (`(User)×N`). An entry from a plain actor does not make its chain self-concurrent
+  (Q10: one sequential caller); SGC163 treats actor entries as unbounded for load
+  only.
 - **anchor line.** The line a finding reports and an acknowledgement matches. It is
   `Wire.line` for wires, `Block.lines[0]` for blocks, the transition's line for
   machine findings, `Access.line`, or the first line naming the node
@@ -291,7 +305,8 @@ The terms below are used throughout:
 | CG4 | Declared bounds compared with the simulator's | SGC151–153, SGC090 | **check.py only**: compare `@inv depth <= N` / `hops <= N` with `Limits` and the trace's limit events, report "bounded by design (N) vs simulator (depth 3)". sim.py stays unchanged, keeping its contract that declarations do not affect a run. |
 | CG5 | Dead transitions caused by trigger narrowing | SGC145, SGC146 | `render.find_triggers` also returns the narrowed-away pairs (it drops them today) |
 | CG6 | The read-verb list, the `×N` reading and the policy-in-prose word list as data a dialect can extend | SGC004, 111, 131, 204 | module constants in check.py, extended through the dialect hook (MG16) |
-| CG7 | `failure_flow(prog) -> {(ui, node): set of arriving guards}` | SGC114, 121, 201, 202 | **sim.py**, beside the functions it mirrors: a may-fail fixpoint over bodies, regions, groups and callees that applies `_call_failed` (fallback absorbs), `_region` (relabels to the block), `_await` (today None; the member's guard after B1), `~>` (stops), stream and async edges (stop, after B13) and `_fire_routes` (guarded routes, else unguarded ones). A route is live iff its guard is selected for some arriving guard. Exact with respect to the sim. |
+| CG8 | A value payload on a store glyph with no flow (`~\|total\| : ${state.count} + 1`, examples.md:488; language.md's store-slot examples): it declares the slot's contents | SGL150 | **render change (P1)**: the parser keeps the value as a fact on the store slot instead of dropping it; lint does not flag it (§8). The slot gains no writer: `scene.writers()` and SGC131, 133, 204 see only the flows into it |
+| CG7 | `failure_flow(prog) -> {(ui, node): set of arriving guards}` | SGC114, 121, 201, 202 | **sim.py**, beside the functions it mirrors: a may-fail fixpoint over bodies, regions, groups and callees that applies `_call_failed` (fallback absorbs the failure for the caller, but the call's routes are still selected: Q2, §6 B14), `_region` (relabels to the block), `_await` (today None; the member's guard after B1), `~>` (stops), stream and async edges (stop, after B13) and `_fire_routes` (guarded routes, else unguarded ones). A route is live iff its guard is selected for some arriving guard. Exact with respect to the sim. |
 
 CG3 (entry order as a scenario parameter) was dropped: `Scenario(entries=…)` already
 accepts an explicit node tuple (`_resolve_entries`).
@@ -367,9 +382,13 @@ The table is registry data, so a declarative front end can carry it.
   coverage:42/134/197, examples.md:56) do not fire.
 - **Evidence.** Corpus hits: examples.md:497 `op db.insert`, examples.md:498
   `op mcp.search`. Satisfied: site 05:11, coverage:38/39, executions:16/18/41.
+- **Example.** Flagged:
   ```
-  [Judge] -> |Scores| : op db.insert(${out.score})                # flagged
-  [Judge] -> |Scores| : op db.insert(${out.score}) @timeout(2s)   # declared
+  [Judge] -> |Scores| : op db.insert(${out.score})
+  ```
+  Declared:
+  ```
+  [Judge] -> |Scores| : op db.insert(${out.score}) @timeout(2s)
   ```
 - **Phase.** P2, small. Uses `Wire.call.external` and `sim.mod`; wants MG3.
 
@@ -397,15 +416,21 @@ The table is registry data, so a declarative front end can carry it.
   retry budget?"
 - **False positives.** Medium while `×N` is ambiguous; CG1 removes the corpus
   cardinality cases (coverage:63/64/187, examples.md:149/156).
-- **Evidence.** None in the corpus (§3.3). Probe:
+- **Evidence.** None in the corpus (§3.3); the probe is the example below (48
+  attempts at `[B]`: 4 · 4 · 3). The sim does not re-drive inner retries (B5), so
+  this rule is static only.
+- **Example.** Flagged:
   ```
-  (U) -> [A] : run() ×3                          # flagged: 4·4·3 = 48
+  (U) -> [A] : run() ×3
   [A] -> [B] : call() ×3
   [B] -> (Ext) : op x.write() ×2 @timeout(1s)
-  ---
-  (U) -> [A] : run() ×3 @inv retry-budget(10%)   # declared
   ```
-  The sim does not re-drive inner retries (B5), so this rule is static only.
+  Declared:
+  ```
+  (U) -> [A] : run() ×3 @inv retry-budget(10%)
+  [A] -> [B] : call() ×3
+  [B] -> (Ext) : op x.write() ×2 @timeout(1s)
+  ```
 - **Phase.** P2, small to medium.
 
 #### SGC103 `timeout-budget-inverted`
@@ -419,7 +444,7 @@ The table is registry data, so a declarative front end can carry it.
   - sequence = sum;
   - `&` join, `*>` group, `parallel @all` = max of the members;
   - race (`&?`, `parallel @any`) and alternatives = max over the members that can
-    win (open question 8 asks whether a race should take the min);
+    win (Q8: a race can be won by its slow member when the fast one fails);
   - loop region = `@times N` × body;
   - the chain stops at `~>`, `*>`-into-stream and spawn edges (no deadline crosses
     them; the consumer needs its own bound).
@@ -433,11 +458,15 @@ The table is registry data, so a declarative front end can carry it.
 - **False positives.** Low when it fires; the algebra no longer sums concurrent
   members.
 - **Evidence.** None in the corpus. Executions E5 to E6 is correct.
+- **Example.** Flagged:
   ```
-  (U) -> [A] : get() @timeout(2s)                         # flagged
+  (U) -> [A] : get() @timeout(2s)
   [A] -> (Ext) : op x.get() @timeout(1s) ×3
-  ---
-  [A] -> (Ext) : op x.get() @timeout(1s) ×3 @deadline(2s) # declared
+  ```
+  Declared:
+  ```
+  (U) -> [A] : get() @timeout(2s)
+  [A] -> (Ext) : op x.get() @timeout(1s) ×3 @deadline(2s)
   ```
 - **Phase.** P2, small to medium. `sim.duration` and `sim.attempts` exist; needs MG3.
 
@@ -455,6 +484,14 @@ The table is registry data, so a declarative front end can carry it.
 - **False positives.** Medium. Scoping to external calls removes in-process retries.
 - **Evidence.** site/examples/05-executions.sigil:11
   `op http.get(${url}) @timeout(5s) ×3 @fallback(${cached})`.
+- **Example.** Flagged:
+  ```
+  [Svc] -> (Web) : op http.get(${url}) @timeout(5s) ×3
+  ```
+  Declared:
+  ```
+  [Svc] -> (Web) : op http.get(${url}) @timeout(5s) ×3 @after(exp-backoff, cap=1min)
+  ```
 - **Phase.** P2, small.
 
 ### Delivery and idempotency (SGC11x)
@@ -486,9 +523,13 @@ The table is registry data, so a declarative front end can carry it.
     idempotent`: the claim is prose only (SGC004 also points at it).
   - examples.md:237/251 is blocked by B7.
   - Satisfied pattern: coverage:57 `[Payment] @inv idempotent(transaction_id)`.
+- **Example.** Flagged:
   ```
-  [API] -> [Payments] : charge(total) ×3 @timeout(2s)                            # flagged
-  [API] -> [Payments] : charge(total) ×3 @timeout(2s) @inv idempotent(order_id)  # declared
+  [API] -> [Payments] : charge(total) ×3 @timeout(2s)
+  ```
+  Declared:
+  ```
+  [API] -> [Payments] : charge(total) ×3 @timeout(2s) @inv idempotent(order_id)
   ```
 - **Phase.** P2, medium. Needs MG2 and CG1.
 
@@ -511,13 +552,19 @@ The table is registry data, so a declarative front end can carry it.
   event or stream.
 - **Tier.** advisory. Ask: "`*<Order>` may arrive twice. Does `[Billing]` dedupe?"
 - **False positives.** Medium. The boundary condition keeps in-process `~>` quiet.
-- **Evidence.** Probe:
+- **Evidence.** None in the corpus; the probe is the example below.
+- **Example.** Flagged:
   ```
-  [Shop] => *<Order>^1k@block                     # flagged (consumer appends)
+  [Shop] => *<Order>^1k
   *<Order> -> [Billing]
   [Billing] -> *|Ledger| : append({Order})
-  ---
-  [Billing] @inv idempotent(order_id)             # declared
+  ```
+  Declared:
+  ```
+  [Shop] => *<Order>^1k
+  *<Order> -> [Billing]
+  [Billing] -> *|Ledger| : append({Order})
+  [Billing] @inv idempotent(order_id)
   ```
 - **Phase.** P2, medium.
 
@@ -538,19 +585,30 @@ The table is registry data, so a declarative front end can carry it.
   Emits that reach only actors or nothing (a metric, a notification) and writes of
   `unknown` mode do not count. Report only when no `@inv atomic(…)` is on the node or
   an enclosing block and no `!>` route of the node names one of the targets.
-- **Declare.** `@inv atomic(|S|, <E>)` on the node, a compensating `!>`, or one
-  option among others: a relay store (`[Svc] -> *|Pending|` and
-  `[Relay] -> *|Pending| ~> <E>`).
+- **Declare.** `@inv atomic(|S|, <E>)` on the node, or a compensating `!>`. The rule
+  does not ask for a relay store; if the author chooses one
+  (`[Svc] -> *|Pending|` and `[Relay] -> *|Pending| ~> <E>`), the node then makes
+  one write and the rule is quiet.
 - **Tier.** advisory. Ask: "`[Orders]` writes `|DB|` and emits `<OrderPlaced>`, which
-  `{Order}` reacts to. What happens if it stops in between?"
+  `[Ship]` acts on. What happens if it stops in between?"
 - **False positives.** Medium. A single-process store plus an in-memory event is
   fine, so the rule asks rather than asserts.
-- **Evidence.** No direct hit (examples.md:47–55 writes no store itself). Probe:
+- **Evidence.** No direct hit (examples.md:47–55 writes no store itself); the probe
+  is the example below (`<OrderPlaced>` drives `[Ship]`, which writes a store).
+- **Example.** Flagged:
   ```
-  [Orders] -> |DB| : insert({Order})            # flagged (<OrderPlaced> drives {Order})
+  [Orders] -> |DB| : insert({Order})
   [Orders] ~> <OrderPlaced>
-  ---
-  [Orders] @inv atomic(|DB|, <OrderPlaced>)     # declared
+  <OrderPlaced> -> [Ship]
+  [Ship] -> |Shipments| : create({Order})
+  ```
+  Declared:
+  ```
+  [Orders] -> |DB| : insert({Order})
+  [Orders] ~> <OrderPlaced>
+  <OrderPlaced> -> [Ship]
+  [Ship] -> |Shipments| : create({Order})
+  [Orders] @inv atomic(|DB|, <OrderPlaced>)
   ```
 - **Phase.** P2, small.
 
@@ -572,8 +630,17 @@ The table is registry data, so a declarative front end can carry it.
 - **Suppression.** Folds SGC201 at the same anchor (§1.7). SGC201 keeps request paths
   that end at an entry or actor.
 - **Evidence.** examples.md:111–117 and coverage:71–72 are *satisfied*, though the
-  route never fires in the sim today (B1). Probe:
-  `*<Raw> -> [Parse] : parse() ×3` with no `!>` is flagged (binding).
+  route never fires in the sim today (B1). The example below is flagged binding (it
+  retries with no `!>`).
+- **Example.** Flagged:
+  ```
+  *<Raw> -> [Parse] : parse() ×3
+  ```
+  Declared:
+  ```
+  *<Raw> -> [Parse] : parse() ×3
+         !> |DLQ|
+  ```
 - **Phase.** P2, small. Needs CG7; B13 for the anchor.
 
 ### Sagas and compensation (SGC12x)
@@ -611,12 +678,17 @@ The table is registry data, so a declarative front end can carry it.
   success?"
 - **False positives.** Medium. A route that names the target but does something else
   passes: the rule asks that recovery be stated, not that it be correct.
-- **Evidence.** examples.md:47–53 and the booking demo are satisfied. Probe:
+- **Evidence.** examples.md:47–53 and the booking demo are satisfied; the probe is
+  the example below.
+- **Example.** Flagged:
   ```
-  [Book] -> |Seats| : hold({Trip}) => {Hold}                        # flagged
+  [Book] -> |Seats| : hold({Trip}) => {Hold}
   [Book] -> (Bank) : op bank.charge(total) @timeout(5s)
-  ---
-  [Book] -> (Bank) : op bank.charge(total) @timeout(5s)             # declared
+  ```
+  Declared:
+  ```
+  [Book] -> |Seats| : hold({Trip}) => {Hold}
+  [Book] -> (Bank) : op bank.charge(total) @timeout(5s)
          !> |Seats| : release({Hold})
   ```
 - **Phase.** P2, medium. Needs MG4 and CG7.
@@ -635,6 +707,18 @@ The table is registry data, so a declarative front end can carry it.
 - **False positives.** Medium.
 - **Evidence.** examples.md:52 `!> [Inventory] : release({Hold})`;
   executions:34–35 E11 `!> |Index| : release`.
+- **Example.** Flagged:
+  ```
+  [Book] -> |Seats| : hold({Trip}) => {Hold}
+  [Book] -> (Bank) : op bank.charge(total) @timeout(5s)
+         !> |Seats| : release({Hold})
+  ```
+  Declared:
+  ```
+  [Book] -> |Seats| : hold({Trip}) => {Hold}
+  [Book] -> (Bank) : op bank.charge(total) @timeout(5s)
+         !> |Seats| : release({Hold}) @inv idempotent(hold_id)
+  ```
 - **Phase.** P2, small.
 
 #### SGC123 `race-loser-effects`
@@ -646,11 +730,21 @@ The table is registry data, so a declarative front end can carry it.
   whose wire is effectful, when it has no `@inv idempotent` on the member, callee or
   block, and no route that names its target.
 - **Declare.** Idempotent or read-only members, or a compensation route.
-- **Tier.** binding.
+- **Tier.** binding. Ask: "`put` races `[EU]` against `[US]`. What undoes the loser's
+  write?"
 - **False positives.** Low.
-- **Evidence.** None in the corpus. Probe:
-  `[Client] -> [EU] &? [US] : put({Doc})` is flagged, and so is the same line with
-  `[EU] @inv idempotent(doc_id)` declared on only one member.
+- **Evidence.** None in the corpus. Probe: the example below, which stays flagged
+  when `@inv idempotent(doc_id)` is declared on only one member.
+- **Example.** Flagged:
+  ```
+  [Client] -> [EU] &? [US] : put({Doc})
+  ```
+  Declared:
+  ```
+  [Client] -> [EU] &? [US] : put({Doc})
+  [EU] @inv idempotent(doc_id)
+  [US] @inv idempotent(doc_id)
+  ```
 - **Phase.** P2, small.
 
 ### Shared state and access (SGC13x)
@@ -692,13 +786,19 @@ The table is registry data, so a declarative front end can carry it.
   - examples.md:480–481 `~|running|` is **exempt** (`~` kind);
   - satisfied: 868–869 (stream store), 844–853 (`Worker<N>` is one role), 399–420
     `|PROV|` (`@inv immutable`).
+  An event may be a principal in `@write(…)` (Q9): `@write(<stop>)` on `~|running|`
+  names the event that writes, and the notation does not force a component in.
+- **Example.** Flagged:
   ```
-  [A] -> |Doc| : put({Doc})                     # flagged
+  [A] -> |Doc| : put({Doc})
   [B] -> |Doc| : put({Doc})
-  ---
-  |Doc| @inv serialised(|Doc|)                  # declared
   ```
-  Whether an event may be a principal in `@write(…)` is open question 9.
+  Declared:
+  ```
+  [A] -> |Doc| : put({Doc})
+  [B] -> |Doc| : put({Doc})
+  |Doc| @inv serialised(|Doc|)
+  ```
 - **Phase.** P2, medium. Needs MG2 and MG12.
 
 #### SGC132 `undeclared-access`
@@ -714,11 +814,25 @@ The table is registry data, so a declarative front end can carry it.
 - **Declare.** Add the principal to the list, or borrow from someone who has it.
   `@cap(…)` on the call is **not** a satisfier: a flow's capability requirement does
   not grant access the store's list withholds.
-- **Tier.** binding, with a guess downgrade on a heuristic read/write.
+- **Tier.** binding, with a guess downgrade on a heuristic read/write. Ask: "`[Bot]`
+  writes `|Doc|`, which grants write only to `Editor`. Should it?"
 - **False positives.** Low with per-direction opt-in. Test case: examples.md:870
   `(Auditor) -> *|EventLog|` is a flow into the store but declared `@read`.
 - **Evidence.** None true in the corpus. examples.md:810–870 must stay clean; they
   are the regression fixture.
+- **Example.** Flagged:
+  ```
+  |Doc| @write(Editor)
+  [Editor] -> |Doc| : put({Doc})
+  [Bot] -> |Doc| : put({Doc})
+  ```
+  Declared:
+  ```
+  |Doc| @write(Editor)
+  [Editor] -> |Doc| : put({Doc})
+  [Bot] @borrow(write) |Doc|
+  [Bot] -> |Doc| : put({Doc})
+  ```
 - **Phase.** P2, small (lint's SGL14x already resolves principals).
 
 #### SGC133 `lost-update`
@@ -734,14 +848,25 @@ The table is registry data, so a declarative front end can carry it.
 - **Declare.** In this order: `@inv atomic(…)` or `@inv cas(version)` on `n` or `|S|`;
   moving the store to the `*|S|` kind with `++` appends (merge and commute); an
   `@owns |S| { … }` block.
-- **Tier.** advisory. Ask: "`~|total| : ${state.count} + 1`. Can two of these run at
+- **Tier.** advisory. Ask: "`~|total| : ${state.total} + 1`. Can two of these run at
   once?"
 - **Suppression.** Folded under SGC131 or SGC204 on the same store.
-- **False positives.** Medium. Whether a single value-operator write counts as atomic
-  is open question 11; this draft says no.
+- **False positives.** Medium. A single value-operator write is **not** atomic
+  (Q11): it reads, then writes. `@inv atomic` declares otherwise.
 - **Evidence.** examples.md:487–488 `<rated> -> ~|history| : ${state.history} ++ …`
   (concurrent only if `<rated>` has concurrent arrivals) and `~|total| : …` (lint gap
   L22, so only the first is visible).
+- **Example.** Flagged:
+  ```
+  *<Hit> -> [Counter]
+  [Counter] -> ~|total| : ${state.total} + 1
+  ```
+  Declared:
+  ```
+  *<Hit> -> [Counter]
+  [Counter] -> ~|total| : ${state.total} + 1
+  [Counter] @inv cas(version)
+  ```
 - **Phase.** P2, medium.
 
 #### SGC134 `held-across-call`
@@ -756,11 +881,24 @@ The table is registry data, so a declarative front end can carry it.
   configurable). An unbounded call is SGC101's finding, with the `owns` context in
   its message (§1.7). Report the deepest external call with its path.
 - **Declare.** `@deadline(t)` on the inner call, a deadline on the enclosing block
-  (NG3), or moving the call out of the block.
-- **Tier.** advisory.
+  (`} @deadline(t)`, NG3), or an acknowledgement. The rule never asks for the call
+  to move out of the block; if the author moves it, the hold no longer spans it.
+- **Tier.** advisory. Ask: "`[H]` holds `|Conn|` across `bank.check` (×3 at 5s). Is
+  that hold bounded?"
 - **False positives.** Medium.
-- **Evidence.** None in the corpus. Probe:
-  `[H] @owns |Conn| { [H] -> (Bank) : op bank.check() @timeout(5s) ×3 }` is flagged.
+- **Evidence.** None in the corpus; the probe is the example below.
+- **Example.** Flagged:
+  ```
+  [H] @owns |Conn| {
+    [H] -> (Bank) : op bank.check() @timeout(5s) ×3
+  }
+  ```
+  Declared:
+  ```
+  [H] @owns |Conn| {
+    [H] -> (Bank) : op bank.check() @timeout(5s) ×3 @deadline(1s)
+  }
+  ```
 - **Phase.** P2, small.
 
 #### SGC135 `stale-read`
@@ -772,10 +910,24 @@ The table is registry data, so a declarative front end can carry it.
   (`~>` or a stream), when no `@inv consistent(…)` is on `R` or the reader.
 - **Declare.** `@inv consistent(read-your-writes)` or `@inv consistent(eventual)` on
   `R` or the reader (one head; the argument states the accepted model).
-- **Tier.** advisory.
+- **Tier.** advisory. Ask: "`[Api]` writes `|Primary|` then reads `|Replica|`. Must it
+  see its own write?"
 - **False positives.** Low: it needs both the write and the async feed in the wiring.
 - **Evidence.** examples.md:750–751 writes `|Primary|`, replicates with
   `|Primary| ~> |Replica|` and serves reads from `|Replica|`.
+- **Example.** Flagged:
+  ```
+  [Api] -> |Primary| : write({Post})
+  |Primary| ~> |Replica|
+  [Api] -> |Replica| : get() => {Post}
+  ```
+  Declared:
+  ```
+  [Api] -> |Primary| : write({Post})
+  |Primary| ~> |Replica|
+  [Api] -> |Replica| : get() => {Post}
+  |Replica| @inv consistent(read-your-writes)
+  ```
 - **Phase.** P2, small.
 
 #### SGC136 `shared-data-order`
@@ -788,9 +940,24 @@ The table is registry data, so a declarative front end can carry it.
   is excluded.
 - **Declare.** `@inv ordered(…)` on the loop or fork, or a flow chain between the
   writers.
-- **Tier.** hint.
+- **Tier.** hint. Ask: "`[Physics]` and `[Steering]` both write `{Transform}` each
+  tick. In what order?"
 - **Evidence.** site 03-arena:20–21 and examples.md:589–591: `{Transform}` written by
   `[Physics]`, `[Homing]` and `[Steering]`.
+- **Example.** Flagged:
+  ```
+  loop @times N {
+    [Physics]  -> {Transform}
+    [Steering] -> {Transform}
+  }
+  ```
+  Declared:
+  ```
+  loop @times N @inv ordered(Physics, Steering) {
+    [Physics]  -> {Transform}
+    [Steering] -> {Transform}
+  }
+  ```
 - **Phase.** P2, small.
 
 ### State machines (SGC14x)
@@ -809,11 +976,26 @@ purpose" (NG7, §7.8).
   any transition; if every state is a target, the rule skips the machine. Report any
   named state not reached. `$` and `_` are exempt.
 - **Declare.** The entering transition.
-- **Tier.** binding.
+- **Tier.** binding. Ask: "Nothing enters `Lost`. Which transition leads there?"
 - **False positives.** Low. Fixtures: a machine with two `+` transitions, and a
   component machine with no `+`.
 - **Evidence.** None in the corpus. examples.md:388 is *dynamically* unreachable
   (nothing emits `<assert>`); SGC146 catches that.
+- **Example.** Flagged:
+  ```
+  state {Job} {
+    +    -<submit>-> Open
+    Lost -<found>->  Open
+  }
+  ```
+  Declared:
+  ```
+  state {Job} {
+    +    -<submit>-> Open
+    Open -<lose>->   Lost
+    Lost -<found>->  Open
+  }
+  ```
 - **Phase.** P2, small.
 
 #### SGC142 `dead-end-state`
@@ -831,6 +1013,21 @@ purpose" (NG7, §7.8).
 - **False positives.** Medium, which is why it is a hint.
 - **Evidence.** site 04 `{Order}` `Settled` and `Cancelled` (only if site 04 uses
   `$`); coverage:110–116 `Full`, `Down`, `Away`.
+- **Example.** Flagged:
+  ```
+  state {Order} {
+    +       -<Paid>->    Settled
+    +       -<Void>->    $
+  }
+  ```
+  Declared:
+  ```
+  state {Order} {
+    +       -<Paid>->    Settled
+    +       -<Void>->    $
+    Settled -<archive>-> $
+  }
+  ```
 - **Phase.** P2, small.
 
 #### SGC143 `ambiguous-transition`
@@ -842,19 +1039,33 @@ purpose" (NG7, §7.8).
   unless **each** of the duplicates carries a per-transition `@inv` (the spec allows
   per-transition modifiers: `Running -<done>-> Ok @inv {Job}.exit = 0`), which reads
   as the disambiguating condition. A specific transition plus a `_` wildcard on the
-  same trigger is **not** ambiguous once NG6 (specific beats wildcard) is in the spec
-  **and** in the sim. Until the sim fix lands (`_deliver` / `_trigger` take the first
-  written match today, and `_machine_points` never makes the pair a choice point),
-  the pair **is** reported when the wildcard is written first, because check and
-  simulator would disagree.
+  same trigger is **not** ambiguous once NG6 (specific beats wildcard; Q12) is in the
+  spec **and** in the sim. Until the sim fix lands (`_deliver` / `_trigger` take the
+  first written match today, and `_machine_points` never makes the pair a choice
+  point), the pair **is** reported when the wildcard is written first, because check
+  and simulator would disagree.
 - **Declare.** Distinct triggers (`<succeeded>` / `<failed>`), a per-transition
   `@inv` on each duplicate, removing one, or an acknowledgement.
-- **Tier.** binding.
+- **Tier.** binding. Ask: "`{Job}` leaves `Running` on `<done>` for both `Ok` and
+  `Failed`. Which one wins?"
 - **False positives.** Low.
-- **Evidence.** None in the corpus. Probe:
-  `state {Job} { Running -<done>-> Ok` plus `Running -<done>-> Failed }` is flagged;
+- **Evidence.** None in the corpus. Probes: the example below is flagged;
   `_ -<Paid>-> Weird` before `Open -<Paid>-> Done` is flagged until NG6 lands in the
   sim (it ends in `Weird` today).
+- **Example.** Flagged:
+  ```
+  state {Job} {
+    Running -<done>-> Ok
+    Running -<done>-> Failed
+  }
+  ```
+  Declared:
+  ```
+  state {Job} {
+    Running -<succeeded>-> Ok
+    Running -<failed>-> Failed
+  }
+  ```
 - **Phase.** P2, small. The wildcard exemption depends on the P3 sim fix.
 
 #### SGC144 `no-exit`
@@ -869,12 +1080,28 @@ purpose" (NG7, §7.8).
   events with a self-loop is therefore never flagged.
 - **Declare.** A `$` path, an exhaustion transition, or `@inv retention(t)` on the
   owner.
-- **Tier.** advisory.
+- **Tier.** advisory. Ask: "`{Msg}` can cycle `Pending` ↔ `Retryable` forever. What
+  ends it, or how long are records kept?"
 - **False positives.** Medium. Records kept forever by design say so with
   `@inv retention` or an acknowledgement.
-- **Evidence.** None in the corpus. Probe:
-  `state {Msg} { + -<new>-> Pending` / `Pending -<fail>-> Retryable` /
-  `Retryable -<retry>-> Pending }` is flagged.
+- **Evidence.** None in the corpus; the probe is the example below.
+- **Example.** Flagged:
+  ```
+  state {Msg} {
+    +         -<new>->   Pending
+    Pending   -<fail>->  Retryable
+    Retryable -<retry>-> Pending
+  }
+  ```
+  Declared:
+  ```
+  state {Msg} {
+    +         -<new>->     Pending
+    Pending   -<fail>->    Retryable
+    Retryable -<retry>->   Pending
+    Retryable -<exhaust>-> $
+  }
+  ```
 - **Phase.** P2, small.
 
 #### SGC145 `orphan-event`
@@ -890,11 +1117,21 @@ purpose" (NG7, §7.8).
   document is named as receiving it.
 - **Declare.** A consumer flow, or `<E> -> (Actor)` to say "consumed outside".
 - **Tier.** hint, advisory when escalated. Gated on B12 (`=> <E>` returns and tree
-  alerts must count as emitters).
+  alerts must count as emitters). Ask: "Nothing consumes `<Paid>`. Who receives it, or
+  is it consumed outside this design?"
 - **Suppression.** Folded under SGC202 when the event is only a dead route's target.
 - **Evidence.** examples.md:22 `<Unauthorized>` (escalated, case 2); 408 `<Unroll>`
   and 409 `<Verify>`; site 01:9 `<PaymentFailed>` (sketch, hidden); site 05:12 and
   executions:19 `<FetchFailed>` (case 2).
+- **Example.** Flagged:
+  ```
+  [Payments] ~> <Paid>
+  ```
+  Declared:
+  ```
+  [Payments] ~> <Paid>
+  <Paid> -> (Accounting)
+  ```
 - **Phase.** P2, small.
 
 #### SGC146 `undriven-transition`
@@ -916,7 +1153,8 @@ purpose" (NG7, §7.8).
   aim `<T> -> {M}` also works, but the ask says that **an aim narrows the event**:
   every other machine naming `T` then loses its trigger. Tests re-run the rule on the
   suggested fix.
-- **Tier.** hint, advisory in the two escalated cases.
+- **Tier.** hint, advisory in the two escalated cases. Ask: "Nothing in the design
+  emits `<Paid>`, so `Open -<Paid>-> Settled` never fires. What raises it?"
 - **Suppression.** Case 2 folds SGC203, SGC205 and SGC147 on that machine; any
   SGC146 folds SGC147 on the undriven transition's source state.
 - **Evidence.**
@@ -925,6 +1163,19 @@ purpose" (NG7, §7.8).
   - coverage:40 `<Stop>`, 46 `<\Tick>`, 122 `<Push>`, examples.md:481 `<stop>`
     (non-machine, hint);
   - coverage:103/104/114/117 (hint).
+- **Example.** Flagged:
+  ```
+  state {Order} {
+    Open -<Paid>-> Settled
+  }
+  ```
+  Declared:
+  ```
+  (Bank) ~> <Paid>
+  state {Order} {
+    Open -<Paid>-> Settled
+  }
+  ```
 - **Phase.** P2, small. Needs CG5 and B12.
 
 #### SGC147 `wait-without-timeout`
@@ -947,6 +1198,21 @@ purpose" (NG7, §7.8).
 - **Evidence.** coverage:108 (stuck once narrowed; folded under SGC146 case 1);
   site 04 `{Order} Open` waiting on `<Paid>`; Example 5 `Running` waiting on
   `<ok>`/`<fail>` from the worker.
+- **Example.** Flagged:
+  ```
+  (Customer) ~> <Paid>
+  state {Order} {
+    Open -<Paid>-> Settled
+  }
+  ```
+  Declared:
+  ```
+  (Customer) ~> <Paid>
+  state {Order} {
+    Open -<Paid>->    Settled
+    Open -<expired>-> Cancelled @after(30min)
+  }
+  ```
 - **Phase.** P2, small.
 
 #### SGC148 `wildcard-leaves-terminal`
@@ -961,6 +1227,23 @@ purpose" (NG7, §7.8).
 - **Tier.** advisory. Ask: "A late `<cancel>` also leaves `Done` and `Dead`. Is that
   intended?"
 - **Evidence.** examples.md:72 `_ -<cancel>-> Cancelled` (also language.md Example 5).
+- **Example.** Flagged:
+  ```
+  state {Job} {
+    Running -<ok>->      Done
+    Done    -<archive>-> $
+    _       -<cancel>->  Cancelled
+  }
+  ```
+  Declared:
+  ```
+  state {Job} {
+    Running -<ok>->      Done
+    Done    -<archive>-> $
+    Done    -<cancel>->  Done
+    _       -<cancel>->  Cancelled
+  }
+  ```
 - **Phase.** P2, small. The self-loop satisfier needs NG6 in the sim (P3) to be
   honoured by a run; the static rule accepts it from P2.
 
@@ -970,7 +1253,7 @@ purpose" (NG7, §7.8).
 - **Risk.** A recursion or sync cycle inside one component or expansion with no
   stated bound can overflow the stack or run forever on adversarial input.
 - **Principle.** Well-founded recursion. RFC 0003 amends language.md's Recursion
-  paragraph so a bound **may optionally** be stated (`@inv depth <= N`,
+  paragraph (Q5) so a bound **may optionally** be stated (`@inv depth <= N`,
   `@inv terminates`); the rule asks for it and never calls recursion unsafe.
 - **Query.**
   - **Static.** SCCs of the sync chain that contain a self-call (`scene.self_calls`,
@@ -990,9 +1273,14 @@ purpose" (NG7, §7.8).
 - **Tier.** advisory, never binding. Ask: "How deep can `[Doc.walk]` go?"
 - **Evidence.** site 05:17 `[Crawler.follow] -> [Crawler.follow] : link`;
   executions:28 E9 and :47; coverage:83.
+- **Example.** Flagged:
   ```
-  [Doc.walk] -> [Doc.walk] : child                    # flagged
-  [Doc.walk] @inv depth <= 32                         # declared
+  [Doc.walk] -> [Doc.walk] : child
+  ```
+  Declared:
+  ```
+  [Doc.walk] -> [Doc.walk] : child
+  [Doc.walk] @inv depth <= 32
   ```
 - **Phase.** P2 static, P3 witness. Small.
 
@@ -1021,6 +1309,17 @@ purpose" (NG7, §7.8).
 - **False positives.** Medium. Heartbeats and schedulers are cycles on purpose;
   `@after` or an acknowledgement covers them.
 - **Evidence.** examples.md:399–400, the core read/write loop (36 visit-limit lines).
+- **Example.** Flagged:
+  ```
+  [Ping] ~> [Pong]
+  [Pong] ~> [Ping]
+  ```
+  Declared:
+  ```
+  [Ping] ~> [Pong]
+  [Pong] ~> [Ping]
+  [Ping] @inv hops <= 8
+  ```
 - **Phase.** P2 static, P3 witness. Small.
 
 #### SGC153 `unbounded-loop`
@@ -1034,9 +1333,23 @@ purpose" (NG7, §7.8).
 - **Declare.** `@times N`, `@each`, `} @inv terminates`, a writer of the condition
   (`<stop> -> ~|running| : false`), or an acknowledgement for a service main loop
   that runs forever on purpose.
-- **Tier.** hint.
+- **Tier.** hint. Ask: "What changes `~|running|` so that `loop @while ~|running|`
+  ends?"
 - **Evidence.** examples.md:537 `loop @while node`; the `@fallback(${node})` on 538
   returns the same node, so the loop never ends under a literal reading.
+- **Example.** Flagged:
+  ```
+  loop @while ~|running| {
+    [Worker] -> run()
+  }
+  ```
+  Declared:
+  ```
+  loop @while ~|running| {
+    [Worker] -> run()
+  }
+  <stop> -> ~|running| : false
+  ```
 - **Phase.** P2, small.
 
 ### Load and capacity (SGC16x)
@@ -1063,6 +1376,16 @@ purpose" (NG7, §7.8).
 - **Suppression.** Clause (b) folds SGC175 on the same store.
 - **Evidence.** All streams in the corpus are bounded (language.md:930–932).
   Example 4's `!> |DLQ|` has no reader (clause b). Probe: `[Ingest] => *<Raw>`.
+- **Example.** Flagged:
+  ```
+  [Ingest] => *<Raw>
+  *<Raw> -> [Parse]
+  ```
+  Declared:
+  ```
+  [Ingest] => *<Raw>^10k@drop
+  *<Raw> -> [Parse]
+  ```
 - **Phase.** P2, small.
 
 #### SGC162 `unbounded-result`
@@ -1074,8 +1397,17 @@ purpose" (NG7, §7.8).
 - **Declare.** For data results: `@inv limit(N)` (a page size counts) or an
   acknowledgement. `^N` applies only to stream results (`*{X}^N`): the spec defines
   `^` on streams, so `{List<Row>}^100` is not notation.
-- **Tier.** advisory.
+- **Tier.** advisory. Ask: "`query()` returns every `{Row}`. How many rows can come
+  back?"
 - **Evidence.** Probe: `[Api] -> |DB| : query() => {List<Row>}` is flagged.
+- **Example.** Flagged:
+  ```
+  [Api] -> |DB| : query() => {List<Row>}
+  ```
+  Declared:
+  ```
+  [Api] -> |DB| : query() => {List<Row>} @inv limit(100)
+  ```
 - **Phase.** P2, small.
 
 #### SGC163 `capacity-mismatch`
@@ -1089,9 +1421,21 @@ purpose" (NG7, §7.8).
   it. For actor entries, report only the first non-actor callee of a per-request
   path.
 - **Declare.** `@sla(…)` on the callee, or a bounded stream between the two.
-- **Tier.** hint (never reaches error).
+- **Tier.** hint (never reaches error). Ask: "`[App]×N` all call one `[Data]`. What
+  load can `[Data]` take?"
 - **Evidence.** examples.md:149 `[LB] -> [App]×N` then `[App] -> [Data]`; every
   `(Client) -> [Api]` front door.
+- **Example.** Flagged:
+  ```
+  [LB]  -> [App]×N
+  [App] -> [Data]
+  ```
+  Declared:
+  ```
+  [LB]  -> [App]×N
+  [App] -> [Data]
+  [Data] @sla(p99<50ms)
+  ```
 - **Phase.** P2, small.
 
 #### SGC165 `fanout-tail`
@@ -1106,9 +1450,24 @@ purpose" (NG7, §7.8).
   that cannot fail are never reported.
 - **Declare.** Per-member `@timeout` / `@deadline`, or a block-level `@deadline`.
   `&?` is not suggested: a hedge changes the semantics.
-- **Tier.** advisory.
+- **Tier.** advisory. Ask: "`charge` can fail but has no timeout inside a strict join.
+  How long can the join wait?"
 - **Evidence.** examples.md:47–51: `charge` has `×3` but no timeout (reported);
   `reserve` cannot fail (not reported); `score` has `@timeout(500ms)`.
+- **Example.** Flagged:
+  ```
+  parallel @all {
+    [API] -> [Payment] : charge ×3
+    [API] -> [Fraud]   : score @timeout(500ms)
+  }
+  ```
+  Declared:
+  ```
+  parallel @all {
+    [API] -> [Payment] : charge ×3 @timeout(2s)
+    [API] -> [Fraud]   : score @timeout(500ms)
+  }
+  ```
 - **Phase.** P2, small. Ships only after the NG3 grammar change (trailing block
   modifiers) is in language.md.
 
@@ -1130,6 +1489,15 @@ purpose" (NG7, §7.8).
   accepted for `[Api]`?"
 - **Evidence.** coverage:23 `(Customer) -> [Api] : {Cart} !` (fixture); site
   02-shop:18–20 `\-_ [StripePSP]` / `[AdyenPSP]` (clause c).
+- **Example.** Flagged:
+  ```
+  (Customer) -> [Api] : {Cart} !
+  ```
+  Declared:
+  ```
+  (Customer) -> [Api] : {Cart} !
+  [Api] @sla(avail>99.9%)
+  ```
 - **Phase.** P2, small.
 
 #### SGC167 `unbounded-spawn`
@@ -1142,11 +1510,22 @@ purpose" (NG7, §7.8).
   async SCC through spawn wires; it is also seen by SGC152.
 - **Declare.** `×N` on the child (a ceiling), `^N` upstream, or
   `@inv concurrency <= N`.
-- **Tier.** advisory; **binding** when the spawn is recursive.
+- **Tier.** advisory; **binding** when the spawn is recursive. Ask: "How many
+  `[Fetch]` can `[Crawler]` spawn at once?"
 - **Trace witness.** The sim's `Limits.spawn` hit, reported through SGC090 as a limit
   event.
 - **Evidence.** None in the corpus. Probe: `[Crawler] \-* [Fetch]` with
   `[Fetch] => [Crawler]`.
+- **Example.** Flagged:
+  ```
+  [Crawler]
+      \-* [Fetch]
+  ```
+  Declared:
+  ```
+  [Crawler]
+      \-* [Fetch] ×8
+  ```
 - **Phase.** P2, small.
 
 ### Structure (SGC17x)
@@ -1167,6 +1546,16 @@ purpose" (NG7, §7.8).
 - **False positives.** Medium. The exclusions remove the corpus false positives
   (coverage:23+42, examples.md:45+56, machine wires).
 - **Evidence.** None true in the corpus.
+- **Example.** Flagged:
+  ```
+  [Orders]  -> [Billing] : charge()
+  [Billing] -> [Orders]  : lookup()
+  ```
+  Declared:
+  ```
+  [Orders]  -> [Billing] : charge()
+  [Billing] -> [Orders]  : lookup() @timeout(2s)
+  ```
 - **Phase.** P2, small.
 
 #### SGC172 `expansion-escape`
@@ -1179,9 +1568,27 @@ purpose" (NG7, §7.8).
   flow between `O` and that node.
 - **Declare.** State the dependency at the outer level (`[O] -> [X]`); the inner
   calls stay as they are.
-- **Tier.** advisory.
+- **Tier.** advisory. Ask: "`[App]` inside `[Core]` calls `[Data]`, but the outer
+  level never connects `[Core]` to `[Data]`. Should it?"
 - **Evidence.** None in the corpus (Example 6 states `[Core] -> [Data]`, so
   `[App] -> [Data]` inside `[Core]` passes).
+- **Example.** Flagged:
+  ```
+  (Client) -> [Core]
+  [Ops]    -> [Data]
+  [Core] := {
+    [App] -> [Data]
+  }
+  ```
+  Declared:
+  ```
+  (Client) -> [Core]
+  [Ops]    -> [Data]
+  [Core]   -> [Data]
+  [Core] := {
+    [App] -> [Data]
+  }
+  ```
 - **Phase.** P2, small.
 
 #### SGC173 `lock-order-cycle`
@@ -1195,9 +1602,28 @@ purpose" (NG7, §7.8).
   report cycles whose inner acquisition is not bounded by `@timeout`.
 - **Declare.** One acquisition order, `@timeout` on the inner step, or
   `@inv lock-order(…)`.
-- **Tier.** binding.
+- **Tier.** binding. Ask: "`[P]` holds `|A|` then waits on `|B|`; `[Q]` holds `|B|`
+  then waits on `|A|`. Which order is right?"
 - **Evidence.** None in the corpus. Probe: `[P] @owns |A| { [P] -> [Q] }` with
   `[Q] @owns |B| { [Q] -> [P] }`.
+- **Example.** Flagged:
+  ```
+  [P] @owns |A| {
+    [P] -> [Q]
+  }
+  [Q] @owns |B| {
+    [Q] -> [P]
+  }
+  ```
+  Declared:
+  ```
+  [P] @owns |A| {
+    [P] -> [Q] @timeout(1s)
+  }
+  [Q] @owns |B| {
+    [Q] -> [P] @timeout(1s)
+  }
+  ```
 - **Phase.** P2, medium (the declared-order clause lands with P4's invariants).
 
 #### SGC174 `optional-callee`
@@ -1209,9 +1635,22 @@ purpose" (NG7, §7.8).
   or `_`, or a conditional `cond`, or that is created only by spawn, and whose caller
   has no route and no `@fallback`.
 - **Declare.** A `!>` or `@fallback` on the call.
-- **Tier.** hint.
+- **Tier.** hint. Ask: "`[Cache]` exists only while `hot`. What does `[Api]` do when
+  it's absent?"
 - **Evidence.** coverage:63 `[Api] -> [Shard] ×4`; the sim logs "no instance of
   [Shard]".
+- **Example.** Flagged:
+  ```
+  [Cluster]
+      \-{hot}-? [Cache]
+  [Api] -> [Cache] : get()
+  ```
+  Declared:
+  ```
+  [Cluster]
+      \-{hot}-? [Cache]
+  [Api] -> [Cache] : get() @fallback(null)
+  ```
 - **Phase.** P2, small.
 
 #### SGC175 `unreached`
@@ -1221,11 +1660,23 @@ purpose" (NG7, §7.8).
 - **Query.** The complement of `sim._reachable(prog)` (public under MG4), over alias
   bodies, branches, regions and nodes with work. Rootless SCCs are reported here
   with a note (MG8).
-- **Declare.** Wire it in, or acknowledge it as a library or fragment.
-- **Tier.** hint.
+- **Declare.** The ask is a question: a library or fragment is acknowledged as one;
+  otherwise the author names its caller (in the example the entry calls `purge`).
+- **Tier.** hint. Ask: "Nothing invokes `purge`. Is it a library fragment, or should
+  something call it?"
 - **False positives.** The sim's branch defect (B4) makes every payload-field branch
   look unreached. Not shipped before B4 is fixed.
 - **Evidence.** coverage:82 and 194–197; executions:30 E10; coverage:151.
+- **Example.** Flagged:
+  ```
+  (User) -> [Api] : get()
+  purge := [Api] -> |Cache| : evict()
+  ```
+  Declared:
+  ```
+  (User) -> [Api] : purge()
+  purge := [Api] -> |Cache| : evict()
+  ```
 - **Phase.** P3 (gated on B4).
 
 ---
@@ -1278,8 +1729,8 @@ opaque, visit limit, depth cap): the corpus's main case,
 `[Judge] -> |Scores| : op db.insert(...)`, returns at the opaque branch. `mode` uses
 the same `access_mode(w, graph)` as the static rules. `held` is the set of stores the
 accessing task holds, derived from the task's scopes and `owns` blocks, not from the
-per-frame `Frame.held_resources`. A failed write attempt counts as an access with an
-unknown outcome (open question 13).
+per-frame `Frame.held_resources`. A failed (timed-out) write attempt counts as an
+access with an unknown outcome (Q13).
 
 #### SGC201 `unhandled-failure`
 - **Risk.** A failure unwinds to an entry or an actor and nothing on the way says
@@ -1306,6 +1757,17 @@ unknown outcome (open question 13).
 - **Evidence.** examples.md:497–498; executions:41 E12; executions:14 E4;
   coverage:59, 63, 64, 187. Not flagged: site 04:9, examples.md:47–53,
   executions:34–35.
+- **Example.** Flagged:
+  ```
+  (User) -> [Judge] : judge()
+  [Judge] -> |Scores| : op db.insert(${score}) @timeout(2s)
+  ```
+  Declared:
+  ```
+  (User) -> [Judge] : judge()
+  [Judge] -> |Scores| : op db.insert(${score}) @timeout(2s)
+          !> (User) : <JudgeFailed>
+  ```
 - **Phase.** P2 static, P3 witness. Medium. Needs CG7, B13.
 
 #### SGC202 `dead-failure-route`
@@ -1319,26 +1781,31 @@ unknown outcome (open question 13).
   `*>` / `&` line (dead until B1 is fixed), block-guarded and node routes reached
   only by propagated failures. The trace (union of `end["routes"]`) only names a
   witness.
-- **Two cases.**
-  - **Unreachable (binding).** No failure can reach the route at all.
-  - **Fallback shadow (advisory).** Every failure reaching the route is absorbed by a
-    `@fallback`. Whether `!>` still fires when `@fallback` absorbs the failure
-    ("notify, then yield": a deliberate degrade-and-alert design) is open question 2.
-    Until the RFC decides, the ask is: "Should the route fire as well as the
-    fallback?"
+- **One case: unreachable.** No failure can reach the route at all. A route under a
+  call with `@fallback` is **not** dead: under Q2 the route fires and the fallback
+  is still returned ("notify, then yield"), so degrade-and-alert needs no new
+  notation. The first draft's advisory "fallback shadow" case is gone.
 - **Gate.** Routes on `*>` / `&` lines are not reported until B1 is fixed (Example 4
   would otherwise be an error).
-- **Declare.** Move the route under the flow it means, or acknowledge it.
-- **Tier.** binding (unreachable) / advisory (fallback shadow).
-- **Evidence.** **site/examples/05-executions.sigil:11–12** `@timeout(5s) ×3
-  @fallback(${cached})` then `!> <FetchFailed>` (fallback shadow); coverage:72 and
-  examples.md:117 `!> |DLQ|` (B1, gated); coverage:141 (B2).
+- **Declare.** The rule asks a question and never moves the route: which flow should
+  this route guard? It is answered by stating how the guarded flow can fail (in the
+  example the flow is in fact an `op` call with a `@timeout`), by the author placing
+  the route under the flow it meant, by deleting it, or by an acknowledgement.
+- **Tier.** binding. Ask: "Nothing above this `!>` can fail, so it never fires. Which
+  flow did you mean it to guard?"
+- **Evidence.** None true in the corpus. site/examples/05-executions.sigil:11–12
+  (`@timeout(5s) ×3 @fallback(${cached})` then `!> <FetchFailed>`) is **not**
+  flagged under Q2. coverage:72 and examples.md:117 `!> |DLQ|` are live once B1 is
+  fixed (gated until then); coverage:141 needs B2.
+- **Example.** Flagged:
   ```
-  [A] -> (Ext) : op x.get() @timeout(1s) @fallback(0)     # flagged (advisory)
-        !> <Failed>
-  ---
-  [A] -> (Ext) : op x.get() @timeout(1s)                  # declared: the route handles it
-        !> <Failed>
+  [A] -> {Report}
+       !> <Failed>
+  ```
+  Declared:
+  ```
+  [A] -> (Ext) : op x.get() @timeout(1s)
+       !> <Failed>
   ```
 - **Phase.** P2 static, P3 witness. Small. Needs CG7 and MG4.
 
@@ -1369,6 +1836,23 @@ unknown outcome (open question 13).
 - **Suppression.** Folded under SGC146 case 2 on that machine.
 - **Evidence.** coverage:119–121 (`<Paid>` before `<Placed>`: SGC205 under this rule
   set, because the owner is in `+`); examples.md:388–412 (folded under SGC146 case 2).
+- **Example.** Flagged:
+  ```
+  [Shop] ~> <Paid>
+  [Shop] ~> <Paid>
+  state {Order} {
+    +  -<Paid>->  Settled
+  }
+  ```
+  Declared:
+  ```
+  [Shop] ~> <Paid>
+  [Shop] ~> <Paid>
+  state {Order} {
+    +        -<Paid>->  Settled
+    Settled  -<Paid>->  Settled
+  }
+  ```
 - **Phase.** P3, small. Needs MG1 and MG11.
 
 #### SGC204 `race`
@@ -1377,12 +1861,14 @@ unknown outcome (open question 13).
 - **Principle.** Happens-before and locksets. Sources: Lamport (1978); Savage et al.,
   Eraser (1997); Flanagan and Freund, FastTrack (2009); DDIA ch. 7.
 - **Query.** Split by where the concurrency comes from:
-  1. **Static, across arrivals and instances (P2).** For each arrival (§1.4),
-     compute the reachable `(store, mode)` set with `_reachable`. Compare arrivals
-     pairwise (arrivals from the same actor are program-ordered and not compared),
-     and compare an arrival with itself only when concurrent(n) holds for the
-     writing node. The sim cannot show instance concurrency: instances are counts
-     (`_Run.counts`), and a flow into an instanced node runs one activation.
+  1. **Static, across arrivals and instances (P2).** For each arrival (§1.4), compute
+     the reachable `(store, mode)` set with `_reachable`. Compare arrivals pairwise
+     (arrivals from the same plain actor are program-ordered and not compared: Q10,
+     one sequential caller), and compare an arrival with itself only when
+     concurrent(n) holds for the writing node. An actor with cardinality, `(User)×N`,
+     makes its entries concurrent with themselves and with each other. The sim cannot
+     show instance concurrency: instances are counts (`_Run.counts`), and a flow into
+     an instanced node runs one activation.
   2. **Trace, inside one episode (P3).** Vector clocks over the MG1 events, limited
      to the tasks the sim really forks (`*>`, `&` targets, `parallel`, `~>`,
      triggers). Two `access` events on one store, at least one a write, that are
@@ -1395,14 +1881,30 @@ unknown outcome (open question 13).
     `*|S|` or `~|S|` (the kind resolves it), or has `@inv serialised` / `cas` /
     `atomic` / `immutable`. Folded under SGC131 on a store with no stated resolution.
 - **Declare.** A single owner, a `*|S|` / `~|S|` kind, `@inv serialised(|S|)`,
-  `@inv cas(version)`, `@inv atomic(…)`, or `@inv ordered(…)` on the actor (its
-  arrivals are sequential).
+  `@inv cas(version)`, `@inv atomic(…)`, or `@inv ordered(key)` on a `(User)×N`
+  actor (its callers' arrivals are sequential per key).
 - **Tier.** binding, with a guess downgrade when either access is a heuristic write;
-  the trace half is warn-only until B1–B4 are fixed.
+  the trace half is warn-only until B1–B4 are fixed. Ask: "`[Editor]` and `[Sync]`
+  both write `|Doc|` and nothing orders them. Which write wins?"
 - **False positives.** Medium, contained by the arrival model, declared access and
   the guess downgrade.
 - **Evidence.** examples.md:480–481 (`~|running|`: exempt by kind under this rule
   set); examples.md:814 `|Shared|` (folded under SGC131).
+- **Example.** Flagged:
+  ```
+  (Alice) -> [Editor] : save()
+  (Bob) -> [Sync] : pull()
+  [Editor] -> |Doc| : put({Doc})
+  [Sync] -> |Doc| : put({Doc})
+  ```
+  Declared:
+  ```
+  (Alice) -> [Editor] : save()
+  (Bob) -> [Sync] : pull()
+  [Editor] -> |Doc| : put({Doc})
+  [Sync] -> |Doc| : put({Doc})
+  |Doc| @inv cas(version)
+  ```
 - **Phase.** P2 static (half 1), P3 trace (half 2). Needs MG1, MG2, MG9, MG12.
 
 #### SGC205 `ordering-unstated`
@@ -1429,28 +1931,61 @@ unknown outcome (open question 13).
 - **Tier.** advisory. Ask: "`{Order}` only works if `<Placed>` comes before `<Paid>`.
   Is that order guaranteed?"
 - **Evidence.** site 04:7–8 (and examples.md:655–669); coverage:119–121.
+- **Example.** Flagged:
+  ```
+  [Payments] ~> <Paid>
+  [Checkout] ~> <Placed>
+  state {Order} {
+    +     -<Placed>->  Open
+    Open  -<Paid>->    Settled
+  }
+  ```
+  Declared:
+  ```
+  [Payments] ~> <Paid>
+  [Checkout] ~> <Placed>
+  state {Order} {
+    +     -<Placed>->  Open
+    Open  -<Paid>->    Settled
+  } @inv ordered(order_id)
+  ```
 - **Phase.** P3 (static part P2). Medium.
 
 #### SGC206 `stalled-join`
 - **Risk.** A join waits for a member that neither arrives nor fails.
 - **Principle.** Coffman's circular wait, generalised; TLA+ liveness.
-- **Query.** Detection reads `end["stalled"]`, which exists today; MG1 is needed only
-  to attribute the stall to its join (`gate` / `await` events).
-- **Prerequisite decision (open question 3).** A minimal probe stalls on the
-  **happy path**: `[S] -> [A] : a()`, `[S] -> [B] : b()`, `[A] & [B] -> [C] : go()`
-  gives `end["stalled"] == ['A_service']`: A blocks at the source-join gate on S's
-  task, and B is only called after A returns. That comes from the sim's choice that
-  a source-join arrival is a blocking barrier, while the notation reads `&` as a
-  dataflow join. The RFC must choose:
-  - **(a) non-blocking deposit** (recommended): the arriver deposits and continues,
-    and the last arriver fires. A sim change, with goldens. The probe then passes.
-  - **(b) blocking barrier**: the rule asks "`[A]` waits for `[B]`, but `[B]` is only
-    reached after `[A]` returns on the same chain".
-- **Declare.** `@timeout` on the members or the join (NG3), `@fallback`, or `~>`
-  (unawaited).
-- **Tier.** binding (warn until B1–B4 are fixed).
-- **Evidence.** The probe above (a fixture), plus a join on an event nothing emits.
-- **Phase.** P3, small, after the decision.
+- **Join semantics (Q3, decided).** An `&` arrival is a **non-blocking deposit**:
+  each member deposits and goes on, and the last arrival fires the target. A sim
+  change, with goldens (§6). The 2026-10-02 probe `[S] -> [A] : a()`,
+  `[S] -> [B] : b()`, `[A] & [B] -> [C] : go()` stalled on the happy path only
+  because the sim's source join was a blocking barrier (`end["stalled"] ==
+  ['A_service']`); under Q3 it passes and stays as a fixture that must be quiet.
+- **Query.** A run that ends with a join still open: a deposit no last arrival
+  consumed, or a task still waiting at an awaited join (`*>`, `parallel @all`). Today
+  the waiting half reads `end["stalled"]`; the deposit half and the attribution to
+  its join need MG1 (`gate` / `await` events). A member that never arrives because
+  its branch was not taken (`?>`, `/`, a `branch` arm) or because its event has no
+  emitter is the usual cause.
+- **Declare.** `@timeout` on the members or on the join (NG3), or `@fallback`. The rule
+  never asks for the join to become unawaited (`~>`); if the author makes it so, there
+  is no join to stall.
+- **Tier.** binding (warn until B1–B4 are fixed). Ask: "`[C]` waits for both `[A]` and
+  `[B]`. What if one never arrives?"
+- **Evidence.** The example below (`[B]` is reached only when the `?>` is taken), plus
+  a join on an event nothing emits. The 2026-10-02 probe is a quiet fixture.
+- **Example.** Flagged:
+  ```
+  [S] -> [A] : a()
+  [S] ?> [B] : b()
+  [A] & [B] -> [C] : go()
+  ```
+  Declared:
+  ```
+  [S] -> [A] : a()
+  [S] ?> [B] : b()
+  [A] & [B] -> [C] : go() @timeout(5s)
+  ```
+- **Phase.** P3, small, after the Q3 sim change.
 
 ---
 
@@ -1459,8 +1994,8 @@ unknown outcome (open question 13).
 **Recognised invariants (NG5).** `@inv` takes a free expression, and every word stays
 legal on its own. Recognising a head gives the checker something to check, so the
 list is kept short and **canonical: one declaration per risk**, preferring an
-existing modifier wherever one exists. RFC 0003 adds this as a short "Recognised
-invariants" table to language.md.
+existing modifier wherever one exists. The owner accepted the list (Q4); RFC 0003
+adds it as a short "Recognised invariants" table to language.md.
 
 | Head | Risk it states | Existing notation preferred instead, when it fits |
 |---|---|---|
@@ -1501,9 +2036,21 @@ is acknowledged, or checked by a dialect pack (§11).
   claims were taken on trust. It never fails a document.
 - **Query.** Scan `("inv", text)` in `Node.mods`, `Edge.mods` and `Block.modifiers`
   across `render._walk`.
-- **Tier.** hint.
+- **Declare.** Nothing is required: an unrecognised `@inv` stays legal, and the hint
+  only lists it. To have the claim checked, restate it with a recognised head (§4),
+  as in the example. An acknowledgement also silences the hint.
+- **Tier.** hint. Ask: "`no-double-charge` is taken on trust. Is there a recognised
+  invariant that states it?"
 - **Evidence.** language.md:751 `@inv unique:email`; examples.md:159
   `write-only-primary`; examples.md:403–425.
+- **Example.** Flagged:
+  ```
+  [Payment] @inv no-double-charge
+  ```
+  Declared:
+  ```
+  [Payment] @inv idempotent(transaction_id)
+  ```
 - **Phase.** P4, small.
 
 #### SGC302 `inv-dangling`
@@ -1514,7 +2061,23 @@ is acknowledged, or checked by a dialect pack (§11).
   `serialised(|S|)` or `lock-order` naming a store no `owns` uses; `layers(…)` naming
   a tier no `@loc` uses. Key arguments (`idempotent(order_id)`) are checked only as a
   hint (payloads are free text).
-- **Tier.** advisory; the key check is a hint.
+- **Declare.** Make the argument name what the anchor really touches (fix the typo
+  or the stale name), move the `@inv` to the node that does touch it, or
+  acknowledge it.
+- **Tier.** advisory; the key check is a hint. Ask: "`[Checkout]` never writes
+  `|Order|`. Did you mean `|Orders|`?"
+- **Example.** Flagged:
+  ```
+  [Checkout] -> |Orders| : put({Order})
+  [Checkout] ~> <Placed>
+  [Checkout] @inv atomic(|Order|, <Placed>)
+  ```
+  Declared:
+  ```
+  [Checkout] -> |Orders| : put({Order})
+  [Checkout] ~> <Placed>
+  [Checkout] @inv atomic(|Orders|, <Placed>)
+  ```
 - **Phase.** P4, small.
 
 #### SGC303 `inv-contradicted`
@@ -1531,7 +2094,24 @@ is acknowledged, or checked by a dialect pack (§11).
   - `ordered` **with no key** on a stream consumed by a node with `×N` instances and
     no `@owns`. A keyed `ordered(key)` with key-partitioned consumers keeps per-key
     order, so it never fires.
-- **Tier.** binding.
+- **Declare.** The form of the invariant the wiring supports: a key
+  (`idempotent(request_id)`, `ordered(key)`), a positive integer bound, or a store
+  kind that matches `immutable`; or an acknowledgement. The rule never asks for the
+  wiring to change to fit the claim.
+- **Tier.** binding. Ask: "`[Counter]` adds 1 on every call. How is a repeat
+  idempotent without a key?"
+- **Example.** Flagged:
+  ```
+  (User) -> [Counter] : hit()
+  [Counter] -> ~|n| : ${state.n} + 1
+  [Counter] @inv idempotent
+  ```
+  Declared:
+  ```
+  (User) -> [Counter] : hit()
+  [Counter] -> ~|n| : ${state.n} + 1
+  [Counter] @inv idempotent(request_id)
+  ```
 - **Phase.** P4, medium.
 
 #### SGC304 `layer-inversion`
@@ -1540,8 +2120,28 @@ is acknowledged, or checked by a dialect pack (§11).
 - **Query.** Only when the document declares `@inv layers(a > b > c)` and components
   carry `@loc(tier)`: report a sync call wire from a lower-tier node to a higher-tier
   node. `~>` (an event up) is allowed; nodes without `@loc` are ignored.
-- **Declare.** This rule is the declaration's check; re-route, or add `~>`.
-- **Tier.** binding (it only exists once declared).
+- **Declare.** The rule is the check of a declaration the author already made
+  (`@inv layers(…)`), so it asks whether the upcall is intended and never asks for
+  rewiring. It is answered by correcting a `@loc` or the `layers(…)` order when
+  either is wrong, or by an acknowledgement for a deliberate upcall. An author who
+  chooses to send an event up instead (`~>`, as in the example) also clears it,
+  since async wires are allowed.
+- **Tier.** binding (it only exists once declared). Ask: "`[Repo]` (data) calls `[UI]`
+  (ui) above it. Is that upcall intended?"
+- **Example.** Flagged:
+  ```
+  [App] @inv layers(ui > data)
+  [UI] @loc(ui)
+  [Repo] @loc(data)
+  [Repo] -> [UI] : refresh()
+  ```
+  Declared:
+  ```
+  [App] @inv layers(ui > data)
+  [UI] @loc(ui)
+  [Repo] @loc(data)
+  [Repo] ~> <Changed> -> [UI]
+  ```
 - **Phase.** P4, small. Needs NG4.
 
 #### SGC306 `timeout-below-sla`
@@ -1551,55 +2151,150 @@ is acknowledged, or checked by a dialect pack (§11).
   `@sla(p99<X)` (or p95, p50), report when `X > T` and both parse. Not reported when
   the call has a `@fallback`, a route, or is a member of `&?` / `parallel @any`:
   cutting the tail on purpose is a standard design.
-- **Tier.** advisory.
+- **Declare.** A timeout at or above the callee's stated percentile, a `@fallback`
+  or a `!>` route on the call (cutting the tail on purpose), a corrected `@sla`, or
+  an acknowledgement.
+- **Tier.** advisory. Ask: "`[Search]` declares p99 800ms but `[API]` gives up at
+  200ms. Is cutting the tail intended?"
 - **Evidence.** None in the corpus. language.md:932 `@sla(p99<50ms)` has no caller
   timeout.
+- **Example.** Flagged:
+  ```
+  [Search] @sla(p99<800ms)
+  [API] -> [Search] : find(${q}) @timeout(200ms)
+  ```
+  Declared:
+  ```
+  [Search] @sla(p99<800ms)
+  [API] -> [Search] : find(${q}) @timeout(1s)
+  ```
 - **Phase.** P4, small.
 
 ---
 
 ## 5. Meta rules (acknowledgements and exploration)
 
+**Which meta findings can be acknowledged.** The rules about the valve itself
+(SGC001, SGC002, SGC003) are never acknowledged: each is fixed by editing the
+acknowledgement (correct the name, give the reason, delete the stale line), which is
+always possible and never touches the design. SGC004 can be acknowledged: its match
+reads prose, so it misfires on a comment that names a policy the design delegates
+elsewhere. SGC090 can be acknowledged for its loop-cap cause
+only (the one cause anchored on a line of the design); its budget, cut and spawn
+causes describe a run, not the design, and are never acknowledged. RFC 0003 says
+the same.
+
 #### SGC001 `ack-unknown-rule`
-An acknowledgement names no known rule (core or dialect). Binding in every mode,
-including sketch, where it is a warn: a typo'd acknowledgement silently fails to
-cover its finding. The message suggests the nearest name. P1.
+- **What.** An acknowledgement names no known rule (core or dialect). The message
+  suggests the nearest name.
+- **Declare.** Correct the name. Not acknowledgeable.
+- **Tier.** binding, and a **warn in sketch on purpose**: the §1.2 table hides
+  binding findings in sketch, but a typo'd acknowledgement silently fails to cover
+  its finding, and sketch is where acknowledgements are first written. Ask: "No rule
+  is named `retry-without-idempotence`. Did you mean `retry-without-idempotency`?"
+- **Example.** Flagged:
+  ```
+  [API] -> [Payments] : charge(total) ×3 @timeout(2s)   # accepts: retry-without-idempotence — charge is an upsert on order_id
+  ```
+  Declared:
+  ```
+  [API] -> [Payments] : charge(total) ×3 @timeout(2s)   # accepts: retry-without-idempotency — charge is an upsert on order_id
+  ```
+- **Phase.** P1.
 
 #### SGC002 `ack-without-reason`
-An acknowledgement has no reason after the separator. Binding; the acknowledgement
-is then **ignored**, so the finding stands. P1.
+- **What.** An acknowledgement has no reason after the separator. The
+  acknowledgement is then **ignored**, so the finding stands.
+- **Declare.** Write the reason. Not acknowledgeable.
+- **Tier.** binding. Ask: "Why is `retry-without-idempotency` accepted here?"
+- **Example.** Flagged:
+  ```
+  [API] -> [Payments] : charge(total) ×3 @timeout(2s)   # accepts: retry-without-idempotency
+  ```
+  Declared:
+  ```
+  [API] -> [Payments] : charge(total) ×3 @timeout(2s)   # accepts: retry-without-idempotency — charge is an upsert on order_id
+  ```
+- **Phase.** P1.
 
 #### SGC003 `ack-unused`
-An acknowledgement covers no finding of that rule at its anchor (stale after an
-edit). Judged only for static rules and for trace findings with a k = 1 witness:
-craft explores at k = 1 and spec at k = 2, so an acknowledgement covering a k = 2-only
-finding would otherwise flip between used and stale when the mode changes. Advisory,
-P2.
+- **What.** An acknowledgement covers no finding of that rule at its anchor (stale
+  after an edit). A stale acknowledgement may later silence an unrelated new
+  finding.
+- **Query.** Judged only against static rules and trace findings with a k = 1
+  witness: craft explores at k = 1 and spec at k = 2, so an acknowledgement
+  covering a k = 2-only finding would otherwise flip between used and stale when the
+  mode changes. For the same reason a finding the mode does not show (a hidden
+  sketch info, an unemitted hint) still counts as covered.
+- **Declare.** Delete or move the stale acknowledgement. **Not acknowledgeable**:
+  acknowledging an acknowledgement would only stack a second stale line, and with
+  the two rules above an acknowledgement is never judged stale merely because of the
+  mode or k.
+- **Tier.** advisory. Ask: "This acknowledgement covers no `unguarded-call` finding
+  on its line. Is it stale?"
+- **Example.** Flagged:
+  ```
+  [Judge] -> |Scores| : op db.insert(${s}) @timeout(2s)   # accepts: unguarded-call — the db is local
+  ```
+  Declared:
+  ```
+  [Judge] -> |Scores| : op db.insert(${s}) @timeout(2s)
+  ```
+- **Phase.** P2.
 
 #### SGC004 `policy-in-prose`
-A trailing comment whose words match the resilience vocabulary (retry/retries,
-timeout, idempotent, dedup, backoff, breaker) on a call line that carries no
-matching modifier or `@inv`. The message suggests the notation form. Hint. It is
-never acknowledged away: writing the modifier is the fix. The word list is data next
-to CG6, so dialects can extend it. Evidence: site 02-shop:13 `charge(total) =>
-{Receipt}   # 3 retries, idempotent key`; site 01:8. P1.
+- **What.** A trailing comment whose words match the resilience vocabulary
+  (retry/retries, timeout, idempotent, dedup, backoff, breaker) on a call line that
+  carries no matching modifier or `@inv`. The message suggests the notation form.
+  The word list is data next to CG6, so dialects can extend it.
+- **Declare.** Write the modifier or `@inv` the comment describes. SGC004 may be
+  acknowledged, because its match reads prose: a comment such as `# the timeout is
+  enforced by the gateway` names a policy the design delegates elsewhere, and the
+  author should not have to add a modifier or reword correct prose to quiet it.
+- **Tier.** hint. Ask: "The comment says 3 retries and an idempotent key. Should
+  that be `×3 @inv idempotent(order_id)`?"
+- **Evidence.** site 02-shop:13 `charge(total) => {Receipt}   # 3 retries,
+  idempotent key`; site 01:8.
+- **Example.** Flagged:
+  ```
+  [Checkout] -> [Payments] : charge(total)   # 3 retries, idempotent key
+  ```
+  Declared:
+  ```
+  [Checkout] -> [Payments] : charge(total) ×3 @inv idempotent(order_id)
+  ```
+- **Phase.** P1.
 
 #### SGC090 `exploration-incomplete`
-The behavioural results are partial. One finding per cause, each printing the
-`Limits` in effect:
-
-- the exploration budget left combinations out (with the count);
-- a trace was `cut` (activations, stack or frames);
-- a spawn ceiling was hit (`Limits.spawn`; SGC167's witness);
-- a reachable loop is capped below its declared `@times N`. This is computed
-  **statically** from `_reachable` regions and `_loop_count` (a pure function of
-  `Block.modifiers` and `Limits`), so it needs no sim change and ships in P2. B11's
-  missing log line is a viewer matter.
-
-Hint in craft; in spec info plus a summary line. Never acknowledged. P3 (loop part
-P2).
-
-Meta rules cannot be acknowledged, except SGC003.
+- **What.** The behavioural results are partial. One finding per cause, each
+  printing the `Limits` in effect:
+  - the exploration budget left combinations out (with the count);
+  - a trace was `cut` (activations, stack or frames);
+  - a spawn ceiling was hit (`Limits.spawn`; SGC167's witness);
+  - a reachable loop is capped below its declared `@times N`. This is computed
+    **statically** from `_reachable` regions and `_loop_count` (a pure function of
+    `Block.modifiers` and `Limits`), so it needs no sim change and ships in P2.
+    B11's missing log line is a viewer matter.
+- **Declare.** Nothing in the design is wrong. A loop-cap finding can be
+  acknowledged on the loop's line (the example); the other causes are answered by
+  running with larger limits or budget, and are never acknowledged.
+- **Tier.** hint in craft; in spec info plus a summary line. Ask: "The simulator ran
+  this loop 2 of its 5 times. Are 2 iterations enough evidence?"
+- **Example.** Flagged:
+  ```
+  (User) -> [Batch] : run()
+  loop @times 5 {
+    [Batch] -> |Q| : push({Item})
+  }
+  ```
+  Declared:
+  ```
+  (User) -> [Batch] : run()
+  loop @times 5 {   # accepts: exploration-incomplete — 2 runs show the pattern
+    [Batch] -> |Q| : push({Item})
+  }
+  ```
+- **Phase.** P3 (loop part P2).
 
 ---
 
@@ -1619,46 +2314,51 @@ Meta rules cannot be acknowledged, except SGC003.
 | B10 | A continuation `!>` under a chained statement attaches to the first source (pitfall 4) | — | SGC202, SGC201 | parser, or a spec clarification |
 | B11 | `@times 3` runs twice with no log line | — | views (SGC090 computes it statically) | sim (MG6) |
 | B12 | Emitters the model does not see: a call's `=> <event>` return creates no wire (examples.md:487 `<rated>`); a tree alert `\-{lagging}-! <LagAlarm>` is not a flow (examples.md:752). Both events become phantom entries | parser / scene | SGC145, 146 (false positives); SGC204, 205 (false concurrency from phantom arrivals) | render + scene: both create emit wires |
-| B13 | A failing sink behind a `^10k` stream fails the producer (examples.md:113–117), so SGC201 would anchor on `[Ingest]` instead of the consumer | failure crosses a stream / `~>` boundary upstream | SGC114, 201, 202 | sim: a failure stops at the consumer of a stream or `~>`. If the RFC wants producer failure, it must say so |
-| — | NG6 not honoured: `_deliver` / `_trigger` take the first written match, so `_ -<Paid>-> Weird` before `Open -<Paid>-> Done` ends in `Weird` | sim | SGC143, SGC148 | sim: prefer a specific source over `_` (golden note) |
-| — | Source-join arrival is a blocking barrier (open question 3) | `_gate` | SGC206 | sim, after the decision |
+| B13 | A failing sink behind a `^10k` stream fails the producer (examples.md:113–117), so SGC201 would anchor on `[Ingest]` instead of the consumer | failure crosses a stream / `~>` boundary upstream | SGC114, 201, 202 | sim: a failure stops at the consumer of a stream or `~>` (accepted with RFC 0003; producer failure is not the semantics) |
+| B14 | A `!>` route under a call with `@fallback` never fires: `_call_failed` returns the fallback and stops, so "notify, then yield" (Q2) does not run | `_call_failed` returns before `_fire_routes` | SGC202 (would call such routes dead), CG7 | sim: fire the call's guarded routes, then return the fallback and resume the caller as ok; failure_flow mirrors it (golden note) |
+| — | NG6 not honoured: `_deliver` / `_trigger` take the first written match, so `_ -<Paid>-> Weird` before `Open -<Paid>-> Done` ends in `Weird` | sim | SGC143, SGC148 | sim: prefer a specific source over `_` (Q12; golden note) |
+| — | Source-join arrival is a blocking barrier; Q3 chose a non-blocking deposit | `_gate` | SGC206 | sim: each `&` member deposits and goes on, the last arrival fires the target (golden note) |
 
 ---
 
-## 7. Positions this catalog takes (for RFC 0003 to confirm)
+## 7. Positions this catalog takes (confirmed by RFC 0003's Decisions)
 
-1. **`!>` counts as handling** for SGC201, whatever its runtime semantics. Whether a
-   routed failure still fails the caller (today it does), and whether a route fires
-   when `@fallback` absorbs the failure, are spec questions (open question 2). The
-   checks depend only on the second, through SGC202's fallback-shadow case.
+1. **`!>` counts as handling** for SGC201, whatever its runtime semantics. Q2
+   settles the rest: a route under a call with `@fallback` fires and the fallback is
+   still returned ("notify, then yield"); a route with no fallback still means "fail
+   and route" (the caller fails after the route). SGC202 therefore reports only
+   unreachable routes; the sim change is B14.
 2. **Read vs write.** Declared `@read` / `@write` is the authority. A produced value
    (`=>`) is a read, a payload-less flow into a store is `unknown`, and only then
    the verb heuristic applies. A finding built on the heuristic is a guess; a write
    rule never fires on `unknown`. No new syntax.
-3. **`×N`.** A glued `×N` (`[App]×N`) is cardinality (`Edge.card`, CG1). A trailing
+3. **`×N`** (Q6). A glued `×N` (`[App]×N`) is cardinality (`Edge.card`, CG1). A trailing
    `×N` after a call payload is a retry. A payload-less trailing `×N`
    (`[Api] -> [Shard] ×4`) is read as cardinality, and P1 lint gives an info line
    (SGL187) suggesting the glued form. A `×N` on a node is cardinality, never a
-   retry.
+   retry. An actor's `×N` (`(User)×N`) is cardinality too: concurrent callers
+   (Q10).
 4. **Shared stores.** The store kind states the resolution (`~|…|` last-writer-wins,
    `*|…|` merge). A plain `|S|` with several writers needs a stated resolution
    (owner, `serialised`, `cas`, `atomic`, `immutable`); a list of writers alone
    does not state one.
-5. **Recursion.** language.md's Recursion paragraph is amended: a depth or termination
-   bound **may optionally** be stated (`@inv depth <= N`, `@inv terminates`). Never
-   `@cap` (NG2). The rule asks and never forbids.
+5. **Recursion** (Q5). language.md's Recursion paragraph is amended: a depth or
+   termination bound **may optionally** be stated (`@inv depth <= N`, `@inv
+   terminates`). Never `@cap` (NG2). The rule asks and never forbids.
 6. **Tiers.** Tiers are `@loc(tier)` plus `@inv layers(…)`. `--- Lk ---` stays a
    zoom level (NG4).
 7. **Modifiers after any block close** (`} @inv …`, `} @deadline(t)`). The parser
    already stores them in `Block.modifiers`; the grammar adds `(mod)*` after a
    block's closing `}` (NG3), the precedent being `} @inv write-only-primary`.
-8. **Transition precedence.** A specific transition beats `_` (NG6), in the spec and
-   in the sim. The self-loop `S -<T>-> S` is the one idiom for "ignored on purpose"
-   (NG7); there is no `@inv ignores(…)`.
+8. **Transition precedence.** A specific transition beats `_` (NG6, Q12), in the spec
+   and in the sim. The self-loop `S -<T>-> S` is the one idiom for "ignored on
+   purpose" (NG7); there is no `@inv ignores(…)`.
 9. **Instances.** `Worker<N>` is one principal for ownership and N tasks for races.
 10. **Arrival model.** Independent arrivals are actor flows, events with consumers
     and no emitter, stream sources and work-starting nodes with no incoming wire.
-    Entry lines from the same actor are program-ordered. An arrival is concurrent
+    An actor is one sequential caller (Q10): entry lines from the same actor are
+    program-ordered. `(User)×N` declares concurrent callers, so its entries are
+    concurrent with themselves and each other. Otherwise an arrival is concurrent
     with itself only through concurrent(n) (cardinality, spawn, generic role, stream
     feed). The sim keeps running each entry once; the static half of SGC204 covers
     the rest.
@@ -1687,7 +2387,7 @@ check downstream can be trusted.
 | SGL130 | dangling arrow / missing endpoint | L2 `[A] ->`, L3 `[A] -> : {X}`, L4 `-> [B]` with no subject, L32 `!>` with nothing above, L45 `-> op` / `-> ()`, L46 `[A] -> # …` | error |
 | SGL131 | malformed arrow | L13 `-> ->`, L14 `~> !>` (drops `!>`), L15 `-->`, L16 `- >`, L17 an unknown arrow | error |
 | SGL132 | stray / trailing join | L18 `& [B]`, L19 `[B] &` / `&?` / `/`, L20 `[A] & [B]` with no arrow, L21 `& -> [C]` | error |
-| SGL150 | payload with no flow | L22 `[A] : {X}`, `~\|total\| : …` (examples.md:488) | warn |
+| SGL150 | payload with no flow | L22 `[A] : {X}` | warn |
 | SGL151 | unclosed payload | L23 `charge(total`, L24 `${x` / `"abc`, L34 `@timeout(5s` | error |
 | SGL152 | glyph after payload | L25 `: {X} [C]` | warn |
 | SGL153 | event argument breaks the chain | L40 `<H>({C}) -> [R]` (or fix the parser, B8) | error until fixed |
@@ -1702,8 +2402,12 @@ check downstream can be trusted.
 | SGL184 | section header | L41 header without its closing `---`, L42 `--- L2: [Nope] ---` naming no expansion | warn |
 | SGL185 | continuation across a blank line | L33 (pitfall 4 says "directly under") | warn |
 | SGL186 | tree line without `\-` | `*-> [X]` under a composition tree parses as a continuation | warn |
+
+A value payload on a store glyph (`~|total| : ${state.count} + 1`) declares the
+slot's contents and is not flagged by SGL150; the parser keeps it as a fact on the
+slot (CG8).
 | SGL187 | ambiguous `×N` | a trailing `×N` on a payload-less flow: suggests `[X]×N` for cardinality (§7.3) | info |
-| SGL188 | reserved acknowledgement marker | the decorated marker (§10.2) with no rule name, once reserved | warn |
+| SGL188 | reserved acknowledgement marker | any `#=` comment: the marker is reserved now (Q7) and unused until the decorated form lands (§10.2), so a `#=` acknowledges nothing yet | warn |
 
 P1 cost: medium. Most rows are one regex or tokenizer check in `lint.py`. SGL160 and
 SGL161 need the parser to report what it dropped (`Graph.dropped` lines).
@@ -1725,9 +2429,9 @@ SGL161 need the parser to report what it dropped (`Graph.dropped` lines).
 | **Security beyond the access graph** (authn flows, injection, secrets, PII) | Threat modelling. SGC132 covers what the permission graph states. |
 | **Schema and version compatibility between producer and consumer** | Payloads are free text, so there are no types to compare. |
 | **Event-to-instance correlation** (which `{Order}` a `<Paid>` drives) | Payloads are free text, so it is not checkable. The RFC may later bless `@inv keyed(field)`. |
-| **Cancellation propagation after a caller's timeout** (beyond SGC103's budget) | Follows from §7.11 and the open `!>` semantics; revisit once open question 2 is settled. |
+| **Cancellation propagation after a caller's timeout** (beyond SGC103's budget) | Follows from §7.11. Q2 settled the `!>` semantics without saying what happens to inner work once a caller gives up; revisit if the spec states it. |
 | **Cache stampede** | Needs rates. |
-| **Handler-versus-notification double report** (examples.md:47–53: the user is notified and also sees the raw failure) | Depends on the open `!>` recovery-or-notification question (open question 2); revisit then. |
+| **Handler-versus-notification double report** (examples.md:47–53: the user is notified and also sees the raw failure) | Q2: a route with no fallback means "fail and route", so the double report is the stated semantics; a design that wants only the notification adds a `@fallback`. Nothing to check. |
 | **Exhaustive interleavings (model checking)** | Exploration is bounded by k deviations with dependency-guided pairing; HB analysis covers orderings inside an episode. Unbounded search would make the checker slow and its results unstable. |
 | **Cross-document checks** | One document per run until there is an import story. |
 | **Naming and style** (glyph naming, SNF order) | Lint's or the formatter's job, not composition. |
@@ -1778,8 +2482,10 @@ Acknowledgements still render as notes in the viewers.
 ### 10.2 Later: a decorated comment form (decision 2)
 
 A decorated form puts a marker character after `#`, so tools and readers tell an
-acknowledgement from prose without reading the words. Taken today: `#!` (mode line),
-line-leading `#&` (dialect syntax), and `-//` (one dialect marker). None of the
+acknowledgement from prose without reading the words. **Q7 reserves `#=` now**; the
+form itself lands later, and until then a `#=` acknowledges nothing (lint SGL188 says
+so). The comparison below is kept as the record of the choice. Taken today: `#!` (mode
+line), line-leading `#&` (dialect syntax), and `-//` (one dialect marker). None of the
 candidates below occurs after whitespace in the repo's `.sigil` or `.md` files.
 
 | Marker | Example | For | Against |
@@ -1790,13 +2496,14 @@ candidates below occurs after whitespace in the repo's `.sigil` or `.md` files.
 
 `#~` and `#?` were rejected (`~` is the mutability prefix, `?` marks holes).
 
-1. `_COMMENT_START_RE` already treats `#=` as a comment start. `collect_comments`
-   yields `kind="ack"` for the reserved marker; viewers can style it and it still
-   renders.
+1. `_COMMENT_START_RE` already treats `#=` as a comment start. When the form lands,
+   `collect_comments` yields `kind="ack"` for the marker; viewers can style it and
+   it still renders.
 2. The decorated form needs no `accepts:` word: its first token **must** be a rule
    name.
-3. The marker becomes **reserved in core**, like `#!` and `#&`. The dialect
-   `COMMENT_MARKERS` hook refuses it; lint SGL188 flags it with no rule name.
+3. The marker is **reserved in core now** (Q7), like `#!` and `#&`. The dialect
+   `COMMENT_MARKERS` hook refuses it. Lint SGL188 flags every `#=` until the form
+   lands, then only a `#=` with no rule name.
 4. `# accepts: X — r` and `#= X — r` mean the same thing; both stay valid.
 
 ---
@@ -1930,7 +2637,7 @@ names what was declined and why.
 | K18 | completeness | GLOBAL suppression | should | **Applied.** §1.7 with `implies` as registry data. |
 | K19 | completeness | NEW SGC136 | should | **Applied.** `shared-data-order` hint, scoped to one loop body or fork; `@inv systems(…)` not added (N1: `ordered(…)` states it). |
 | K20 | completeness | SGC163 actors | should | **Applied.** Actor entries are unbounded callers for this hint; satisfiers `@sla`, a bounded stream or `^N` (no `@inv rate`, N1). |
-| K21 | completeness | NEW SGC004 | should | **Applied.** `policy-in-prose` meta hint, never acknowledged; word list is dialect-extendable data. |
+| K21 | completeness | NEW SGC004 | should | **Applied.** `policy-in-prose` meta hint, acknowledgeable (its match reads prose); word list is dialect-extendable data. |
 | K22 | completeness | SGC112 exemption | should | **Applied.** Machine-only exemption narrowed to machines with no re-firing `T` (wildcard or self-loop). |
 | K23 | completeness | GLOBAL §9 rows | should | **Applied.** Rows for correlation, cancellation propagation, stampede and double report. |
 

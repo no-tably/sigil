@@ -1,0 +1,13 @@
+# expect: none
+# SGL130 dangling arrow / missing endpoint — catalog §8 L2, L3, L4, L32, L45, L46
+#!spec
+[Auth] -> |UserDB|
+       => ~{Session}
+       !> <Unauthorized>
+[Worker] -> run()
+[Notifier] -> op mail.send(${report})
+parallel @all {
+  [API] -> [Payment] : charge
+}
+       !> (User) : <CheckoutFailed>
+[Sched] -> plan({Seed}) => {Plan}

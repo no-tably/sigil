@@ -21,6 +21,7 @@ flowchart TD
         Payments_service__PrimaryPsp_service["PrimaryPsp"]
         Payments_service__StandbyPsp_service["StandbyPsp"]
     end
+    Replica_store -. "? lagging" .-> Replica_store__LagAlarm_event
     User_actor --> Router_service
     Router_service__ZoneA_service --> Search_service
     Router_service__ZoneB_service --> Search_service

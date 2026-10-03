@@ -2,7 +2,7 @@
 (User) ◀───────────────────●─┐┄┄┄┄┄┄┄┆ <Failed> ┆
 [API] ◀────────────────────┴─✖─●─●─›┄┆ {Cart} ┆
 [Inventory] ◀──────────────────┘┄│┄│┄┆ reserve => {Hold} ┆
-[Payment] ◀──────────────────────┘┄│┄┆ charge  ×3 Retry ┆
+[Payment] ◀──────────────────────┘┄│┄┆ charge ┆
 [Shipping] <OrderPlaced> ◀─────────┘
 [[Retry]]
 

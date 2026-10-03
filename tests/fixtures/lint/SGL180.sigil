@@ -1,0 +1,8 @@
+# expect: SGL180@4 SGL180@5 SGL180@6 SGL180@7 SGL180@8
+# SGL180 modifier argument — catalog §8 L35, L36, L37, L44
+#!spec
+[A] -> [B] @timeout
+[A] -> [B] ×
+[A] -> [B] ×0
+[A] -> [B] @timeout(-5s)
+[A] => *<R>^@drop

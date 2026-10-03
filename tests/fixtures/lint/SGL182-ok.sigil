@@ -1,0 +1,8 @@
+# expect: none
+# SGL182 resilience modifier off a call — catalog §8 L38
+#!spec
+[Judge] -> [Scorer] : score({Draft})  @timeout(30s) ×3 @fallback(0)
+[Svc] -> [Web] : op http.get(${url})  @timeout(5s) @fallback(${cache})
+[Worker] -> run() @timeout(30s)
+[Svc] @timeout(5s)
+[A] @timeout(5s) -> {B}

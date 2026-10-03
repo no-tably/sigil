@@ -1,0 +1,12 @@
+# expect: none
+# SGL150 payload with no flow — catalog §8 L22; a store slot's value is a declaration
+#!spec
+[A] -> [B] : {X}
+<Tick> -> ~|Total| : ${state.count} + 1
+[Auth] -> |UserDB|
+       => {Session} : {Token}
+~|sys| : """
+You are a careful assistant.
+"""
+~|total| : ${state.count} + 1
+~|seen| : "none"

@@ -1,0 +1,6 @@
+# expect: SGL186@5 SGL186@6
+# SGL186 tree line without its \- — a composition branch read as a continuation
+#!spec
+[Ship]
+    *-> [Bullet]
+    -& {Health}

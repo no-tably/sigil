@@ -1,0 +1,4 @@
+# expect: none
+# SGL153 event argument breaks the chain — catalog §8 L40 (quiet once the parser reads it, B8)
+#!spec
+|P| ~> <H>({C}) -> [R]

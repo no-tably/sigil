@@ -1,0 +1,14 @@
+# expect: none
+# SGL120 unclosed glyph — catalog §8 L1, L5–L9, L43, L47, L48
+#!spec
+[Broken] -> [Fixed]
+[A] -> {B}
+[A] ~> <B>
+(A) -> [B]
+[A] -> |B|
+[Cache<K,V>] -> [B]
+{List<Map<K,V>>} -> <Msg<T>>
+[A.b] -> [C]
+(Card network) -> [B]
+<A-B> -> [C]
+[A] -> <Cache-Miss> -> [C]

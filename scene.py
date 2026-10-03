@@ -118,6 +118,14 @@ follows its op as written: `↺ run() : {Job}`. Each flow line is its
 own call (language.md "Calls — who runs an op"): two calls into one target
 keep two chips.
 
+STATIC FACTS (what a check reads off the wiring; no view draws them)
+
+  call_policy(w)        a call's modifiers: the wire's, then its source side's
+                        (Edge.src_mods); a node's `×N` is cardinality, never here
+  access_mode(w, graph) "read" | "write" | "rw" | "unknown" | None: how a flow
+                        touches a store (declarations first, then the wiring)
+  writers(scene, store) {principal: {"decl", "owns", "flow"}}: who writes it
+
 THE COLOUR POLICY (one rule for every view)
 
 A wire takes its arrow's own colour when it has one — `!>` edges-fail, `?>`
@@ -664,6 +672,138 @@ def self_calls(scene: "Scene", unit=ANY_UNIT) -> dict:
                 and (unit is ANY_UNIT or w.owner == unit)):
             out.setdefault(w.src, []).append(w)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Static facts about calls and stores — what a check reads off the wiring
+# ---------------------------------------------------------------------------
+
+# Op verbs that only read a store (`[S] -> |DB| : get(${id})`); a dialect may
+# extend the list a caller passes.
+READ_VERBS = ("get", "read", "query", "fetch", "load", "find", "list", "scan",
+              "lookup", "search", "count")
+
+
+def call_policy(w: Wire) -> list:
+    """The modifiers that govern one call, as (name, arg) pairs: the wire's own
+    (trailing the statement) then those written between its source glyph and
+    the arrow (Edge.src_mods: `[A] @timeout(3s) -> [B]`). A `×N` on a node is
+    cardinality, so it is never among them; a `×N` here is a retry."""
+    own = list(w.mods)
+    src = getattr(w.edge, "src_mods", None) or []
+    return own + [p for p in src if p not in own]
+
+
+def access_mode(w: Wire, graph, read_verbs: tuple = READ_VERBS) -> Optional[str]:
+    """How a flow wire touches a store: "read" | "write" | "rw" | "unknown", or
+    None when neither end is a store (`|S|`; a data glyph is never one). In order:
+    a `@read(P)` / `@write(P)` / `@borrow(read|write)` declared for the wire's
+    principal (its end that is not the store) wins; `<->` reads and writes; a
+    flow out of a store reads; a flow into one that produces a value (`=> X` on
+    its payload or line, or a `=>` continuing it) reads; one with no payload is
+    unknown (`[Svc] -> |DB|` says "uses"); else it writes, unless its op verb is
+    one of `read_verbs`. The verb reading is a heuristic."""
+    nodes = _all_nodes(graph)
+    into, out_of = _is_store(nodes.get(w.dst)), _is_store(nodes.get(w.src))
+    if w.role != "flow" or w.src == w.dst or not (into or out_of):
+        return None
+    store, principal = (w.dst, w.src) if into else (w.src, w.dst)
+    declared = declared_access(graph, principal, store)
+    if declared:
+        return "rw" if declared == {"read", "write"} else next(iter(declared))
+    if w.kind == "<->":
+        return "rw"
+    if not into or _produces(w, graph):
+        return "read"
+    if not w.payload:
+        return "unknown"
+    return "read" if _verb(w).lower() in read_verbs else "write"
+
+
+def declared_access(graph, principal: str, store: str) -> set:
+    """The modes ("read", "write") declared for `principal` on `store` anywhere
+    in the document: `@read(P)` / `@write(P)` on the store, `@borrow(read|write)`."""
+    out = set()
+    for u in walked_units(graph):
+        for a in getattr(u.graph, "access", None) or []:
+            if a.principal != principal or a.store != store:
+                continue
+            mode = a.narrow if a.mode == "borrow" else a.mode
+            if mode in ("read", "write"):
+                out.add(mode)
+    return out
+
+
+def writers(sc: Scene, store: str, read_verbs: tuple = READ_VERBS) -> dict:
+    """{principal: frozenset of sources} of everything that writes `store`:
+    "decl" (`@write(P)` on it), "owns" (`@owns |S|` on P, a `[P] @owns |S| { … }`
+    block included) and "flow" (a flow wire whose access_mode, read with
+    `read_verbs`, is write or rw). A principal is a node id, or the name as
+    written when a declaration names no node. A flow of unknown mode is no
+    writer."""
+    g = sc.graph
+    out = {}
+    for u in walked_units(g):
+        for a in getattr(u.graph, "access", None) or []:
+            if a.store == store and a.mode == "write":
+                out.setdefault(a.principal or a.name, set()).add("decl")
+        for nid, n in u.graph.nodes.items():
+            if store in _owned(n):
+                out.setdefault(nid, set()).add("owns")
+    legs = [leg for w in sc.wires if w.role == "emit" for leg in w.legs]
+    for w in [w for w in sc.wires if w.role == "flow"] + legs:
+        if w.dst == store and access_mode(w, g, read_verbs) in ("write", "rw"):
+            out.setdefault(w.src, set()).add("flow")
+    return {p: frozenset(srcs) for p, srcs in out.items()}
+
+
+def _all_nodes(graph) -> dict:
+    """{id: render.Node} over every graph of the document, first seen."""
+    out = {}
+    for u in walked_units(graph):
+        for nid, n in u.graph.nodes.items():
+            out.setdefault(nid, n)
+    return out
+
+
+def _is_store(n) -> bool:
+    return n is not None and n.kind == "store"
+
+
+def _owned(n) -> set:
+    """The node ids named by a node's `@owns` modifiers."""
+    out = set()
+    for name, arg in n.mods:
+        if name == "owns" and arg:
+            for gm in kit.render.GLYPH_RE.finditer(arg):
+                owned = kit.render.parse_glyph(gm.group(0))
+                if owned is not None:
+                    out.add(owned.id)
+    return out
+
+
+def _produces(w: Wire, graph) -> bool:
+    """Whether a flow returns a value: `=> X` in its payload or Call, or a `=>`
+    edge on its line from its target (`-> |DB| => {Row}`) or continuing it from
+    its subject (`[Auth] -> |UserDB|` then `=> {Session}`)."""
+    if w.call is not None and w.call.returns:
+        return True
+    if w.payload and "=>" in w.payload:
+        return True
+    for u in walked_units(graph):
+        for e in u.graph.edges:
+            if e.kind == "=>" and ((e.src == w.dst and e.line == w.line)
+                                   or (e.src == w.src and e.cont == w.line)):
+                return True
+    return False
+
+
+def _verb(w: Wire) -> str:
+    """The op verb a flow names: its Call's op, else its payload's first word."""
+    if w.call is not None and w.call.op:
+        return op_verb(w.call.op).rsplit(".", 1)[-1]
+    m = re.match(r"\s*(?:op\s+)?(?:[A-Za-z_]\w*\.)*([A-Za-z_]\w*)", w.payload or "")
+    return m.group(1) if m else ""
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,8 @@
+# expect: none
+# SGL151 unclosed payload or modifier — catalog §8 L23, L24, L34
+#!spec
+[A] -> [B] : charge(total)
+[A] -> [B] : ${x}
+[A] -> [B] : "abc # not a comment"
+[A] -> [B] @timeout(5s)
+[A] -> [B] : [1, [2, 3]]

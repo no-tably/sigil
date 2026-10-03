@@ -1,0 +1,6 @@
+# expect: SGL163@4
+# SGL163 loop without a bound modifier — catalog §8 L30
+#!spec
+loop {
+  [A] -> [B]
+}

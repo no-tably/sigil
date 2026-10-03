@@ -1,0 +1,6 @@
+# expect: none
+# SGL183 flow marker on a node — catalog §8 L49
+#!spec
+[DB]!
+[A] -> [B] : {Cart} !
+[A] -> [B]?

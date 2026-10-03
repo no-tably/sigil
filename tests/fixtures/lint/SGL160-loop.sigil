@@ -1,0 +1,5 @@
+# expect: SGL160@4
+# SGL160 unclosed block — a loop never closed (closed by the parser at the end)
+#!spec
+loop @times 3 {
+  [A] -> [B]

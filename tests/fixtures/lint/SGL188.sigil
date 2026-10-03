@@ -1,0 +1,5 @@
+# expect: SGL188@4 SGL188@5
+# SGL188 reserved acknowledgement marker `#=` — RFC 0003 Q7
+#!spec
+[A] -> [B]   #= unguarded-call — the host enforces 5s
+#= async-cycle — steady-state loop

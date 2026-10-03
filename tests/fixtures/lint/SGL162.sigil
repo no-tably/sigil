@@ -1,0 +1,8 @@
+# expect: SGL162@4 SGL162@5 SGL162@7
+# SGL162 empty block — catalog §8 L31
+#!spec
+branch on {R}.k { }
+loop @times 3 {
+}
+[X] := {
+}

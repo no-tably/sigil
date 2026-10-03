@@ -166,6 +166,20 @@ _PAYLOAD_TAIL_RE = re.compile(r"(?:\s*×\s*\w+|\s+x(?:\d+|N)\b|(?<=[\s>])\^\w+|\
 #               source line. A flow whose target is an internal op-call
 #               (`[Worker] -> run()`) is a self-edge with Edge.target_op = "run()"
 #               (and that op as its payload).
+#               Edge.card: the destination's cardinality written on this flow — a
+#               `×N` glued to the destination glyph (`[LB] -> [App]×N`), or
+#               trailing a flow with no payload (`[Api] -> [Shard] ×4`) — as its
+#               text ("N", "4"); None. Edge.mods' `×N` is then only ever a RETRY
+#               (one trailing a call's payload: `: charge() ×3`).
+#               Edge.src_mods: the `@` modifiers written between this edge's
+#               source glyph and its arrow (`[A] @timeout(3s) -> [B]`), which are
+#               also the source node's (Node.mods); entity declarations aside.
+#               Edge.implied: an edge the notation implies without an arrow —
+#               "return" (`[J] -> [S] : score() => <rated>`: the callee S emits
+#               `=> <rated>`) or "alert" (`|R|` `\-{lagging}-! <LagAlarm>`: R
+#               emits `?> <LagAlarm>`, labelled with the condition); None.
+#               An event glued to an argument (`<H>({C})`) is one glyph: the
+#               argument is the payload of the edge into it.
 #               Continuation lines: a line starting with an arrow takes the
 #               SUBJECT (first endpoint) of the statement above it — consecutive
 #               continuations keep that subject (language.md pitfall 9).
@@ -198,6 +212,15 @@ _PAYLOAD_TAIL_RE = re.compile(r"(?:\s*×\s*\w+|\s+x(?:\d+|N)\b|(?<=[\s>])\^\w+|\
 #               a level k-1 expansion (zoom nests), else to the top-level node.
 #   tree        [TreeEntry]: composition trees (`\\-<rel>` branches), document order.
 #   triggers    [Trigger]: events wired to state-machine transitions (top level).
+#   narrowed    [Trigger]: the (event, transition) pairs trigger narrowing took
+#               away — the event flows explicitly into other machines' owners
+#               only (find_triggers; top level).
+#   dropped     [Dropped(line, reason, text)]: source lines the parser read and
+#               discarded, by line — reason "unclosed" (an expansion, `state` or
+#               declaration block never closed: its body is lost), "no-owner" (a
+#               `state {` with no owner glyph), "not-a-transition" (a `state`
+#               body line that is no transition). A graph lists its own and its
+#               expansions' lines, so the document's graph lists them all.
 #   notes       [Note]: `#` comments attached to the node they describe.
 #   role        what this graph is when it hangs off a node: "expansion"|"state".
 #
@@ -206,7 +229,10 @@ _PAYLOAD_TAIL_RE = re.compile(r"(?:\s*×\s*\w+|\s+x(?:\d+|N)\b|(?<=[\s>])\^\w+|\
 # None. Names: an `@name` modifier is "name" (`@timeout(30s)` → ("timeout",
 # "30s"), `@inv >= 0` → ("inv", ">= 0")); `×N` / `xN` → ("×", "N"); a stream
 # bound `^10k@drop` → ("^", "10k@drop"); `!` critical → ("!", None); `?`
-# optional → ("?", None); `.field` → (".", "field"). Placement: a modifier
+# optional → ("?", None); `.field` → (".", "field"); a modifier alias named
+# after a retry (`: charge ×3 Retry`) → the modifiers `Retry := @after(…)`
+# defines, or ("alias", "Retry") when no modifier-only alias has that name.
+# A `×N` never sits on an edge as cardinality (see Edge.card). Placement: a modifier
 # written between a glyph and the next arrow is that glyph's node's (after an
 # op-call target, that self-call edge's: `-> plan() @deadline(2s) => {P}`); a
 # statement's trailing modifiers belong to its final link's edges, or to its last
@@ -261,6 +287,12 @@ class Edge:
     # it continues — the statement's line, or the latest continuation that drew work
     # (pitfall 4: an error path attaches to the most recent flow). 0: not one.
     cont: int = 0
+    # The destination's cardinality written on this flow (`[LB] -> [App]×N` → "N").
+    card: Optional[str] = None
+    # The `@` modifiers written between the source glyph and the arrow.
+    src_mods: list = field(default_factory=list)
+    # "return" | "alert": an edge the notation implies (see the model notes).
+    implied: Optional[str] = None
 
     @property
     def key(self) -> tuple:
@@ -292,6 +324,9 @@ class Graph:
     joins: list = field(default_factory=list)
     access: list = field(default_factory=list)
     sections: list = field(default_factory=list)
+    # Transitions trigger narrowing took away, and the lines the parser discarded.
+    narrowed: list = field(default_factory=list)
+    dropped: list = field(default_factory=list)
 
 
 @dataclass
@@ -361,6 +396,12 @@ class Block:
     subject: list = field(default_factory=list)     # where a continuation after `}` hangs
     after: list = field(default_factory=list)       # edge keys of those continuations
     arm_nodes: list = field(default_factory=list)   # branch: [(label, [node ids])]
+
+
+class Dropped(NamedTuple):
+    line: int                 # 1-based source line
+    reason: str               # "unclosed" | "no-owner" | "not-a-transition"
+    text: str                 # the line as written, stripped
 
 
 class Section(NamedTuple):
@@ -507,6 +548,15 @@ _GLUED_MOD_RE = re.compile(
 # The modifiers peeled off a payload's tail (`: score ×3`, `: {Cart} !`).
 _TAIL_MOD_RE = re.compile(r"×\s*(\w+)|x(\d+|N)\b|\^(\w+(?:@\w+)?)|(!)")
 
+# Modifier aliases named after a retry count at a payload's end (`: charge ×3 Retry`,
+# `Retry := @after(…)`): each name is an ("alias", name) modifier until the
+# document is read, then the alias's own modifiers (_expand_alias_refs).
+_ALIAS_REF_RE = re.compile(r"(?:×\s*\w+|(?<!\w)x(?:\d+|N))(?P<names>(?:\s+[A-Za-z_][\w-]*)+)\s*$")
+ALIAS_REF = "alias"
+
+# Modifier names that are no `@name` (signs, cardinality, a stream bound).
+_SIGN_MODS = {"×", "!", "?", ".", "^"}
+
 # An internal op-call written as a flow's target: `[Worker] -> run()`,
 # `-> run({Job})`, `-> walk(.children)` (no space before the `(`: `-> x (Y)` is
 # a word and an actor). An `op ns.verb(…)` external reach is taken too.
@@ -649,6 +699,11 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
     if pm:
         payload_span = (pm.start(), pm.end())
         raw = pm.group(1)
+        refs = _ALIAS_REF_RE.search(raw.replace(_GAP, " "))
+        if refs:
+            at = pm.start(1) + refs.start("names")
+            mods += [(at, (ALIAS_REF, name)) for name in refs.group("names").split()]
+            raw = raw[:refs.start("names")]
         tail = _PAYLOAD_TAIL_RE.search(raw.replace(_GAP, " "))   # same length
         if tail and tail.start() < len(raw):
             at = pm.start(1) + tail.start()
@@ -664,6 +719,8 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
     # Tokenize into glyphs, arrows, joins, op-call targets and glued modifiers.
     tokenizers = list(_hook(dialect, "render_tokenizers"))
     tokens = []                                 # (kind, value, column)
+    event_args = {}                             # id(event token) -> its `(…)` argument
+    glued = set()                               # columns of `×N` glued to a glyph
     i = 0
     prev_was_glyph = False
     while i < len(stripped):
@@ -699,9 +756,14 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
         gm = GLYPH_RE.match(stripped, i)
         if gm:
             node = parse_glyph(gm.group(0), layer)
+            end = gm.end()
             if node:
                 tokens.append(("glyph", node, i))
-            i = gm.end()
+                arg = _event_arg(stripped, end) if node.kind == "event" else None
+                if arg is not None:             # `<H>({C})`: one glyph, its argument
+                    event_args[id(node)] = arg[0]
+                    end = arg[1]
+            i = end
             prev_was_glyph = True
             continue
         if ch == "/" and prev_was_glyph:
@@ -731,6 +793,8 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
             pair = (("×", card) if card else ("!", None) if mm.group("bang")
                     else ("?", None) if mm.group("opt") else (".", mm.group("field")))
             mods.append((i, pair))
+            if card and stripped[:i].rstrip(_GAP)[-1:] in tuple("]}>)|"):
+                glued.add(i)
             i = mm.end()
             continue                            # prev_was_glyph unchanged
         i += 1  # skip unrecognized chars
@@ -768,8 +832,10 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
     # endpoint standing for the endpoint before it (the caller runs the op).
     groups: list = []         # {"nodes": [Node], "join": kind, "join_idx", "op"}
     links: list = []          # links[k] joins groups[k] -> groups[k+1]
+    link_cols: list = []      # the column of links[k]'s arrow (None: no arrow)
     cur = None
     pending = None            # the arrow awaiting a destination
+    pending_col = None
     joining = None
     if tokens[0][0] == "arrow" and last_src is not None and last_src.nodes:
         cur = {"nodes": [graph.nodes[n] for n in last_src.nodes if n in graph.nodes],
@@ -783,7 +849,7 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
             if cur is not None:
                 groups.append(cur)
                 cur = None
-                pending = tok
+                pending, pending_col = tok, _c
             joining = None
         elif kind == "join":
             joining = tok
@@ -793,6 +859,7 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
                 pending = None
             if groups:
                 links.append(pending)
+                link_cols.append(pending_col if pending else None)
                 prev = groups[-1]
                 cur = {"nodes": prev["nodes"], "join": None, "join_idx": prev["join_idx"],
                        "op": tok, "col": _c}
@@ -808,6 +875,7 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
                     pending = None
                 if groups:
                     links.append(pending)
+                    link_cols.append(pending_col if pending else None)
                 cur = {"nodes": [tok], "join": None, "join_idx": None, "op": None}
                 pending = None
             joining = None
@@ -821,6 +889,7 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
         # Qualifying paths belong to the written token, before it is swapped for
         # the graph's node of that id.
         group["paths"] = [paths.get(id(n)) for n in group["nodes"]]
+        group["args"] = [event_args.get(id(n)) for n in group["nodes"]]
         for k, n in enumerate(group["nodes"]):
             if n.id not in graph.nodes:
                 graph.nodes[n.id] = n
@@ -835,6 +904,7 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
     new_edges = []
     final = []
     op_edges = {}             # an op-call target's column → the self-edges it made
+    link_edges = {}           # link index → the edges it made
     for k, arrow in enumerate(links):
         if arrow is None:
             continue
@@ -850,18 +920,21 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
             op_edges[dst["col"]] = made
         else:
             dpaths = dst.get("paths") or [None] * len(dst["nodes"])
+            dargs = dst.get("args") or [None] * len(dst["nodes"])
             for s, sp in zip(src["nodes"], spaths):
-                for d, dp in zip(dst["nodes"], dpaths):
-                    made.append(Edge(src=s.id, dst=d.id, kind=arrow,
+                for d, dp, da in zip(dst["nodes"], dpaths, dargs):
+                    made.append(Edge(src=s.id, dst=d.id, kind=arrow, payload=da,
                                      src_path=sp, dst_path=dp,
                                      src_join=src["join_idx"], dst_join=dst["join_idx"],
                                      line=line_no))
+        link_edges[k] = made
         new_edges += made
         if k == len(groups) - 2:
             final = made
     if payload:
         for e in final:
             e.payload = f"{e.target_op} : {payload}" if e.target_op else payload
+        new_edges += _return_emits(graph, final, payload, layer, line_no)
     graph.edges.extend(new_edges)
 
     # Modifiers: between a glyph and the next arrow → that glyph's node; between
@@ -879,16 +952,24 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
             owner = after[0]                    # between an arrow and its target
         trailing = not any(a > col for a in arrow_cols)
         op_col = _op_before(tokens, col)
+        into = [e for e in final if owner is not None and e.dst == owner.id]
         if payload_span[0] <= col < payload_span[1] and final:
             for e in final:                     # a bound on the payload's stream
                 _add_mod(e.mods, pair)
         elif op_col in op_edges and pair[0] not in _NODE_MODS:
             for e in op_edges[op_col]:          # `-> plan() @deadline(2s) => {P}`
                 _add_mod(e.mods, pair)
+        elif (pair[0] == "×" and trailing and into
+              and (col in glued or payload is None)):
+            for e in into:                      # `-> [App]×N`: cardinality, no retry
+                e.card = pair[1]
         elif pair[0] in _NODE_MODS or not trailing or not final:
             if owner is not None:
                 _add_mod(owner.mods, pair)
                 _access(graph, owner, pair, line_no, layer)
+                if pair[0] not in _NODE_MODS and pair[0] not in _SIGN_MODS:
+                    for e in _leaving(owner, col, arrow_cols, link_cols, link_edges):
+                        _add_mod(e.src_mods, pair)
         else:
             for e in final:
                 _add_mod(e.mods, pair)
@@ -913,6 +994,43 @@ def _op_before(tokens: list, col: int) -> Optional[int]:
     before = [(c, kind) for kind, _t, c in tokens
               if c < col and kind in ("glyph", "op", "arrow")]
     return before[-1][0] if before and before[-1][1] == "op" else None
+
+
+def _event_arg(text: str, at: int) -> Optional[tuple]:
+    """(argument, end column) of a `( … )` glued to an event glyph ending at `at`
+    (`<H>({C})` → ("{C}", …)); None when no balanced `(` follows."""
+    if not text.startswith("(", at):
+        return None
+    close = _close_paren(text[at:])
+    if close < 0:
+        return None
+    return text[at + 1:at + close].replace(_GAP, "").strip() or None, at + close + 1
+
+
+def _leaving(owner: Node, col: int, arrow_cols: list, link_cols: list,
+             link_edges: dict) -> list:
+    """The edges from `owner` drawn by the arrow next after column `col`: the
+    calls a modifier written between a glyph and its arrow governs."""
+    nxt = min((a for a in arrow_cols if a > col), default=None)
+    if nxt is None or nxt not in link_cols:
+        return []
+    return [e for e in link_edges.get(link_cols.index(nxt), []) if e.src == owner.id]
+
+
+def _return_emits(graph: Graph, final: list, payload: str, layer: str,
+                  line_no: int) -> list:
+    """`[J] -> [S] : score() => <rated>`: a call that returns an event makes its
+    callee emit it — one implied `=>` edge per callee (none for an op-call
+    target, whose `=>` edges are drawn)."""
+    if "=>" not in payload or not final or final[0].target_op:
+        return []
+    ret = payload.rsplit("=>", 1)[1].strip()
+    ev = parse_glyph(ret, layer) if GLYPH_RE.fullmatch(ret) else None
+    if ev is None or ev.kind != "event" or ev.is_hole:
+        return []
+    graph.nodes.setdefault(ev.id, ev)
+    return [Edge(src=callee, dst=ev.id, kind="=>", line=line_no, implied="return")
+            for callee in dict.fromkeys(e.dst for e in final)]
 
 
 def _access(graph: Graph, owner: Node, pair: tuple, line_no: int, layer: str):
@@ -1120,8 +1238,9 @@ class _DocParser:
         self.pending_expansions = []   # (name, kind, sub_graph|None, layer, mods, line)
         self.pending_states = []       # (owner Node, state graph)
         # Blocks being collected. Expansion: [target_name, target_kind, raw lines,
-        # brace depth, first line, layer]; state: [owner Node | None, lines, brace
-        # depth]; declaration: [(regex, on_raw), depth].
+        # brace depth, first line, layer, header line]; state: [owner Node | None,
+        # lines, brace depth, header index]; declaration: [(regex, on_raw), depth,
+        # header index].
         self.expansion = None
         self.state = None
         self.decl = None
@@ -1139,6 +1258,8 @@ class _DocParser:
         self.anchor = None
         self.comments: dict = {}
         self.above: list = []
+        # The lines being read (block-strings folded): the text of a dropped line.
+        self.lines: list = []
 
     def ln(self, k: int) -> int:
         """The source line of this document's line index k."""
@@ -1154,8 +1275,10 @@ class _DocParser:
         self.comments = collect_comments(lines, self.dialect)   # before dialect pre-passes
         for prepass in _hook(self.dialect, "render_prepasses"):
             lines = prepass(lines)
+        self.lines = lines
         for k, raw in enumerate(lines):
             self.line(k, raw)
+        self._drop_unclosed(len(lines))
         while self.frames:                  # a block left open at the end of the text
             self._close_block(len(lines) - 1)
         return self.finish()
@@ -1176,7 +1299,7 @@ class _DocParser:
                 return
             if not line:                    # a blank line detaches waiting comments
                 self.above.clear()
-        if self._on_declaration(raw_lead, line) or self._on_section(k, line):
+        if self._on_declaration(k, raw_lead, line) or self._on_section(k, line):
             return
         if line.startswith("#!") or not line:
             return
@@ -1269,13 +1392,16 @@ class _DocParser:
         if self.top:                        # top level: wire events to transitions
             for g2, _o, _l in _walk(graph):  # access lists inside expansions may
                 _resolve_access(g2, graph)   # name a top-level principal / store
-            graph.triggers = find_triggers(graph)
+            graph.triggers, graph.narrowed = find_triggers(graph)
+            _expand_alias_refs(graph)
+        graph.dropped.sort(key=lambda d: d.line)
         return graph
 
     # -- helpers --------------------------------------------------------------
 
     def _sub_parse(self, text: str, line0: int) -> Graph:
-        return parse_document(text, self.graph.hole_seq, self.dialect, _line0=line0)
+        return self._adopt(parse_document(text, self.graph.hole_seq, self.dialect,
+                                          _line0=line0))
 
     def _delta(self, raw_lead: str, line: str) -> int:
         """Net braces a line opens. A raw-matched declaration opener (a `#…` marker,
@@ -1292,6 +1418,32 @@ class _DocParser:
         if node_id and trailing and not trailing[1]:
             self.graph.notes.append(Note(node_id, trailing[0], self.ln(k), "inline", edges))
         self.above.clear()
+
+    def _drop(self, k: int, reason: str):
+        """Record line index k as read and discarded (a blank or comment-only line
+        is not recorded)."""
+        text = self.lines[k].strip() if 0 <= k < len(self.lines) else ""
+        if strip_comment(text).strip():
+            self.graph.dropped.append(Dropped(self.ln(k), reason, text))
+
+    def _drop_unclosed(self, n: int):
+        """At the end of the text: a block still being collected (an expansion,
+        a `state` machine, a declaration) was never closed — its header and every
+        line after it are lost."""
+        heads = []
+        if self.expansion is not None:
+            heads.append(self.expansion[6] - self.line0 - 1)
+        if self.state is not None:
+            heads.append(self.state[3])
+        if self.decl is not None:
+            heads.append(self.decl[2])
+        for k in range(min(heads), n) if heads else ():
+            self._drop(k, "unclosed")
+
+    def _adopt(self, sub: Graph) -> Graph:
+        """A sub-document's graph, its dropped lines also listed as this graph's."""
+        self.graph.dropped.extend(sub.dropped)
+        return sub
 
     def add_entry(self, node_id, parent, rel=None, spawn=False, cond=None, weight=None):
         depth = self.graph.tree[parent].depth + 1 if parent is not None else 0
@@ -1322,7 +1474,7 @@ class _DocParser:
              exp[6]))
         self.expansion = None
 
-    def _on_declaration(self, raw_lead: str, line: str) -> bool:
+    def _on_declaration(self, k: int, raw_lead: str, line: str) -> bool:
         """Dialect DECLARATION blocks (`name { … }` whose body declares, not flows)
         render nothing. Raw-matched openers track depth on the raw line (a `#…`
         marker would be erased by comment stripping), others on the stripped one."""
@@ -1336,7 +1488,7 @@ class _DocParser:
             txt = raw_lead if on_raw else line
             if opener.match(txt):
                 depth = txt.count("{") - txt.count("}")
-                self.decl = [(opener, on_raw), depth] if depth > 0 else None
+                self.decl = [(opener, on_raw), depth, k] if depth > 0 else None
                 self.last_src = None
                 return True
         return False
@@ -1409,7 +1561,9 @@ class _DocParser:
             # No owner glyph: the block is consumed, nothing drawn.
             self.attach(None, k)
             depth = line.count("{") - line.count("}")
-            self.state = [None, [], depth] if depth > 0 else None
+            self.state = [None, [], depth, k] if depth > 0 else None
+            if depth <= 0:
+                self._drop(k, "no-owner")
             return True
         owner = parse_glyph(sm.group(1), self.layer, self.dialect)
         self.attach(owner.id if owner else None, k)
@@ -1418,11 +1572,13 @@ class _DocParser:
         if cut is not None:
             # One-line `state {X} { A -> B }`.
             if owner and body[:cut].strip():
-                self.pending_states.append(
-                    (owner, parse_state_block([(body[:cut], self.ln(k))], owner.name)))
+                self.pending_states.append((owner, self._adopt(
+                    parse_state_block([(body[:cut], self.ln(k))], owner.name))))
+            elif not owner:
+                self._drop(k, "no-owner")
         else:
             self.state = [owner, [(body.strip(), self.ln(k))] if body.strip() else [],
-                          1 + body.count("{") - body.count("}")]
+                          1 + body.count("{") - body.count("}"), k]
         return True
 
     def _in_state(self, k: int, line: str):
@@ -1436,7 +1592,11 @@ class _DocParser:
         if cut is not None and line[:cut].strip():
             st[1].append((line[:cut].strip(), self.ln(k)))   # a last transition before the `}`
         if st[0]:
-            self.pending_states.append((st[0], parse_state_block(st[1], st[0].name)))
+            self.pending_states.append((st[0], self._adopt(parse_state_block(st[1],
+                                                                             st[0].name))))
+        else:
+            for kk in range(st[3], k + 1):
+                self._drop(kk, "no-owner")
         self.state = None
 
     def _on_block_head(self, k: int, text: str, offset: int) -> bool:
@@ -1626,7 +1786,19 @@ class _DocParser:
             idx = self.add_entry(cap[0].id, parent, rel, spawn, m.group("cond"), weight)
             stack.append((bcol, idx))
             self.anchor = cap[0].id
+            if rel == "!" and parent is not None:
+                acc["edges"].extend(self._alert(parent, cap[0], m.group("cond"), k))
         return last
+
+    def _alert(self, parent: int, child: Node, cond: Optional[str], k: int) -> list:
+        """`|R|` `\\-{lagging}-! <LagAlarm>`: the parent emits the alarm event while
+        the condition holds — an implied `?>` edge (labelled with the condition)."""
+        if child.kind != "event" or child.is_hole:
+            return []
+        e = Edge(src=self.graph.tree[parent].node, dst=child.id, kind="?>", label=cond,
+                 line=self.ln(k), implied="alert")
+        self.graph.edges.append(e)
+        return [e]
 
 
 def parse_document(text: str, _hole_seq: Optional[list] = None, dialect=None,
@@ -1670,9 +1842,30 @@ def collect_comments(lines: list, dialect=None) -> dict:
     return out
 
 
-def find_triggers(graph: Graph) -> list:
+def _expand_alias_refs(graph: Graph):
+    """Each ("alias", name) edge modifier (`: charge ×3 Retry`) becomes the
+    modifiers of the modifier-only alias of that name (`Retry := @after(…)`), in
+    place; a name no such alias defines stays an ("alias", name) modifier."""
+    defs = {}
+    for g, _o, _l in _walk(graph):
+        for nid, n in g.nodes.items():
+            if n.kind == "alias" and nid not in g.expansions and n.mods:
+                defs.setdefault(n.name, n.mods)
+    for g, _o, _l in _walk(graph):
+        for e in g.edges:
+            if any(name == ALIAS_REF for name, _a in e.mods):
+                expanded = []
+                for pair in e.mods:
+                    for p in (defs.get(pair[1], [pair]) if pair[0] == ALIAS_REF else [pair]):
+                        _add_mod(expanded, p)
+                e.mods = expanded
+
+
+def find_triggers(graph: Graph) -> tuple:
     """An event glyph whose name matches a transition's trigger (`-<Paid>->`,
-    case-insensitive) IS that trigger: one Trigger per (event, transition)."""
+    case-insensitive) IS that trigger: one Trigger per (event, transition).
+    Returns (live, narrowed): the pairs that drive their machine, and the pairs
+    narrowing took away (see below) — Graph.triggers and Graph.narrowed."""
     events = {}
     for g, _o, _l in _walk(graph):
         for n in g.nodes.values():
@@ -1687,7 +1880,7 @@ def find_triggers(graph: Graph) -> list:
         for e in g.edges:
             if e.dst in owners:
                 aimed.setdefault(e.src, set()).add(e.dst)
-    out = []
+    live, narrowed = [], []
     for g, owner, level in _walk(graph):
         if g.role != "state":
             continue
@@ -1695,10 +1888,10 @@ def find_triggers(graph: Graph) -> list:
             key = (e.label or "")[1:-1].lower()
             if key in events:
                 ev = events[key]
-                if ev in aimed and owner not in aimed[ev]:
-                    continue
-                out.append(Trigger(ev, owner, e.src, e.dst, e.label, level))
-    return out
+                kept = ev not in aimed or owner in aimed[ev]
+                (live if kept else narrowed).append(
+                    Trigger(ev, owner, e.src, e.dst, e.label, level))
+    return live, narrowed
 
 
 def parse_state_block(lines: list, entity: str = "") -> Graph:
@@ -1719,6 +1912,8 @@ def parse_state_block(lines: list, entity: str = "") -> Graph:
         line, line_no = line if isinstance(line, tuple) else (line, 0)
         m = TRANSITION_RE.match(line.strip())
         if not m:
+            if strip_comment(line).strip():
+                g.dropped.append(Dropped(line_no, "not-a-transition", line.strip()))
             continue
         src, trigger, dst, rest = m.groups()
         a, b = node(src), node(dst)

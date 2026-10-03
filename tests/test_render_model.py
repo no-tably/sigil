@@ -319,10 +319,13 @@ class Modifiers(unittest.TestCase):
         self.assertEqual(e.payload, "score({Cart})")
         e = edge(g, "C_actor", "Api_service")
         self.assertEqual((e.payload, e.mods), ("{Cart}", [("!", None)]))
-        self.assertEqual(edge(g, "Api_service", "Shard_service").mods, [("×", "4")])
-        self.assertEqual(edge(g, "Api_service", "Replica_service").mods, [("×", "2")])
+        # a payload-less trailing `×N` and a glued one are cardinality (Edge.card)
+        for dst, card in (("Shard_service", "4"), ("Replica_service", "2")):
+            e = edge(g, "Api_service", dst)
+            self.assertEqual((e.mods, e.card), ([], card))
         self.assertEqual(edge(g, "Auth_service", "UserDB_store").mods, [("cap", "read")])
-        self.assertEqual(edge(g, "Router_service", "Handler_service").mods, [("×", "N")])
+        e = edge(g, "Router_service", "Handler_service")
+        self.assertEqual((e.mods, e.card), ([], "N"))
         self.assertEqual(edge(g, "Worker_service", "Worker_service").mods, [("deadline", "2s")])
 
     def test_node_modifiers(self):
@@ -436,14 +439,156 @@ class Zoom(unittest.TestCase):
         self.assertIn("Edge_service", g.expansions)   # no level-2 [Edge]: top level
 
 
+class Cardinality(unittest.TestCase):
+    """CG1: a `×N` glued to the destination, or trailing a payload-less flow, is
+    the destination's cardinality (Edge.card); only one trailing a payload retries."""
+
+    def test_glued_and_payload_less_are_cardinality(self):
+        g = parse("[LB] -> [App]×N\n[Primary] ~> [Replica]×2\n[Api] -> [Shard] ×4\n"
+                  "[A] -> [B]×3 : charge()\n")
+        for src, dst, card in (("LB_service", "App_service", "N"),
+                               ("Primary_service", "Replica_service", "2"),
+                               ("Api_service", "Shard_service", "4"),
+                               ("A_service", "B_service", "3")):
+            e = edge(g, src, dst)
+            self.assertEqual((e.card, e.mods), (card, []), (src, dst))
+
+    def test_trailing_a_payload_is_a_retry(self):
+        g = parse("[A] -> [B] : charge() ×3\n[C] -> [D] : f() @timeout(5s) ×2\n")
+        e = edge(g, "A_service", "B_service")
+        self.assertEqual((e.card, e.mods), (None, [("×", "3")]))
+        e = edge(g, "C_service", "D_service")
+        self.assertEqual((e.card, e.mods), (None, [("timeout", "5s"), ("×", "2")]))
+
+    def test_a_source_or_tree_count_stays_on_the_node(self):
+        g = parse("[A]×3 -> [B] : f()\n[Search]\n    \\-*-= [Shard] ×N\n")
+        self.assertEqual(edge(g, "A_service", "B_service").card, None)
+        self.assertEqual(g.nodes["A_service"].mods, [("×", "3")])
+        self.assertEqual(g.nodes["Shard_service"].mods, [("×", "N")])
+
+    def test_only_the_marked_member_of_a_fan_out(self):
+        g = parse("[LB] -> [A]×2 & [B]\n")
+        self.assertEqual(edge(g, "LB_service", "A_service").card, "2")
+        self.assertIsNone(edge(g, "LB_service", "B_service").card)
+
+
+class SourceMods(unittest.TestCase):
+    """MG3: modifiers between a source glyph and its arrow are the call's too."""
+
+    def test_copied_onto_the_edges_of_the_next_arrow(self):
+        g = parse("[A] @timeout(3s) -> [B] : f()\n[A] -> [C] @deadline(1s) -> [D]\n")
+        self.assertEqual(edge(g, "A_service", "B_service").src_mods, [("timeout", "3s")])
+        self.assertEqual(g.nodes["A_service"].mods, [("timeout", "3s")])   # unchanged
+        self.assertEqual(edge(g, "A_service", "C_service").src_mods, [])
+        self.assertEqual(edge(g, "C_service", "D_service").src_mods, [("deadline", "1s")])
+
+    def test_signs_and_declarations_stay_off(self):
+        g = parse("[A]×3 ! @loc(eu) -> [B]\n")
+        self.assertEqual(edge(g, "A_service", "B_service").src_mods, [])
+
+
+class ImpliedEmits(unittest.TestCase):
+    """B12: a call returning an event, and a tree alert, emit it."""
+
+    def test_call_return_event_is_emitted_by_the_callee(self):
+        g = parse("[Judge] -> [Scorer] : score({Draft}) => <rated>\n"
+                  "<rated> -> ~|history| : x\n")
+        e = edge(g, "Scorer_service", "rated_event")
+        self.assertEqual((e.kind, e.implied, e.line), ("=>", "return", 1))
+        self.assertIsNone(edge(g, "Judge_service", "Scorer_service").implied)
+
+    def test_a_data_return_or_target_op_implies_nothing(self):
+        g = parse("[A] -> [B] : get() => {Row}\n[S] -> plan() => <Ready>\n")
+        self.assertEqual([e for e in g.edges if e.implied], [])
+
+    def test_tree_alert_is_a_conditional_emit(self):
+        g = parse("|Replica|\n    \\-{lagging}-! <LagAlarm>\n<LagAlarm> ~> (OnCall)\n")
+        e = edge(g, "Replica_store", "LagAlarm_event")
+        self.assertEqual((e.kind, e.label, e.implied, e.line), ("?>", "lagging", "alert", 2))
+        self.assertEqual(g.tree[1].rel, "!")                 # the branch is kept
+
+    def test_alert_on_a_component_child_implies_nothing(self):
+        g = parse("|Replica|\n    \\-! [Monitor]\n")
+        self.assertEqual(g.edges, [])
+
+
+class AliasRefs(unittest.TestCase):
+    """B7: `×3 Retry` keeps its retry and takes the alias's modifiers."""
+
+    def test_modifier_alias_after_a_retry(self):
+        g = parse("[API] -> [Payment] : charge ×3 Retry\nRetry := @after(exp-backoff, cap=1min)\n")
+        e = edge(g, "API_service", "Payment_service")
+        self.assertEqual(e.payload, "charge")
+        self.assertEqual(e.mods, [("×", "3"), ("after", "exp-backoff, cap=1min")])
+
+    def test_an_undefined_name_stays_a_reference(self):
+        e = edge(parse("[A] -> [B] : charge ×3 Nope\n"), "A_service", "B_service")
+        self.assertEqual(e.mods, [("×", "3"), (render.ALIAS_REF, "Nope")])
+
+
+class EventArgument(unittest.TestCase):
+    """B8: `<H>({C})` is one glyph; the chain goes on through it."""
+
+    def test_chain_continues_through_the_event(self):
+        g = parse("|P| ~> <H>({C}) -> [R]\n")
+        self.assertEqual(keys(g), {("P_store", "H_event", "~>"), ("H_event", "R_service", "->")})
+        self.assertEqual(edge(g, "P_store", "H_event").payload, "{C}")
+        self.assertNotIn("C_data", g.nodes)
+
+
+class NarrowedTriggers(unittest.TestCase):
+    """CG5: the transitions narrowing takes away are listed, not lost."""
+
+    def test_narrowed_pairs(self):
+        g = parse("<Go> -> {A}\nstate {A} { S -<Go>-> T }\nstate {B} { U -<Go>-> V }\n")
+        self.assertEqual([t.owner for t in g.triggers], ["A_data"])
+        self.assertEqual([(t.owner, t.src, t.dst) for t in g.narrowed],
+                         [("B_data", "B_state_U", "B_state_V")])
+
+    def test_none_without_aimed_flows(self):
+        g = parse("[X] ~> <Go>\nstate {A} { S -<Go>-> T }\nstate {B} { U -<Go>-> V }\n")
+        self.assertEqual(len(g.triggers), 2)
+        self.assertEqual(g.narrowed, [])
+
+
+class Dropped(unittest.TestCase):
+    """Graph.dropped: every line the parser read and discarded."""
+
+    def reasons(self, text):
+        return [(d.line, d.reason, d.text) for d in parse(text).dropped]
+
+    def test_unclosed_expansion(self):
+        self.assertEqual(self.reasons("[Z] -> [Y]\n[A] := {\n  [B] -> [C]\n\n  # note\n"),
+                         [(2, "unclosed", "[A] := {"), (3, "unclosed", "[B] -> [C]")])
+
+    def test_unclosed_state(self):
+        self.assertEqual(self.reasons("state {X} {\n  + -<a>-> S\n"),
+                         [(1, "unclosed", "state {X} {"), (2, "unclosed", "+ -<a>-> S")])
+
+    def test_ownerless_state(self):
+        self.assertEqual(self.reasons("state {\n  a -> b\n}\n[Q] -> [R]\n"),
+                         [(1, "no-owner", "state {"), (2, "no-owner", "a -> b"),
+                          (3, "no-owner", "}")])
+
+    def test_non_transition_inside_an_expansion(self):
+        self.assertEqual(self.reasons("[A] := {\n  state {X} {\n    junk\n  }\n}\n"),
+                         [(3, "not-a-transition", "junk")])
+
+    def test_clean_document(self):
+        self.assertEqual(parse(FIXTURE.read_text()).dropped, [])
+        self.assertEqual(self.reasons("loop {\n  [A] -> [B]\n"), [])   # closed at the end
+
+
 class ModelDocumented(unittest.TestCase):
     def test_docstring_names_every_graph_field(self):
         src = (_DIR / "render.py").read_text(encoding="utf-8")
         start = src.index("THE MODEL")
         notes = src[start:src.index("@dataclass", start)]
         for name in ("nodes", "edges", "joins", "blocks", "access", "sections", "layers",
-                     "expansions", "tree", "triggers", "notes", "role"):
+                     "expansions", "tree", "triggers", "narrowed", "dropped", "notes", "role"):
             self.assertIn(f"#   {name}", notes, name)
+        for name in ("Edge.card", "Edge.src_mods", "Edge.implied"):
+            self.assertIn(name, notes, name)
 
 
 if __name__ == "__main__":

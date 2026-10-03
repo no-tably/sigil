@@ -1,0 +1,8 @@
+# SGC206 stalled-join — the 2026-10-02 probe (catalog §3). Both members are
+# reached on the happy path; each deposits and goes on, the last arrival fires
+# [C]. Quiet.
+# expect: (none)
+#!spec
+[S] -> [A] : a()
+[S] -> [B] : b()
+[A] & [B] -> [C] : go()

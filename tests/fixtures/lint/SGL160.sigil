@@ -1,0 +1,5 @@
+# expect: SGL160@4
+# SGL160 unclosed block — catalog §8 L26 (an expansion never closed)
+#!spec
+[A] := {
+  [B] -> [C]

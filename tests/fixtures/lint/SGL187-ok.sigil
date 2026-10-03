@@ -1,0 +1,6 @@
+# expect: none
+# SGL187 ambiguous trailing ×N on a payload-less flow — catalog §8, RFC 0003 Q6
+#!spec
+[Api] -> [Shard]×4
+[A] -> [B] : charge ×3
+(User)×N -> [Api]

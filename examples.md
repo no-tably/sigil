@@ -765,8 +765,8 @@ where the prose says — `{Order}` in `Cancelled`, `[Checkout]` back in `Idle`.
 [Search] ◀────────────────●─┴───┘     │
 └─*= [ShardQuery] ◀───────┴━━━●━━━━━◆ │
                               │     ┃ │
-|Replica| ◀───────────────────┴╌┐   ┃ │
-└─{lagging}! <LagAlarm> ╌╌╌╌╌╌╌╌╎╌○ ┃ │
+|Replica| ◀───────────────◇───┴╌┐   ┃ │
+└─{lagging}! <LagAlarm> ◀┄┴╌╌╌╌╌╎╌○ ┃ │
                                 ╎ ╎ ┃ │
 [Payments] ◀──────────────●─●─┐ ╎ ╎ ┃ │
 ├─_ [PrimaryPsp] ◀────────┘ │ │ ╎ ╎ ┃ │

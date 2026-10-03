@@ -14,7 +14,9 @@ Canonical sources (edit these, never dist/):
     lint.py render.py view.py  copied into skills/sigil/scripts/ (required)
     viewkit.py view_graph.py   view.py's drawing modules, the scene layer and
     view_tree.py scene.py      the simulation engine, copied alongside (required)
-    sim.py
+    sim.py check.py            check.py: the composition checker, and its rule
+    check_state.py             modules beside it (required)
+    check_trace.py
     dialects.py themes.py      copied alongside when present (optional)
     themes/*.yaml              copied into skills/sigil/scripts/themes/
     language.md examples.md    copied into skills/sigil/references/
@@ -58,9 +60,11 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent
 
 TOOLS = ["lint.py", "render.py", "view.py", "viewkit.py", "view_graph.py", "view_tree.py",
-         "scene.py", "sim.py", "dialects.py", "themes.py"]
+         "scene.py", "sim.py", "check.py", "check_state.py", "check_trace.py",
+         "dialects.py", "themes.py"]
 REQUIRED_TOOLS = {"lint.py", "render.py", "view.py", "viewkit.py", "view_graph.py",
-                  "view_tree.py", "scene.py", "sim.py"}
+                  "view_tree.py", "scene.py", "sim.py", "check.py", "check_state.py",
+                  "check_trace.py"}
 REFERENCES = ["language.md", "examples.md"]
 TARGETS = ["claude", "codex", "pi", "opencode"]
 SKILL = "sigil"

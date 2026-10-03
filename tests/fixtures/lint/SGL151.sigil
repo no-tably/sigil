@@ -1,0 +1,7 @@
+# expect: SGL151@4 SGL151@5 SGL151@6 SGL151@7
+# SGL151 unclosed payload or modifier — catalog §8 L23, L24, L34
+#!spec
+[A] -> [B] : charge(total
+[A] -> [B] : ${x
+[A] -> [B] : "abc
+[A] -> [B] @timeout(5s

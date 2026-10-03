@@ -1,0 +1,8 @@
+# expect: none
+# SGL122 stray or mismatched closer — catalog §8 L10, L11, L27
+#!spec
+[A] -> [B]
+[X] := {
+  [A] -> [B]
+}
+{Order}.status -> [B]

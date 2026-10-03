@@ -542,6 +542,101 @@ class Calls(unittest.TestCase):
         self.assertEqual(scene.self_mark([]), "")
 
 
+class CallPolicy(unittest.TestCase):
+    """MG3: a call's policy is its own modifiers plus those written on its source
+    side; a `×N` on a node is cardinality, never a retry."""
+
+    def flow(self, sc, src, dst):
+        return next(w for w in sc.wires if w.role == "flow" and (w.src, w.dst) == (src, dst))
+
+    def test_wire_then_source_side(self):
+        sc = build("[A] @timeout(3s) -> [B] : f() ×2\n")
+        self.assertEqual(scene.call_policy(self.flow(sc, "A_service", "B_service")),
+                         [("×", "2"), ("timeout", "3s")])
+
+    def test_node_count_is_no_retry(self):
+        for text in ("[A]×3 -> [B] : write()\n", "[A] ×3 -> [B] : write()\n",
+                     "[A] -> [B]×3 : write()\n"):
+            with self.subTest(text):
+                sc = build(text)
+                self.assertEqual(scene.call_policy(self.flow(sc, "A_service", "B_service")), [])
+
+
+class AccessMode(unittest.TestCase):
+    """MG2 (static): how a flow touches a store, catalog §1.4."""
+
+    def mode(self, text, src, dst, kind=None):
+        g = render.parse_document(text)
+        sc = scene.build_scene(g)
+        w = next(w for w in sc.wires if w.role == "flow" and (w.src, w.dst) == (src, dst)
+                 and (kind is None or w.kind == kind))
+        return scene.access_mode(w, g)
+
+    def test_cases(self):
+        cases = [
+            # 1. a declaration for the principal wins
+            ("[Svc] -> |DB| : put({X})\n|DB| @read(Svc)\n", "Svc_service", "DB_store", "read"),
+            ("[Svc] -> |DB|\n|DB| @read(Svc) @write(Svc)\n", "Svc_service", "DB_store", "rw"),
+            ("[Svc] @borrow(read) |DB|\n[Svc] -> |DB| : put({X})\n",
+             "Svc_service", "DB_store", "read"),
+            # 2. a produced value is a read (Example 2: a `=>` continuing the flow)
+            ("[Auth] -> |UserDB|\n       => ~{Session}\n       !> <Unauthorized>\n",
+             "Auth_service", "UserDB_store", "read"),
+            ("[W] -> |Q| : pop => {Job}\n", "W_service", "Q_store", "read"),
+            ("(U) -> [Auth] -> |UserDB| => {Session}\n", "Auth_service", "UserDB_store", "read"),
+            # 3. no payload: unknown
+            ("[Svc] -> |DB|\n", "Svc_service", "DB_store", "unknown"),
+            # 4. a payload writes, unless its verb reads
+            ("[Svc] -> |DB| : put({X})\n", "Svc_service", "DB_store", "write"),
+            ("[Svc] -> |DB| : {Order}\n", "Svc_service", "DB_store", "write"),
+            ("[Svc] -> |DB| : get(${id})\n", "Svc_service", "DB_store", "read"),
+            ("[Svc] -> |DB| : op db.query(${q})\n", "Svc_service", "DB_store", "read"),
+            ("[Loop] -> ~|running| : true\n", "Loop_service", "running_store", "write"),
+            # 5. out of a store reads; `<->` reads and writes
+            ("|Orders| -> [Worker]\n", "Orders_store", "Worker_service", "read"),
+            ("[A] <-> |S|\n", "A_service", "S_store", "rw"),
+        ]
+        for text, src, dst, want in cases:
+            with self.subTest(text):
+                self.assertEqual(self.mode(text, src, dst), want)
+
+    def test_no_store_is_none(self):
+        self.assertIsNone(self.mode("[A] -> {Doc} : put()\n", "A_service", "Doc_data"))
+        self.assertIsNone(self.mode("[A] -> [B] : put()\n", "A_service", "B_service"))
+
+    def test_read_verbs_can_be_extended(self):
+        g = render.parse_document("[Svc] -> |DB| : peek()\n")
+        w = next(w for w in scene.build_scene(g).wires if w.role == "flow")
+        self.assertEqual(scene.access_mode(w, g), "write")
+        self.assertEqual(scene.access_mode(w, g, scene.READ_VERBS + ("peek",)), "read")
+
+
+class Writers(unittest.TestCase):
+    """MG12: every writer of a store, by source."""
+
+    DOC = ("[A] -> |Doc| : put({Doc})\n[B] -> |Doc| : put({Doc})\n[C] -> |Doc|\n"
+           "[R] -> |Doc| : get()\n[D] -> [A]\n|Doc| @write(D, Ghost)\n"
+           "[E] @owns |Doc| {\n  [E] -> |Doc| : put({Doc})\n}\n")
+
+    def test_sources(self):
+        got = scene.writers(build(self.DOC), "Doc_store")
+        self.assertEqual(got, {"D_service": frozenset({"decl"}), "Ghost": frozenset({"decl"}),
+                               "E_service": frozenset({"owns", "flow"}),
+                               "A_service": frozenset({"flow"}),
+                               "B_service": frozenset({"flow"})})
+
+    def test_owns_modifier_and_land_scene(self):
+        sc = build("[W] @owns |Conn|\n[X] ~> <Saved> -> |Conn| : put()\n", events="land")
+        self.assertEqual(scene.writers(sc, "Conn_store"),
+                         {"W_service": frozenset({"owns"}), "Saved_event": frozenset({"flow"})})
+
+    def test_dialect_read_verb_removes_a_writer(self):
+        sc = build("[Svc] -> |DB| : peek()\n[W] -> |DB| : put({X})\n")
+        self.assertEqual(set(scene.writers(sc, "DB_store")), {"Svc_service", "W_service"})
+        got = scene.writers(sc, "DB_store", read_verbs=scene.READ_VERBS + ("peek",))
+        self.assertEqual(got, {"W_service": frozenset({"flow"})})
+
+
 class EveryInput(unittest.TestCase):
     """A Scene for every golden input, every way, deterministically."""
 

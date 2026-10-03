@@ -1,0 +1,10 @@
+# expect: none
+# SGL184 section header — catalog §8 L41, L42
+#!spec
+--- L1: System ---
+(Client) -> [Core]
+--- L2: [Core] ---
+[Core] := {
+  [Router] -> [Handler]×N
+}
+--- Topic ---

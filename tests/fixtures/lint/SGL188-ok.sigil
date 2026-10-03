@@ -1,0 +1,5 @@
+# expect: none
+# SGL188 reserved acknowledgement marker `#=` — RFC 0003 Q7
+#!spec
+[A] -> [B]   # accepts: unguarded-call — the host enforces 5s
+[A] -> [B] : "#= is text in a string"

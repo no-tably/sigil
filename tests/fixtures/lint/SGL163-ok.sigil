@@ -1,0 +1,9 @@
+# expect: none
+# SGL163 loop without a bound modifier — catalog §8 L30
+#!spec
+loop @while |Q|.nonempty {
+  [Worker] -> |Q| : pop => {Job}
+}
+loop @each x of {Xs} {
+  [A] -> [B]
+}

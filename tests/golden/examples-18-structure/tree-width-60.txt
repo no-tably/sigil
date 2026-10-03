@@ -6,8 +6,8 @@
 [Search] ◀────────────────●─┴───┘     │
 └─*= [ShardQuery] ◀───────┴━━━●━━━━━◆ │
                               │     ┃ │
-|Replica| ◀───────────────────┴╌┐   ┃ │
-└─{lagging}! <LagAlarm> ╌╌╌╌╌╌╌╌╎╌○ ┃ │
+|Replica| ◀───────────────◇───┴╌┐   ┃ │
+└─{lagging}! <LagAlarm> ◀┄┴╌╌╌╌╌╎╌○ ┃ │
                                 ╎ ╎ ┃ │
 [Payments] ◀──────────────●─●─┐ ╎ ╎ ┃ │
 ├─_ [PrimaryPsp] ◀────────┘ │ │ ╎ ╎ ┃ │
@@ -28,4 +28,4 @@ blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›
        □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
        ── ── section
 
-examples-18-structure.sigil: 14 nodes, 11 edges, 0 expansions · #!sketch
+examples-18-structure.sigil: 14 nodes, 12 edges, 0 expansions · #!sketch

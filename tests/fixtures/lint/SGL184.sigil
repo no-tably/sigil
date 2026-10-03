@@ -1,0 +1,5 @@
+# expect: SGL184@4 SGL184@5
+# SGL184 section header — catalog §8 L41, L42
+#!spec
+--- L2: [X]
+--- L2: [Nope] ---

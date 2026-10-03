@@ -85,6 +85,10 @@ upper-case attributes are data.
   BLOCK_KEYWORDS: set[str]
       Extra statement-leading block keywords (alongside state/loop/parallel/
       branch) whose header line carries no flow payload.
+  ARROW_TARGET_WORDS: set[str]
+      Bare words the dialect reads as an arrow's destination (`<go> -> word`).
+      Core lint's dangling-arrow rule (SGL130) accepts them after an arrow; any
+      other bare word there is still an arrow with no destination.
 
   -- render ----------------------------------------------------------------
   render_prepasses() -> [fn(lines) -> lines]
@@ -122,6 +126,8 @@ upper-case attributes are data.
   COMMENT_MARKERS: list[str]
       Extra comment markers (regex sources) besides core `#`, matched at line start
       or after whitespace. Comments become notes on the node they describe.
+      A marker may not claim a reserved core marker (`#=`, the decorated
+      acknowledgement — RFC 0003 Q7): load() refuses such a dialect.
   COMPOSITION_LINT: bool
       False when the dialect validates and masks branch markers itself; the core
       composition pre-pass (SGL110/SGL111) then stands down.
@@ -131,6 +137,27 @@ upper-case attributes are data.
       node per occurrence), "edges" (one node per name, dotted relation edges)
       or "none" (composition trees are not drawn).
 
+  -- check (the rule-pack hook, RFC 0003 MG16 / CG6) -------------------------
+  check_rules(api) -> [api.Rule]
+      Composition rules the dialect adds to check.py's registry. `api` is the
+      check module (its Rule and Hit records), as for core rule modules. Ids use
+      the dialect's own prefix; ids and names may not reuse a core one.
+  INV_HEADS: set[str]
+      `@inv` heads the dialect's rules recognise (e.g. "breaker"), beside the
+      core list. A core head may not be redefined.
+  READ_VERBS: set[str]
+      Verbs read as store reads (a store call `get(…)` reads), beside the core list.
+  policy_words(api) -> [api.PolicyWord]
+      Resilience words a comment may state as prose (policy-in-prose), beside the
+      core list.
+  LINT_CODES: set[str]
+      Every diagnostic code the dialect's lint passes emit. None may be a core
+      lint code or a core check id: core lint owns its codes (e.g. SGL120–188).
+
+  rule_pack(dialect, api) reads these hooks into a RulePack; checked_pack()
+  also refuses a pack whose names clash with the core's (CoreNames, supplied by
+  the caller, since this module imports no core tool).
+
 This module is standard-library only.
 """
 
@@ -139,13 +166,23 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import os
+import re
 import sys
 import types
 from pathlib import Path
+from typing import Iterable, NamedTuple, Optional
 
 Dialect = types.ModuleType
 
 _HERE = Path(__file__).resolve().parent
+
+# Comment markers the core reserves: `#=` is the decorated acknowledgement
+# (RFC 0003 Q7). A dialect's COMMENT_MARKERS may not claim one.
+RESERVED_MARKERS = ("#=",)
+
+
+class DialectError(ValueError):
+    """A dialect breaks a core reservation (a reserved marker, a core name)."""
 
 
 def _candidates(name: str) -> list[Path]:
@@ -183,6 +220,10 @@ def _load_file(path: Path, name: str) -> Dialect:
         raise
     if not getattr(mod, "NAME", None):
         mod.NAME = name
+    problems = marker_problems(_hook(mod, "COMMENT_MARKERS"))
+    if problems:
+        sys.modules.pop(modname, None)
+        raise DialectError(f"sigil dialect {mod.NAME!r}: " + "; ".join(problems))
     return mod
 
 
@@ -224,9 +265,96 @@ def load(spec: str | None) -> Dialect | None:
     )
 
 
-# There is no shared hook reader here: lint.py and render.py each define their
-# own `_hook(dialect, name, default)` (callable hooks are called, data hooks
-# returned as-is), since each loads this module only on demand.
+# lint.py and render.py each define their own `_hook(dialect, name, default)`
+# (callable hooks are called, data hooks returned as-is), since each loads this
+# module only on demand. The reader below serves this module's own checks.
+
+def _hook(dialect, name: str, default=(), *args):
+    """A dialect hook's value: a callable hook is called with `args`, a data hook
+    returned as-is, a missing one (or no dialect) gives `default`."""
+    val = getattr(dialect, name, None) if dialect is not None else None
+    if val is None:
+        return default
+    return val(*args) if callable(val) else val
+
+
+# ---------------------------------------------------------------------------
+# Core reservations: markers and names a dialect may not claim
+# ---------------------------------------------------------------------------
+
+def marker_problem(source: str, reserved: Iterable[str] = RESERVED_MARKERS) -> Optional[str]:
+    """Why a COMMENT_MARKERS regex source may not be used, or None. A marker
+    claims a reserved one when, matched where a comment may start, it consumes
+    the whole reserved marker (`#=`, `#[=+]`, `#.` all do; `-//` does not)."""
+    try:
+        rx = re.compile(f"(?:{source})")
+    except re.error as exc:
+        return f"comment marker {source!r} is not a valid regex ({exc})"
+    for mark in reserved:
+        m = rx.match(f"{mark} name")
+        if m and m.end() >= len(mark):
+            return (f"comment marker {source!r} claims `{mark}`, which the core "
+                    "reserves for acknowledgements")
+    return None
+
+
+def marker_problems(sources: Iterable[str]) -> list[str]:
+    """marker_problem for every source, in order (None dropped)."""
+    return [p for p in (marker_problem(s) for s in sources) if p]
+
+
+class CoreNames(NamedTuple):
+    """What the core already names. The caller supplies it (lint's codes, the
+    check catalog, the recognised `@inv` heads): this module imports no tool."""
+    lint_codes: frozenset = frozenset()
+    rule_ids: frozenset = frozenset()
+    rule_names: frozenset = frozenset()
+    inv_heads: frozenset = frozenset()
+
+
+class RulePack(NamedTuple):
+    """A dialect's contribution to check.py (see the module docstring)."""
+    rules: tuple = ()
+    inv_heads: frozenset = frozenset()
+    read_verbs: frozenset = frozenset()
+    policy_words: tuple = ()
+    lint_codes: frozenset = frozenset()
+
+
+def rule_pack(dialect, api) -> RulePack:
+    """Read a dialect's check hooks; an empty pack for no dialect."""
+    return RulePack(
+        rules=tuple(_hook(dialect, "check_rules", (), api)),
+        inv_heads=frozenset(_hook(dialect, "INV_HEADS")),
+        read_verbs=frozenset(_hook(dialect, "READ_VERBS")),
+        policy_words=tuple(_hook(dialect, "policy_words", (), api)),
+        lint_codes=frozenset(_hook(dialect, "LINT_CODES")))
+
+
+def name_problems(pack: RulePack, core: CoreNames) -> list[str]:
+    """Every place a pack reuses a core name, sorted. Core ids are lint codes
+    and check ids alike: a dialect code or rule id may be neither."""
+    core_ids = core.lint_codes | core.rule_ids
+    out = [f"lint code {c} is a core code" for c in pack.lint_codes & core_ids]
+    for rule in pack.rules:
+        if rule.id in core_ids:
+            out.append(f"rule id {rule.id} is a core id")
+        if rule.name in core.rule_names:
+            out.append(f"rule {rule.id}: `{rule.name}` is a core rule name")
+    out += [f"@inv head `{h}` is a core head" for h in pack.inv_heads & core.inv_heads]
+    return sorted(out)
+
+
+def checked_pack(dialect, api, core: CoreNames) -> RulePack:
+    """The dialect's rule pack, or DialectError naming every clash with the core
+    (reserved markers included, for a dialect not loaded through load())."""
+    pack = rule_pack(dialect, api)
+    problems = (marker_problems(_hook(dialect, "COMMENT_MARKERS"))
+                + name_problems(pack, core))
+    if problems:
+        name = getattr(dialect, "NAME", "?")
+        raise DialectError(f"sigil dialect {name!r}: " + "; ".join(problems))
+    return pack
 
 
 def main(argv: list[str]) -> int:

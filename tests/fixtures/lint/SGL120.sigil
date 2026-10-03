@@ -1,0 +1,14 @@
+# expect: SGL120@4 SGL120@5 SGL120@6 SGL120@7 SGL120@8 SGL120@9 SGL120@10 SGL120@11 SGL120@12 SGL120@13 SGL120@14
+# SGL120 unclosed glyph — catalog §8 L1, L5–L9, L43, L47, L48, L7 (`<B ->`)
+#!spec
+[Broken -> 
+[A -> [B]
+[A] -> {B
+[A] ~> <B
+(A -> [B]
+[A] -> |B
+[Cache<K,V] -> [B]
+[A [B]] -> [C]
+[A->B] -> [C]
+<B -> [C]
+[A] -> <B -> [C]

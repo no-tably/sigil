@@ -1,0 +1,6 @@
+# expect: SGL121@4 SGL121@5 SGL121@6
+# SGL121 empty glyph — catalog §8 L12
+#!spec
+[] -> [B]
+[A] -> {}
+<> -> [B]

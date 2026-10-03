@@ -1,0 +1,13 @@
+# expect: SGL161@5 SGL161@7 SGL161@11 SGL161@13
+# SGL161 transition without trigger — catalog §8 L29, and state lines the parser drops
+#!spec
+state {X} {
+  + -> S
+}
+state {
+  + -<a>-> S
+}
+state {Y} {
+  hello there
+}
+state {Z} { + -> S }

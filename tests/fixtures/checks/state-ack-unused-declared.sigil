@@ -1,0 +1,6 @@
+#!craft
+# SGC003 ack-unused, the declared twin: every acknowledgement covers a finding.
+# expect: none
+
+[API] -> [Search] : find(q)
+[Judge] -> |Scores| : insert(s)   # accepts: probe — the probe flags this line

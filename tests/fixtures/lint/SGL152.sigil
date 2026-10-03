@@ -1,0 +1,4 @@
+# expect: SGL152@4
+# SGL152 glyph after payload — catalog §8 L25
+#!spec
+[A] -> [B] : {X} [C]

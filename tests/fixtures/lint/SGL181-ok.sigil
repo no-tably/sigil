@@ -1,0 +1,5 @@
+# expect: none
+# SGL181 modifier alias after ×N — catalog §8 L39: a defined alias resolves (B7)
+#!spec
+Retry := @after(exp-backoff, cap=1min)
+[A] -> [B] : charge ×3 Retry
