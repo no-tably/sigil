@@ -103,11 +103,12 @@ describe('cells', () => {
     expect(parseDrawing('{"error":"x: no such file"}')).toEqual({ error: 'x: no such file' })
     expect(parseDrawing('garbage')).toEqual({ error: 'pane.py printed no drawing' })
   })
-  test("a run's trail and narration line; the log line from an older pane.py", () => {
-    const run = { frames: [[], []], status: ['a', 'b'], log: ['', 'l'], say: ['', 's'], trail: ['', '(A) -> [B]'] } as unknown as Drawing
-    expect(runLines(run, 1)).toEqual({ trail: 'trail  (A) -> [B]', now: '› s' })
+  test("a run's path and narration line; the log line from an older pane.py", () => {
+    const row = [['path   ', 0], ['① (A) -> [B]', 1]]
+    const run = { frames: [[], []], status: ['a', 'b'], log: ['', 'l'], say: ['', 's'], trail: ['', '① (A) ▸-> [B]'], path: [[], [row]] } as unknown as Drawing
+    expect(runLines(run, 1)).toEqual({ trail: 'path   ① (A) ▸-> [B]', path: [row], now: '› s' })
     const old = { frames: [[]], status: ['a'], log: ['l'] } as unknown as Drawing
-    expect(runLines(old, 0)).toEqual({ trail: 'trail  ', now: '› l' })
+    expect(runLines(old, 0)).toEqual({ trail: 'path   ', path: null, now: '› l' })
     expect(runLines({ frames: [[]] } as unknown as Drawing, 0)).toBeNull()
   })
 })

@@ -22,7 +22,7 @@
   // Symbols Departure Mono lacks: they fall back to another font inside a fixed
   // 1ch cell (.fb), so a row's columns stay aligned. index.html loads the fallback
   // font for exactly these characters.
-  const FALLBACK = /[↺↻⇱↩⇢∗▸▾◀▶◆◇◉○◎●✖✱◦✦∥⊘✕⎫⎪⎭]/g;
+  const FALLBACK = /[↺↻⇱↩⇢∗▸▾◀▶◆◇◉○◎●✖✱◦✦∥⊘✕⎫⎪⎭①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]/g;
   const wrapFallback = (html) => html.replace(FALLBACK, '<span class="fb">$&</span>');
 
   const store = {
@@ -801,13 +801,16 @@
   }
 
   // A run's story under the drawing, worded by view.py (sim.narrate) as the
-  // terminal viewer's rows under its footer: `trail` and the episode's hops so
-  // far, the STORY_ROWS beats before this one (dim), then this one after `›` —
-  // the narration line. Mono reads them all; the classes only rank them.
+  // terminal viewer's rows under its footer: `path` and the episode's hops so
+  // far by branch (view.py's styled rows, the hop now bold, drawn by
+  // `rowsHtml`; without them the text), the STORY_ROWS beats before this one
+  // (dim), then this one after `›` — the narration line. Mono reads them all;
+  // the classes only rank them.
   const STORY_ROWS = 2;
-  function storyHtml(r) {
+  function storyHtml(r, rowsHtml) {
     const told = r.story || [];
-    const rows = [`<span class="pg-dim">trail  </span>${esc(r.trail || "")}`];
+    const rows = r.path && rowsHtml ? [rowsHtml(r.path)]
+      : [`<span class="pg-dim">path   </span>${esc(r.trail || "")}`];
     rows.push(...told.slice(-STORY_ROWS - 1, -1).map((b) => `<span class="pg-dim">  ${esc(b)}</span>`));
     rows.push(`<span class="pg-now">› ${esc(r.say || "")}</span>`);
     return rows.join("\n");
@@ -1092,7 +1095,7 @@
       el.scrub.value = String(r.frame);
       el.tick.textContent = `t${r.tick}/${r.ticks}` + (r.outcome ? ` · ${r.outcome}` : "");
       el.story.hidden = false;
-      el.story.innerHTML = storyHtml(r);
+      el.story.innerHTML = storyHtml(r, rowsHtml);
       el.log.hidden = false;
       el.log.textContent = r.log.join("\n");
       el.log.scrollTop = el.log.scrollHeight;

@@ -1,7 +1,7 @@
 """Sim mode in the app (view.py): SimPlayer's controls (step by frame and by
 event, play / pause on a clock passed in, speed, scenario choice, rebuild on
 reload), the live view's keys (x, space, , . < > [ ] - + w), the status bar,
-the narration rows (trail, recent events, the narration line), following the
+the narration rows (path, recent events, the narration line), following the
 run's focus in every view, one run shared by the views, and `--sim SCENARIO
 --once`.
 """
@@ -341,7 +341,10 @@ class TestOnce(unittest.TestCase):
                 self.assertIn("lint: OK", out)
                 tail = out[out.index("sim Payments:fails"):].splitlines()
                 self.assertIn(": failed · ", tail[0])
-                self.assertTrue(tail[1].endswith(view.simulator.CONVENTIONS))
+                # the run's path at its final frame, as the live view's row
+                self.assertTrue(tail[1].startswith("path   ① [Payments]"), tail[1])
+                self.assertTrue(tail[2].endswith(view.simulator.CONVENTIONS))
+                self.assertIn("path   the hops taken so far:  ①② its branches", out)
                 self.assertIn("episode 2 begins at [Payments]", "\n".join(tail))
                 self.assertTrue(tail[-1].endswith("the run ends: failed"))
 
@@ -398,37 +401,86 @@ class TestReadablePlayback(unittest.TestCase):
         self.p.step(-6)
         self.assertTrue(self.p.narration().endswith("(Shopper) calls [API] with {Cart}"))
 
-    def test_trail_writes_the_hops_so_far(self):
-        self.p.step(12)
-        self.assertEqual(self.p.trail(), "(Shopper) -> [API] -> [Payments] ×2")
+    def test_path_writes_the_hops_so_far_by_branch(self):
+        self.p.step(12)                                 # attempt 2 on its way
+        self.assertEqual(self.p.path(), "① (Shopper) -> [API] ▸-> [Payments] ×2")
+        self.assertEqual(self.p.path(mono=False), "① (Shopper) -> [API] -> [Payments] ×2")
+        self.p.step(-3)                                 # attempt 1 failing on arrival
+        self.assertEqual(self.p.path(), "① (Shopper) -> [API] ▸-> [Payments] ✖")
         self.p.step(10 ** 6)
-        self.assertEqual(self.p.trail(),
-                         "(Shopper) -> [API] -> [Payments] ×4 · [API] !> <PaymentFailed>")
+        self.assertEqual(self.p.path(),
+                         "① (Shopper) -> [API] -> [Payments] ✖×4   ② [API] !> <PaymentFailed>")
 
-    def test_trail_is_per_episode(self):
+    def test_path_is_per_episode(self):
         p = view.SimPlayer(parse(ORDERS))
         p.step(10 ** 6)
-        self.assertTrue(p.trail().startswith("[Payments] ~> <Paid>"), p.trail())
+        self.assertTrue(p.path().startswith("① [Payments] ~> <Paid>"), p.path())
 
-    def test_sim_trail_segments(self):
+    def test_sim_path_branches(self):
         hop = view.simulator.Hop
-        hops = [hop(0, "a", "->", "b"), hop(1, "b", "->", "c"), hop(2, "b", "->", "c"),
-                hop(3, "x", "~>", "y"), hop(4, "e", "trigger", "s")]
-        self.assertEqual(view.sim_trail(hops, str), "a -> b -> c ×2 · x ~> y · e ⇢ s")
-        self.assertEqual(view.sim_trail([], str), "")
+        hops = [hop(0, "a", "->", "b"), hop(1, "b", "->", "c", 2, "failed"),
+                hop(3, "b", "->", "c", 4, "failed"), hop(5, "x", "~>", "y", 6, "cancelled"),
+                hop(7, "e", "trigger", "s", 9)]
+        self.assertEqual(view.path_text(view.sim_path(hops, str)),
+                         "① a -> b -> c ✖×2   ② x ~> y ⊘   ③ e ⇢ s")
+        # at frame 8: the trigger's token is on its wire, and only outcomes reached show
+        self.assertEqual(view.path_text(view.sim_path(hops, str, 8)),
+                         "① a -> b -> c ✖×2   ② x ~> y ⊘   ③ e ▸⇢ s")
+        self.assertEqual(view.path_text(view.sim_path(hops[:3], str, 3)),
+                         "① a -> b ▸-> c ×2")
+        self.assertEqual(view.path_text(view.sim_path([], str)), "")
+
+    def test_branch_numbers(self):
+        self.assertEqual([view.branch_number(n) for n in (1, 2, 20, 21)],
+                         ["①", "②", "⑳", "(21)"])
+
+    def test_path_rows_bold_the_hop_now(self):
+        self.p.step(12)
+        rows = view.path_rows(self.p.path_branches(), 120)
+        now = [t for t, st in rows[0] if st and st[2]]
+        self.assertEqual(now, ["-> [Payments] ×2"])
+        self.assertEqual(plain(view.path_rows(self.p.path_branches(), 120, mono=True))[0],
+                         "path   ① (Shopper) -> [API] ▸-> [Payments] ×2")
+
+    def test_path_rows_wrap_then_fold_the_oldest(self):
+        hop = view.simulator.Hop
+        hops = [hop(k, f"n{k}", "->", f"m{k}") for k in range(6)]
+        branches = view.sim_path(hops, str)
+        rows = plain(view.path_rows(branches, 200))
+        self.assertEqual(rows, ["path   ① n0 -> m0   ② n1 -> m1   ③ n2 -> m2   ④ n3 -> m3   "
+                                "⑤ n4 -> m4   ⑥ n5 -> m5"])
+        rows = plain(view.path_rows(branches, 50))      # two rows, between branches
+        self.assertEqual(rows, ["path   ① n0 -> m0   ② n1 -> m1   ③ n2 -> m2",
+                                "       ④ n3 -> m3   ⑤ n4 -> m4   ⑥ n5 -> m5"])
+        rows = plain(view.path_rows(branches, 30))      # longer: the oldest fold
+        self.assertEqual(rows, ["path   ①–③ …   ④ n3 -> m3",
+                                "       ⑤ n4 -> m4   ⑥ n5 -> m5"])
+        self.assertTrue(all(len(r) <= 30 for r in rows))
+        rows = plain(view.path_rows(branches[:1], 30, hold=True))
+        self.assertEqual(rows, ["path   ① n0 -> m0", "  "])
+
+    def test_path_rows_fold_a_long_branch(self):
+        hop = view.simulator.Hop
+        hops = [hop(k, f"n{k}", "->", f"n{k + 1}") for k in range(12)]
+        rows = plain(view.path_rows(view.sim_path(hops, str), 40))
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(rows[0].startswith("path   ① …"), rows)
+        self.assertTrue(rows[1].endswith("-> n12"), rows)
+        self.assertTrue(all(len(r) <= 40 for r in rows))
 
     def test_story_rows(self):
         rows = [plain([r])[0] for r in view.sim_story_rows(self.p, 120)]
-        self.assertEqual(len(rows), 2 + view.SIM_LOG_ROWS)
-        self.assertTrue(rows[0].startswith("trail  (Shopper) -> [API]"))
-        self.assertEqual(rows[1:-1], ["  "] * view.SIM_LOG_ROWS)    # nothing before yet
+        self.assertEqual(len(rows), view.PATH_ROWS + 1 + view.SIM_LOG_ROWS)
+        self.assertTrue(rows[0].startswith("path   ① (Shopper) -> [API]"))
+        self.assertEqual(rows[1], "  ")                 # the path's second row, held
+        self.assertEqual(rows[2:-1], ["  "] * view.SIM_LOG_ROWS)    # nothing before yet
         self.assertEqual(rows[-1], "› " + self.p.narration())
         self.p.step(10 ** 6)
         rows = [plain([r])[0] for r in view.sim_story_rows(self.p, 40)]
-        self.assertTrue(rows[0].startswith("trail  … "))
+        self.assertTrue(rows[0].startswith("path   ① …   ② [API]"), rows[0])
         self.assertLessEqual(len(rows[0]), 40)
         told = [view.beat_line(b) for b in self.p.told()]
-        self.assertEqual([r[2:] for r in rows[1:-1]], told[-view.SIM_LOG_ROWS - 1:-1])
+        self.assertEqual([r[2:] for r in rows[2:-1]], told[-view.SIM_LOG_ROWS - 1:-1])
 
     def test_keys_row_shows_speed_and_follow(self):
         row = "".join(t for t, _ in view.sim_keys_legend(self.p, True))

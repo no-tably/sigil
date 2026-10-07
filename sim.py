@@ -155,7 +155,8 @@ NARRATION (pure, over a Trace and the scene it names)
                   per frame where something happens ("[API] calls [Payments] with
                   charge(total) — attempt 2 of 4"), read from the frames and the
                   events, never from the log's text
-  hops(trace)     (Hop(frame, src, kind, dst), …): every hop set out on, in order
+  hops(trace)     (Hop(frame, src, kind, dst, end, outcome), …): every hop set out
+                  on, in order, with the frame it ends and how (failed, cancelled)
 """
 
 from __future__ import annotations
@@ -2772,6 +2773,8 @@ class Hop(NamedTuple):
     src: str                   # node ids, as the trace's scene names them
     kind: str                  # the arrow as written (`->`, `~>`, `!>`, `trigger`, …)
     dst: str
+    end: Optional[int] = None  # the last frame its token is on the wire (None: `frame`)
+    outcome: str = ""          # how it ended there: "" arrived, "failed", "cancelled"
 
 
 _PSEUDO_STATE = {"start": "+", "end": "$", "any": "_"}
@@ -3006,13 +3009,35 @@ def narrate(trace: Trace) -> tuple:
 
 def hops(trace: Trace) -> tuple:
     """(Hop, …): every hop the run sets out on, in order (the frame it leaves in,
-    the wire's ends and arrow) — the trail a view writes out. A reply going back
-    is no hop; a `!>` route is."""
+    the wire's ends and arrow, the last frame its token is on the wire and how it
+    ended there: an attempt failing on arrival "failed", a call cancelled on the
+    way or on arrival — a race's loser — "cancelled") — the path a view writes out. A reply going back is no hop;
+    a `!>` route is (it travels as a failure, but it is no failed hop)."""
     wires = {w.ident: w for w in trace.scene.wires}
-    out = []
+    out, live = [], {}             # live: (task, wire) → [index in out, its token]
     for i, f in enumerate(trace.frames):
+        seen = {}
         for tok in f.tokens:
             w = wires.get(tok.wire)
-            if w is not None and tok.dir == "out" and tok.at == 0.0 and tok.state != "cancelled":
-                out.append(Hop(i, w.src, w.kind, w.dst))
-    return tuple(out)
+            if w is None or tok.dir != "out":
+                continue
+            key = (tok.task, tok.wire)
+            on = live.get(key)
+            if tok.at == 0.0 and tok.state != "cancelled":
+                out.append([i, w.src, w.kind, w.dst, i, "", tok.state])
+                seen[key] = len(out) - 1
+            elif on is not None:
+                h = out[on]
+                h[4] = i
+                if tok.state == "cancelled":
+                    h[5] = "cancelled"
+                elif tok.state == "failed" and h[6] == "moving":
+                    h[5] = "failed"
+                seen[key] = on
+        for key, on in live.items():   # gone: a race's loser is cancelled on arrival
+            h = out[on]
+            if (key not in seen and not h[5] and f.nodes.get(h[3]) == "cancelled"
+                    and trace.frames[i - 1].nodes.get(h[3]) != "cancelled"):
+                h[4], h[5] = i, "cancelled"
+        live = seen
+    return tuple(Hop(*h[:6]) for h in out)

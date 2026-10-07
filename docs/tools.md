@@ -131,12 +131,20 @@ view; control blocks are not framed (a branch's arms are dotted wires labelled
 `‹arm›`), and joins are not drawn as bars.
 
 In sim mode every view draws the same run. The wire a token is on now is bright,
-wires taken before are faded (the trail, `ui.sim_trail`), and wires never taken are
+wires taken before are faded (`ui.sim_trail`), and wires never taken are
 fainter (`ui.sim_faint`). Under the footer, in words that read without colour:
-`trail` and the episode's hops so far in notation, the last few events, and the
-narration line, `›` and what is happening now. The view follows the run's tokens
+`path` and the episode's hops so far in notation, the last few events, and the
+narration line, `›` and what is happening now. The path is numbered by branch: a
+run of hops that starts again from a node already on the path is a new branch,
+`①` `②` … (`(21)` past `⑳`), three spaces apart —
+`① (Shopper) -> [API] -> [Payments] ✖×4   ② [API] !> <PaymentFailed>`. A hop that
+failed on arrival is marked `✖` (`✖×4` when repeated; `×N` alone a hop repeated),
+a cancelled one `⊘`, and the hop a token is on now is bold, as its wire is (`▸`
+before it with `--color never`). It takes two rows at most; a longer path folds its
+oldest branches into `①–③ …` so the newest stay readable. `--once --sim` prints
+the path at the run's last frame under its outcome line. The view follows the run's tokens
 and active nodes, panning only when they leave the window; `w` turns that off. The
-playground shows the same trail and narration under its drawing (from the same
+playground shows the same path and narration under its drawing (from the same
 `SimPlayer`), steps a frame (`,` `.`) or an event (`<` `>`) at a time, and picks its
 view with the same `1` `2` `3` and `t`.
 
@@ -175,7 +183,8 @@ The tool's input:
 
 A field you leave out keeps its last value. The reply says where the document is
 shown, then gives the summary line, lint, the run's step at that frame, its
-narration line (`now: …`, in view.py's words) and trail (`trail: …`), the run's
+narration line (`now: …`, in view.py's words) and path (`path: …`, the hop now
+marked `▸`), the run's
 outcome, and the scenario names. It never returns the drawing:
 `view.py --once` prints that.
 
@@ -195,8 +204,8 @@ the new value and the next view draws there.
   (ctrl+x then Tab, or a click, gives it the keys; Esc hands them back, and the
   footer says which). `1` `2` `3` pick graph, tree and flow (the current one in
   brackets), `t` cycles them, `d` the depth; with a run, `p` plays or pauses it
-  and `b` and `n` step it, and under the drawing the pane shows the run's trail
-  and, after `›`, its narration line, as the live view's rows under its footer.
+  and `b` and `n` step it, and under the drawing the pane shows the run's path
+  (in view.py's styles) and, after `›`, its narration line, as the live view's rows under its footer.
   Docked, the drawing fills the pane and the legend,
   summary and keys sit at its bottom. The flow view draws with its own legend. The pane draws the cells that `pane.py
   draw` packs (frames.py's packing, with hex colours), not ANSI. A pane opened
@@ -220,7 +229,7 @@ Claude Code, with these differences:
   `"last"`. A number passes too, since pi converts it.
 - `mod` draws in a widget above the editor, in the theme's colours as truecolour
   text. A tall drawing is cut to fit the terminal, and the last row says how
-  many rows were left out. A run's trail and narration line (`›`) follow the
+  many rows were left out. A run's path and narration line (`›`) follow the
   drawing, as in the pane. A widget opened without being asked needs 144 columns.
   Below that, the reply says it's waiting and names `/sigil-pane`, which opens it at
   any width.

@@ -102,12 +102,20 @@ class DrawTest(unittest.TestCase):
         self.assertEqual(out["outcome"], player.trace.outcome)
         self.assertTrue(out["status"][-1].startswith("sim happy · "))
         self.assertNotIn("/s ·", out["status"][0])         # the live view's speed is not ours
-        # the viewer's narration line and trail, a frame at a time
+        # the viewer's narration line and path, a frame at a time: the text, and
+        # the row as view.py draws it (packed, the hop now bold)
         self.assertEqual(len(out["say"]), len(out["frames"]))
         self.assertEqual(len(out["trail"]), len(out["frames"]))
+        self.assertEqual(len(out["path"]), len(out["frames"]))
         player.at = player.last
         self.assertEqual(out["say"][-1], player.narration())
-        self.assertEqual(out["trail"][-1], player.trail())
+        self.assertEqual(out["trail"][-1], player.path())
+        self.assertTrue(out["trail"][-1].startswith("① (Shopper) -> [Edge] -> [Shop]   ② "))
+        self.assertLessEqual(len(out["path"][-1]), view.PATH_ROWS)
+        self.assertEqual(out["trail"][1], "① (Shopper) ▸-> [Edge]")    # a token on its first hop
+        self.assertEqual("".join(t for t, _s in out["path"][1][0]), "path   ① (Shopper) -> [Edge]")
+        bold = [t for t, sid in out["path"][1][0] if out["styles"][sid][2]]
+        self.assertEqual(bold, ["-> [Edge]"])
 
     def test_sampling_keeps_both_ends(self):
         self.assertEqual(pane.sampled(3), [0, 1, 2, 3])

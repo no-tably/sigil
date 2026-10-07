@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <!-- the fallback font, only for the symbols Departure Mono lacks (site.js FALLBACK) -->
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400&text=%E2%86%BA%E2%86%BB%E2%87%B1%E2%86%A9%E2%87%A2%E2%88%97%E2%96%B8%E2%96%BE%E2%97%80%E2%96%B6%E2%97%86%E2%97%87%E2%97%89%E2%97%8B%E2%97%8E%E2%97%8F%E2%9C%96%E2%9C%B1%E2%97%A6%E2%9C%A6%E2%88%A5%E2%8A%98%E2%9C%95%E2%8E%AB%E2%8E%AA%E2%8E%AD&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400&text=%E2%86%BA%E2%86%BB%E2%87%B1%E2%86%A9%E2%87%A2%E2%88%97%E2%96%B8%E2%96%BE%E2%97%80%E2%96%B6%E2%97%86%E2%97%87%E2%97%89%E2%97%8B%E2%97%8E%E2%97%8F%E2%9C%96%E2%9C%B1%E2%97%A6%E2%9C%A6%E2%88%A5%E2%8A%98%E2%9C%95%E2%8E%AB%E2%8E%AA%E2%8E%AD%E2%91%A0%E2%91%A1%E2%91%A2%E2%91%A3%E2%91%A4%E2%91%A5%E2%91%A6%E2%91%A7%E2%91%A8%E2%91%A9%E2%91%AA%E2%91%AB%E2%91%AC%E2%91%AD%E2%91%AE%E2%91%AF%E2%91%B0%E2%91%B1%E2%91%B2%E2%91%B3&display=swap">
 <link rel="stylesheet" href="theme.css">
 <link rel="stylesheet" href="site.css">
 </head>
@@ -246,7 +246,8 @@
       failure route, branch arm and race, one named scenario at a time. Calls wait for
       their return, <code class="hl">!&gt;</code> fires only on failure, events move the
       state machines. A line under the drawing says each step in plain words, after the
-      trail of hops so far. No values are computed: it walks the wiring, not your code.</p>
+      path of hops so far, numbered by branch. No values are computed: it walks the
+      wiring, not your code.</p>
       <pre class="snippet cmd">view.py design.sigil --once --tree --sim happy</pre>
     </article>
     <article class="card">

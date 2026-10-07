@@ -14,7 +14,9 @@ function drawingOf(argv: readonly string[]): string {
     styles: [['#8b7aad', null, true]], frames: isRun ? [[row], [row, row]] : [[row]], legend: [],
     summary: 'shop.sigil: 1 nodes, 0 edges · lint: OK', lint: [], scenarios: ['happy', 'API.charge:fails'],
     ...(isRun ? { scenario: 'happy', status: ['sim happy · start', 'sim happy · end · ok'], log: ['', 'done: ok'],
-      say: ['', '[API] returns to (Shopper)'], trail: ['', '(Shopper) -> [API]'], outcome: 'ok' } : {}),
+      say: ['', '[API] returns to (Shopper)'], trail: ['', '① (Shopper) -> [API]'],
+      path: [[[['path   ', 0], ['① (Shopper) ▸-> [API]', 0]]], [[['path   ', 0], ['① (Shopper) -> [API]', 0]]]],
+      outcome: 'ok' } : {}),
   })
 }
 
@@ -78,7 +80,7 @@ describe('mod display', () => {
     expect(String(result)).toContain('paused at sim happy · end · ok (frame 2 of 2)')
     expect(String(result)).toContain('outcome of the whole run: ok')
     expect(String(result)).toContain('now: [API] returns to (Shopper)')
-    expect(String(result)).toContain('trail: (Shopper) -> [API]')
+    expect(String(result)).toContain('path: ① (Shopper) -> [API]')
     expect(String(result)).not.toContain('log: ')
     expect(seen.runs.at(-1)).toContain('flow')
     const back = await $.tool.call({ tool: 'mcp__sigil__view', frame: 0 })
@@ -117,7 +119,7 @@ describe('mod display', () => {
     expect(await desk.find({ type: 'Box', props: { height: 40 } })).toBeDefined()   // docked: fills, info at the bottom
   })
 
-  test('a run in the pane carries its trail and narration line, as the live view does', { options: { display: 'mod' } }, async ($, on) => {
+  test('a run in the pane carries its path and narration line, as the live view does', { options: { display: 'mod' } }, async ($, on) => {
     world(on, { isPlaced: true })
     await $.session.start(START)
     await $.tool.call({ tool: 'mcp__sigil__view', file: 'shop.sigil', view: 'flow', scenario: 'happy' })
@@ -125,7 +127,7 @@ describe('mod display', () => {
       scroll: { offset: 0, bodyRows: 40 }, view: {} }
     const pane = await $.ui.mount({ plugin: 'sigil', surface: 'desktop', component: 'Pane', props, requestId: 'sigil' })
     expect(await pane.find({ type: 'Text', text: '› [API] returns to (Shopper)' })).toBeDefined()
-    expect(await pane.find({ type: 'Text', text: 'trail  (Shopper) -> [API]' })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: '① (Shopper) -> [API]' })).toBeDefined()
   })
 })
 

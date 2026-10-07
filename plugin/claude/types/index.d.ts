@@ -33,6 +33,7 @@ export type Drawing = {
   log?: string[]
   say?: string[]
   trail?: string[]
+  path?: PackedRow[][]
   outcome?: string
   choice?: string
 }

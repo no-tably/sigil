@@ -29,7 +29,7 @@ type Style = [string | null, string | null, boolean]
 type Drawing = {
   file: string; view: string; width: number | null; styles: Style[]; frames: PackedRow[][]
   legend: PackedRow[]; summary: string; lint: string[]; scenarios: string[]
-  status?: string[]; log?: string[]; say?: string[]; trail?: string[]; outcome?: string
+  status?: string[]; log?: string[]; say?: string[]; trail?: string[]; path?: PackedRow[][]; outcome?: string
 }
 type Playback = { at: number; isPlaying: boolean }
 type Split = { mux: 'herdr' | 'tmux' | 'zellij'; control: string; pane?: string }
@@ -158,7 +158,7 @@ export function styled(text: string, width: number, sgr?: string): string {
 }
 
 /** The widget's lines: the status, the frame (cut to `bodyRows`, saying how
- * many rows are left out), the run's trail and narration line (runLines), the
+ * many rows are left out), the run's path and narration line (runLines), the
  * legend, summary, lint and the command hint. */
 export function widgetLines(drawing: Drawing, request: ViewRequest, playback: Playback,
                             error: string | null, width: number, bodyRows: number): string[] {
@@ -172,7 +172,11 @@ export function widgetLines(drawing: Drawing, request: ViewRequest, playback: Pl
     lines.push(styled(`… ${rows.length - shown.length} more rows: view.py ${drawing.file} draws the whole of it`, width, '2'))
   }
   const told = runLines(drawing as never, at)
-  if (told !== null) lines.push(styled(told.trail, width, '2'), styled(told.now, width, '1'))
+  if (told !== null) {
+    if (told.path !== null) for (const row of told.path) lines.push(ansiRow(row, drawing.styles, width))
+    else lines.push(styled(told.trail, width, '2'))
+    lines.push(styled(told.now, width, '1'))
+  }
   if (shown.length === rows.length) for (const row of drawing.legend) lines.push(ansiRow(row, drawing.styles, width))
   lines.push(styled(drawing.summary, width, '2'))
   for (const line of drawing.lint) lines.push(styled(line, width, '2'))

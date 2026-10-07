@@ -225,7 +225,7 @@ random; the run is a function of the design and the chosen **scenario**.
   machine's current state is marked `◉`), loops and recursion are bounded.
 - **The marks:** `●` a token going out, `○` a return or fallback, `✕` a failure (in
   the failure colour), `⊘` cancelled; the wire a token is on now bright, the wires
-  taken before faded (the trail), the ones never taken fainter; `…` waiting, `×n`
+  taken before faded, the ones never taken fainter; `…` waiting, `×n`
   spawned instances, `↻k` recursion depth.
 - **In words:** every step of a run reads as a sentence — `[API] calls [Payments]
   with charge(total) — attempt 2 of 4`, `|Orders| returns {Order} to [API]`,
@@ -234,11 +234,13 @@ random; the run is a function of the design and the chosen **scenario**.
 Live, `x` enters sim mode in any of the three views. Space plays and pauses, `,` /
 `.` step a frame, `<` / `>` step to the previous / next event, `[` / `]` pick the
 scenario (named in the status bar), and `-` / `+` set the speed (¼ to 32 frames a
-second, starting at 2). Under the drawing, `trail` writes the episode's hops so far
-in notation, then come the last few events and the narration line (`›`, what is
+second, starting at 2). Under the drawing, `path` writes the episode's hops so far
+in notation, numbered by branch — `① (Shopper) -> [API] -> [Payments] ✖×4   ② [API]
+!> <PaymentFailed>`, `✖` a failed hop, `⊘` a cancelled one, the hop a token is on
+now in bold — then come the last few events and the narration line (`›`, what is
 happening now). The view follows the run as it moves; `w` turns that off. For agents
-and CI, `--once --sim SCENARIO` prints the run's last frame, the outcome and the run
-in words (here
+and CI, `--once --sim SCENARIO` prints the run's last frame, the outcome, its path
+and the run in words (here
 [`examples/checkout.sigil`](https://no-tably.github.io/sigil/examples/checkout.sigil)
 with its card charge failing; legend and lint summary left out):
 
@@ -258,6 +260,7 @@ view.py checkout.sigil --once --tree --sim 'API.charge:fails'
   |Ledger| <OrderPlaced> ◀═══════════════╝
 
 sim API.charge:fails (charge fails 4×, no fallback): failed · 31 frames
+path   ① (Shopper) -> [API] -> [Payments] ✖×4   ② [API] !> <PaymentFailed>
 t000 conventions: written order; entries one after another; ?> not taken by default; the first member wins a race / alternative / branch
 t000 episode 1 begins at (Shopper); (Shopper) calls [API] with {Cart}
 t005 [API] calls [Payments] with charge(total) — attempt 1 of 4
@@ -319,7 +322,7 @@ The **playground** runs the tools themselves in the browser: the build copies
 (`site/playground.py` is the thin JSON layer the page calls). Write a design, switch
 views (graph, tree, flow — `1` `2` `3` or `t` on the drawing, as in the viewer), read
 the lint, pick a scenario and step through its run, a frame or an event at a time,
-with the viewer's trail and narration line under the drawing; *share* puts the
+with the viewer's path and narration line under the drawing; *share* puts the
 document in the link. Nothing about the notation is re-implemented in JavaScript, so
 the page cannot drift from the CLI (`tests/test_site.py` checks the copies and that
 the playground draws what `view.py` draws).

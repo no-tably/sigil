@@ -321,7 +321,7 @@ class Legend(unittest.TestCase):
         text = "".join(t for t, _ in rows[-1])
         for mark in ("▸ active", "… waiting", "✕ failed", "⊘ cancelled", "◉ current state",
                      "● out", "○ return / fallback", "×n instances", "↻k recursion",
-                     "─ now", "─ taken (trail)", "─ untouched (faint)"):
+                     "─ now", "─ taken", "─ untouched"):
             self.assertIn(mark, text)
 
     def test_words_shared_with_the_graph_views_row(self):

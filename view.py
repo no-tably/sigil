@@ -145,18 +145,23 @@ machines are parts under the document's; control blocks are not framed.
 
 Simulation (x, --sim): the run's tokens travel the drawn wires — ● out (bold,
 in the wire's colour), ○ a return or fallback, ✕ a failure (edges.fail), a faint
-⊘ cancelled. Wires rank bright > trail > faint: the one a token is on now in
+⊘ cancelled. Wires rank bright > taken > faint: the one a token is on now in
 full colour and bold, those taken before faded (ui.sim_trail), those never
 taken fainter (ui.sim_faint); untouched boxes muted; a node running is bold (▸
 in the tree); after a label … waiting, ✕ failed, ×n spawned instances, ↻k
 recursion depth, `◉ State` on a machine's owner when the machine is not drawn;
 ◉ before a drawn machine's current state. The status bar shows `sim <scenario>
 ▶ <speed> · t<tick>/<last> · episode <k>: <entry>` (the outcome on the last
-frame). Under the footer, in words a mono terminal reads as well: `trail` and
-the hops of the episode so far in notation (`(Shopper) -> [API] -> [Payments]
-×4 · [API] !> <PaymentFailed>`), the last few events dim, and the narration
-line after `›` — what is happening now in plain words (`[API] calls [Payments]
-with charge(total) — attempt 2 of 4`), held while a token travels.
+frame). Under the footer, in words a mono terminal reads as well: `path` and
+the hops of the episode so far in notation, numbered by branch — each run of
+hops that starts again from a node already on the path is a branch, ① ② … —
+with ✖ on a hop that failed, ⊘ one cancelled, ×N one repeated, and the hop a
+token is on now bold, as its wire is (`▸` before it without colour):
+`① (Shopper) -> [API] -> [Payments] ✖×4   ② [API] !> <PaymentFailed>` (on two
+rows at most; when longer, the oldest branches fold into `①–③ …`); then the
+last few events dim, and the narration line after `›` — what is happening now
+in plain words (`[API] calls [Payments] with charge(total) — attempt 2 of 4`),
+held while a token travels. --once --sim prints the path under its outcome.
 
 Checks (c, --checks): check.py's findings, as the document's mode shows them,
 marked on the drawing in the theme's ui.error / ui.warn colours — a box's
@@ -387,7 +392,7 @@ def sim_legend(tree: bool = False) -> list:
     fallback, ✕ failed, a muted ⊘ cancelled — view_graph.sim_look, which the flow
     view draws with too, and view_tree's lanes draw them alike; a failed node's
     badge shares the token's ✕ and its meaning, so it is listed once, here), wires
-    now, taken before (the trail) or untouched, the other badges after a label (… waiting, ×n, ↻k) and the
+    now, taken before or untouched, the other badges after a label (… waiting, ×n, ↻k) and the
     drawn machine's current state. `tree`: adds the tree view's own entry, `▸` an
     active row."""
     dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
@@ -401,13 +406,25 @@ def sim_legend(tree: bool = False) -> list:
     return ([("run    ", dim),
              ("●", wire), (" out  ", mid), ("○", wire), (" return / fallback  ", mid),
              ("✕", fail), (" failed  ", mid), (vtree.CANCELLED_MARK, faint), (" cancelled  ", mid),
-             ("─", wire), (" now  ", mid), ("─", trail), (" taken (trail)  ", mid),
-             ("─", faint), (" untouched (faint)  ", mid)]
+             ("─", wire), (" now  ", mid), ("─", trail), (" taken  ", mid),
+             ("─", faint), (" untouched  ", mid)]
             + active
             + [("…", light), (" waiting  ", mid),
                ("×n", light), (" instances  ", mid), ("↻k", light), (" recursion  ", mid),
                ("◉", state), (" current state  ", mid), ("◉ State", state),
                (" its owner's, machine not drawn", mid)])
+
+
+def path_legend() -> list:
+    """The legend row of the run's path (the row under the footer, path_rows):
+    the hops taken so far, ①② its branches, the marks on a hop, and the hop a
+    token is on now — bold, or `▸` where there is no colour."""
+    dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
+    light = (kit.GREY["light"], None, False)
+    return [("path   ", dim), ("", mid), ("the hops taken so far:  ", mid),
+            ("①②", light), (" its branches  ", mid), ("✖", light), (" failed  ", mid),
+            ("⊘", light), (" cancelled  ", mid), ("×N", light), (" repeated  ", mid),
+            ("▸", (kit.GREY["mid"], None, True)), (" the hop now (bold in colour)", mid)]
 
 
 # ---------------------------------------------------------------------------
@@ -479,7 +496,7 @@ class SimPlayer:
 
     @property
     def hops(self) -> tuple:
-        """Every hop the run sets out on (sim.hops), for the trail."""
+        """Every hop the run sets out on (sim.hops), for the path."""
         if self._hops is None:
             self._hops = simulator.hops(self.trace)
         return self._hops
@@ -616,17 +633,28 @@ class SimPlayer:
         told = self.told()
         return beat_line(told[-1]) if told else ""
 
-    def trail(self) -> str:
-        """The hops the shown frame's episode has taken so far, in notation
-        (sim_trail)."""
+    def path_branches(self) -> list:
+        """The hops the shown frame's episode has taken so far, as branches
+        (sim_path): outcomes as far as the shown frame knows them, the hop a
+        token is on now marked."""
         f = self.trace.frames[self.at]
         start = next((k for k in range(self.at, -1, -1)
                       if self.trace.frames[k].episode != f.episode), -1) + 1
-        return sim_trail([h for h in self.hops if start <= h.frame <= self.at],
-                         self.node_name)
+        return sim_path([h for h in self.hops if start <= h.frame <= self.at],
+                        self.node_name, self.at)
+
+    def path(self, mono: bool = True) -> str:
+        """The path row's text without its label (path_text): `① (Shopper) -> [API]
+        ▸-> [Payments] ×2`; mono: the hop now marked `▸`."""
+        return path_text(self.path_branches(), mono)
 
 
-TRAIL_ARROW = {"trigger": "⇢", "arm": "◇"}       # hops with no arrow of their own
+PATH_ARROW = {"trigger": "⇢", "arm": "◇"}        # hops with no arrow of their own
+PATH_MARK = {"failed": "✖", "cancelled": "⊘"}     # how a hop ended
+PATH_LABEL = "path   "                           # as wide as the legend's labels
+PATH_GAP = "   "                                 # between two branches
+PATH_ROWS = 2                                    # the most rows the path takes
+PATH_NOW = "▸"                                   # the hop now, where there is no colour
 
 
 def beat_line(beat) -> str:
@@ -635,36 +663,141 @@ def beat_line(beat) -> str:
     return f"t{beat.tick:03} {beat.text}"
 
 
-def sim_trail(hops: list, name) -> str:
-    """Hops (sim.Hop, in order) written as the trail row: each hop that goes on
-    from where the last one arrived continues the chain (`(Shopper) -> [API] ->
-    [Payments]`), any other starts a new segment after ` · `; a hop repeated
-    straight after itself (a retry) counts `×n`. name(node id) -> text."""
-    parts, last, prev = [], None, None
+class PathHop(NamedTuple):
+    """One hop of the path as written: `-> [Payments] ✖×4` (text) and whether a
+    token is on it now (now)."""
+    text: str
+    now: bool
+
+
+def branch_number(n: int) -> str:
+    """①, ②, … ⑳, then (21), (22), …"""
+    return chr(0x245F + n) if 1 <= n <= 20 else f"({n})"
+
+
+def sim_path(hops: list, name, at: int | None = None) -> list:
+    """Hops (sim.Hop, in order) as the path's branches, [(start, [PathHop])]: a
+    hop that goes on from where the last one arrived continues the branch
+    (`(Shopper) -> [API] -> [Payments]`), any other starts a new one from its
+    source; a hop repeated straight after itself (a retry) counts `×N`. A hop
+    that failed on arrival is marked `✖` (`✖×4` repeated), one cancelled `⊘` —
+    the latest of a repeat's attempts says. at: the frame shown — only outcomes
+    reached by then are marked, and a hop whose token is on its wire then is
+    `now` (None: every outcome, nothing now). name(node id) -> text."""
+    branches, last, prev = [], None, None
     for h in hops:
+        end = h.frame if h.end is None else h.end
+        outcome = h.outcome if at is None or end <= at else ""
+        now = at is not None and h.frame <= at <= end
         if prev is not None and (h.src, h.kind, h.dst) == prev:
-            k = parts[-1][1] + 1
-            parts[-1] = (parts[-1][0], k)
+            g = branches[-1][1][-1]
+            g[1], g[2], g[3] = g[1] + 1, outcome, g[3] or now
             continue
-        text = f"{TRAIL_ARROW.get(h.kind, h.kind)} {name(h.dst)}"
-        if h.src != last:
-            text = (" · " if parts else "") + f"{name(h.src)} {text}"
-        else:
-            text = " " + text
-        parts.append((text, 1))
+        if h.src != last or not branches:
+            branches.append((name(h.src), []))
+        branches[-1][1].append([f"{PATH_ARROW.get(h.kind, h.kind)} {name(h.dst)}", 1, outcome, now])
         last, prev = h.dst, (h.src, h.kind, h.dst)
-    return "".join(t + (f" ×{k}" if k > 1 else "") for t, k in parts)
+    out = []
+    for start, group in branches:
+        written = []
+        for text, k, outcome, now in group:
+            mark = PATH_MARK.get(outcome, "") + (f"×{k}" if k > 1 else "")
+            written.append(PathHop(text + (f" {mark}" if mark else ""), now))
+        out.append((start, written))
+    return out
 
 
-def sim_report(player: SimPlayer) -> list[str]:
+def path_text(branches: list, mono: bool = True) -> str:
+    """The branches (sim_path) on one line: `① (Shopper) -> [API] -> [Payments]
+    ✖×4   ② [API] !> <PaymentFailed>`; mono: the hop now marked `▸` (in colour
+    it is bold instead, path_rows)."""
+    return PATH_GAP.join(
+        " ".join([f"{branch_number(i)} {start}"]
+                 + [(PATH_NOW if h.now and mono else "") + h.text for h in hs])
+        for i, (start, hs) in enumerate(branches, 1))
+
+
+def path_rows(branches: list, cols: int, hold: bool = False, mono: bool = False) -> list:
+    """The path row under the footer as styled rows: `path` and the branches
+    (sim_path), wrapped between hops onto at most PATH_ROWS rows (the next under
+    the first's text). Longer, the oldest branches fold into `①–③ …` at the start
+    (then the newest branch's oldest hops into `④ …`) so the newest stay whole.
+    The hop now is bold (mono: marked `▸`). hold: always PATH_ROWS rows, so the
+    rows above don't move as the path grows."""
+    dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
+    num, bold = (kit.GREY["light"], None, False), (kit.GREY["mid"], None, True)
+    width = max(cols - len(PATH_LABEL), 1)
+
+    def hop(h):
+        return [((PATH_NOW if h.now and mono else "") + h.text, bold if h.now else mid)]
+
+    def words(folded: int, cut: int) -> list:
+        """(gap, runs, keep) words, a branch's number and start glued to its first
+        hop: the first `folded` branches folded, `cut` hops of the next one left
+        out. keep: a branch's width from its first word, to start it on a new row
+        rather than split it when it fits there."""
+        out = []
+        if folded:
+            span = branch_number(1) + ("" if folded == 1 else "–" + branch_number(folded))
+            out.append(("", [(span + " …", dim)], 0))
+        for i, (start, hs) in enumerate(branches[folded:], folded + 1):
+            hs = hs[cut if i == folded + 1 else 0:]
+            first = [(branch_number(i) + " ", num), ("…" if cut else start, dim if cut else mid)]
+            ws = [first + ([(" ", None)] + hop(hs[0]) if hs else [])] + [hop(h) for h in hs[1:]]
+            keep = sum(kit.row_len(w) for w in ws) + len(ws) - 1
+            out.append((PATH_GAP if out else "", ws[0], keep))
+            out += [(" ", w, 0) for w in ws[1:]]
+        return out
+
+    def laid(ws):
+        rows, x = [[]], 0
+        for gap, runs, keep in ws:
+            n = kit.row_len(runs)
+            if rows[-1] and (x + len(gap) + n > width
+                             or x + len(gap) + keep > width >= keep):
+                if len(rows) == PATH_ROWS:
+                    return None
+                rows.append([])
+                x = 0
+            if rows[-1]:
+                rows[-1].append((gap, None))
+                x += len(gap)
+            if n > width:
+                return None
+            rows[-1] += runs
+            x += n
+        return rows
+
+    tries = [(k, 0) for k in range(len(branches))]
+    if branches:
+        tries += [(len(branches) - 1, j) for j in range(1, len(branches[-1][1]))]
+    body = next((r for r in (laid(words(k, j)) for k, j in tries) if r is not None), None)
+    if body is None:                     # one hop wider than a row: its end, cut
+        k, j = tries[-1]
+        line = [run for gap, runs, _keep in words(k, j) for run in [(gap, None)] + runs]
+        over = kit.row_len(line) - width + 2
+        body = [[("… ", dim)] + kit.clip(line, over, width - 2)]
+    body = body or [[]]
+    rows = [[(PATH_LABEL, dim)] + body[0]]
+    rows += [[(" " * len(PATH_LABEL), None)] + r for r in body[1:]]
+    if hold:
+        rows += [[("  ", None)] for _k in range(PATH_ROWS - len(rows))]
+    return rows
+
+
+def sim_report(player: SimPlayer, cols: int = LEGEND_WIDTH, colour: bool = False) -> list[str]:
     """The text --once --sim prints under the drawing: the scenario, its outcome
-    and length, the simulator's reading conventions, then the run in plain
-    words — one `tNNN …` line per beat (sim.narrate). The raw log is in --json."""
+    and length, the run's path at the shown frame (path_rows, as the live view's
+    row under its footer: the hop now bold, or `▸` without colour), the
+    simulator's reading conventions, then the run in plain words — one `tNNN …`
+    line per beat (sim.narrate). The raw log is in --json."""
     sc, trace = player.scenario, player.trace
     head = f"sim {sc.name}" + (f" ({sc.label})" if sc.label else "")
     head += f": {trace.outcome} · {len(trace.frames)} frames"
+    path = [kit.ansi(r, colour).rstrip()
+            for r in path_rows(player.path_branches(), cols, mono=not colour)]
     conventions = simulator.Beat(0, 0, simulator.CONVENTIONS)
-    return [head, beat_line(conventions)] + [beat_line(b) for b in player.beats]
+    return [head] + path + [beat_line(conventions)] + [beat_line(b) for b in player.beats]
 
 
 def sim_run(player: SimPlayer, limits=None) -> dict:
@@ -1117,7 +1250,7 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
                                    calls=drawn_call_marks(g, depth, payloads))
     else:
         legend = []
-    legend += [sim_legend(tree)] if player is not None else []
+    legend += [sim_legend(tree), path_legend()] if player is not None else []
     legend += [checks_legend()] if overlay is not None else []
     legend_w = LEGEND_WIDTH if width is None else min(LEGEND_WIDTH, width)
     if legend:
@@ -1139,7 +1272,7 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
     elif check_failed:
         out += ["", check_failed]
     if player is not None:
-        out += [""] + sim_report(player)
+        out += [""] + sim_report(player, legend_w, colour)
     print("\n".join(out))
     return status
 
@@ -1571,7 +1704,7 @@ class ViewState:
         else:
             legend = [vgraph.graph_legend(self.show_triggers, self.payloads, self.show_access,
                                           self.show_mods, self.events_mode)]
-        legend += [sim_legend(self.tree)] if self.sim_on else []
+        legend += [sim_legend(self.tree), path_legend()] if self.sim_on else []
         legend += [checks_legend()] if self.show_checks else []
         keys = [keys_legend(self)] + ([sim_keys_legend(self.player, self.follow)]
                                       if self.sim_on else [])
@@ -1664,16 +1797,13 @@ class ViewState:
 
 
 def sim_story_rows(player: SimPlayer, cols: int) -> list:
-    """The rows under the footer in sim mode: `trail` and the hops of the shown
-    episode so far (sim_trail; cut from the left to fit), the SIM_LOG_ROWS beats
-    before the current one (dim), then the current one after `›` (bright) — the
-    narration line. Mono reads them all; colour only ranks them."""
-    dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
-    trail = player.trail()
-    room = max(cols - len("trail  "), 1)
-    if len(trail) > room:
-        trail = "… " + trail[len(trail) - room + 2:]
-    rows = [[("trail  ", dim), (trail, mid)]]
+    """The rows under the footer in sim mode: `path` and the hops of the shown
+    episode so far, by branch (path_rows: PATH_ROWS rows, the hop now bold), the
+    SIM_LOG_ROWS beats before the current one (dim), then the current one after
+    `›` (bright) — the narration line. Mono reads them all; colour only ranks
+    them."""
+    dim = (kit.GREY["dim"], None, False)
+    rows = path_rows(player.path_branches(), cols, hold=True)
     told = player.told()
     earlier = told[-SIM_LOG_ROWS - 1:-1]
     rows += [[("  ", None)] for _k in range(SIM_LOG_ROWS - len(earlier))]   # rows hold still

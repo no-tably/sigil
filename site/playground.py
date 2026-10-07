@@ -90,7 +90,7 @@ def _legend(o: dict, g, sim: bool) -> list:
         rows.append(view.vflow.flow_legend(o["triggers"], o["payloads"], o["access"], o["mods"],
                                            o["events"]))
     if sim:
-        rows.append(view.sim_legend(o["tree"]))
+        rows += [view.sim_legend(o["tree"]), view.path_legend()]
     width = min(view.LEGEND_WIDTH, o["width"] or view.LEGEND_WIDTH)
     return frames.pack_rows([ln for r in rows for ln in view.wrap_legend(r, width)], STYLES)
 
@@ -123,9 +123,10 @@ def sim(request: str) -> str:
     last], "say": the run in plain words at this frame (the latest beat,
     `tNNN …`; "" before any), "story": [the beats so far, newest last], "beats":
     [the frame of every beat, for stepping by event], "trail": the hops of the
-    frame's episode so far, "outcome" (on the final frame), "styles"}; an
+    frame's episode so far as text (view.py's path row, the hop now marked `▸`),
+    "path": that row as view.py draws it (packed rows, the hop now bold), "outcome" (on the final frame), "styles"}; an
     unknown scenario: {"error"}. The wording is view.py's (sim.narrate) — the
-    viewer's narration line, recent events and trail row say the same."""
+    viewer's narration line, recent events and path row say the same."""
     req = json.loads(request)
     text, o = req.get("text", ""), _opts(req)
     name = req.get("scenario") or "happy"
@@ -148,7 +149,11 @@ def sim(request: str) -> str:
            "choice": player.choice(), "log": log[-40:],
            "say": player.narration(),
            "story": [view.beat_line(b) for b in player.told()][-40:],
-           "beats": [b.frame for b in player.beats], "trail": player.trail(),
+           "beats": [b.frame for b in player.beats], "trail": player.path(),
+           "path": frames.pack_rows(view.path_rows(player.path_branches(),
+                                                   min(view.LEGEND_WIDTH, o["width"]
+                                                       or view.LEGEND_WIDTH),
+                                                   hold=True), STYLES),
            "outcome": player.trace.outcome if player.at == player.last else None,
            "styles": STYLES.table}
     return json.dumps(out, ensure_ascii=False)

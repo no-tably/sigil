@@ -243,7 +243,7 @@ class TestBuild(unittest.TestCase):
 
     def test_playground_sim_narrates_as_the_viewer_does(self):
         """sim() carries the viewer's wording: "say" (the narration line), "story"
-        (the beats so far), "beats" (where stepping by event stops), "trail"."""
+        (the beats so far), "beats" (where stepping by event stops), "trail" / "path"."""
         pg = _load("sigil_playground_t3", SITE / "playground.py")
         view = pg.view
         text = (SITE / "examples" / "01-checkout.sigil").read_text()
@@ -255,7 +255,14 @@ class TestBuild(unittest.TestCase):
         self.assertIn("attempt 2 of 4", got["say"])
         self.assertEqual(got["story"], [view.beat_line(b) for b in player.told()])
         self.assertEqual(got["beats"], [b.frame for b in player.beats])
-        self.assertEqual(got["trail"], "(Shopper) -> [API] -> [Payments] ×2")
+        self.assertEqual(got["trail"], "① (Shopper) -> [API] ▸-> [Payments] ×2")
+        # "path": view.py's path row as it draws it, packed — the hop now bold
+        rows = got["path"]
+        self.assertLessEqual(len(rows), view.PATH_ROWS)    # packing drops a blank row
+        self.assertEqual("".join(t for t, _s in rows[0]),
+                         "path   ① (Shopper) -> [API] -> [Payments] ×2")
+        bold = [t for t, sid in rows[0] if got["styles"][sid][2]]
+        self.assertEqual(bold, ["-> [Payments] ×2"])
 
     def test_symbols_outside_the_font_get_a_fixed_cell(self):
         # Departure Mono 1.500 lacks these viewer and simulation symbols (fontTools);
@@ -426,13 +433,13 @@ class TestSiteJs(unittest.TestCase):
                       '</button> call-without-timeout: an upsert</li>', out)
 
     def test_run_story_rows(self):
-        # the viewer's rows under its footer: trail, the beats before, then `›` now
+        # the viewer's rows under its footer: path, the beats before, then `›` now
         code = _js_section("  const STORY_ROWS", "  const b64url")
-        r = {"trail": "(A) -> [B]", "say": "4 [B] <fails>",
+        r = {"trail": "① (A) -> [B]", "say": "4 [B] <fails>",
              "story": ["1 one", "2 two", "3 three", "4 [B] <fails>"]}
         out = self._run(code + f"\nprocess.stdout.write(storyHtml({json.dumps(r)}));")
         self.assertEqual(out.split("\n"), [
-            '<span class="pg-dim">trail  </span>(A) -&gt; [B]',
+            '<span class="pg-dim">path   </span>① (A) -&gt; [B]',
             '<span class="pg-dim">  2 two</span>',
             '<span class="pg-dim">  3 three</span>',
             '<span class="pg-now">› 4 [B] &lt;fails&gt;</span>'])

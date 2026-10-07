@@ -16,8 +16,11 @@ Usage:
         "summary", "lint": [lines], "scenarios": [names], and with --scenario
         "scenario", "status": [a line per frame], "log": [the latest log line
         per frame], "say": [the narration line per frame: the latest beat in
-        plain words, view.py's `›` line], "trail": [the episode's hops so far
-        per frame, in notation], "outcome"}; a row is [[text, style id], …].
+        plain words, view.py's `›` line], "trail": [the episode's path so far
+        per frame, in notation as text — view.py's path row without its label,
+        the hop now marked `▸`], "path": [the same row per frame as view.py
+        draws it, at most two rows, the hop now bold], "outcome"}; a row is
+        [[text, style id], …].
         The legend is the tree's key or the flow view's, then a run's marks. A document or
         view that cannot be drawn: {"error"}. Exit status 0 either way.
     pane.py follow CONTROL
@@ -149,7 +152,8 @@ def draw(path: Path, view_name: str = "graph", depth: int = 1, width: int | None
             sim = view.SimPlayer(g, scenario)
             shown = sim.shown(view.scene.SceneOptions(events, True, False, depth))
             picks = sampled(sim.last)
-            drawn, status, log, say, trail = [], [], [], [], []
+            drawn, status, log, say, trail, path_rows = [], [], [], [], [], []
+            cols = width or view.LEGEND_WIDTH
             for at in picks:
                 sim.at = at
                 rows, _w = compose(view, g, view_name, trace=shown, tick=at, **kw)
@@ -157,8 +161,11 @@ def draw(path: Path, view_name: str = "graph", depth: int = 1, width: int | None
                 status.append(_SPEED_RE.sub("", sim.status()))
                 log.append(sim.log_line())
                 say.append(sim.narration())
-                trail.append(sim.trail())
+                trail.append(sim.path())
+                path_rows.append(packed(view.path_rows(sim.path_branches(), cols, hold=True),
+                                   styles, frames))
             out.update(scenario=sim.scenario.name, status=status, log=log, say=say, trail=trail,
+                       path=path_rows,
                        outcome=sim.trace.outcome, choice=sim.choice())
         else:
             rows, _w = compose(view, g, view_name, **kw)
@@ -174,7 +181,7 @@ def draw(path: Path, view_name: str = "graph", depth: int = 1, width: int | None
     elif view_name == "flow":
         legend.append(view.vflow.flow_legend(True, payloads, False, False, events))
     if scenario:
-        legend.append(view.sim_legend(tree))
+        legend += [view.sim_legend(tree), view.path_legend()]
     cols = min(view.LEGEND_WIDTH, width or view.LEGEND_WIDTH)
     out["legend"] = packed([ln for r in legend for ln in view.wrap_legend(r, cols)],
                            styles, frames)

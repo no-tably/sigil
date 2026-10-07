@@ -355,7 +355,8 @@ export const register: Register = (on, options) => {
         <Text bold wrap="truncate">{statusLine(shown, req, at, now.isPlaying)}</Text>
         {error !== null && <Text color="error" wrap="truncate">✖ {error}</Text>}
         <Box flexDirection="column" flexGrow={1}>{body(rows, 'frame')}</Box>
-        {told !== null && <Text dimColor wrap="truncate">{told.trail}</Text>}
+        {told !== null && (told.path !== null ? body(told.path, 'path')
+          : <Text dimColor wrap="truncate">{told.trail}</Text>)}
         {told !== null && <Text bold wrap="truncate">{told.now}</Text>}
         {shown.legend.length > 0 && body(shown.legend, 'legend')}
         <Text dimColor wrap="truncate">{shown.summary}</Text>

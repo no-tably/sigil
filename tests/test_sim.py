@@ -1560,6 +1560,21 @@ class TestNarration(unittest.TestCase):
         self.assertEqual([h.frame for h in sim.hops(tr)],
                          sorted(h.frame for h in sim.hops(tr)))
 
+    def test_hops_end_and_outcome(self):
+        # each attempt fails on arrival; the call that waited on them and the
+        # `!>` route (it travels as a failure) are no failed hops
+        tr = run(load("01-checkout.sigil"), "API.charge:fails")
+        got = [(h.dst, h.frame, h.end, h.outcome) for h in sim.hops(tr)]
+        self.assertEqual(got[0], ("API_service", 0, 4, ""))
+        self.assertEqual(got[1:5], [("Payments_service", f, f + 4, "failed")
+                                    for f in (5, 10, 15, 20)])
+        self.assertEqual(got[-1], ("PaymentFailed_event", 25, 29, ""))
+        # a race's loser is cancelled when the winner arrives
+        tr = run(build("(U) -> [Api]\n[Api] -> [A] &? [B]\n"))
+        got = {h.dst: (h.end, h.outcome) for h in sim.hops(tr)}
+        self.assertEqual(got["A_service"], (9, ""))
+        self.assertEqual(got["B_service"], (9, "cancelled"))
+
 
 if __name__ == "__main__":
     unittest.main()
