@@ -776,7 +776,7 @@
   const SHARE = "play=";
   const CHECK_WAIT = 450;          // ms of quiet typing before a check (a draw waits 180)
   const CHECK_BUDGET = 1500;       // ms a check may take before checking waits for the button
-  const VIEW_KEYS = "1 2 3 t";     // the drawing's view keys, as the terminal viewer's
+  const VIEW_KEYS = "1 2 3 4 t";     // the drawing's view keys, as the terminal viewer's
 
   // Run speeds in frames a second: the terminal viewer's - / + steps. A run starts
   // at a readable 2/s; a viewer's own choice is remembered (index into the steps).

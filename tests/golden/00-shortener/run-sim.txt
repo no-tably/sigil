@@ -1,0 +1,19 @@
+── run · Redirect.lookup:fails — lookup fails 1×, no fallback ──────────────────────────────────────────────────────────────────────────────
+
+              0         10    ep2 20        30
+  (User)      █░░░░░░░░░░░░░░┆                   episode 1's entry; calls [Shortener]
+  [Shortener] ╰──▶██░░░░───↩ ┆                   calls |Links|; returns {Code}
+  |Links|          ╰──▶█     ┆     ╭───✖         its call fails on arrival
+  (Visitor)                  ┆█░░░░░░░░░░░░░░✕   episode 2's entry; calls [Redirect]; reached: an actor, no work of its own; fails
+  [Redirect]                 ┆╰──▶██░░░░█░░░░✕   calls |Links|; routes the failure; fails
+
+run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  ╰══▶ broadcast  
+       ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  ⊘ cancelled  ↺ self-call  ↻k depth k  
+       ┤ base case  ⇱ host  • reached  ◌ spawning  ┆ episode  ≈ quiet ticks  ▼ now  ▸ running
+path   the hops taken so far:  ①② its branches  ✖ failed  ⊘ cancelled  ×N repeated  
+       ▸ the hop now (bold in colour)
+
+00-shortener.sigil: 7 nodes, 8 edges, 0 expansions · #!sketch
+
+sim Redirect.lookup:fails (lookup fails 1×, no fallback): failed · 32 frames
+path   ① (Visitor) -> [Redirect] -> |Links| ✖   ② [Redirect] !> (Visitor)

@@ -365,7 +365,7 @@ class TestApp(unittest.TestCase):
         return st
 
     def test_views_and_names(self):
-        self.assertEqual(view.VIEWS, ("graph", "tree", "flow"))
+        self.assertEqual(view.VIEWS, ("graph", "tree", "flow", "run"))
         self.assertEqual(view.view_name(True), "tree")
         self.assertEqual(view.view_name(False), "graph")
         self.assertEqual(view.view_name("flow"), "flow")
@@ -378,7 +378,7 @@ class TestApp(unittest.TestCase):
         for _ in view.VIEWS:
             st.key("t")
             seen.append(st.view)
-        self.assertEqual(seen, ["graph", "tree", "flow", "graph"])
+        self.assertEqual(seen, ["graph", "tree", "flow", "run", "graph"])
         self.assertTrue(st.key("3"))
         self.assertEqual(st.view, "flow")
         self.assertFalse(st.key("3"))                  # already there
@@ -391,7 +391,7 @@ class TestApp(unittest.TestCase):
         text = "\n".join(plain(st.frame(200, 40)))
         self.assertIn("· flow ·", text)
         self.assertIn("flow   ──▶ call", text)
-        self.assertIn("1 2 3 view:flow", text)
+        self.assertIn("1 2 3 4 view:flow", text)
         self.assertIn("t next", text)
         self.assertIn("(Shopper) ──▶ [API]", text)
 

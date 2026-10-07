@@ -1,0 +1,24 @@
+── run · Payments:fails — Payments fails → Declined ────────────────────────────────────────────────────────────────────────────────────────
+
+             0         10         ep2      30
+  (Shopper)  █░░░░░░░░░          ┆              episode 1's entry; calls [Checkout]
+  [Checkout] ╰──▶██░░░░╮         ┆              calls {Order}; emits <Placed>, doesn't wait
+  {Order}         ╰──▶█╎         ┆
+  <Placed>             ╰╌╌▶◆╮    ┆              lands
+  Open                      ├╍╍▶ ┆
+  Busy                      ╰╍╍▶ ┆
+  [Payments]                     ┆█░░░░✕        episode 2's entry; routes the failure; fails
+  <Declined>                     ┆╰──✖◆╮        lands
+  Cancelled                      ┆     ├╍╍▶
+  Idle                           ┆     ╰╍╍▶
+
+run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  ╰══▶ broadcast  
+       ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  ⊘ cancelled  ↺ self-call  ↻k depth k  
+       ┤ base case  ⇱ host  • reached  ◌ spawning  ┆ episode  ≈ quiet ticks  ▼ now  ▸ running
+path   the hops taken so far:  ①② its branches  ✖ failed  ⊘ cancelled  ×N repeated  
+       ▸ the hop now (bold in colour)
+
+04-orders.sigil: 7 nodes, 5 edges, 2 expansions · #!sketch
+
+sim Payments:fails (Payments fails → Declined): failed · 32 frames
+path   ① [Payments] !> <Declined> ⇢ Cancelled   ② <Declined> ⇢ Idle

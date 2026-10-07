@@ -52,17 +52,21 @@ See "Checks" in [`language.md`](../language.md).
 
 ## `view.py FILE`
 
-A live terminal view of the design that redraws on every save. It has three views:
+A live terminal view of the design that redraws on every save. It has four views:
 the graph view (boxes and edges, top down; the default), the flow view (a call graph
 read left to right: bare glyph labels in columns by call depth, wires bending
-between them) and the tree view (the composition tree as an outline, with every flow
-as a lane beside it).
+between them), the tree view (the composition tree as an outline, with every flow
+as a lane beside it) and the run view (one simulated run as a timeline: a lane per
+participant, instance and recursion level, time left to right). The first three
+draw the design, what can happen; the run view draws what did happen in one run.
 
 Options:
 
 - `--once` prints the drawing and a lint summary, then exits (1 on a lint error; see
   [exit codes](#exit-codes)).
-- `--tree` starts in the tree view, `--flow` in the flow view.
+- `--tree` starts in the tree view, `--flow` in the flow view, `--run` in the run
+  view (`--sim`'s run, else the happy one; `--unroll N|all` sets how many instances
+  of one node it shows before the rest fold, 3 by default).
 - `--depth N|all` opens `X := { … }` expansions (in the tree view an expansion's
   members hang off dotted rails, `├┄┄`, apart from a branch's solid `├──`).
 - `--payloads` shows flow payloads: chips on edges in the graph view, on the wire
@@ -94,7 +98,9 @@ Options:
   taken, `ignored:` events a state had no transition for, `waiting:`, `open:` joins
   left open, `bounds:` base case, visit limit, spawn cap, a capped loop, a cut) and a
   summary line. It always exits 0; diff two versions' tables to see what changed.
-  `--json` prints either as JSON.
+  `--json` prints either as JSON. `--run --json` prints the run's timeline as data
+  (lanes with their labels, spans with their waits, moves, marks) — the scenario's,
+  else the happy one.
 - `--limit NAME=N` raises one simulator bound for `--sim` (repeatable): `iterations`
   (loop repetitions, 2), `depth` (recursion, 3), `spawn` / `spawns`, `visits`, `stack`,
   and the per-episode `frames` (2000) and `activations` (500). Each entry point runs
@@ -142,6 +148,41 @@ plugs. A band that still can't fit leaves a hint under the drawing that the tree
 view reads narrow panes best; the view never switches by itself. A run plays
 without reflowing, its tokens crossing the plugs.
 
+The run view draws one run as a timeline. Time (ticks) runs left to right under a
+ruler, one column a tick; a quiet stretch of more than three ticks folds into one
+`≈` column. Each participant gets a lane in the order it first acted — one per
+composition instance (`{Transform·2}`), the levels of a recursion as `↻2` `↻3`
+sub-rows under it, an expansion's lanes indented under its node:
+
+```text
+── run · API.charge:fails — charge fails 4×, no fallback ─────────────────────────
+
+                  0         10        20        30
+  (Shopper)       █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░✕   episode 1's entry; fails
+  [API]           ╰──▶██░░░░█░░░░█░░░░█░░░░█░░░░✕   routes the failure; fails
+  [Payments]           ╰───✖╰───✖╰───✖╰───✖│        4 attempts, each fails
+  <PaymentFailed>                          ╰──✖◆    lands
+```
+
+A bar per activation: `█` working, `░` waiting (on a call it made, a deeper
+activation, the members it awaits), `◆` an event landing, then `✕` failed or `⊘`
+cancelled. A call is drawn at its send tick: a vertical from the sender's lane, the
+transit along the receiver's lane in its arrow's stroke (`╰──▶` `╰╌╌▶` `╰━━▶`
+`├══▶`) into the callee's first cell. An attempt that fails on arrival ends `✖` with
+no bar, and retries repeat the segment; a race's loser ends `⊘`; a reply runs on the
+callee's lane to `↩`. `↺` is a self-call's pulse, `┤` where the depth limit stopped
+a recursion, `⇱` a host op, `•` an actor reached with no work of its own, `┆` the
+boundary between episodes. A spawned lane carries `◌` while its spawn hop flies;
+many instances fold into `{…×k more}` (`u` / `--unroll`). Each lane has a note in
+plain words ("4 attempts, each fails", "spawned by [Spawner] for [Asteroid]"); `n`
+cycles run notes, the design's own notes on the node, and none. In sim mode the
+playhead `▼` (and `┊` down the blank cells) is the frame's tick: nothing right of
+it is drawn, lanes appear as they are born, `●` / `○` ride the transits and `▸`
+marks the lanes working. With no scenario chosen it draws the happy run and says
+so; `x` plays it. When it is too wide the notes shrink, then move below the drawing,
+then the timeline wraps into bands, each with its own ruler and the lanes active in
+it.
+
 In sim mode every view draws the same run. The wire a token is on now is bright,
 wires taken before are faded (`ui.sim_trail`), and wires never taken are
 fainter (`ui.sim_faint`). Under the footer, in words that read without colour:
@@ -158,17 +199,18 @@ the path at the run's last frame under its outcome line. The view follows the ru
 and active nodes, panning only when they leave the window; `w` turns that off. The
 playground shows the same path and narration under its drawing (from the same
 `SimPlayer`), steps a frame (`,` `.`) or an event (`<` `>`) at a time, and picks its
-view with the same `1` `2` `3` and `t`.
+view with the same `1` `2` `3` `4` and `t`.
 
 Live keys:
 
 | Key | Does |
 | --- | --- |
-| `1` `2` `3` | the view: graph · tree · flow |
-| `t` | the next view (graph → tree → flow → graph) |
+| `1` `2` `3` `4` | the view: graph · tree · flow · run |
+| `t` | the next view (graph → tree → flow → run → graph) |
 | `x` | sim mode; then space play / pause, `,` `.` a frame, `<` `>` an event, `[` `]` scenario, `-` `+` speed (¼ to 32 frames/s, from 2), `w` follow |
 | `c` | checks overlay |
-| `n` `e` `v` | notes · triggers · events (where they land / as nodes) |
+| `n` `e` `v` | notes · triggers · events (where they land / as nodes); in the run view `n` cycles run notes · the design's · none |
+| `u` | the run view: instances shown before folding, 3 → 8 → all |
 | `p` `m` `a` | payloads · modifiers · access |
 | `d` `s` `l` | depth · spacing · lint |
 | `f` | fit to the window / natural layout with free pan |

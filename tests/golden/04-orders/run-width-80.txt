@@ -1,0 +1,22 @@
+── run · happy — no scenario chosen: the happy run ─────────────────────────────
+
+             0         10         ep2      30
+  (Shopper)  █░░░░░░░░░          ┆              episode 1's entry
+  [Checkout] ╰──▶██░░░░╮         ┆              emits <Placed>, doesn't wait
+  {Order}         ╰──▶█╎         ┆
+  <Placed>             ╰╌╌▶◆╮    ┆              lands
+  Open                      ├╍╍▶ ┆
+  Busy                      ╰╍╍▶ ┆
+  [Payments]                     ┆█             emits <Paid>, doesn't wait
+  <Paid>                         ┆╰╌╌▶◆╮        lands
+  Settled                        ┆     ├╍╍▶
+  Idle                           ┆     ╰╍╍▶
+
+happy run (every default) · ok · 32 frames   x plays it   [ ] another scenario
+
+run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  
+       ╰══▶ broadcast  ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  
+       ⊘ cancelled  ↺ self-call  ↻k depth k  ┤ base case  ⇱ host  • reached  
+       ◌ spawning  ┆ episode  ≈ quiet ticks  ▼ now  ▸ running
+
+04-orders.sigil: 7 nodes, 5 edges, 2 expansions · #!sketch

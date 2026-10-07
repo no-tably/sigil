@@ -67,7 +67,7 @@ lint: OK
 ```
 
 `--flow` reads the same design left to right, as a call graph (`t` steps through the
-graph, tree and flow views live):
+graph, tree, flow and run views live):
 
 ```
 ── URL shortener ─────────────────────────────────────────
@@ -111,7 +111,7 @@ Every flag and key is in [`docs/tools.md`](./docs/tools.md).
 
 | Tool | Does |
 | --- | --- |
-| `view.py FILE` | Live terminal view, redrawn on every save: a graph view, a tree view (`--tree`) and a flow view (a call graph left to right, `--flow`) — `1` `2` `3` pick one, `t` steps to the next — a simulation mode (`x`) and a checks overlay (`c`). `--once` prints one drawing for agents and CI. |
+| `view.py FILE` | Live terminal view, redrawn on every save: a graph view, a tree view (`--tree`), a flow view (a call graph left to right, `--flow`) and a run view (one simulated run as a timeline, `--run`) — `1` `2` `3` `4` pick one, `t` steps to the next — a simulation mode (`x`) and a checks overlay (`c`). `--once` prints one drawing for agents and CI. |
 | `lint.py FILE` | Validates a document: one `severity:line:rule: message` per issue; exit 0 clean, 1 warnings, 2 errors. `--deep` adds the composition checks. |
 | `check.py FILE` | Composition checks ([RFC 0003](./rfcs/0003-composition-checks.md)): does the design say how its risks are handled — time bounds, idempotency, writers, failure routes, stuck state machines? A finding never forbids a shape: declare the handling, or accept the risk with a reason. |
 | `render.py FILE` | Emits a Mermaid `flowchart TD` for docs (GitHub, Obsidian, mermaid.live). |
@@ -231,7 +231,7 @@ random; the run is a function of the design and the chosen **scenario**.
   with charge(total) — attempt 2 of 4`, `|Orders| returns {Order} to [API]`,
   `[Checkout] moves Idle → Busy on <Placed>`.
 
-Live, `x` enters sim mode in any of the three views. Space plays and pauses, `,` /
+Live, `x` enters sim mode in any of the four views. Space plays and pauses, `,` /
 `.` step a frame, `<` / `>` step to the previous / next event, `[` / `]` pick the
 scenario (named in the status bar), and `-` / `+` set the speed (¼ to 32 frames a
 second, starting at 2). Under the drawing, `path` writes the episode's hops so far
@@ -273,6 +273,26 @@ t020 [API] calls [Payments] with charge(total) — attempt 4 of 4
 t024 charge(total) to [Payments] fails — attempt 4 of 4
 t025 [API]'s call to [Payments] fails after 4 attempts; [API] routes the failure to <PaymentFailed>
 t030 (Shopper)'s call to [API] fails — its callee failed; episode 1 fails; the run ends: failed
+```
+
+The run view (`--run`, `4` live) draws the same run as a timeline: a lane per
+participant (per instance, per recursion level), time left to right, a bar per
+activation (`█` working, `░` waiting), each call drawn at its send tick, each
+retry a repeated segment, and a note per lane in plain words. Without `--sim` it
+draws the happy run.
+
+```sh
+view.py checkout.sigil --once --run --sim 'API.charge:fails'
+```
+
+```
+── run · API.charge:fails — charge fails 4×, no fallback ───────────────────────────────────────────
+
+                  0         10        20        30
+  (Shopper)       █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░✕   episode 1's entry; calls [API]; fails
+  [API]           ╰──▶██░░░░█░░░░█░░░░█░░░░█░░░░✕   calls [Payments]; routes the failure; fails
+  [Payments]           ╰───✖╰───✖╰───✖╰───✖│        4 attempts, each fails
+  <PaymentFailed>                          ╰──✖◆    lands
 ```
 
 An agent designing with you runs every scenario at once: `--sim all` prints, with no
@@ -320,7 +340,7 @@ The **playground** runs the tools themselves in the browser: the build copies
 `view.py`, `lint.py`, `sim.py` and the modules they load into `py/` byte for byte, and
 [Pyodide](https://pyodide.org) runs them when a visitor presses *start*
 (`site/playground.py` is the thin JSON layer the page calls). Write a design, switch
-views (graph, tree, flow — `1` `2` `3` or `t` on the drawing, as in the viewer), read
+views (graph, tree, flow, run — `1` `2` `3` `4` or `t` on the drawing, as in the viewer), read
 the lint, pick a scenario and step through its run, a frame or an event at a time,
 with the viewer's path and narration line under the drawing; *share* puts the
 document in the link. Nothing about the notation is re-implemented in JavaScript, so
@@ -367,7 +387,7 @@ check.py     the checker (SGCnnn) and its rule modules:              │
   check_flow.py · check_state.py · check_trace.py · check_inv.py     ┘
 view.py      the terminal viewer app                                 ┐
 viewkit.py   its drawing kit                                         │ the viewer
-view_graph.py · view_flow.py · view_tree.py   the three views      │
+view_graph.py · view_flow.py · view_tree.py · view_run.py  the views │
 themes.py    YAML themes (themes/), shared with the page             ┘
 build.py     packaging (maintainers only)
 site/  the page and playground · tools/  golden drawings, doc regeneration
@@ -392,7 +412,7 @@ Canonical packaging sources — edit these, never `dist/`:
   the mod's `hooks/logic.ts`. See [`plugin/pi/README.md`](plugin/pi/README.md).
 
 `build.py` copies `lint.py`, `render.py`, the viewer (`view.py` with `viewkit.py`,
-`view_graph.py`, `view_tree.py`, `scene.py` and `sim.py`), the checker (`check.py` with `check_flow.py`,
+`view_graph.py`, `view_tree.py`, `view_flow.py`, `view_run.py`, `scene.py` and `sim.py`), the checker (`check.py` with `check_flow.py`,
 `check_state.py`, `check_trace.py` and `check_inv.py`), `dialects.py` and `themes.py`
 (with `themes/*.yaml`) into `skills/sigil/scripts/` and `language.md` / `examples.md` into
 `skills/sigil/references/`, then writes each agent's manifests. Archives are

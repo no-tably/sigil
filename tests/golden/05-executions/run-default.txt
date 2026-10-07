@@ -1,0 +1,21 @@
+── run · happy — no scenario chosen: the happy run ─────────────────────────────────────────────────────────────────────────────────────────
+
+                   0         10        20        30        40        50
+  (Operator)       █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░    episode 1's entry; calls [Scheduler]
+  [Scheduler]      ╰──▶█↺██░░░░█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░    calls [Crawler]; runs plan() itself
+  {Plan}                  ╰━━▶█│                                          produced by [Scheduler]
+  [Crawler]                    ╰──▶██░░░░█░░░░░░░░█░░░░░░░░░█░░░░───↩     calls 3; returns {Site}
+  (Web)                             ╰──▶⇱│        │         │             reached: the host's side, opaque
+  [Crawler.follow]                       ╰──▶██░░░│         │             recurses to depth 3
+    ↻2                                        ╰██░│         │
+    ↻3                                          ╰█┤         │
+  |Index|                                         ╰──▶█───↩ ╰──▶█         returns {Lease}; runs 2×
+
+happy run (every default) · ok · 52 frames   x plays it   [ ] another scenario
+
+run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  ╰══▶ broadcast  
+       ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  ⊘ cancelled  ↺ self-call  ↻k depth k  
+       ┤ base case  ⇱ host  • reached  ◌ spawning  ┆ episode  ≈ quiet ticks  ▼ now  ▸ running
+
+05-executions.sigil: 8 nodes, 10 edges, 0 expansions · #!sketch
+info:17:SGL070: glyph [Crawler.follow] appears twice on one flow line. If it plays two roles, consider role-qualified names (e.g. [Crawler.follow.read] / [Crawler.follow.write]) or expand at L2 with `:= { ... }`.

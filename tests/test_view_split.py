@@ -51,6 +51,7 @@ class SiblingsPerDirectory(unittest.TestCase):
             self.assertIs(view.vgraph.kit, view.kit)
             self.assertIs(view.vtree.kit, view.kit)
             self.assertIs(view.vflow.kit, view.kit)
+            self.assertIs(view.vrun.kit, view.kit)
 
     def test_loader_copies_identical(self):
         def loader(fname: str) -> str:
@@ -60,6 +61,7 @@ class SiblingsPerDirectory(unittest.TestCase):
         self.assertEqual(loader("view_graph.py"), loader("view.py"))
         self.assertEqual(loader("view_tree.py"), loader("view.py"))
         self.assertEqual(loader("view_flow.py"), loader("view.py"))
+        self.assertEqual(loader("view_run.py"), loader("view.py"))
         self.assertEqual(loader("scene.py"), loader("view.py"))
 
     def test_theme_stays_in_its_directory(self):

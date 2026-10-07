@@ -35,8 +35,8 @@ def _sibling(name: str, fname: str):
     reaches them all, while a view.py loaded from another directory (a packaged
     copy) gets modules, theme and dialect state of its own. The cache key names
     the directory, never the bare name. view.py, view_graph.py, view_tree.py,
-    view_flow.py and scene.py each carry a copy of this function: keep the copies
-    identical."""
+    view_flow.py, view_run.py and scene.py each carry a copy of this function: keep
+    the copies identical."""
     key = f"{name}@{_HERE}"
     if key not in sys.modules:
         spec = importlib.util.spec_from_file_location(key, _HERE / fname)

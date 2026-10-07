@@ -218,7 +218,7 @@ class TestBuild(unittest.TestCase):
                 got = json.loads(pg.draw(json.dumps({"text": text, "view": name})))
                 rows, _w = view.compose_view(
                     g, name, depth=pg.MAX_DEPTH, payloads=True,
-                    notes="callouts" if name == "tree" else "markers", triggers=True,
+                    notes={"tree": "callouts", "run": "off"}.get(name, "markers"), triggers=True,
                     spaced=True, width=None, access=False, mods=False,
                     events=view.DEFAULT_EVENTS[name])
                 want = ["".join(t for t, _s in r).rstrip() for r in rows]
@@ -452,8 +452,8 @@ class TestSiteJs(unittest.TestCase):
         picker = re.search(r'<div class="seg" id="pg-views".*?</div>', page, re.S).group(0)
         self.assertEqual(re.findall(r'data-view="(\w+)"', picker), list(view.VIEWS))
         js = (SITE / "site.js").read_text()
-        self.assertIn('const VIEW_KEYS = "1 2 3 t"', js)
-        self.assertEqual(view.view_keys(), "1 2 3")
+        self.assertIn('const VIEW_KEYS = "1 2 3 4 t"', js)
+        self.assertEqual(view.view_keys(), "1 2 3 4")
 
     def test_playground_speed_steps(self):
         # the terminal viewer's - / + steps, a readable start, a remembered choice

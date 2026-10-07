@@ -179,7 +179,7 @@ class TestTreeView(unittest.TestCase):
             text = "\n".join("".join(t for t, _ in r) for r in st.frame(140, 40))
             self.assertNotIn("◀ target", text)
             self.assertIn("arrows", text)
-            self.assertIn("1 2 3 view:graph", text)
+            self.assertIn("1 2 3 4 view:graph", text)
             self.assertIn("t next", text)
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):

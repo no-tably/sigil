@@ -1,0 +1,18 @@
+── run · API.charge:fails — charge fails 4×, no fallback ───────────────────────────────────────────────────────────────────────────────────
+
+                  0         10        20        30
+  (Shopper)       █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░✕   episode 1's entry; calls [API]; fails
+  [API]           ╰──▶██░░░░█░░░░█░░░░█░░░░█░░░░✕   calls [Payments]; routes the failure; fails
+  [Payments]           ╰───✖╰───✖╰───✖╰───✖│        4 attempts, each fails
+  <PaymentFailed>                          ╰──✖◆    lands
+
+run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  ╰══▶ broadcast  
+       ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  ⊘ cancelled  ↺ self-call  ↻k depth k  
+       ┤ base case  ⇱ host  • reached  ◌ spawning  ┆ episode  ≈ quiet ticks  ▼ now  ▸ running
+path   the hops taken so far:  ①② its branches  ✖ failed  ⊘ cancelled  ×N repeated  
+       ▸ the hop now (bold in colour)
+
+01-checkout.sigil: 9 nodes, 8 edges, 0 expansions · #!sketch
+
+sim API.charge:fails (charge fails 4×, no fallback): failed · 31 frames
+path   ① (Shopper) -> [API] -> [Payments] ✖×4   ② [API] !> <PaymentFailed>

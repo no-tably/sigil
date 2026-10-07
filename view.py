@@ -34,7 +34,12 @@ Options:
                      boxes) in columns by call depth, a node's first callee on its
                      row and the rest below, wires bending between the columns
                      (─┬─▶ ├─▶ ╰─▶), each flow's chip on its wire. Graph (no flag)
-                     stays the default; --tree and --flow pick one of the others.
+                     stays the default; --tree, --flow and --run pick one of the others.
+    --run            Run: one simulated run as a timeline — a lane per participant,
+                     composition instance and recursion level, time (ticks) left to
+                     right; --sim's run, else the happy one (the title says so).
+    --unroll N|all   The run view: instances of one node shown before the rest fold
+                     into `…×k more` (default 3; all: none fold).
     --compact        Tree view without the blank row between top-level units.
     --no-triggers    Start without event → state triggers (lanes / wires).
     --notes MODE     off | markers (#N tags + a notes list) | callouts (tree view:
@@ -63,7 +68,9 @@ Options:
     --json           With --sim list / all: the same as JSON. With a scenario: that
                      run as JSON, no drawing — its facts (as --sim all lists them),
                      "steps" (the run in plain words: frame, tick, text) and "log"
-                     (the simulator's own lines).
+                     (the simulator's own lines). With --run: the run's timeline as
+                     data — lanes (key, label, parent, born, owner, spawned, folds),
+                     spans (enter, leave, how, waits), moves, marks.
     --checks         The composition checks overlay (check.py, the document's mode):
                      with --once, the findings marked on the drawing, the checks
                      legend, then the findings list (each finding's question) after
@@ -72,10 +79,13 @@ Options:
 Keys (live view):
     d  cycle depth (0 → 1 → all)   p  payloads   m  modifiers   a  access
     l  lint panel   r  reload
-    1 2 3  the view: graph / tree / flow   t  the next view (graph → tree → flow → …)
+    1 2 3 4  the view: graph / tree / flow / run   t  the next view (graph → tree →
+       flow → run → …)
     e  triggers (event ⇢ the state it drives)
     s  spacing between units      v  events: where they land / as nodes (per view)
-    n  notes: off → #N markers + list → margin callouts (tree view)
+    n  notes: off → #N markers + list → margin callouts (tree view); in the run
+       view its own: run notes → the design's notes on each lane's node → off
+    u  the run view: instances shown before folding, 3 → 8 → all
     f  fit to the window (rearranged, centred) / the natural layout, free to pan
     c  checks: the composition checks overlay (check.py) and the findings panel
     arrows / h j k L pan   pgup / pgdn / space page   g home   z  re-centre   q  quit
@@ -163,6 +173,24 @@ last few events dim, and the narration line after `›` — what is happening no
 in plain words (`[API] calls [Payments] with charge(total) — attempt 2 of 4`),
 held while a token travels. --once --sim prints the path under its outcome.
 
+Run view (--run, 4): one run as a timeline (view_run.py over sim.timeline) —
+what did happen, where the other three views draw what can. Time runs left to
+right on a tick ruler, one column a tick (a quiet stretch of more than 3 ticks
+folds into one ≈ column); one lane per participant, composition instance
+(`{Transform·2}`) and recursion level (`↻2` sub-rows), in the order they first
+acted, an expansion's lanes indented under its node. █ working, ░ waiting, ◆
+an event landing, then ✕ failed / ⊘ cancelled; a call drawn at its send tick
+(╰──▶ in its arrow's stroke into the callee's first cell, a fan-out sharing one
+vertical ├══▶ ╰══▶), an attempt failing on arrival ╰───✖ (retries repeat it), a
+reply ───↩ on the callee's lane, ↺ a self-call, ┤ the base case, ⇱ a host op, •
+an actor reached; ┆ between episodes; a spawned lane ◌ while its spawn hop
+flies; `{…×k more}` a fold. A note per lane in plain words. During a run the
+playhead ▼ (┊ down the blank cells) is the frame's tick: nothing right of it,
+lanes appear as they are born, ● / ○ tokens ride the transits, ▸ marks the
+lanes working. Without a run chosen it draws the happy run's final frame and
+says so (x plays it). Narrow: notes shrink, then move below, then the timeline
+wraps into bands, each with its own ruler and the lanes active in it.
+
 Checks (c, --checks): check.py's findings, as the document's mode shows them,
 marked on the drawing in the theme's ui.error / ui.warn colours — a box's
 border, a wire's stroke (graph) or lane (tree) in its worst finding's colour,
@@ -175,9 +203,9 @@ drawn node or wire (a block, the document) is listed only.
 
 Modules: this file is the app (the --once printer, the live view, the CLI). The
 drawing lives beside it — viewkit.py (styles, canvas, runs, notes, fit panels),
-view_graph.py (the graph view), view_tree.py (the tree view) and view_flow.py
-(the flow view) — and every name of those four is also reachable here as
-view.NAME.
+view_graph.py (the graph view), view_tree.py (the tree view), view_flow.py
+(the flow view) and view_run.py (the run view) — and every name of those five
+is also reachable here as view.NAME.
 """
 
 from __future__ import annotations
@@ -208,8 +236,8 @@ def _sibling(name: str, fname: str):
     reaches them all, while a view.py loaded from another directory (a packaged
     copy) gets modules, theme and dialect state of its own. The cache key names
     the directory, never the bare name. view.py, view_graph.py, view_tree.py,
-    view_flow.py and scene.py each carry a copy of this function: keep the copies
-    identical."""
+    view_flow.py, view_run.py and scene.py each carry a copy of this function: keep
+    the copies identical."""
     key = f"{name}@{_HERE}"
     if key not in sys.modules:
         spec = importlib.util.spec_from_file_location(key, _HERE / fname)
@@ -227,16 +255,17 @@ kit = _sibling("sigil_viewkit", "viewkit.py")
 vgraph = _sibling("sigil_view_graph", "view_graph.py")
 vtree = _sibling("sigil_view_tree", "view_tree.py")
 vflow = _sibling("sigil_view_flow", "view_flow.py")
+vrun = _sibling("sigil_view_run", "view_run.py")
 scene = _sibling("sigil_scene", "scene.py")
 simulator = _sibling("sigil_sim", "sim.py")
 
 
 def __getattr__(name: str):
-    """view.NAME for every name of viewkit, view_graph, view_tree and view_flow
-    (tests, the site and dialects use view.render, view.compose, view.KINDS, …).
-    Looked up at access time, so a themed style (view.GREY) is always the one in
-    use."""
-    for mod in (kit, vgraph, vtree, vflow):
+    """view.NAME for every name of viewkit, view_graph, view_tree, view_flow and
+    view_run (tests, the site and dialects use view.render, view.compose,
+    view.KINDS, …). Looked up at access time, so a themed style (view.GREY) is
+    always the one in use."""
+    for mod in (kit, vgraph, vtree, vflow, vrun):
         if name in vars(mod):
             return vars(mod)[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
@@ -254,8 +283,12 @@ NOTE_MODES = ("off", "markers", "callouts")
 EVENT_MODES = scene.EVENTS                       # --events / v: "land" | "nodes"
 # The views, in the order `t` steps through them and keys 1, 2, 3 … select them;
 # the first is the default. A new view goes at the end (its key the next digit).
-VIEWS = ("graph", "tree", "flow")
-DEFAULT_EVENTS = {"graph": "nodes", "tree": "land", "flow": "nodes"}   # each view's own
+VIEWS = ("graph", "tree", "flow", "run")
+DEFAULT_EVENTS = {"graph": "nodes", "tree": "land", "flow": "nodes",
+                  "run": "nodes"}               # each view's own (the run view draws a trace)
+RUN_NOTES = vrun.RUN_NOTES                      # n in the run view: run → design → off
+RUN_UNROLL = (vrun.sim.RUN_SHOW, 8, 0)          # u in the run view: instances shown before
+                                                # folding (0: all)
 
 
 def view_name(view) -> str:
@@ -270,7 +303,7 @@ def view_name(view) -> str:
 
 
 def view_keys() -> str:
-    """The keys that select a view, as the legend writes them (`1 2 3`)."""
+    """The keys that select a view, as the legend writes them (`1 2 3 4`)."""
     return " ".join(str(k) for k in range(1, len(VIEWS) + 1))
 
 
@@ -300,7 +333,7 @@ def wrap_legend(row, cols: int):
 
 
 KEY_LEGEND = (("views", "view"), ("t", "next"), ("x", "sim"), ("c", "checks"),
-              ("n", "notes"), ("e", "triggers"), ("v", "events"), ("s", "spacing"), ("f", "fit"),
+              ("n", "notes"), ("u", "unroll"), ("e", "triggers"), ("v", "events"), ("s", "spacing"), ("f", "fit"),
               ("d", "depth"), ("p", "payloads"), ("m", "mods"), ("a", "access"),
               ("l", "lint"), ("z", "centre"), ("g", "home"), ("r", "reload"), ("q", "quit"))
 
@@ -342,13 +375,20 @@ def keys_legend(state):
           "p": state.payloads, "l": state.show_lint, "n": state.notes != "off",
           "m": state.show_mods, "a": state.show_access, "f": state.fit}
     row = [("keys   ", dim)]
+    run = state.view == "run"
     for key, word in KEY_LEGEND:
         bright = on.get(key)
+        if (key == "u" and not run) or (key in ("v", "d", "p", "m", "a", "e", "s") and run):
+            continue                           # u: the run view's own; the rest: not its
         if key == "views":                     # 1 2 3 …: one key per view
             key, word = view_keys(), f"view:{state.view}"
             bright = state.view != VIEWS[0]
         elif key == "n":
-            word = f"notes:{state.notes}"
+            word = f"notes:{state.run_notes if run else state.notes}"
+            bright = (state.run_notes != "off") if run else bright
+        elif key == "u":
+            word = f"unroll:{state.unroll or 'all'}"
+            bright = state.unroll != RUN_UNROLL[0]
         elif key == "v":
             word = f"events:{state.events_mode}"
             bright = state.events_mode != DEFAULT_EVENTS[state.view]
@@ -996,6 +1036,20 @@ def sim_json(path: Path, name: str, dialect=None, limits=None) -> int:
     return 0
 
 
+def run_json(path: Path, name: str | None, dialect=None, limits=None,
+             unroll: int | None = None) -> int:
+    """--run --json [--sim NAME]: print the run's timeline (view_run.timeline_json:
+    lanes with their labels, spans, moves, marks) as JSON — the scenario's run,
+    else the happy one; no drawing, no lint. Exit status 0; raises
+    UnknownScenario for an unknown name."""
+    kit.use_dialect(dialect)
+    g = kit._call(kit.render.parse_document, path.read_text(), dialect)
+    player = SimPlayer(g, name, limits)
+    data = vrun.timeline_json(player.trace, player.limits, unroll)
+    print(json.dumps(data, indent=2, ensure_ascii=False))
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Checks — check.py's findings on one document, mapped onto the Scene a view
 # draws (kit.CheckMarks; the views mark them) and listed in a panel. Running
@@ -1155,6 +1209,15 @@ class ChecksOverlay:
             self._marks[options] = check_marks(self.entries, self._canon, view)
         return self._marks[options]
 
+    def run_marks(self):
+        """kit.CheckMarks named as the canonical scene names things — what the
+        run view draws (its lanes are the run's nodes)."""
+        if "run" not in self._marks:
+            if self._canon is None:
+                self._canon = simulator.canonical(self.graph)
+            self._marks["run"] = check_marks(self.entries, self._canon, self._canon)
+        return self._marks["run"]
+
     def panel(self, cols: int, limit: int | None = None) -> list:
         return checks_panel(self.summary, self.entries, cols, limit)
 
@@ -1163,17 +1226,32 @@ class ChecksOverlay:
 # --once
 # ---------------------------------------------------------------------------
 
+def run_notes_of(notes: str) -> str:
+    """The run view's notes (RUN_NOTES) for a --notes mode: off (the default)
+    the run's notes, markers or callouts the design's notes on each lane's node."""
+    return "run" if notes == "off" else "design"
+
+
 def compose_view(g, view, *, depth: int, payloads: bool, notes: str, triggers: bool,
                  spaced: bool, width: int | None, access: bool, mods: bool, events: str,
-                 trace=None, tick: int = 0, checks=None):
+                 trace=None, tick: int = 0, checks=None, limits=None, unroll=None,
+                 run_notes: str | None = None):
     """(rows, width): the drawing of `g` in a view — a name in VIEWS, or a bool
     as the old tree flag (view_name) — see compose / compose_flow /
-    compose_tree. `trace`, `tick`: a simulation run drawn over it at
+    compose_tree / compose_run. `trace`, `tick`: a simulation run drawn over it at
     frame `tick`, named as this view's scene names it (SimPlayer.shown — the same
     Trace object for every frame, so the graph view's per-trace badge slots are
     worked out once), or None. `checks`: the checks overlay's kit.CheckMarks,
-    named as this view's scene names things (ChecksOverlay.marks), or None."""
+    named as this view's scene names things (ChecksOverlay.marks; the run view:
+    ChecksOverlay.run_marks), or None. The run view draws `trace` as a timeline
+    (None: the happy run, said so; `limits` its bounds), its notes `run_notes`
+    (a RUN_NOTES mode; None: run_notes_of(notes)), `unroll` the instances it
+    shows before folding (None: sim.RUN_SHOW, 0: all)."""
     view = view_name(view)
+    if view == "run":
+        return vrun.compose_run(g, trace, tick if trace is not None else None, width,
+                                run_notes or run_notes_of(notes), checks, unroll, limits,
+                                trace is not None)
     if view == "tree":
         return vtree.compose_tree(g, depth, triggers, spaced, notes, payloads, width, access,
                                   mods, events, trace=trace, tick=tick, checks=checks)
@@ -1186,7 +1264,7 @@ def compose_view(g, view, *, depth: int, payloads: bool, notes: str, triggers: b
 
 def sim_focus(g, view, *, depth: int, payloads: bool, notes: str, triggers: bool,
               spaced: bool, width: int | None, access: bool, mods: bool, events: str,
-              trace, tick: int):
+              trace, tick: int, limits=None, unroll=None, run_notes: str | None = None):
     """(x, y, w, h): the cells of compose_view's rows (same arguments) where frame
     `tick` of `trace` acts — its tokens and the nodes it has active — in any
     view; None when the frame has nothing drawn in motion. Draws the frame once
@@ -1195,7 +1273,10 @@ def sim_focus(g, view, *, depth: int, payloads: bool, notes: str, triggers: bool
     if view == "graph":
         return vgraph.sim_focus(g, depth, payloads, notes, triggers, width, access, mods,
                                 events, trace=trace, tick=tick)
-    if view == "tree":
+    if view == "run":
+        rows, _w = vrun.compose_run(g, trace, tick, width, run_notes or run_notes_of(notes),
+                                    show=unroll, limits=limits, probe=True)
+    elif view == "tree":
         rows, _w = vtree.compose_tree(g, depth, triggers, spaced, notes, payloads, width,
                                       access, mods, events, trace=trace, tick=tick, probe=True)
     else:
@@ -1209,9 +1290,11 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
          triggers: bool = True, spaced: bool = True, notes: str = "off",
          width: int | None = None, access: bool = False, mods: bool = False,
          events: str | None = None, sim: str | None = None, checks: bool = False,
-         limits=None, view: str | None = None) -> int:
+         limits=None, view: str | None = None, unroll: int | None = None) -> int:
     """Print the drawing once, in `view` (a name in VIEWS; None: the tree view
-    when `tree`, else the graph view). `width`: the columns to fit it to (None: its
+    when `tree`, else the graph view). The run view draws `sim`'s run as a
+    timeline, or the happy run when no scenario is given (`unroll`: the
+    instances it shows before folding; None: sim.RUN_SHOW, 0: all). `width`: the columns to fit it to (None: its
     natural width); the legend wraps at the narrower of that and LEGEND_WIDTH.
     `events`: "land" | "nodes" (None: the view's default, DEFAULT_EVENTS).
     `sim`: a scenario name — the run's final frame is drawn over the view and its
@@ -1239,18 +1322,25 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
             overlay = ChecksOverlay(g, report, checks_summary(report))
         except Exception as exc:       # the drawing still prints
             check_failed = f"checks failed: {type(exc).__name__}: {exc}"
+    run = view == "run"
+    marks = None
+    if overlay is not None:
+        marks = overlay.run_marks() if run else overlay.marks(options)
     rows, _w = compose_view(g, view, depth=depth, payloads=payloads, notes=notes,
                             triggers=triggers, spaced=spaced, width=width, access=access,
                             mods=mods, events=events, trace=shown,
-                            tick=player.at if player else 0,
-                            checks=overlay.marks(options) if overlay else None)
+                            tick=player.at if player else 0, checks=marks, limits=limits,
+                            unroll=unroll)
     out = [kit.ansi(r, colour) for r in rows]
     if tree:
         legend = vtree.tree_legend(triggers, payloads, access, mods, events,
                                    calls=drawn_call_marks(g, depth, payloads))
+    elif run:
+        legend = [vrun.run_legend()]
     else:
         legend = []
-    legend += [sim_legend(tree), path_legend()] if player is not None else []
+    if player is not None:
+        legend += [path_legend()] if run else [sim_legend(tree), path_legend()]
     legend += [checks_legend()] if overlay is not None else []
     legend_w = LEGEND_WIDTH if width is None else min(LEGEND_WIDTH, width)
     if legend:
@@ -1344,9 +1434,10 @@ class ViewState:
                  triggers: bool = True, spaced: bool = True, notes: str = "off",
                  access: bool = False, mods: bool = False, events: str | None = None,
                  sim: str | None = None, checks: bool = False, limits=None,
-                 view: str | None = None):
+                 view: str | None = None, unroll: int | None = None):
         """`view`: the view to start in (a name in VIEWS; None: the tree view when
-        `tree`, else the graph view). `events`: the events mode every view starts
+        `tree`, else the graph view). `unroll`: the run view's instances shown
+        before folding (None: sim.RUN_SHOW; 0: all; key u). `events`: the events mode every view starts
         in (None: each view's default, DEFAULT_EVENTS); each view then keeps its
         own (key v). `sim`: a
         scenario to start in sim mode on (None: sim mode off until x).
@@ -1359,6 +1450,8 @@ class ViewState:
         self.view = view_name(view or tree)
         self.events = events_by_view(events)   # {view: "land" | "nodes"}
         self.notes = notes
+        self.run_notes = run_notes_of(notes)   # the run view's own (n there): RUN_NOTES
+        self.unroll = RUN_UNROLL[0] if unroll is None else unroll
         self.show_triggers = triggers
         self.spaced = spaced
         self.depth = depth
@@ -1479,6 +1572,8 @@ class ViewState:
         None: the overlay is off or has no findings to mark."""
         if not self.show_checks or self.checks is None:
             return None
+        if self.view == "run":
+            return self.checks.run_marks()
         return self.checks.marks(self._scene_options())
 
     def _scene_options(self):
@@ -1520,11 +1615,12 @@ class ViewState:
         if self.graph is None:
             return [], 0
         return compose_view(self.graph, self.view, depth=self.depth, payloads=self.payloads,
-                            notes=self.notes, triggers=self.show_triggers, spaced=self.spaced,
+                            notes=self.notes, run_notes=self.run_notes,
+                            triggers=self.show_triggers, spaced=self.spaced,
                             width=width, access=self.show_access, mods=self.show_mods,
                             events=self.events_mode, trace=self.sim_trace(),
                             tick=self.player.at if self.player else 0,
-                            checks=self.check_marks())
+                            checks=self.check_marks(), limits=self.limits, unroll=self.unroll)
 
     def fitted(self, cols: int):
         """(rows, width): the drawing rearranged to fit `cols` columns when it can
@@ -1562,9 +1658,18 @@ class ViewState:
             self.view = to
             self._place = "home"
             self._recompose()
+        elif k == "n" and self.view == "run":   # the run view's notes: run → design → off
+            self.run_notes = RUN_NOTES[(RUN_NOTES.index(self.run_notes) + 1) % len(RUN_NOTES)]
+            self._recompose()
         elif k == "n":
             self.notes = NOTE_MODES[(NOTE_MODES.index(self.notes) + 1) % len(NOTE_MODES)]
             self._recompose()
+        elif k == "u" and self.view == "run":   # instances shown before folding: 3 → 8 → all
+            self.unroll = RUN_UNROLL[(RUN_UNROLL.index(self.unroll) + 1) % len(RUN_UNROLL)
+                                     if self.unroll in RUN_UNROLL else 0]
+            self._recompose()
+        elif k == "v" and self.view == "run":   # the run view draws the run's lanes
+            return False
         elif k == "v":                 # flips the active view's mode only
             view = self.view
             self.events[view] = EVENT_MODES[(EVENT_MODES.index(self.events[view]) + 1)
@@ -1701,10 +1806,14 @@ class ViewState:
         elif self.view == "flow":
             legend = [vflow.flow_legend(self.show_triggers, self.payloads, self.show_access,
                                         self.show_mods, self.events_mode)]
+        elif self.view == "run":
+            legend = [vrun.run_legend()]
         else:
             legend = [vgraph.graph_legend(self.show_triggers, self.payloads, self.show_access,
                                           self.show_mods, self.events_mode)]
-        legend += [sim_legend(self.tree), path_legend()] if self.sim_on else []
+        if self.sim_on:
+            legend += ([path_legend()] if self.view == "run"
+                       else [sim_legend(self.tree), path_legend()])
         legend += [checks_legend()] if self.show_checks else []
         keys = [keys_legend(self)] + ([sim_keys_legend(self.player, self.follow)]
                                       if self.sim_on else [])
@@ -1754,7 +1863,8 @@ class ViewState:
         origin is the reader's to pan. Returns True when it moved the origin."""
         if not (self.sim_on and self.follow and self.player is not None):
             return False
-        key = (self.player.index, self.player.at, self.view, self.fit, cols, vh, self.depth)
+        key = (self.player.index, self.player.at, self.view, self.fit, cols, vh, self.depth,
+               self.unroll)
         if key == self._followed:
             return False
         self._followed = key
@@ -1763,7 +1873,8 @@ class ViewState:
                             notes=self.notes, triggers=self.show_triggers, spaced=self.spaced,
                             width=cols if self.fit else None, access=self.show_access,
                             mods=self.show_mods, events=self.events_mode,
-                            trace=self.sim_trace(), tick=self.player.at)
+                            trace=self.sim_trace(), tick=self.player.at,
+                            limits=self.limits, unroll=self.unroll, run_notes=self.run_notes)
         except Exception:              # following is a nicety: never break the frame
             return False
         if box is None:
@@ -1955,6 +2066,19 @@ def _width_arg(text: str) -> int:
     return width
 
 
+def _unroll_arg(text: str) -> int:
+    """--unroll N|all: N ≥ 1, or all (0: nothing folds)."""
+    if text == "all":
+        return 0
+    try:
+        n = int(text)
+    except ValueError:
+        n = 0
+    if n < 1:
+        raise argparse.ArgumentTypeError(f"expected a number >= 1 or all, got {text!r}")
+    return n
+
+
 def _readable(path: Path) -> bool:
     """Whether path opens for reading; if not, say so on stderr. (The live view
     waits for the file instead: reload keeps the last view while it is missing.)"""
@@ -1996,6 +2120,13 @@ def main(argv=None) -> int:
     views.add_argument("--flow", action="store_true",
                        help="flow: a call graph read left to right, bare labels in columns "
                             "by call depth")
+    views.add_argument("--run", action="store_true",
+                       help="run: one simulated run as a timeline — a lane per participant, "
+                            "instance and recursion level, time left to right (--sim's run, "
+                            "else the happy one)")
+    ap.add_argument("--unroll", type=_unroll_arg, default=None, metavar="N|all",
+                    help=f"the run view: instances of one node shown before the rest fold "
+                         f"(default {RUN_UNROLL[0]}; all: none fold)")
     ap.add_argument("--width", type=_width_arg, default=None, metavar="N",
                     help="--once: fit the drawing to N columns (default: the terminal's "
                          f"width, or {ONCE_WIDTH} when stdout is not a terminal)")
@@ -2009,7 +2140,8 @@ def main(argv=None) -> int:
     ap.add_argument("--json", action="store_true",
                     help="with --sim: print JSON instead of text (list / all: the "
                          "scenarios / every run's facts; a scenario: its facts, the run in "
-                         "plain words and its log; no drawing)")
+                         "plain words and its log; no drawing); with --run: the run's "
+                         "timeline (lanes, spans, moves, marks)")
     ap.add_argument("--checks", action="store_true",
                     help="the composition checks overlay (check.py): findings marked on the "
                          "drawing, listed with their questions (live: start with it on, key c)")
@@ -2037,10 +2169,10 @@ def main(argv=None) -> int:
     except ValueError as exc:
         print(f"view.py: {exc}", file=sys.stderr)
         return 2
-    if a.json and a.sim is None:
-        print("view.py: --json needs --sim (list, all or a scenario)", file=sys.stderr)
+    if a.json and a.sim is None and not a.run:
+        print("view.py: --json needs --sim (list, all or a scenario) or --run", file=sys.stderr)
         return 2
-    view = "tree" if a.tree else "flow" if a.flow else VIEWS[0]
+    view = "tree" if a.tree else "flow" if a.flow else "run" if a.run else VIEWS[0]
     batch = a.sim in SIM_BATCH             # never drawn: the same live or --once
     tty_out = sys.stdout.isatty()
     once_out = a.once or not tty_out or not sys.stdin.isatty()
@@ -2052,6 +2184,8 @@ def main(argv=None) -> int:
         if not _readable(a.file):
             return 2
         try:
+            if a.run:
+                return run_json(a.file, a.sim, dialect, limits, a.unroll)
             return sim_json(a.file, a.sim, dialect, limits)
         except UnknownScenario as exc:
             print(f"view.py: --sim: {exc}", file=sys.stderr)
@@ -2062,13 +2196,13 @@ def main(argv=None) -> int:
         try:
             return once(a.file, a.depth, a.payloads, not a.no_lint, dialect, colour, a.tree,
                         not a.no_triggers, not a.compact, a.notes, width, a.access, a.mods,
-                        a.events, a.sim, a.checks, limits, view)
+                        a.events, a.sim, a.checks, limits, view, a.unroll)
         except UnknownScenario as exc:     # the message lists the known ones
             print(f"view.py: --sim: {exc}", file=sys.stderr)
             return 2
     tui(ViewState(a.file, a.depth, a.payloads, not a.no_lint, dialect, a.tree,
                   not a.no_triggers, not a.compact, a.notes, a.access, a.mods, a.events,
-                  a.sim, a.checks, limits, view))
+                  a.sim, a.checks, limits, view, a.unroll))
     return 0
 
 

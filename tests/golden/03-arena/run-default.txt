@@ -1,0 +1,25 @@
+── run · happy — no scenario chosen: the happy run ─────────────────────────────────────────────────────────────────────────────────────────
+
+                0     ep2   ep3     20        30     37
+  [Physics]     █░░░░┆     ┆                             episode 1's entry
+  {Transform·1} ├──▶█┆     ┆                             [Ship]'s
+  {Transform·2} ├──▶█┆╭──▶█┆                             [Bullet·1]'s; runs 2×
+  {Transform·3} ├──▶█┆├──▶█┆                             [Bullet·2]'s; runs 2×
+  {Transform·4} ╰──▶█┆│    ┆                             [Asteroid]'s
+  [Homing]           ┆█░░░░┆                             episode 2's entry
+  {Damage·1}         ┆     ┆█░░░░░░░░░                   [Bullet·1]'s; episode 3's entry; calls [Combat]
+  {Damage·2}         ┆     ┆█░░░░░░░░░                   [Bullet·2]'s; episode 3's entry; calls [Combat]
+  [Combat]           ┆     ┆╰──▶██░░░░╮                  calls {Health}; emits <Destroyed>, doesn't wait
+  {Health}           ┆     ┆     ╰──▶█╎                  [Ship]'s
+  <Destroyed>        ┆     ┆          ╰╌╌▶◆█░░░░░░░░░    lands; calls [Spawner]
+  [Spawner]          ┆     ┆               ╰──▶██░░░░    produces into [Shard]: a new instance
+  [Shard·1]          ┆     ┆                    ╰━━▶█    spawned by [Spawner] for [Asteroid]
+
+happy run (every default) · ok · 38 frames   x plays it   [ ] another scenario
+
+run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  ╰══▶ broadcast  
+       ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  ⊘ cancelled  ↺ self-call  ↻k depth k  
+       ┤ base case  ⇱ host  • reached  ◌ spawning  ┆ episode  ≈ quiet ticks  ▼ now  ▸ running
+
+03-arena.sigil: 12 nodes, 7 edges, 0 expansions · #!sketch
+lint: OK

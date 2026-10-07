@@ -23,6 +23,13 @@ Each input gets a directory `tests/golden/<input>/` with one file per variant:
   width-60 (--width 60), color (--color always); and for the flow view alone
   width-80 / width-50 (--width 80 / 50 --payloads --mods --notes markers: the
   wrap ladder's hung chips and bands);
+- `run-<v>.txt` — the run view (`--run`), for the site examples and the
+  executions fixture only: run-default (the happy run, no scenario chosen,
+  --width 140, lint on), run-sim (the first scenario after `happy`, its final
+  frame, --sim NAME --width 140; the happy one when there is none; the run in
+  words, its `tNNN …` lines, left out — tests/ holds no task-like ids, and the
+  path and outcome stay), run-width-80
+  (the happy run at --width 80: notes shortened or below, bands);
 - `mermaid.txt` — what `render.py <input>.sigil` prints.
 
 Drawings are made in-process (view.once, its stdout captured) with the built-in
@@ -53,10 +60,14 @@ THEME = "sigil"
 WIDTH = 100                     # view.py's --once width when stdout isn't a terminal
 NARROW = 60
 FLOW_WRAPS = (80, 50)           # the flow view wrapped, chips and notes on
+RUN_WIDE, RUN_NARROW = 140, 80  # the run view: a wide pane, and one that wraps
+RUN_INPUTS = ("executions",)    # beside the site examples, the inputs drawn in the run view
+NEXT_SCENARIO = "@next"         # Variant.sim: the first scenario after `happy`
 ALL_DEPTH = "all"
 # Set iteration order (string hashing) must not change a drawing; pinning the seed
 # keeps the goldens stable while a drawing that still depends on it gets fixed.
 HASH_SEED = "0"
+_BEAT = re.compile(r"t\d{3} ")       # a line of the run in words (view.beat_line)
 # Fixtures drawn alongside the site examples (by stem, so each names its own directory).
 FIXTURES = ("coverage.sigil", "executions.sigil")
 
@@ -78,6 +89,7 @@ class Variant:
     width: int = WIDTH
     colour: bool = False
     lint: bool = False
+    sim: str | None = None      # a scenario (NEXT_SCENARIO: the first after happy)
 
 
 def _variants() -> tuple[Variant, ...]:
@@ -94,8 +106,11 @@ def _variants() -> tuple[Variant, ...]:
     )
     wraps = tuple(Variant(f"flow-width-{w}", view="flow", width=w, payloads=True, mods=True,
                           notes="markers") for w in FLOW_WRAPS)
+    runs = (Variant("run-default", view="run", width=RUN_WIDE, lint=True),
+            Variant("run-sim", view="run", width=RUN_WIDE, sim=NEXT_SCENARIO),
+            Variant("run-width-80", view="run", width=RUN_NARROW))
     return tuple(replace(v, name=f"{view}-{v.name}", view=view)
-                 for view in ("graph", "tree", "flow") for v in flavours) + wraps
+                 for view in ("graph", "tree", "flow") for v in flavours) + wraps + runs
 
 
 VARIANTS = _variants()
@@ -134,6 +149,12 @@ def examples_inputs(markdown: str, drawn: frozenset[str] = frozenset()) -> list[
     return out
 
 
+def run_inputs(root: Path) -> frozenset:
+    """The inputs drawn in the run view: the site examples and RUN_INPUTS."""
+    return frozenset([p.stem for p in (root / "site" / "examples").glob("*.sigil")]
+                     + list(RUN_INPUTS))
+
+
 def collect_inputs(root: Path) -> list[Input]:
     """Every golden input under the repo `root`. Raises ValueError on a name clash."""
     files = sorted((root / "site" / "examples").glob("*.sigil"))
@@ -163,24 +184,43 @@ def load_view(root: Path):
     return mod
 
 
+def next_scenario(view, path: Path) -> str:
+    """The first scenario after `happy` of the document at `path` (happy when
+    it has no other)."""
+    g = view.render.parse_document(path.read_text(encoding="utf-8"))
+    names = [sc.name for sc in view.simulator.scenarios(view.simulator.canonical(g))]
+    return names[1] if len(names) > 1 else names[0]
+
+
 def draw(view, path: Path, v: Variant) -> str:
     """What `view.py path --once` prints for variant `v`."""
     depth = view.ALL_DEPTH if v.depth == ALL_DEPTH else v.depth
+    sim = next_scenario(view, path) if v.sim == NEXT_SCENARIO else v.sim
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         view.once(path, depth, v.payloads, v.lint, dialect=None, colour=v.colour,
                   notes=v.notes, width=v.width, access=v.access, mods=v.mods,
-                  view=v.view)
-    return buf.getvalue()
+                  view=v.view, sim=sim)
+    out = buf.getvalue()
+    if sim is not None:                 # the run in words: tNNN … lines, left out
+        out = "".join(ln for ln in out.splitlines(True) if not _BEAT.match(ln))
+    return out
 
 
-def draw_input(view, workdir: Path, inp: Input) -> dict[str, str]:
+def drawn_in(v: Variant, inp: "Input", runs: frozenset) -> bool:
+    """Whether input `inp` gets variant `v`: every input every view but the run
+    view, which only the inputs named in `runs` get."""
+    return v.view != "run" or inp.name in runs
+
+
+def draw_input(view, workdir: Path, inp: Input, runs: frozenset = frozenset()) -> dict[str, str]:
     """Every variant of one input, keyed `<input>/<variant>.txt`. The input is
     written to `workdir/<name>.sigil` (view.once reads a file; its name shows in
-    the summary line)."""
+    the summary line). `runs`: the inputs drawn in the run view too."""
     path = workdir / f"{inp.name}.sigil"
     path.write_text(inp.text, encoding="utf-8")
-    out = {f"{inp.name}/{v.name}.txt": draw(view, path, v) for v in VARIANTS}
+    out = {f"{inp.name}/{v.name}.txt": draw(view, path, v) for v in VARIANTS
+           if drawn_in(v, inp, runs)}
     out[f"{inp.name}/{MERMAID}.txt"] = view.render.render(inp.text, dialect=None) + "\n"
     return out
 
@@ -189,10 +229,11 @@ def draw_all(root: Path, only: str | None = None) -> dict[str, str]:
     """Every golden drawing of the repo at `root` (only input `only`, when given)."""
     view = load_view(root)
     inputs = [i for i in collect_inputs(root) if only is None or i.name == only]
+    runs = run_inputs(root)
     out: dict[str, str] = {}
     with tempfile.TemporaryDirectory() as tmp:
         for inp in inputs:
-            out.update(draw_input(view, Path(tmp), inp))
+            out.update(draw_input(view, Path(tmp), inp, runs))
     return out
 
 

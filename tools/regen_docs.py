@@ -17,6 +17,9 @@ regen_docs.py — regenerate the drawings embedded in the docs from view.py.
 - README.md: the block after the `--sim` command in "Simulation" is the real run of
   that command on site/examples/01-checkout.sigil (published as checkout.sigil):
   the drawing, then the `sim …` summary and log (legend and lint summary left out);
+- README.md: the block after `view.py checkout.sigil --once --run --sim '…'` is
+  that command's drawing on site/examples/01-checkout.sigil (`--no-lint --width
+  100`; the timeline, its notes beside it — no legend, summary or log);
 - README.md: the block after `view.py NAME.sigil --once --sim all` is that
   command's output on the site example published as NAME.sigil
   (site/examples/NN-NAME.sigil: 00-shortener, 04-orders).
@@ -121,6 +124,20 @@ def readme_sim(text: str) -> tuple[str, int]:
     return text.replace(old.group(0), old.group(0).replace(old.group(3), new)), 1
 
 
+def readme_run(text: str) -> tuple[str, int]:
+    old = re.search(r"```sh\nview.py checkout.sigil --once --run --sim '([^']+)'\n```"
+                    r"\n\n```\n(.*?)```", text, re.S)
+    if not old:
+        return text, 0
+    src = SIM_EXAMPLE.read_text(encoding="utf-8")
+    lines = run(src, "--run", "--sim", old.group(1), "--no-lint", "--width", "100").split("\n")
+    cut = next((i for i, ln in enumerate(lines) if ln.startswith("run ")), len(lines))
+    new = tidy("\n".join(lines[:cut]))
+    if new == old.group(2):
+        return text, 0
+    return text[:old.start(2)] + new + text[old.end(2):], 1
+
+
 def readme_sim_all(text: str) -> tuple[str, int]:
     changed = 0
     for name, path in SIM_ALL_EXAMPLES.items():
@@ -140,7 +157,8 @@ def readme_all(text: str) -> tuple[str, int]:
     text, b = readme_sim(text)
     text, c = readme_sim_all(text)
     text, d = readme_flow(text)
-    return text, a + b + c + d
+    text, e = readme_run(text)
+    return text, a + b + c + d + e
 
 
 def main() -> int:

@@ -1,0 +1,19 @@
+── run · happy — no scenario chosen: the happy run ─────────────────────────────────────────────────────────────────────────────────────────
+
+              0         10    ep2 20        30        40    46
+  (User)      █░░░░░░░░░░░░░░┆                                  episode 1's entry; calls [Shortener]
+  [Shortener] ╰──▶██░░░░───↩ ┆                                  calls |Links|; returns {Code}
+  |Links|          ╰──▶█     ┆     ╭──▶█───↩                    returns {Url}; runs 2×
+  (Visitor)                  ┆█░░░░░░░░░░░░░░░░░░░              episode 2's entry; calls [Redirect]; reached: an actor, no work of its own
+  [Redirect]                 ┆╰──▶██░░░░░░░░░█░░░░╮             calls |Links|, then (Visitor); emits <Clicked>, doesn't wait
+  <Clicked>                  ┆                    ╰╌╌▶◆█░░░░    lands; calls [Stats]
+  [Stats]                    ┆                         ╰──▶█
+
+happy run (every default) · ok · 47 frames   x plays it   [ ] another scenario
+
+run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  ╰══▶ broadcast  
+       ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  ⊘ cancelled  ↺ self-call  ↻k depth k  
+       ┤ base case  ⇱ host  • reached  ◌ spawning  ┆ episode  ≈ quiet ticks  ▼ now  ▸ running
+
+00-shortener.sigil: 7 nodes, 8 edges, 0 expansions · #!sketch
+lint: OK

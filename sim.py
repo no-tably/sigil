@@ -2947,6 +2947,7 @@ class Lane(NamedTuple):
     spawner: Optional[str]     # the node whose `=>` spawned it
     fold: tuple = ()           # a fold of instances: the instance keys it stands for
     levels: tuple = ()         # a fold of levels: (lowest, highest)
+    owners: tuple = ()         # a fold of instances: their owners (instance keys), in order
 
 
 class Span(NamedTuple):
@@ -3272,8 +3273,11 @@ def _fold_lanes(lanes: list, spans: list, moves: list, marks: list, born_at: dic
             lo, hi = (int(x) for x in key[2].split("‥"))
             out[key] = ln._replace(key=key, level=lo, parent=parent, levels=(lo, hi))
         else:                                       # a fold of instances (or its levels)
-            insts = tuple(g.inst for g in made.get(key, ()))
-            out[key] = ln._replace(key=key, inst=None, parent=parent, fold=insts)
+            group = made.get(key, ())
+            out[key] = ln._replace(key=key, inst=None, parent=parent,
+                                   fold=tuple(g.inst for g in group),
+                                   owners=tuple(dict.fromkeys(g.owner for g in group
+                                                              if g.owner is not None)))
     spans = list({(r(s.lane), s.act): s._replace(lane=r(s.lane)) for s in spans}.values())
     moves = [m._replace(src=tuple(dict.fromkeys(map(r, m.src))),
                         dst=tuple(dict.fromkeys(map(r, m.dst)))) for m in moves]
@@ -3295,7 +3299,7 @@ def _lane_order(lanes: list, born_at: dict) -> tuple:
             roots.append(ln)
 
     def ordinal(ln):
-        return ln.inst[1] if ln.inst is not None else (1 << 30 if ln.fold else 0)
+        return ln.inst[1] if ln.inst is not None else (ln.fold[0][1] if ln.fold else 0)
 
     def order(group: list) -> list:
         group = sorted(group, key=lambda ln: born_at[ln.key])

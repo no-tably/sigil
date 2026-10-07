@@ -1,0 +1,25 @@
+── run · Crawler.http.get:fallback — http.get fails 4×, falls back to ${cached} ────────────────────────────────────────────────────────────
+
+                   0         10        20        30        40        50        60        70    76
+  (Operator)       █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░    episode 1's entry; calls [Scheduler]
+  [Scheduler]      ╰──▶█↺██░░░░█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░    calls [Crawler]; runs plan() itself
+  {Plan}                  ╰━━▶█│                                                                   produced by [Scheduler]
+  [Crawler]                    ╰──▶██░░░░█░░░░█░░░░█░░░░█░░░░░░░░░█░░░░░░░░█░░░░░░░░░█░░░░───↩     routes the failure; returns {Site}
+  (Web)                             ╰───✖╰───✖╰───✖╰───✖│    ───↩ │        │         │             4 attempts fail; falls back to ${cached}
+  <FetchFailed>                                         ╰──✖◆     │        │         │             lands
+  [Crawler.follow]                                                ╰──▶██░░░│         │             recurses to depth 3
+    ↻2                                                                 ╰██░│         │
+    ↻3                                                                   ╰█┤         │
+  |Index|                                                                  ╰──▶█───↩ ╰──▶█         returns {Lease}; runs 2×
+
+run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  ╰══▶ broadcast  
+       ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  ⊘ cancelled  ↺ self-call  ↻k depth k  
+       ┤ base case  ⇱ host  • reached  ◌ spawning  ┆ episode  ≈ quiet ticks  ▼ now  ▸ running
+path   the hops taken so far:  ①② its branches  ✖ failed  ⊘ cancelled  ×N repeated  
+       ▸ the hop now (bold in colour)
+
+05-executions.sigil: 8 nodes, 10 edges, 0 expansions · #!sketch
+
+sim Crawler.http.get:fallback (http.get fails 4×, falls back to ${cached}): ok · 77 frames
+path   ① …   ② [Scheduler] -> [Crawler] -> (Web) ✖×4   ③ [Crawler] !> <FetchFailed>
+       ④ [Crawler] -> [Crawler.follow] -> [Crawler.follow] ×2   ⑤ [Crawler] -> |Index| ×2

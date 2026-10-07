@@ -42,8 +42,12 @@ class TestGolden(unittest.TestCase):
     def test_every_input_has_every_variant(self):
         inputs = golden.collect_inputs(_DIR)
         self.assertGreaterEqual(len(inputs), 6)
-        names = [f"{v.name}.txt" for v in golden.VARIANTS] + [f"{golden.MERMAID}.txt"]
-        expected = {f"{i.name}/{n}" for i in inputs for n in names}
+        runs = golden.run_inputs(_DIR)
+        self.assertIn("01-checkout", runs)
+        self.assertIn("executions", runs)
+        expected = {f"{i.name}/{v.name}.txt" for i in inputs for v in golden.VARIANTS
+                    if golden.drawn_in(v, i, runs)}
+        expected |= {f"{i.name}/{golden.MERMAID}.txt" for i in inputs}
         self.assertEqual(set(golden.read_goldens(golden.GOLDEN_DIR)), expected)
 
     def test_goldens_are_plain_unless_coloured(self):

@@ -10,7 +10,7 @@ the tools for a drawing and packs it (frames.py) the way frames.json is packed.
     sim(request)     one frame of a scenario's run, drawn over the same view
     check(request)   the document's composition findings (check.py at k = 1)
 
-A request: {"text", "view": "tree"|"graph"|"flow", "width": cols|null, "depth",
+A request: {"text", "view": "tree"|"graph"|"flow"|"run", "width": cols|null, "depth",
 "payloads", "notes", "events"} (+ "scenario", "frame" for sim; "text" and
 "mode" for check). Every drawing response carries "styles": the style table so far (ids are stable for the session, so
 the page only adds the entries it has not seen).
@@ -59,7 +59,8 @@ def _opts(req: dict) -> dict:
     width = req.get("width")
     return {"view": name, "tree": tree, "depth": int(req.get("depth", MAX_DEPTH)),
             "payloads": bool(req.get("payloads", True)),
-            "notes": req.get("notes") or ("callouts" if tree else "markers"),
+            "notes": req.get("notes") or ("callouts" if tree else "off" if name == "run"
+                                          else "markers"),   # the run view: its run notes
             "triggers": True, "spaced": True,
             "width": int(width) if width else None,
             "access": bool(req.get("access", False)), "mods": bool(req.get("mods", False)),
@@ -89,8 +90,11 @@ def _legend(o: dict, g, sim: bool) -> list:
     elif o["view"] == "flow":
         rows.append(view.vflow.flow_legend(o["triggers"], o["payloads"], o["access"], o["mods"],
                                            o["events"]))
+    elif o["view"] == "run":
+        rows.append(view.vrun.run_legend())
     if sim:
-        rows += [view.sim_legend(o["tree"]), view.path_legend()]
+        rows += ([view.path_legend()] if o["view"] == "run"
+                 else [view.sim_legend(o["tree"]), view.path_legend()])
     width = min(view.LEGEND_WIDTH, o["width"] or view.LEGEND_WIDTH)
     return frames.pack_rows([ln for r in rows for ln in view.wrap_legend(r, width)], STYLES)
 

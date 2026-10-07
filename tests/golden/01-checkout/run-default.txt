@@ -1,0 +1,20 @@
+── run · happy — no scenario chosen: the happy run ─────────────────────────────────────────────────────────────────────────────────────────
+
+                0         10        20        30
+  (Shopper)     █░░░░░░░░░░░░░░░░░░░               episode 1's entry; calls [API]
+  [API]         ╰──▶██░░░░█░░░░░░░░░╮              calls [Payments], then |Orders|; emits <OrderPlaced>, doesn't wait
+  [Payments]         ╰──▶█│         ╎
+  |Orders|                ╰──▶█───↩ ╎              returns {Order}
+  <OrderPlaced>                     ╰╌╌▶◆█░░░░░    lands; fans out to 3, waits for all
+  [Email]                                ├══▶█
+  [Shipping]                             ├══▶█
+  |Ledger|                               ╰══▶█
+
+happy run (every default) · ok · 32 frames   x plays it   [ ] another scenario
+
+run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  ╰══▶ broadcast  
+       ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  ⊘ cancelled  ↺ self-call  ↻k depth k  
+       ┤ base case  ⇱ host  • reached  ◌ spawning  ┆ episode  ≈ quiet ticks  ▼ now  ▸ running
+
+01-checkout.sigil: 9 nodes, 8 edges, 0 expansions · #!sketch
+lint: OK

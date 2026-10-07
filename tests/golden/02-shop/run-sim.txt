@@ -1,0 +1,34 @@
+── run · Risk?>Review — Risk?>Review: taken ────────────────────────────────────────────────────────────────────────────────────────────────
+
+                   0         10        20        30        40        50        60        70        80
+  (Shopper)        █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░                         episode 1's entry; calls [Edge]
+  [Edge]           ╰──▶██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░                         calls [Shop]
+  [Shop]                ╰──▶█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░█░░░░░░░░░╮                        emits <OrderPlaced>, doesn't wait
+    [Cart]                   █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│         ╎                        calls [Checkout]
+    [Checkout]               ╰──▶██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░┤         ╎                        emits <OrderPlaced>, doesn't wait
+    [Payments]                    ╰──▶█░░░░░░░░░░░░░░░░░░░░░░░░░───↩ │         ╎                        returns {Receipt}
+      [Gateway]                        █░░░░░░░░░░░░░░░░░░░░░░░░     │         ╎                        calls [Risk]
+      [Risk]                           ╰──▶█░░░░░░░░░░█░░░░───↩      │         ╎                        returns {Verdict}
+        [Model]                             █░░░░█░░░░┆              │         ╎                        calls |Features|
+        |Features|                          ╰──▶█┃    ┆              │         ╎
+        {Verdict}                                ╰━━▶█┆              │         ╎                        produced by [Model]
+      [Review]                                        ╰┄┄▶█          │         ╎
+    <OrderPlaced>                                                    ├╌╌▶◆     ╰╌╌▶◆█░░░░░░░░░░░░░░░    fans out to 2, waits for all
+  |Catalog|                                                          ╰──▶█───↩      ║                   returns {Item}
+  [Fulfilment]                                                                      ├══▶█░░░░░░░░░░
+    [Picker]                                                                        ║    █░░░░░░░░░     calls [Packer]
+    [Packer]                                                                        ║    ╰──▶██░░░░     calls (Courier)
+    (Courier)                                                                       ║         ╰──▶•     reached
+  |Ledger|                                                                          ╰══▶█
+
+run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  ╰══▶ broadcast  
+       ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  ⊘ cancelled  ↺ self-call  ↻k depth k  
+       ┤ base case  ⇱ host  • reached  ◌ spawning  ┆ episode  ≈ quiet ticks  ▼ now  ▸ running
+path   the hops taken so far:  ①② its branches  ✖ failed  ⊘ cancelled  ×N repeated  
+       ▸ the hop now (bold in colour)
+
+02-shop.sigil: 7 nodes, 6 edges, 2 expansions · #!sketch
+
+sim Risk?>Review (Risk?>Review: taken): ok · 82 frames
+path   ①–⑦ …   ⑧ [Checkout] ~> <OrderPlaced>   ⑨ [Shop] ~> <OrderPlaced> *> [Fulfilment]
+       ⑩ <OrderPlaced> *> |Ledger|   ⑪ [Picker] -> [Packer] -> (Courier)
