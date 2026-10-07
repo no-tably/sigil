@@ -2,6 +2,104 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
+## 0.4.0 — unreleased
+
+Two new views, a viewer inside your coding agent, drawings that fit the window, and
+a simulator you can read.
+
+### Viewer
+
+- **Four views, flow first.** `view.py` now has four views on keys `1`–`4`
+  (`t` steps to the next): graph, tree, flow and run. It opens in the **flow view**,
+  a call graph read left to right: bare labels in columns by call depth, each payload
+  on its wire. `--graph`, `--tree`, `--flow` and `--run` pick one.
+- **The run view** (`--run`, key `4`) draws one simulated run as a timeline. Each
+  participant gets a lane, and so does each instance and recursion level. Time runs
+  left to right. A bar shows working or waiting, and each call is drawn at the tick it
+  was sent. Retries show as repeated segments, spawns fork off their spawner, and
+  loop iterations are marked `↺k` on the ruler. Activations that overlap on one lane
+  get `∥k` sub-rows, and a check finding's number sits on the ruler at the tick its
+  run shows it. Without `--sim` it draws the happy run. `--unroll` sets how many
+  instances show before the rest fold. `--run --json` prints the timeline as data.
+- **Every view fits the window.** Graph, tree and flow wrap to `--width` (or the
+  pane) and grow downward instead of running off the right edge. No box or label is
+  squashed. A graph layer that is too wide wraps onto the layers below. The tree
+  folds lanes it has no room for into numbered plugs (`●①` … `◀───①`). The flow view
+  cuts into bands joined by the same plugs. The summary, lint lines, legends and
+  part titles wrap or cut to the width too. A drawing that still can't fit says how
+  wide it is.
+- **A layout preference.** `--layout wrap` (fit the width, grow down), `pan` (keep
+  the natural layout and pan across) or `auto` (the default: whichever overflows
+  less for the window's shape). Live, `o` cycles the three and `f` flips between wrap
+  and pan.
+- **Flow view details.** Control blocks (`loop`, `parallel`, branches) are drawn in
+  frames under their part, and joins are marked just before their heads
+  (`─&▶ ─&?▶ ─/▶`).
+- **The graph view** keeps an edge label from sitting where it reads as the
+  neighbouring head's.
+
+### Simulation
+
+- **Runs in plain words.** A run is narrated one step at a time ("[API] calls
+  [Payments] with charge(total) — attempt 2 of 4"). The viewer shows the line now,
+  the steps before it, and a `path` row of the hops taken so far, numbered by branch
+  (`①` `②` …). `✖` marks a failed hop, `⊘` a cancelled one, and `▸` the hop now.
+  `--once --sim NAME` prints the run in words, and `--sim NAME --json` prints its
+  facts, steps and log.
+- **Playback you can follow.** Speeds go from ¼ to 32 frames a second. `<` / `>` step
+  by event, `,` / `.` by frame. The view follows the token, and `w` turns that off.
+  `--frame N|last` and `--play` set where a live run starts.
+- **A design's levels are read once.** An outer flow that summarises what its
+  expansion already does no longer runs a second time: the shop's happy run lands
+  `<OrderPlaced>` once, not twice. Only a detail that every run takes counts as
+  summarised. Failure routes and optional `?>` branches don't.
+
+### Agent plugins
+
+- **A viewer in Claude Code.** The plugin adds a `view` tool for the agent and a
+  `/sigil-pane` command for you. They show a document live in a pane inside Claude
+  Code, or in a herdr / tmux / zellij split. The pane redraws on every save and can
+  step or play a run at the viewer's speeds. `/sigil-pane display mod|multiplex|auto`
+  picks where it draws, and `/sigil-pane layout wrap|pan|auto` how it fits. Both are
+  kept in the plugin's `/config` row.
+- **The same viewer in pi.** It has a `sigil_view` tool, `/sigil-pane`, a live widget
+  above the editor and the same split. Settings live in
+  `$XDG_CONFIG_HOME/sigil/viewer.json`, or `--sigil-display` / `--sigil-layout` and
+  their environment variables. In RPC mode the widget is sent as text.
+- Both draw exactly what `view.py` draws, and the agent's reply names the step now and
+  the path. docs/tools.md describes the viewer plugin contract.
+- **The skill** tells the agent how to show you a design (the viewer tool, a split, or
+  `--once`) and which view fits it.
+
+### Page and playground
+
+- **The page opens with the problem and a URL shortener.** All four views play behind
+  the editor as it types. Further down, a section per view brings its view forward.
+  The run section plays the shortener's happy and not-found runs in the real run view.
+- **The playground** has all four views, the run's path and narration, speed and step
+  controls, and a polite live region that reads the narration aloud for screen
+  readers.
+
+### Fixes
+
+- `check.py` no longer hits a RecursionError on a very long call chain.
+- A store borrowed in one expansion, but a node only in a sibling expansion, gets its
+  access edge.
+- A run with no hops, an episode starting at a branch (a raw decision id leaked into
+  the narration), and `--unroll 1` on a recursion no longer crash or misdraw.
+- The run view, control-block frame titles, chip panels and the tree's payload list
+  keep to `--width`.
+- Plugin panes: an older redraw no longer overwrites a newer one, and a failed draw
+  isn't retried in a loop. Run frames are numbered as the run numbers them (never
+  capped at 99, never sampled). Naming the shown file again keeps its run.
+- Legend lines no longer end in trailing blanks.
+
+### Speed
+
+- Banding a long flow, `check.py` on long chains, failure analysis, and drawing a run
+  frame by frame (the plugin panes) now scale roughly linearly with the document. A
+  600-node chain used to take over a minute to wrap. Output is unchanged.
+
 ## 0.3.3 — 2026-10-07
 
 Fixes from the viewer-coverage review.
