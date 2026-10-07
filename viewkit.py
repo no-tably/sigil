@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import colorsys
 import importlib.util
+import itertools
 import re
 import sys
 import textwrap
@@ -445,6 +446,8 @@ _LINE_CHARS = {}    # (stroke, mask) → its char, as _line_cell finds them
 
 
 class Canvas:
+    CORNERS: dict = {}          # a line's char → the char drawn instead (a subclass's look)
+
     def __init__(self):
         self.text: dict = {}    # (x, y) → (char, style)
         self.lines: dict = {}   # (x, y) → [mask, stroke, style]
@@ -456,10 +459,11 @@ class Canvas:
         self.h = max(self.h, y + 1)
 
     def put(self, x, y, s, style=None):
-        for i, ch in enumerate(s):
-            self.text[(x + i, y)] = (ch, style)
         if s:
-            self._grow(x + len(s) - 1, y)
+            n = len(s)
+            self.text.update(zip(zip(range(x, x + n), itertools.repeat(y)),
+                                 zip(s, itertools.repeat(style))))
+            self._grow(x + n - 1, y)
 
     def link(self, a, b, kind, style, fixed=frozenset()):
         """Connect adjacent cells a → b with a line of the given arrow kind. A cell
@@ -561,8 +565,8 @@ class Canvas:
         if (x, y) in self.text:
             return self.text[(x, y)]
         if (x, y) in self.lines:
-            mask, stroke, style = self.lines[(x, y)]
-            return _TABLES.get(stroke, _LIGHT).get(mask, _LIGHT.get(mask, "┼")), style
+            ch, style = _line_cell(self.lines[(x, y)])
+            return self.CORNERS.get(ch, ch), style
         return " ", None
 
     def rows(self):
@@ -571,10 +575,13 @@ class Canvas:
         if type(self).cell is not Canvas.cell:      # a subclass's cells: ask for each
             grid = [{x: self.cell(x, y) for x in range(w)} for y in range(h)]
         else:                                       # else only the drawn cells, by row
-            grid = [{} for _y in range(h)]
+            grid, corners = [{} for _y in range(h)], self.CORNERS
             for (x, y), line in self.lines.items():
                 if 0 <= x < w and 0 <= y < h:
                     grid[y][x] = _line_cell(line)
+                    if corners:
+                        ch, style = grid[y][x]
+                        grid[y][x] = corners.get(ch, ch), style
             for (x, y), v in self.text.items():
                 if 0 <= x < w and 0 <= y < h:
                     grid[y][x] = v

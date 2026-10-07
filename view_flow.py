@@ -282,9 +282,7 @@ class _Canvas(kit.Canvas):
     """A Canvas whose light corners are rounded (╭ ╮ ╰ ╯), like the page's
     toy graphs; heavy and double corners stay square."""
 
-    def cell(self, x, y):
-        ch, style = super().cell(x, y)
-        return (ch, style) if (x, y) in self.text else (ROUND.get(ch, ch), style)
+    CORNERS = ROUND
 
 
 @dataclass

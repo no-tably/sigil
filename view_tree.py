@@ -1108,7 +1108,7 @@ def _sim_rows(scn, rows, trace, frame, probe: bool = False) -> dict:
     hidden = set().union(*(f.machines for f in trace.frames)) - drawn_machines
     nodes = {nid: n for cur in kit._walk(scn.graph) for nid, n in cur.nodes.items()}
     names = {nid: kit.node_label(n) for nid, n in nodes.items()}
-    widest = _badge_widths(trace, nodes, hidden, names)
+    widest = _trace_badge_widths(trace, nodes, hidden, names)
     out = {}
     for y, r in enumerate(rows):
         if not isinstance(r, TreeRow):
@@ -1140,6 +1140,25 @@ def _badge_widths(trace, nodes: dict, hidden: set, names: dict) -> dict:
         for nid in _badge_nodes(f, hidden) & nodes.keys():
             n = kit.row_len(_badge_runs(nodes[nid], f, hidden, names))
             widest[nid] = max(widest.get(nid, 0), n)
+    return widest
+
+
+_WIDTHS_KEPT = 8
+_widths_memo: list = []     # (trace, its key, its _badge_widths), most recent last
+
+
+def _trace_badge_widths(trace, nodes: dict, hidden: set, names: dict) -> dict:
+    """_badge_widths, worked out once per trace object and drawing (its hidden
+    owners, its nodes' names): a run plays frame after frame of one trace. The
+    memo holds the last _WIDTHS_KEPT (by identity — a Trace holds dicts, so it
+    cannot be hashed), as view_graph's _trace_slots does."""
+    key = (frozenset(hidden), tuple(names.items()))
+    for kept, kept_key, widest in _widths_memo:
+        if kept is trace and kept_key == key:
+            return widest
+    widest = _badge_widths(trace, nodes, hidden, names)
+    _widths_memo.append((trace, key, widest))
+    del _widths_memo[:-_WIDTHS_KEPT]
     return widest
 
 

@@ -3,7 +3,7 @@
 Covers:
   - Canvas.rows (only the drawn cells visited) against a cell-by-cell walk, on
     sparse random canvases with gaps, None and Probe styles and off-canvas cells;
-    a subclass's own cell() (the flow view's rounded corners) still asked;
+    a subclass's CORNERS (the flow view's rounded ones) and its own cell();
   - Canvas.path and Canvas.run (link inlined) against link() one step at a time,
     stroke ranks, `fixed` cells and hops included;
   - view_graph's shared-cell colour rule (_nearest_owners, direction bitmasks,
@@ -13,7 +13,9 @@ Covers:
   - check_state's Facts.wires_within (flows indexed by source) against the plain
     filter over every flow, in flow order;
   - view_run's per-lane lookups (_by_lane / _of_lanes): the items naming a
-    family of lanes, in their order, each once.
+    family of lanes, in their order, each once; its grid read by row
+    (_Grid.by_row) as glyph() reads each cell;
+  - view_tree's badge widths worked out once per trace and drawing.
 
 Run:  python3 -m unittest discover tests
 """
@@ -132,6 +134,15 @@ class RowsMatchCellByCell(unittest.TestCase):
                     cv.path(random_pts(rng), rng.choice(KINDS), rng.choice(STYLES))
             self.assertEqual(list(cv.rows()), list(plain_rows(cv)))
 
+    def test_corners_a_subclass_draws_instead(self):
+        cv = view.vflow._Canvas()           # the flow view's rounded light corners
+        cv.path([(0, 4), (0, 0), (6, 0), (6, 3)], "->", None)
+        cv.path([(2, 4), (2, 2), (8, 2)], "=>", STYLES[1])
+        cv.put(6, 3, "┌", None)             # text is never rounded
+        self.assertEqual(list(cv.rows()), list(plain_rows(cv)))
+        self.assertEqual(cv.cell(0, 0)[0], "╭")
+        self.assertEqual(cv.cell(6, 3)[0], "┌")
+
     def test_a_subclass_cell_is_asked(self):
         class Rounded(kit.Canvas):
             def cell(self, x, y):
@@ -230,6 +241,34 @@ class IndexedLookups(unittest.TestCase):
         self.assertEqual(vrun._of_lanes(items, at, {"a", "b"}),
                          [("a", "b"), ("b", "b"), ("a",)])
         self.assertEqual(vrun._of_lanes(items, at, {"z"}), [])
+
+
+class FramesAlike(unittest.TestCase):
+    def test_grid_by_row_matches_glyph(self):
+        rng = random.Random(23)
+        grid = vrun._Grid()
+        for _ in range(200):
+            r, c = rng.randrange(6), rng.randrange(30)
+            if rng.random() < .3:
+                grid.put(r, c, "█", STYLES[1], rng.choice(["bar", "head", "mark"]))
+            else:
+                grid.line(r, c, rng.choice([1, 2, 4, 8, 3, 12, 5]), "light", None)
+        rows = grid.by_row()
+        for r in range(7):
+            for c in range(31):
+                self.assertEqual(rows.get(r, {}).get(c, vrun._BLANK), grid.glyph(r, c))
+
+    def test_badge_widths_once_per_trace(self):
+        text = (_DIR / "site" / "examples" / "02-shop.sigil").read_text(encoding="utf-8")
+        player = view.SimPlayer(view.render.parse_document(text), "happy")
+        trace = player.trace
+        nodes = {nid: n for cur in kit._walk(player.graph) for nid, n in cur.nodes.items()}
+        names = {nid: kit.node_label(n) for nid, n in nodes.items()}
+        first = view.vtree._trace_badge_widths(trace, nodes, set(), names)
+        self.assertIs(view.vtree._trace_badge_widths(trace, nodes, set(), names), first)
+        self.assertEqual(first, view.vtree._badge_widths(trace, nodes, set(), names))
+        other = view.vtree._trace_badge_widths(trace, nodes, {"nobody"}, names)
+        self.assertIsNot(other, first)
 
 
 if __name__ == "__main__":

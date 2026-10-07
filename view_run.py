@@ -45,6 +45,7 @@ them); colours are theme roles only.
 
 from __future__ import annotations
 
+import bisect
 import importlib.util
 import re
 import sys
@@ -158,6 +159,9 @@ def _styles() -> dict:
 # junctions and crossings resolve, glyph cells (bars, heads, marks) over them
 # ---------------------------------------------------------------------------
 
+_BLANK = (" ", None, "")      # a cell with nothing in it, as _Grid.glyph gives it
+
+
 class _Grid:
     def __init__(self):
         self.cells: dict = {}      # (r, c) → (glyph, style, kind): bar | head | mark | token
@@ -176,6 +180,14 @@ class _Grid:
         cur = self.lines.setdefault((r, c), [0, stroke, style])
         cur[0] |= mask
 
+    def by_row(self) -> dict:
+        """{row: {column: glyph(row, column)}} for every cell not blank — the
+        drawn grid read row by row (a cell missing is _BLANK)."""
+        out = {}
+        for r, c in self.lines.keys() | self.cells.keys():
+            out.setdefault(r, {})[c] = self.glyph(r, c)
+        return out
+
     def glyph(self, r: int, c: int):
         """(glyph, style, kind) of a cell: a glyph cell, else its line, else blank."""
         if (r, c) in self.cells:
@@ -187,7 +199,7 @@ class _Grid:
             if mask in (_U, _D, _U | _D):
                 return _VERTICAL.get(stroke, "│"), style, "vertical"
             return _ROUND.get(mask, "┼"), style, "line"
-        return " ", None, ""
+        return _BLANK
 
 
 # ---------------------------------------------------------------------------
@@ -880,7 +892,11 @@ def compose_run(g, trace=None, tick: Optional[int] = None, width: Optional[int] 
             labels = {k: _cut_runs(v, label_w) for k, v in labels.items()}
             x0 = GUTTER + label_w + 1
     rows = [kit.section_rule(title if width is None else kit.fit_title(title, width - 6)), []]
-    bands = _bands(fr, width - x0 if banded else fr.cols.n, shown_cols)
+    grid = fr.grid.by_row()
+    marked = {r: sorted(c for c, (_g, _s, kind) in row.items()
+                        if kind not in ("", "vertical", "rule"))
+              for r, row in grid.items()}           # each row's columns other than lines
+    bands = _bands(fr, width - x0 if banded else fr.cols.n, shown_cols, grid)
     for k, (lo, hi) in enumerate(bands):
         if k:
             rows.append([])
@@ -888,10 +904,12 @@ def compose_run(g, trace=None, tick: Optional[int] = None, width: Optional[int] 
                            None if width is None else width - x0))
         for ln in fr.lanes:
             r = fr.rows[ln.key]
-            cells = [fr.grid.glyph(r, c) for c in range(lo, min(hi, shown_cols))]
-            if len(bands) > 1 and not any(kind not in ("", "vertical", "rule")
-                                          for _g, _s, kind in cells):
-                continue
+            if len(bands) > 1:                  # a lane with nothing but lines here: left out
+                at = bisect.bisect_left(marked.get(r, ()), lo)
+                if at == len(marked.get(r, ())) or marked[r][at] >= min(hi, shown_cols):
+                    continue
+            at = grid.get(r, {}).get
+            cells = [at(c, _BLANK) for c in range(lo, min(hi, shown_cols))]
             gutter = (RUNNING + " ", st["now"]) if ln.key in fr.running and not final \
                 else (" " * GUTTER, None)
             row = [gutter] + labels[ln.key]
@@ -973,7 +991,7 @@ def _strip(row):
     return row
 
 
-def _bands(fr: _Frame, band_w: int, shown: int) -> list:
+def _bands(fr: _Frame, band_w: int, shown: int, grid: dict) -> list:
     """[(lo, hi)] column ranges: one band when the shown columns fit band_w,
     else cuts each chosen in the last 40% of a band at the column with the
     fewest marks (an episode boundary best); only the bands up to the
@@ -988,7 +1006,7 @@ def _bands(fr: _Frame, band_w: int, shown: int) -> list:
             break
         best, score = lo + band_w, None
         for c in range(lo + max(int(band_w * BAND_FROM), 1), lo + band_w + 1):
-            s = _col_score(fr, c)
+            s = _col_score(fr, c, grid)
             if score is None or s <= score:
                 best, score = c, s
         out.append((lo, best))
@@ -996,10 +1014,11 @@ def _bands(fr: _Frame, band_w: int, shown: int) -> list:
     return [(a, b) for a, b in out if a < shown]
 
 
-def _col_score(fr: _Frame, c: int) -> int:
+def _col_score(fr: _Frame, c: int, grid: dict) -> int:
+    """Column c's marks (grid: _Grid.by_row()); -1 at an episode boundary."""
     marks = 0
     for r in range(len(fr.lanes)):
-        glyph, _s, kind = fr.grid.glyph(r, c)
+        glyph, _s, kind = grid[r].get(c, _BLANK) if r in grid else _BLANK
         if glyph == EPISODE:
             return -1
         if kind not in ("", "rule"):

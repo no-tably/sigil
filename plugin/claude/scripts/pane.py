@@ -46,6 +46,7 @@ so the mod's grid keeps the drawing's columns. Standard library only.
 from __future__ import annotations
 
 import argparse
+import functools
 import importlib.util
 import json
 import os
@@ -93,7 +94,11 @@ def cell(ch: str) -> str:
     return ch
 
 
+@functools.lru_cache(maxsize=4096)
 def cells(text: str) -> str:
+    """text with every cell() one column wide (a run's text recurs frame after frame)."""
+    if text.isascii() and text.isprintable():
+        return text
     return "".join(ch if " " <= ch < "\x7f" else cell(ch) for ch in text)
 
 
@@ -103,6 +108,16 @@ def hex_styles(frames):
         @staticmethod
         def _colour(c):
             return str(c) if c else None
+
+        def intern(self, style) -> int:
+            # A hex key is the colours' text, so equal styles intern alike:
+            # each one is worked out once (frame after frame repeats them).
+            try:
+                return seen[style]
+            except KeyError:
+                sid = seen[style] = frames.Styles.intern(self, style)
+                return sid
+    seen: dict = {}
     return HexStyles()
 
 
