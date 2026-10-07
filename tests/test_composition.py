@@ -175,7 +175,7 @@ class TestTreeView(unittest.TestCase):
             self.assertIn("& has", text)
             self.assertIn("◀ target", text)
             self.assertIn("keys", text)
-            st.key("t")                                    # tree → graph: arrows legend instead
+            st.key("1")                                    # tree → graph: arrows legend instead
             text = "\n".join("".join(t for t, _ in r) for r in st.frame(140, 40))
             self.assertNotIn("◀ target", text)
             self.assertIn("arrows", text)
@@ -335,7 +335,7 @@ class TestTreeView(unittest.TestCase):
             p.write_text(ECS)
             st = view.ViewState(p, do_lint=False)
             st.reload(force=True)
-            st.key("3")
+            st.key("2")
             text = "\n".join("".join(t for t, _ in r) for r in st.frame(120, 40))
             self.assertIn("├─& {Transform}", text)
             self.assertIn("· tree ·", text)

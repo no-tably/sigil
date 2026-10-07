@@ -57,11 +57,11 @@ class TestEventsToggle(unittest.TestCase):
         self.assertTrue(st.key("v"))
         self.assertEqual(st.events, {"tree": "land", "graph": "land", "flow": "nodes"})
         self.assertNotEqual(before, text(st._rows))
-        st.key("3")                                  # the tree keeps its own mode
+        st.key("2")                                  # the tree keeps its own mode
         self.assertEqual(st.events_mode, "land")
         st.key("v")
         self.assertEqual(st.events, {"tree": "nodes", "graph": "land", "flow": "nodes"})
-        st.key("2")                                  # and so does the flow view
+        st.key("3")                                  # and so does the flow view
         st.key("v")
         self.assertEqual(st.events, {"tree": "nodes", "graph": "land", "flow": "land"})
         st.key("1")
@@ -78,7 +78,7 @@ class TestEventsToggle(unittest.TestCase):
         self.assertIn("v events:nodes", keys(st))
         st.key("v")
         self.assertIn("v events:land", keys(st))
-        st.key("3")
+        st.key("2")
         self.assertIn("v events:land", keys(st))
 
     def test_frame_stays_terminal_sized(self):
@@ -116,7 +116,7 @@ class TestEventsToggle(unittest.TestCase):
         self.assertNotIn("emits", footer(st))
         st.key("v")                                  # graph, land
         self.assertIn("<E> emits", footer(st))
-        st.key("3")                                  # tree, land
+        st.key("2")                                  # tree, land
         self.assertIn("›─ emits", footer(st))
         st.key("v")                                  # tree, nodes
         self.assertNotIn("emits", footer(st))

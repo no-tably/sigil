@@ -187,9 +187,9 @@ class TestLiveView(unittest.TestCase):
         self.assertIn("checks ◆N error", on)
         self.assertIn("[API] △1", on)
         self.assertIn("2:capacity-mismatch", on)
-        self.st.key("3")                                 # the tree view marks it too
+        self.st.key("2")                                 # the tree view marks it too
         self.assertIn("[API] △1", "\n".join(plain(self.st.frame(100, 60))))
-        self.st.key("2")                                 # and the flow view
+        self.st.key("3")                                 # and the flow view
         self.assertIn("[API] △1", "\n".join(plain(self.st.frame(100, 60))))
         self.st.key("c")
         self.assertNotIn("△1", "\n".join(plain(self.st.frame(100, 60))))

@@ -72,9 +72,9 @@ describe('cells', () => {
     expect(slices([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]])
     const drawing = { frames: [[], [], []], styles: [] } as unknown as Drawing
     expect(frameIndex(drawing, { at: 9, isPlaying: false })).toBe(2)
-    expect(nextView('tree')).toBe('graph')
-    expect(nextView('graph')).toBe('flow')
-    expect(nextView('flow')).toBe('tree')
+    expect(nextView('graph')).toBe('tree')
+    expect(nextView('tree')).toBe('flow')
+    expect(nextView('flow')).toBe('graph')
     expect(parseDrawing('{"error":"x: no such file"}')).toEqual({ error: 'x: no such file' })
     expect(parseDrawing('garbage')).toEqual({ error: 'pane.py printed no drawing' })
   })

@@ -11,7 +11,7 @@ Covers:
   - chips on wires (one per call, never merged), self-call stubs, notes, a
     transition's label, expansions as parts, the --width fallback to letters;
   - the overlays: a sim frame's tokens and label looks, the checks' numbers;
-  - the app: VIEWS and the keys (t steps graph → flow → tree, 1 2 3 select),
+  - the app: VIEWS and the keys (t steps graph → tree → flow, 1 2 3 select),
     the status bar and legends, --flow on the CLI with --once / --sim / --json;
   - a long chain lays out without deep recursion.
 
@@ -246,7 +246,7 @@ class TestApp(unittest.TestCase):
         return st
 
     def test_views_and_names(self):
-        self.assertEqual(view.VIEWS, ("graph", "flow", "tree"))
+        self.assertEqual(view.VIEWS, ("graph", "tree", "flow"))
         self.assertEqual(view.view_name(True), "tree")
         self.assertEqual(view.view_name(False), "graph")
         self.assertEqual(view.view_name("flow"), "flow")
@@ -259,11 +259,11 @@ class TestApp(unittest.TestCase):
         for _ in view.VIEWS:
             st.key("t")
             seen.append(st.view)
-        self.assertEqual(seen, ["graph", "flow", "tree", "graph"])
-        self.assertTrue(st.key("2"))
-        self.assertEqual(st.view, "flow")
-        self.assertFalse(st.key("2"))                  # already there
+        self.assertEqual(seen, ["graph", "tree", "flow", "graph"])
         self.assertTrue(st.key("3"))
+        self.assertEqual(st.view, "flow")
+        self.assertFalse(st.key("3"))                  # already there
+        self.assertTrue(st.key("2"))
         self.assertTrue(st.tree)
         self.assertFalse(st.key(str(len(view.VIEWS) + 1)))
 

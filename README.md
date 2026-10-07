@@ -73,7 +73,7 @@ lint: OK
 ```
 
 `--flow` reads the same design left to right, as a call graph (`t` steps through the
-graph, flow and tree views live):
+graph, tree and flow views live):
 
 ```
 ── URL shortener ─────────────────────────────────────────
@@ -117,7 +117,7 @@ Every flag and key is in [`docs/tools.md`](./docs/tools.md).
 
 | Tool | Does |
 | --- | --- |
-| `view.py FILE` | Live terminal view, redrawn on every save: a graph view, a flow view (a call graph left to right, `--flow`) and a tree view (`--tree`) — `1` `2` `3` pick one, `t` steps to the next — a simulation mode (`x`) and a checks overlay (`c`). `--once` prints one drawing for agents and CI. |
+| `view.py FILE` | Live terminal view, redrawn on every save: a graph view, a tree view (`--tree`) and a flow view (a call graph left to right, `--flow`) — `1` `2` `3` pick one, `t` steps to the next — a simulation mode (`x`) and a checks overlay (`c`). `--once` prints one drawing for agents and CI. |
 | `lint.py FILE` | Validates a document: one `severity:line:rule: message` per issue; exit 0 clean, 1 warnings, 2 errors. `--deep` adds the composition checks. |
 | `check.py FILE` | Composition checks ([RFC 0003](./rfcs/0003-composition-checks.md)): does the design say how its risks are handled — time bounds, idempotency, writers, failure routes, stuck state machines? A finding never forbids a shape: declare the handling, or accept the risk with a reason. |
 | `render.py FILE` | Emits a Mermaid `flowchart TD` for docs (GitHub, Obsidian, mermaid.live). |
@@ -320,7 +320,7 @@ The **playground** runs the tools themselves in the browser: the build copies
 `view.py`, `lint.py`, `sim.py` and the modules they load into `py/` byte for byte, and
 [Pyodide](https://pyodide.org) runs them when a visitor presses *start*
 (`site/playground.py` is the thin JSON layer the page calls). Write a design, switch
-views (graph, flow, tree — `1` `2` `3` or `t` on the drawing, as in the viewer), read
+views (graph, tree, flow — `1` `2` `3` or `t` on the drawing, as in the viewer), read
 the lint, pick a scenario and step through its run, a frame or an event at a time,
 with the viewer's trail and narration line under the drawing; *share* puts the
 document in the link. Nothing about the notation is re-implemented in JavaScript, so

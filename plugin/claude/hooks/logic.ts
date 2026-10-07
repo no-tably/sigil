@@ -141,9 +141,9 @@ export function frameIndex(drawing: Drawing, playback: Playback): number {
   return Math.max(0, Math.min(playback.at, drawing.frames.length - 1))
 }
 
-/** The views in `t` order: tree → graph → flow → tree. */
+/** The views in `t` order (the viewer's): graph → tree → flow → graph. */
 export function nextView(view: ViewName): ViewName {
-  return view === 'tree' ? 'graph' : view === 'graph' ? 'flow' : 'tree'
+  return view === 'graph' ? 'tree' : view === 'tree' ? 'flow' : 'graph'
 }
 
 /** The depths in `d` order: 0 → 1 → all → 0. */

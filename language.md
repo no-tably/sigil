@@ -979,7 +979,7 @@ with its tier. `lint.py FILE --deep` runs lint and the checks together and merge
 two reports into one list sorted by line, with the acknowledged findings last as
 `accepted:` lines; its exit code is the worse of the two. Fix lint errors first: a
 malformed line can explain a finding. `view.py FILE --checks` (live key `c`) marks
-the findings on the drawing in every view (graph, flow, tree).
+the findings on the drawing in every view (graph, tree, flow).
 
 **Three sources of rules.** *Structural* rules read the wiring (call policy, store
 access, failure routes, state machines, cycles, bounds). *Behavioural* rules read the

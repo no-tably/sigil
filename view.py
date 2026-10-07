@@ -72,7 +72,7 @@ Options:
 Keys (live view):
     d  cycle depth (0 → 1 → all)   p  payloads   m  modifiers   a  access
     l  lint panel   r  reload
-    1 2 3  the view: graph / flow / tree   t  the next view (graph → flow → tree → …)
+    1 2 3  the view: graph / tree / flow   t  the next view (graph → tree → flow → …)
     e  triggers (event ⇢ the state it drives)
     s  spacing between units      v  events: where they land / as nodes (per view)
     n  notes: off → #N markers + list → margin callouts (tree view)
@@ -130,7 +130,7 @@ Structure:     ── L2 · Payments ──── a `--- section ---`: its flows
                divider row, `<->` lanes ◀──▶.
 The status bar shows the document's `#!mode`.
 
-Flow view (--flow, 2): the call graph left to right, as the page's toy graphs
+Flow view (--flow, 3): the call graph left to right, as the page's toy graphs
 draw it. A node sits in the column of its call depth, its first callee on its
 row; wires from one source share a trunk (─┬─▶ ├─▶ ╰─▶), wires into one target
 with one head share its last run (─┴─▶), a target fed by several kinds of
@@ -249,8 +249,8 @@ NOTE_MODES = ("off", "markers", "callouts")
 EVENT_MODES = scene.EVENTS                       # --events / v: "land" | "nodes"
 # The views, in the order `t` steps through them and keys 1, 2, 3 … select them;
 # the first is the default. A new view goes at the end (its key the next digit).
-VIEWS = ("graph", "flow", "tree")
-DEFAULT_EVENTS = {"graph": "nodes", "flow": "nodes", "tree": "land"}   # each view's own
+VIEWS = ("graph", "tree", "flow")
+DEFAULT_EVENTS = {"graph": "nodes", "tree": "land", "flow": "nodes"}   # each view's own
 
 
 def view_name(view) -> str:

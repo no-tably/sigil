@@ -144,8 +144,8 @@ Live keys:
 
 | Key | Does |
 | --- | --- |
-| `1` `2` `3` | the view: graph · flow · tree |
-| `t` | the next view (graph → flow → tree → graph) |
+| `1` `2` `3` | the view: graph · tree · flow |
+| `t` | the next view (graph → tree → flow → graph) |
 | `x` | sim mode; then space play / pause, `,` `.` a frame, `<` `>` an event, `[` `]` scenario, `-` `+` speed (¼ to 32 frames/s, from 2), `w` follow |
 | `c` | checks overlay |
 | `n` `e` `v` | notes · triggers · events (where they land / as nodes) |
