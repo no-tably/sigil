@@ -650,18 +650,22 @@ def _draw(lay: _Layout) -> kit.Canvas:
         _place_box(cv, lay, vid, v.x, top[v.layer], v.w, spots)
 
     # Edge labels (e.g. state-machine triggers) beside their arrowhead, right side
-    # first, then left; skipped where they would overwrite anything.
-    def free(x0, y, n):
-        return x0 >= 0 and all((x, y) not in cv.text and (x, y) not in cv.lines
-                               for x in range(x0 - 1, x0 + n + 1))
+    # first, then left; skipped where they would overwrite anything. A label
+    # reads as the head two cells left of it, so the left spot also wants two
+    # more blank cells before it (`▼ from [A]/ ▼` would read as the first
+    # head's): else the label is dropped.
+    def free(x0, y, n, before=1):
+        return x0 >= 0 and all(
+            (x, y) not in cv.text and (x, y) not in cv.lines
+            for x in range(x0 - before, x0 + n + 1))
 
     for x, y, runs in edge_labels:
         n = kit.row_len(runs)
-        at = (x + 2, x - 1 - n)
+        at = ((x + 2, 1), (x - 1 - n, 3))
         if lay.wrap is not None:                    # inside the wrap first
-            at = [x0 for x0 in at if x0 + n <= lay.wrap] + list(at)
-        for x0 in at:
-            if free(x0, y, n):
+            at = [a for a in at if a[0] + n <= lay.wrap] + list(at)
+        for x0, before in at:
+            if free(x0, y, n, before):
                 kit._put_runs(cv, x0, y, runs)
                 break
 

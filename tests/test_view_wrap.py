@@ -110,6 +110,18 @@ class TestGraphWraps(unittest.TestCase):
         vgraph._inside(V, ["a", "b", "c"], 20)              # can't fit: from 0, apart
         self.assertEqual([V[k].x for k in "abc"], [0, 13, 26])
 
+    def test_a_label_left_of_its_head_never_hugs_another_head(self):
+        """`▼ [Bullet]/ ▼` read as the first head's: the left spot wants a
+        wider gap, else the label goes right or is dropped."""
+        import re
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            view.main([str(_DIR / "tests" / "fixtures" / "coverage.sigil"), "--once",
+                       "--no-lint", "--graph", "--color", "never", "--width", "60"])
+        out = buf.getvalue()
+        self.assertIn("▼ [Bullet]/", out)
+        self.assertNotRegex(out, r"[▼▲◀▶] \S[^│\n]*?\S ▼")
+
 
 class TestTreeFolds(unittest.TestCase):
     def draw(self, text, width, **kw):
