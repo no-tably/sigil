@@ -51,6 +51,7 @@ as kit.NAME, so a theme change reaches them).
 
 from __future__ import annotations
 
+import bisect
 import importlib.util
 import itertools
 import re
@@ -889,6 +890,7 @@ class _Ctx:
         self.scn, self.depth, self.payloads, self.mods = scn, depth, payloads, mods
         self.look, self.checks, self.letters = look, checks, marks
         self.hang, self.width = hang, width
+        self._selfs = {}                        # (graph, owner) → its self-calls (hung)
         self.tags = vgraph._tags(scn, notes, mods)
         self.hung_tags = {}                     # node id → its label's tags that hang
         if hang:
@@ -931,9 +933,15 @@ class _Ctx:
 
     def selfs_of(self, part: _Part) -> dict:
         """{node id: view_graph._Selfs} of the part's nodes that call themselves."""
-        calls = scene.self_calls(self.scn, part.owner)
-        out = vgraph._self_calls(part.graph, calls, self.payloads, self.mods,
-                                 None if self.hang else self.letters)
+        key = (id(part.graph), part.owner)
+        if self.hang and key in self._selfs:    # a band: its part's, worked out once
+            out = dict(self._selfs[key])
+        else:
+            calls = scene.self_calls(self.scn, part.owner)
+            out = vgraph._self_calls(part.graph, calls, self.payloads, self.mods,
+                                     None if self.hang else self.letters)
+            if self.hang:                       # no letters handed out: the same every time
+                self._selfs[key] = dict(out)
         for st in part.strokes:                 # a self-edge that is no call (a machine's)
             if st.src == st.dst and st.src in part.nodes and st.src not in out:
                 out[st.src] = vgraph._Selfs("↺", [])
@@ -1242,7 +1250,7 @@ def _cut_groups(strokes: list, col: dict, starts: tuple) -> dict:
     """{(source, band it lands in): [strokes]}: the strokes a cut set cuts
     (`starts`: the first column of each band after the first), by plug."""
     def band(c):
-        return sum(1 for s in starts if s <= c)
+        return bisect.bisect_right(starts, c)
     out = {}
     for st in strokes:
         k, j = band(col[st.src]), band(col[st.dst])
@@ -1251,14 +1259,39 @@ def _cut_groups(strokes: list, col: dict, starts: tuple) -> dict:
     return out
 
 
+class _BandIndex(NamedTuple):
+    """A part's nodes and strokes by column, so a band is cut from what it
+    touches alone (a long part cut into many bands stays linear)."""
+    by_col: dict                # column → [node id]
+    touching: dict              # node id → [index into part.strokes]
+    pos: dict                   # node id → its place in part.nodes
+
+    def here(self, lo: int, hi: int) -> set:
+        return {nid for c in range(lo, hi) for nid in self.by_col.get(c, ())}
+
+    def strokes(self, part: _Part, here: set) -> list:
+        """part's strokes with an end in `here`, in part order."""
+        return [part.strokes[i] for i in sorted({i for nid in here
+                                                 for i in self.touching.get(nid, ())})]
+
+
+def _band_index(part: _Part, col: dict) -> _BandIndex:
+    by_col, touching = {}, {}
+    for nid, c in col.items():
+        by_col.setdefault(c, []).append(nid)
+    for i, st in enumerate(part.strokes):
+        for nid in dict.fromkeys((st.src, st.dst)):
+            touching.setdefault(nid, []).append(i)
+    return _BandIndex(by_col, touching, {nid: k for k, nid in enumerate(part.nodes)})
+
+
 def _band_part(part: _Part, ctx: "_Ctx", col: dict, lo: int, hi: int, groups: dict,
-               band_of, labels: dict):
+               band_of, labels: dict, index: _BandIndex):
     """(_Part, _BandSpec): the band of `part` over columns lo … hi-1: its nodes,
     the strokes between them, a cut end per group leaving it (in a column of its
     own on the right) and a plug-in per group landing in it (on the left), each
     group's strokes resuming from there. `labels`: {group: its number}."""
-    strokes = [st for st in part.strokes if st.src != st.dst]
-    here = {nid for nid, c in col.items() if lo <= c < hi}
+    here = index.here(lo, hi)
     me = band_of(lo)
     ins = [g for g in groups if g[1] == me]
     off = 1 if ins else 0
@@ -1268,7 +1301,7 @@ def _band_part(part: _Part, ctx: "_Ctx", col: dict, lo: int, hi: int, groups: di
     def vid(g, side):
         return f"\0p{side}{g[1]}\0{g[0]}"
 
-    for st in part.strokes:
+    for st in index.strokes(part, here):
         if st.src == st.dst:
             if st.src in here:
                 bstrokes.append(st)
@@ -1295,7 +1328,7 @@ def _band_part(part: _Part, ctx: "_Ctx", col: dict, lo: int, hi: int, groups: di
                 plugs.append(_Plug(pin, labels[g], ctx.style(groups[g][0])))
                 bcol[pin] = 0
             bstrokes.append(st._replace(src=pin))
-    nodes = {nid: n for nid, n in part.nodes.items() if nid in here}
+    nodes = {nid: part.nodes[nid] for nid in sorted(here & part.nodes.keys(), key=index.pos.get)}
     return (_Part("", part.owner, part.graph, nodes, bstrokes, base=part),
             _BandSpec(bcol, plugs, outs))
 
@@ -1312,6 +1345,7 @@ def _banded(part: _Part, lay: _Layout, ctx: "_Ctx", width: int):
         return None
     strokes = [st for st in part.strokes if st.src != st.dst]
     col = {vid: v.col for vid, v in lay.V.items() if v.what == "node" and vid not in lay.isolated}
+    index = _band_index(part, col)
     cache = {}
 
     def band_w(groups, lo, hi, band_of):
@@ -1320,23 +1354,29 @@ def _banded(part: _Part, lay: _Layout, ctx: "_Ctx", width: int):
                             if lo <= col[g[0]] < hi or band_of(lo) == g[1])))
         if sig not in cache:
             labels = {g: plug_label(1) for g in groups}
-            bpart, spec = _band_part(part, ctx, col, lo, hi, groups, band_of, labels)
+            bpart, spec = _band_part(part, ctx, col, lo, hi, groups, band_of, labels, index)
             cache[sig] = _draw(_build(bpart, ctx, spec), ctx, isolated=False).w
         return cache[sig]
 
-    def widths(starts):
-        """[each band's width], the plugs: a cut set drawn."""
+    def widths(starts, only: int | None = None):
+        """[each band's width], the plugs: a cut set drawn; `only`: just that
+        band's width (greedy cutting asks for the last band alone)."""
         bounds = (0,) + starts + (n,)
-        groups = _cut_groups(strokes, col, starts)
+        spans = list(zip(bounds, bounds[1:]))
 
         def band_of(c):
-            return sum(1 for s in starts if s <= c)
-        return [band_w(groups, lo, hi, band_of) for lo, hi in zip(bounds, bounds[1:])], len(groups)
+            return bisect.bisect_right(starts, c)
+        if only is not None:                    # its groups: the cut strokes it touches
+            lo, hi = spans[only]
+            near = [st for st in index.strokes(part, index.here(lo, hi)) if st.src != st.dst]
+            return band_w(_cut_groups(near, col, starts), lo, hi, band_of)
+        groups = _cut_groups(strokes, col, starts)
+        return [band_w(groups, lo, hi, band_of) for lo, hi in spans], len(groups)
 
     if n <= BAND_SEARCH:
         tries = (cuts for b in range(1, n) for cuts in itertools.combinations(range(1, n), b))
     else:
-        tries = iter([_greedy(n, lambda starts: widths(starts)[0], width)])
+        tries = iter([_greedy(n, widths, width)])
     best, narrow = None, None
     for cuts in tries:
         if best is not None and len(cuts) > len(best[2]):
@@ -1349,21 +1389,22 @@ def _banded(part: _Part, lay: _Layout, ctx: "_Ctx", width: int):
         cand = (widest, len(cuts), plugs, cuts)
         narrow = cand if narrow is None or cand < narrow else narrow
     starts = best[2] if best is not None else narrow[3]
-    return _stack(part, lay, ctx, col, starts, strokes)
+    return _stack(part, lay, ctx, col, starts, strokes, index)
 
 
 def _greedy(n: int, widths, width: int) -> tuple:
     """Cuts for a part of many columns: each band takes the next column while it
-    still fits (`widths(starts)`: each band's width under a cut set)."""
+    still fits (`widths(starts, k)`: band k's width under a cut set)."""
     starts = ()
     for c in range(1, n):
         trial = starts + (c + 1,) if c + 1 < n else starts
-        if widths(trial)[len(starts)] > width:
+        if widths(trial, len(starts)) > width:
             starts += (c,)
     return starts
 
 
-def _stack(part: _Part, lay: _Layout, ctx: "_Ctx", col: dict, starts: tuple, strokes: list):
+def _stack(part: _Part, lay: _Layout, ctx: "_Ctx", col: dict, starts: tuple, strokes: list,
+           index: _BandIndex):
     """(_Drawn, widest band): the bands of a cut set laid out, their cut ends
     numbered in reading order (band by band, top to bottom), drawn one under
     the other with a blank row between, and the part's unconnected nodes under
@@ -1373,12 +1414,12 @@ def _stack(part: _Part, lay: _Layout, ctx: "_Ctx", col: dict, starts: tuple, str
     groups = _cut_groups(strokes, col, starts)
 
     def band_of(c):
-        return sum(1 for s in starts if s <= c)
+        return bisect.bisect_right(starts, c)
 
     def build(labels):
         out = []
         for lo, hi in zip(bounds, bounds[1:]):
-            bpart, spec = _band_part(part, ctx, col, lo, hi, groups, band_of, labels)
+            bpart, spec = _band_part(part, ctx, col, lo, hi, groups, band_of, labels, index)
             out.append((_build(bpart, ctx, spec), spec))
         return out
 
