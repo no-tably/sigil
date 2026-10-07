@@ -10,7 +10,7 @@ import type { EngineInterface, Register, UiOpenResult } from 'claude-code'
 import type { Drawing, Playback, Split, ViewRequest } from '../types'
 import {
   COMMAND, DEFAULT_WIDTH, PANE, RASTER_COLUMNS, TOOL, UNASKED_COLUMNS,
-  detectMux, drawArgv, frameIndex, herdrPaneOf, nextDepth, nextView, parseCommandArgs,
+  detectMux, drawArgv, frameIndex, herdrPaneOf, herdrReadyArgv, nextDepth, nextView, parseCommandArgs,
   parseDrawing, parseRequest, rasterCells, replyText, resolveDisplay, rowsWidth, runLines,
   shellQuote, slices, splitArgv, statusLine, viewArgv,
 } from './logic'
@@ -190,6 +190,7 @@ async function showInSplit($: $, asked: Asked): Promise<string> {
     const pane = herdrPaneOf(ran.stdout)
     if (pane === undefined) return 'sigil: herdr split gave no pane id'
     opened.pane = pane
+    await $.process.run(herdrReadyArgv(pane), { timeoutMs: 10000 }).catch(() => undefined)
     await $.process.run(['herdr', 'pane', 'run', pane, shellQuote(follow)])
   } else if (mux === 'tmux') {
     opened.pane = ran.stdout.trim()

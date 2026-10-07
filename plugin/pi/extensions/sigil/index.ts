@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url'
 
 import {
   DEFAULT_WIDTH, UNASKED_COLUMNS, VIEWS,
-  detectMux, drawArgv, frameIndex, herdrPaneOf, parseCommandArgs, parseDrawing,
+  detectMux, drawArgv, frameIndex, herdrPaneOf, herdrReadyArgv, parseCommandArgs, parseDrawing,
   parseRequest, replyText, resolveDisplay, runLines, shellQuote, splitArgv, statusLine, viewArgv,
 } from './logic.ts'
 import type { Asked, Display } from './logic.ts'
@@ -353,6 +353,8 @@ export default function sigil(pi: Pi): void {
       const pane = herdrPaneOf(ran.stdout)
       if (pane === undefined) return 'sigil: herdr split gave no pane id'
       opened.pane = pane
+      const ready = herdrReadyArgv(pane)
+      await pi.exec(ready[0], ready.slice(1), { timeout: 10000 }).catch(() => undefined)
       await pi.exec('herdr', ['pane', 'run', pane, shellQuote(follow)], { timeout: 30000 })
     } else if (mux === 'tmux') {
       opened.pane = ran.stdout.trim()

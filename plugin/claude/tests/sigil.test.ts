@@ -145,10 +145,10 @@ describe('multiplex display', () => {
     await $.tool.call({ tool: 'mcp__sigil__view', file: 'shop.sigil' })
     const herdr = () => seen.runs.filter(argv => argv[0] === 'herdr')
     expect(herdr().map(argv => argv.slice(0, 4))).toEqual([
-      ['herdr', 'pane', 'split', 'w1:p1'], ['herdr', 'pane', 'run', 'w1:p2']])
+      ['herdr', 'pane', 'split', 'w1:p1'], ['herdr', 'pane', 'wait-output', 'w1:p2'], ['herdr', 'pane', 'run', 'w1:p2']])
     const { result } = await $.tool.call({ tool: 'mcp__sigil__view', scenario: 'happy' })
     expect(String(result)).toContain('Shown in the herdr split')
-    expect(herdr().length).toBe(2)
+    expect(herdr().length).toBe(3)   // split, wait, run: a reused split adds none
     expect(JSON.parse(seen.writes[1]?.text ?? '{}')).toEqual({ argv: [FILE, '--depth', '1', '--sim', 'happy'] })
   })
 })

@@ -114,6 +114,12 @@ export function splitArgv(mux: Mux, follow: readonly string[], herdrPane?: strin
   return ['herdr', 'pane', 'split', ...(herdrPane ? [herdrPane] : ['--current']), '--direction', 'right', '--no-focus']
 }
 
+/** Waits until a new herdr pane's shell has drawn anything (its prompt): a
+ * command sent by `herdr pane run` before then is lost. */
+export function herdrReadyArgv(pane: string): string[] {
+  return ['herdr', 'pane', 'wait-output', pane, '--regex', '\\S', '--source', 'visible']
+}
+
 /** The new pane's id in `herdr pane split`'s JSON reply. */
 export function herdrPaneOf(stdout: string): string | undefined {
   try {

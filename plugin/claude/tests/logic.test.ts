@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import {
-  colourOf, frameIndex, herdrPaneOf, nextView, parseCommandArgs, parseDrawing, parseRequest,
+  colourOf, frameIndex, herdrPaneOf, herdrReadyArgv, nextView, parseCommandArgs, parseDrawing, parseRequest,
   rasterCells, resolveDisplay, runLines, shellQuote, slices, splitArgv, viewArgv,
 } from '../hooks/logic'
 import type { Drawing } from '../types'
@@ -57,6 +57,7 @@ describe('commands', () => {
     expect(splitArgv('herdr', follow, 'w6:p1')).toEqual(['herdr', 'pane', 'split', 'w6:p1', '--direction', 'right', '--no-focus'])
     expect(herdrPaneOf('{"result":{"pane":{"pane_id":"w6:p2"}}}')).toBe('w6:p2')
     expect(herdrPaneOf('nope')).toBeUndefined()
+    expect(herdrReadyArgv('w6:p2')).toEqual(['herdr', 'pane', 'wait-output', 'w6:p2', '--regex', '\\S', '--source', 'visible'])
     expect(shellQuote(['python3', "/a b/it's.py"])).toBe(`python3 '/a b/it'\\''s.py'`)
   })
 })
