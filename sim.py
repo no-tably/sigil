@@ -133,7 +133,21 @@ Trace(scenario, frames, outcome, end, scene)
               stop        how (entry | unawaited | fallback | route-failed |
                           abort), node, guard
               limit       name (depth | visits | spawns | iterations | activations
-                          | stack | frames), node
+                          | stack | frames), node; a depth limit also act (the
+                          capped caller), level (how deep it is) and wire
+              enter       act (run-wide activation number, from 1), caller (the
+                          act whose hop or fork started it; None for an entry),
+                          node, unit (index), level (activations of node on the
+                          task's stack, itself included: Frame.depth's count),
+                          insts (the instance keys it stands for, its lanes; ()
+                          outside the composition tree), wire (the ident that
+                          started it; None for an entry or an expansion's entry)
+              leave       act, how (ok | failed | cancelled)
+              hop         act (the one it sets out from), wire, back (bool), lanes
+                          (the instance keys it reaches going out into a
+                          composition node; None otherwise)
+              spawn       node, inst (the new key), parent (its parent instance's
+                          key), wire
               ignored     event, label, owner, state
               quiet       waiting (task ids still waiting when the run went quiet)
             A source join is a deposit, so its arrivers never wait: there is no
@@ -146,8 +160,20 @@ Frame — a full, immutable snapshot (a view draws frame i alone)
   machines {owner: state node id}, changed, instances, loops, blocks,
   held_resources, log (lines added this frame, each led by `t` and the tick, zero-padded), done
 
-Token(wire, at, dir, task, state, carries, reach, attempt)
-  dir "out" | "back"; state "moving" | "failed" | "cancelled" | "fallback"
+Token(wire, at, dir, task, state, carries, reach, attempt, act)
+  dir "out" | "back"; state "moving" | "failed" | "cancelled" | "fallback";
+  act the activation the hop set out from
+
+INSTANCES
+
+instances(prog, limits, potential=False) -> (Instance(key, node, ordinal, parent,
+rel, spawn, setup, entry), …): the composition instances at setup, keyed (node
+id, ordinal), in composition order (a parent instance, then its children depth
+first); a spawn adds one under the parent instance with the fewest of its
+entry. A hop into a composition node stands for some of its instances (its
+lanes): from a sender standing for instances I, for each i in I the target's
+instances under i when there are any, else every instance the wire selects (a
+`[A]/` path, Limits.spawns); from a sender standing for none, every one.
 
 NARRATION (pure, over a Trace and the scene it names)
 
@@ -254,6 +280,24 @@ class Token(NamedTuple):
     carries: Optional[str] = None
     reach: int = 1
     attempt: Optional[tuple] = None
+    act: Optional[int] = None
+
+
+class Instance(NamedTuple):
+    """One composition instance (instances()): `key` (node id, ordinal), the
+    ordinal counting the node's instances in composition order (a parent
+    instance, then its children, depth first; a spawned one next in spawn
+    order), its parent instance's key (None: a root), the tree entry's relation
+    and `*-`, whether it exists at setup (False: one that could exist, the
+    potential ones), and its entry's index in Program.tree."""
+    key: tuple
+    node: str
+    ordinal: int
+    parent: Optional[tuple]
+    rel: Optional[str]
+    spawn: bool
+    setup: bool
+    entry: int
 
 
 class Frame(NamedTuple):
@@ -729,6 +773,7 @@ class _Flight:
     reach: int
     attempt: Optional[tuple]
     start: int = 0
+    act: Optional[int] = None
 
 
 @dataclass
@@ -736,6 +781,9 @@ class _Act:
     node: str
     ui: int
     cause: Optional[tuple]
+    id: int = 0                # run-wide activation number (the `enter` event's act)
+    insts: tuple = ()          # the instance keys it stands for (its lanes)
+    level: int = 1             # activations of node on its task's stack, itself included
 
 
 @dataclass
@@ -754,6 +802,7 @@ class _Task:
     scopes: Counter = field(default_factory=Counter)  # block keys it runs inside
     episode: int = 0                              # the episode it was forked in
     guard: object = None                          # the failure guard it ended with
+    origin: Optional[_Act] = None                 # its parent's activation at the fork
 
 
 _BUSY = {"active": 5, "waiting": 4, "failed": 3, "visited": 2, "opaque": 1, "cancelled": 0}
@@ -775,7 +824,11 @@ class _Run:
         self.machines = {o: m.initial for o, m in prog.machines.items()}
         self.bound: dict = {}          # owner → [state, …]: in-flight triggers' targets, FIFO
         self.changed, self.lit_now, self.ghosts = set(), set(), []
-        self.counts = _setup_instances(prog, limits)
+        self.insts = list(instances(prog, limits))     # every instance, spawned ones after
+        self.counts = _tally(prog, self.insts)
+        self.inst_parent = {i.key: i.parent for i in self.insts}
+        self.wires = {w.ident: w for w in prog.scene.wires}
+        self.acts = 0                  # activations numbered so far (the run's `act`)
         self.loops, self.blocks, self.held = {}, Counter(), Counter()
         self.loops_most: dict = {}     # (owner, block index) → the most iterations it ran
         self.visits, self.activations = Counter(), 0
@@ -845,6 +898,7 @@ class _Run:
                      episode=self.episode)
         if parent is not None:
             task.scopes = Counter(+parent.scopes)
+            task.origin = self._sender(parent)
         self.tasks.append(task)
         self.alive.append(task)
         self._event("fork", task, parent=parent.id if parent is not None else None, why=why,
@@ -919,6 +973,7 @@ class _Run:
             self.ghosts.append(self._token(task, fl, "cancelled"))
         for act in task.stack:
             self.status[act.node] = "cancelled"
+            self._event("leave", task, act=act.id, how="cancelled")
         task.gen.close()
         task.ended, task.resume, task.wait = True, None, None
         self._event("end", task, how="cancelled")
@@ -936,7 +991,7 @@ class _Run:
         frac = (self.t - fl.start) / fl.dur if fl.dur else 1.0
         at = 1.0 - frac if fl.back else frac
         return Token(fl.wire, round(at, 4), "back" if fl.back else "out", task.id,
-                     state or fl.state, fl.carries, fl.reach, fl.attempt)
+                     state or fl.state, fl.carries, fl.reach, fl.attempt, fl.act)
 
     def _snapshot(self) -> Frame:
         tokens, in_flight = [], set()
@@ -1022,65 +1077,141 @@ class _Run:
 
     def _hop(self, task: _Task, w, *, dur: Optional[int] = None, back: bool = False,
              state: str = "moving", carries=None, reach: int = 1, attempt=None):
-        """Move a token along w; returns its flight at the arrival tick."""
-        fl = _Flight(w.ident, back, dur or self.limits.hop, state, carries, reach, attempt)
+        """Move a token along w; returns its flight at the arrival tick. A `hop`
+        event names the activation it sets out from and, going out into a
+        composition node, the instances it reaches (its lanes)."""
+        sender = self._sender(task)
+        fl = _Flight(w.ident, back, dur or self.limits.hop, state, carries, reach, attempt,
+                     act=sender.id if sender is not None else None)
+        lanes = None if back else self._lanes(w, sender)
+        self._event("hop", task, act=fl.act, wire=w.ident, back=back, lanes=lanes)
         yield ("hop", fl)
         if not back and state != "failed":
             self.taken.add(w.ident)
         return fl
 
     def _push(self, task: _Task, ui: int, nid: str, cause) -> _Act:
+        """A new activation of nid on the task (cause: the wire ident that
+        started it, None for an entry), numbered run-wide; an `enter` event
+        names its caller (the activation whose hop or fork started it; None for
+        an episode's entry), its level on the stack and its lanes."""
         self.activations += 1
         if self.activations > self.limits.activations:
             raise _Cut("activations")
         if len(task.stack) >= self.limits.stack:
             raise _Cut("stack")
+        caller = self._sender(task)
         if task.stack:
             self.status[task.stack[-1].node] = "waiting"
-        act = _Act(nid, ui, cause)
+        self.acts += 1
+        level = 1 + sum(1 for a in task.stack if a.node == nid)
+        act = _Act(nid, ui, cause, self.acts, self._act_lanes(nid, cause, caller), level)
         task.stack.append(act)
         self.status[nid] = "active"
+        self._event("enter", task, act=act.id, caller=caller.id if caller is not None else None,
+                    node=nid, unit=ui, level=level, insts=act.insts, wire=cause)
         return act
 
     def _pop(self, task: _Task, act: _Act, status: str) -> None:
         if task.stack and task.stack[-1] is act:
             task.stack.pop()
         self.status[act.node] = status
+        self._event("leave", task, act=act.id, how="failed" if status == "failed" else "ok")
+
+    @staticmethod
+    def _sender(task: _Task) -> Optional[_Act]:
+        """The activation a task's next hop sets out from: the top of its stack,
+        else (a forked task's first hop) its parent's at the fork."""
+        return task.stack[-1] if task.stack else task.origin
 
     def _resume_caller(self, task: _Task) -> None:
         if task.stack:
             self.status[task.stack[-1].node] = "active"
 
-    def _depth_capped(self, task: _Task, nid: str) -> bool:
+    def _depth_capped(self, task: _Task, nid: str, wire=None) -> bool:
+        """Whether nid is Limits.depth deep on the task's stack already: the
+        base case (a `limit` event naming the capped caller's act, the level
+        reached and the wire that would have gone deeper)."""
         n = sum(1 for a in task.stack if a.node == nid)
         if n >= self.limits.depth:
-            self._event("limit", task, name="depth", node=nid)
+            top = task.stack[-1].id if task.stack else None
+            self._event("limit", task, name="depth", node=nid, act=top, level=n, wire=wire)
             self._log(f"base case: {self._name(nid)} at depth {n}")
             return True
         return False
 
-    def _reach_of(self, w) -> int:
-        """How many instances a flow into w.dst reaches: its composition instances,
-        else the cardinality written on the flow (`-> [App]×3`, Edge.card; a
-        symbolic N counts Limits.spawn), else 1."""
-        if w.dst not in self.prog.tree_nodes:
-            card = w.edge.card if w.edge is not None else None
-            if not card:
-                return 1
-            return min(int(card) if card.isdigit() else self.limits.spawn, self.limits.spawns)
+    def _reach_of(self, w, task: Optional[_Task] = None) -> int:
+        """How many instances a flow into w.dst reaches from the task's sender:
+        its lanes (_lanes), else the cardinality written on the flow (`->
+        [App]×3`, Edge.card; a symbolic N counts Limits.spawn), else 1."""
+        lanes = self._lanes(w, self._sender(task) if task is not None else None)
+        if lanes is not None:
+            return len(lanes)
+        card = w.edge.card if w.edge is not None else None
+        if not card:
+            return 1
+        return min(int(card) if card.isdigit() else self.limits.spawn, self.limits.spawns)
+
+    def _picked(self, w) -> tuple:
+        """The instance keys of w.dst a flow along w selects: every one, or those
+        under its `[A]/` path (in its own unit), the first Limits.spawns."""
         ui = self._ui(w)
         path = w.paths[1] if w.paths else None
-        total = 0
-        for (tui, k, t), n in zip(self.prog.tree, self.counts):
-            if t.node != w.dst:
+        out, keep = [], {}
+        for inst in self.insts:
+            if inst.node != w.dst:
                 continue
+            tui, k, _t = self.prog.tree[inst.entry]
             if path and tui == ui:
-                g = self.prog.units[tui].graph
-                occ = kit.render.occurrences(g)
-                if occ[k][0] not in kit.render.matching_occurrences(g, occ, w.dst, path):
+                if inst.entry not in keep:
+                    g = self.prog.units[tui].graph
+                    occ = kit.render.occurrences(g)
+                    keep[inst.entry] = occ[k][0] in kit.render.matching_occurrences(
+                        g, occ, w.dst, path)
+                if not keep[inst.entry]:
                     continue
-            total += n
-        return min(total, self.limits.spawns)
+            out.append(inst.key)
+        return tuple(out[:self.limits.spawns])
+
+    def _lanes(self, w, sender: Optional[_Act]) -> Optional[tuple]:
+        """The instances of w.dst a hop along w from `sender` stands for (None:
+        w.dst is no composition node): for each instance the sender stands for,
+        w.dst's instances under it when there are any, else every one the wire
+        selects (_picked); a node calling itself keeps its own lanes."""
+        if w.dst not in self.prog.tree_nodes:
+            return None
+        picked = self._picked(w)
+        mine = sender.insts if sender is not None else ()
+        if not mine:
+            return picked
+        if sender.node == w.dst:
+            return mine
+        out = []
+        for i in mine:
+            under = [k for k in picked if self._under(k, i)]
+            out += under or list(picked)
+        return tuple(dict.fromkeys(out))
+
+    def _under(self, key: tuple, anc: tuple) -> bool:
+        """Whether instance `key` is a descendant of instance `anc`."""
+        seen = 0
+        while key is not None and seen <= len(self.inst_parent):
+            key = self.inst_parent.get(key)
+            if key == anc:
+                return True
+            seen += 1
+        return False
+
+    def _act_lanes(self, nid: str, cause, caller: Optional[_Act]) -> tuple:
+        """The lanes of a new activation of nid: none outside the composition
+        tree; along its wire, _lanes; else (an entry, an expansion's entry, an
+        alias) every instance of nid."""
+        if nid not in self.prog.tree_nodes:
+            return ()
+        w = self.wires.get(cause) if cause is not None else None
+        if w is not None and w.dst == nid:
+            return self._lanes(w, caller) or ()
+        return tuple(i.key for i in self.insts if i.node == nid)[:self.limits.spawns]
 
     def _access(self, task: _Task, w, outcome: str) -> None:
         """An `access` event when w touches a store (scene.access_mode, the static
@@ -1099,8 +1230,10 @@ class _Run:
                     outcome=outcome)
 
     def _spawn(self, task: _Task, w) -> None:
-        """A `=>` into a dynamic or `\\-?` child: one more instance (capped)."""
-        for idx, (_ui, _k, t) in enumerate(self.prog.tree):
+        """A `=>` into a dynamic or `\\-?` child: one more instance (capped),
+        under the parent instance with the fewest of that entry (a `spawn`
+        event names it, its parent and the wire)."""
+        for idx, (_ui, k, t) in enumerate(self.prog.tree):
             if t.node == w.dst and (t.spawn or t.rel in ("$", "?")):
                 if sum(n for (_u, _kk, x), n in zip(self.prog.tree, self.counts)
                        if x.node == w.dst) >= self.limits.spawns:
@@ -1108,6 +1241,18 @@ class _Run:
                     self._log("spawn cap reached")
                     return
                 self.counts[idx] += 1
+                parent = None
+                if t.parent is not None:
+                    pidx = idx - k + t.parent
+                    mine = Counter(i.parent for i in self.insts if i.entry == idx)
+                    parents = [i.key for i in self.insts if i.entry == pidx]
+                    parent = min(parents, key=lambda p: mine[p]) if parents else None
+                n = 1 + max((i.ordinal for i in self.insts if i.node == w.dst), default=0)
+                inst = Instance((w.dst, n), w.dst, n, parent, t.rel, t.spawn, True, idx)
+                self.insts.append(inst)
+                self.inst_parent[inst.key] = parent
+                self._event("spawn", task, node=w.dst, inst=inst.key, parent=parent,
+                            wire=w.ident)
                 self._log(f"spawn {self._name(w.dst)} ({self.counts[idx]})")
                 return
 
@@ -1232,7 +1377,7 @@ class _Run:
             self._unawaited(task, w.dst, ("call", w.ident))
             return
         self._log(f"send {self._wire_text(w)}")
-        yield from self._hop(task, w, carries=carried(w), reach=self._reach_of(w))
+        yield from self._hop(task, w, carries=carried(w), reach=self._reach_of(w, task))
         try:
             yield from self._land(task, w, arm)
         except _Fail as f:
@@ -1261,7 +1406,7 @@ class _Run:
         a = attempts(w, self.limits) if resilient(w) else 0
         self._log(self._wire_text(w) + (f" attempt 1/{a}" if a > 1 else ""))
         task.open.append(w.ident)
-        yield from self._hop(task, w, carries=carried(w), reach=self._reach_of(w),
+        yield from self._hop(task, w, carries=carried(w), reach=self._reach_of(w, task),
                              attempt=(1, a) if a > 1 else None)
         try:
             yield from self._land(task, w, arm)
@@ -1286,7 +1431,7 @@ class _Run:
         if w.kind == "=>":
             self._spawn(task, w)
         self._access(task, w, "done")
-        if self._reach_of(w) == 0:
+        if self._reach_of(w, task) == 0:
             self._log(f"no instance of {self._name(dst)}")
             yield ("turn",)
             return
@@ -1307,7 +1452,8 @@ class _Run:
                 yield ("turn",)
                 return
         alias = _alias_of(self.prog, w)
-        if self._depth_capped(task, dst) or (alias and self._depth_capped(task, alias[1])):
+        if (self._depth_capped(task, dst, w.ident)
+                or (alias and self._depth_capped(task, alias[1], w.ident))):
             yield ("turn",)
             return
         yield from self._activate(task, self._ui(w), dst, w.ident, arm, alias)
@@ -1391,7 +1537,7 @@ class _Run:
         alias = _alias_of(self.prog, w)
         glyph = w.edge is None or not w.edge.target_op     # `[D] -> [D]`: the node recurses
         target = alias[1] if alias else (w.src if glyph else None)
-        if target is not None and self._depth_capped(task, target):
+        if target is not None and self._depth_capped(task, target, w.ident):
             return
         if self._choice(task, ("call", w.ident), "ok") == "fails":
             yield from self._failing(task, w, 1)
@@ -2117,26 +2263,60 @@ def failure_flow(prog: Program, limits: Limits = Limits()) -> dict:
     return failure_analysis(prog, limits).arriving
 
 
-def _setup_instances(prog: Program, limits: Limits) -> list:
-    """Instance count per composition entry (prog.tree order): static children once per
-    parent occurrence (×N multiplies), dynamic ones Limits.spawn, `\\-?` ones 0."""
-    counts = []
-    for idx, (ui, k, t) in enumerate(prog.tree):
+def instances(prog: Program, limits: Limits = Limits(), *, potential: bool = False) -> tuple:
+    """(Instance, …): the composition instances at setup, in composition order —
+    each root once, then under each parent instance its children entry by entry
+    (static ones once, ×N multiplying; dynamic ones Limits.spawn; `\\-?` ones
+    none), each child's own subtree right after it; at most Limits.spawns per
+    entry. `potential`: a `\\-?` entry's Limits.spawn per parent too, as
+    instances that could exist (setup False, with their subtrees). Pure."""
+    kids, roots = {}, []
+    for idx, (_ui, k, t) in enumerate(prog.tree):
         if t.parent is None:
-            counts.append(1)
-            continue
-        base = counts[idx - k + t.parent]     # a unit's entries are consecutive
-        if t.rel == "?":
-            n = 0
-        elif t.spawn or t.rel == "$":
-            n = base * limits.spawn
+            roots.append(idx)
         else:
-            node = prog.units[ui].graph.nodes.get(t.node)
-            times = next((a for nm, a in (node.mods if node else []) if nm == "×"), None)
-            mult = (int(times) if times and times.isdigit() else limits.spawn) if times else 1
-            n = base * mult
-        counts.append(min(n, limits.spawns))
-    return counts
+            kids.setdefault(idx - k + t.parent, []).append(idx)   # a unit's entries are consecutive
+    made, ordinal, out = Counter(), Counter(), []
+
+    def per_parent(idx: int) -> int:
+        ui, _k, t = prog.tree[idx]
+        if t.rel == "?":
+            return limits.spawn if potential else 0
+        if t.spawn or t.rel == "$":
+            return limits.spawn
+        node = prog.units[ui].graph.nodes.get(t.node)
+        times = next((a for nm, a in (node.mods if node else []) if nm == "×"), None)
+        return (int(times) if times and times.isdigit() else limits.spawn) if times else 1
+
+    stack = [(idx, None, True) for idx in reversed(roots)]
+    while stack:                       # depth first without recursion: deep trees are fine
+        idx, parent, setup = stack.pop()
+        t = prog.tree[idx][2]
+        made[idx] += 1
+        ordinal[t.node] += 1
+        inst = Instance((t.node, ordinal[t.node]), t.node, ordinal[t.node], parent, t.rel,
+                        t.spawn, setup, idx)
+        out.append(inst)
+        todo = []
+        for c in kids.get(idx, []):
+            n = min(per_parent(c), limits.spawns - made[c] - sum(1 for x in todo if x[0] == c))
+            child_setup = setup and prog.tree[c][2].rel != "?"
+            todo += [(c, inst.key, child_setup)] * max(n, 0)
+        stack += reversed(todo)
+    return tuple(out)
+
+
+def _tally(prog: Program, insts) -> list:
+    """Instances per composition entry (prog.tree order)."""
+    n = Counter(i.entry for i in insts)
+    return [n[idx] for idx in range(len(prog.tree))]
+
+
+def _setup_instances(prog: Program, limits: Limits) -> list:
+    """Instance count per composition entry (prog.tree order): the tallies of
+    instances() — static children once per parent occurrence (×N multiplies),
+    dynamic ones Limits.spawn, `\\-?` ones 0."""
+    return _tally(prog, instances(prog, limits))
 
 
 def _one_of_groups(prog: Program) -> dict:

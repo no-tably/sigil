@@ -1,0 +1,176 @@
+"""Tests for the run facts of sim.py — what the run view (view.py --run) unrolls.
+
+Covers:
+  1. instances(): keys, ordinals and composition order, the potential ones;
+  2. lanes: which instances a hop reaches from its sender;
+  3. the run's structured facts: enter / leave / hop / spawn events, a depth
+     limit's act and level, Token.act.
+
+Run:  python3 -m unittest discover tests
+"""
+from __future__ import annotations
+
+import importlib.util
+import sys
+import unittest
+from pathlib import Path
+
+_DIR = Path(__file__).resolve().parents[1]
+
+
+def _load(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+sim = _load("sigil_sim_run_test", _DIR / "sim.py")
+scene = sim.scene_mod
+render = sim.kit.render
+
+ARENA = _DIR / "site" / "examples" / "03-arena.sigil"
+EXECUTIONS = _DIR / "tests" / "fixtures" / "executions.sigil"
+
+
+def canon(path_or_text) -> object:
+    text = path_or_text.read_text() if isinstance(path_or_text, Path) else path_or_text
+    return sim.canonical(render.parse_document(text))
+
+
+def run(sc, name: str = "happy", **kw):
+    return sim.simulate(sc, sim.scenario(sc, name), **kw)
+
+
+def events(trace, kind: str) -> list:
+    return [e for e in trace.end["events"] if e["kind"] == kind]
+
+
+def short(key) -> str:
+    """('Transform_data', 2) → 'Transform·2'."""
+    return f"{key[0].rsplit('_', 1)[0]}·{key[1]}"
+
+
+class TestInstances(unittest.TestCase):
+    def setUp(self):
+        self.prog = sim.program(canon(ARENA))
+
+    def test_composition_order_and_ordinals(self):
+        got = [short(i.key) for i in sim.instances(self.prog)]
+        self.assertEqual(got, ["Ship·1", "Transform·1", "Health·1", "Bullet·1", "Transform·2",
+                               "Damage·1", "Bullet·2", "Transform·3", "Damage·2", "Asteroid·1",
+                               "Transform·4"])
+
+    def test_parents(self):
+        by = {short(i.key): i for i in sim.instances(self.prog)}
+        self.assertEqual(short(by["Transform·3"].parent), "Bullet·2")
+        self.assertIsNone(by["Ship·1"].parent)
+        self.assertTrue(by["Bullet·1"].spawn)
+
+    def test_potential_adds_the_optional_ones(self):
+        insts = sim.instances(self.prog, potential=True)
+        shards = [i for i in insts if i.node == "Shard_service"]
+        self.assertEqual([short(i.key) for i in shards], ["Shard·1", "Shard·2"])
+        self.assertFalse(any(i.setup for i in shards))
+        self.assertTrue(all(i.setup for i in insts if i.node != "Shard_service"))
+
+    def test_counts_are_the_tallies(self):
+        self.assertEqual(sim._setup_instances(self.prog, sim.Limits()),
+                         [1, 1, 1, 2, 2, 2, 1, 1, 0])
+
+    def test_spawns_caps_an_entry(self):
+        insts = sim.instances(self.prog, sim.Limits(spawn=6))
+        self.assertEqual(sum(1 for i in insts if i.node == "Bullet_service"), 6)
+        self.assertEqual(sum(1 for i in insts if i.node == "Transform_data"), 8)
+
+
+class TestLanes(unittest.TestCase):
+    def setUp(self):
+        self.tr = run(canon(ARENA))
+
+    def lanes(self, src: str) -> tuple:
+        return next(e["lanes"] for e in events(self.tr, "hop") if e["wire"][0] == src)
+
+    def test_a_path_reaches_the_bullets_transforms_only(self):
+        self.assertEqual([short(k) for k in self.lanes("Homing_service")],
+                         ["Transform·2", "Transform·3"])
+
+    def test_a_flow_from_outside_reaches_every_instance(self):
+        self.assertEqual(len(self.lanes("Physics_service")), 4)
+
+    def test_reach_is_the_lanes(self):
+        reach = {t.wire[:2]: t.reach for f in self.tr.frames for t in f.tokens}
+        self.assertEqual(reach[("Homing_service", "Transform_data")], 2)
+
+    def test_an_entry_stands_for_every_instance(self):
+        damage = next(e for e in events(self.tr, "enter") if e["node"] == "Damage_data")
+        self.assertEqual([short(k) for k in damage["insts"]], ["Damage·1", "Damage·2"])
+        self.assertIsNone(damage["caller"])
+
+    def test_a_child_of_each_lane(self):
+        sc = canon("[Ship]\n    \\-& {Transform}\n    \\-*-> [Bullet]\n"
+                   "        \\-& {Transform}\n[Bullet] -> {Transform}\n")
+        tr = run(sc)
+        bullet = next(e for e in events(tr, "enter") if e["node"] == "Bullet_service")
+        hop = next(e for e in events(tr, "hop") if e["wire"][0] == "Bullet_service")
+        self.assertEqual([short(k) for k in bullet["insts"]], ["Bullet·1", "Bullet·2"])
+        self.assertEqual([short(k) for k in hop["lanes"]], ["Transform·2", "Transform·3"])
+
+
+class TestRunFacts(unittest.TestCase):
+    def test_enter_and_leave_pair_up(self):
+        tr = run(canon(ARENA))
+        entered = {e["act"] for e in events(tr, "enter")}
+        left = {e["act"] for e in events(tr, "leave")}
+        self.assertEqual(entered, left)
+        self.assertEqual(sorted(entered), list(range(1, len(entered) + 1)))
+        self.assertTrue(all(e["how"] == "ok" for e in events(tr, "leave")))
+
+    def test_spawn_names_the_instance_and_its_parent(self):
+        tr = run(canon(ARENA))
+        (sp,) = events(tr, "spawn")
+        self.assertEqual(short(sp["inst"]), "Shard·1")
+        self.assertEqual(short(sp["parent"]), "Asteroid·1")
+        shard = next(e for e in events(tr, "enter") if e["node"] == "Shard_service")
+        self.assertEqual(shard["insts"], (sp["inst"],))
+
+    def test_tokens_carry_their_act(self):
+        tr = run(canon(ARENA))
+        hops = {(e["task"], e["wire"]): e["act"] for e in events(tr, "hop")}
+        toks = [t for f in tr.frames for t in f.tokens]
+        self.assertTrue(toks)
+        for t in toks:
+            self.assertEqual(t.act, hops[(t.task, t.wire)])
+
+    def test_recursion_levels_and_the_base_case(self):
+        tr = run(canon(EXECUTIONS))
+        builder = [e for e in events(tr, "enter") if e["node"] == "Builder_service"]
+        self.assertEqual(sorted({e["level"] for e in builder}), [1, 2, 3])
+        acts = {e["act"]: e for e in events(tr, "enter")}
+        deep = [e for e in events(tr, "limit") if e["name"] == "depth"
+                and e["node"] == "Builder_service"]
+        self.assertTrue(deep)
+        for e in deep:
+            self.assertEqual(e["level"], 3)
+            self.assertEqual(acts[e["act"]]["level"], 3)
+            self.assertEqual(e["wire"][:2], ("Builder_service", "Builder_service"))
+        lvl2 = next(e for e in builder if e["level"] == 2)
+        self.assertEqual(acts[lvl2["caller"]]["level"], 1)
+
+    def test_a_failed_activation_leaves_failed(self):
+        sc = canon(EXECUTIONS)
+        tr = run(sc, "Fetcher.http.get:fails")
+        fetcher = {e["act"] for e in events(tr, "enter") if e["node"] == "Fetcher_service"}
+        how = {e["how"] for e in events(tr, "leave") if e["act"] in fetcher}
+        self.assertIn("failed", how)
+
+    def test_an_async_hop_sets_out_from_the_forking_act(self):
+        tr = run(canon(ARENA))
+        acts = {e["act"]: e for e in events(tr, "enter")}
+        hop = next(e for e in events(tr, "hop") if e["wire"][2] == "~>")
+        self.assertEqual(acts[hop["act"]]["node"], "Combat_service")
+
+
+if __name__ == "__main__":
+    unittest.main()
