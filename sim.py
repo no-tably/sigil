@@ -3654,7 +3654,9 @@ class _Words:
 
     def name(self, nid) -> str:
         sn = self.scn.nodes.get(nid)
-        return kit.node_label(sn.node) if sn is not None else str(nid)
+        if sn is not None:
+            return kit.node_label(sn.node)
+        return scene_mod.decision_name(self.scn, nid) or str(nid)
 
     def state(self, nid) -> str:
         sn = self.scn.nodes.get(nid)

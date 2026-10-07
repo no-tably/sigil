@@ -1602,6 +1602,14 @@ class TestNarration(unittest.TestCase):
                     beats = sim.narrate(tr)
                     self.assertTrue(beats[-1].text.endswith(f"the run ends: {tr.outcome}"))
                     self.assertNotIn("None", " ".join(b.text for b in beats))
+                    self.assertNotIn("\0", " ".join(b.text for b in beats))
+
+    def test_a_branch_entry_is_named_as_drawn(self):
+        # an episode starting at a branch: its decision node, never the raw id
+        text = "#!sketch\nbranch on {Request}.kind {\n  read  => [Reader] -> |DB|\n}\n"
+        self.assertIn("episode 1 begins at ◇ {Request}.kind", told(run(build(text)))[0])
+        text = "#!sketch\nbranch on mode {\n  a => [X]\n  b => [Y]\n}\n"
+        self.assertIn("episode 1 begins at ◇ mode", told(run(build(text)))[0])
 
     def test_hops_in_order(self):
         tr = run(load("01-checkout.sigil"), "API.charge:fails")

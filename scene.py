@@ -519,6 +519,15 @@ def decision_id(owner: Optional[str], index: int) -> str:
     return f"\0b{index}" if owner is None else f"\0b{owner}.{index}"
 
 
+def decision_name(scn: "Scene", nid) -> Optional[str]:
+    """A branch's decision id (decision_id) as its node is drawn: `◇ {Request}.kind`
+    (`◇ branch` when the scene does not hold the block); None for any other id."""
+    if not isinstance(nid, str) or not nid.startswith("\0b"):
+        return None
+    ref = next((r for r in scn.blocks if decision_id(r.owner, r.index) == nid), None)
+    return f"◇ {ref.block.header}" if ref is not None else "◇ branch"
+
+
 def arm_wires(u: Unit) -> list:
     """A wire from each branch (its header's first glyph) to each arm's entry."""
     out = []

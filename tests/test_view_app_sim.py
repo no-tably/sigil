@@ -494,6 +494,12 @@ class TestReadablePlayback(unittest.TestCase):
         self.assertTrue(rows[1].endswith("-> n12"), rows)
         self.assertTrue(all(len(r) <= 40 for r in rows))
 
+    def test_a_branch_entry_in_the_status_and_path(self):
+        doc = view.kit.render.parse_document("#!sketch\nbranch on mode {\n  a => [X]\n}\n")
+        p = view.SimPlayer(doc)
+        self.assertTrue(p.status().endswith("episode 1: ◇ mode"), p.status())
+        self.assertEqual(p.path(), "① ◇ mode ▸◇ [X]")             # the arm now
+
     def test_path_rows_of_a_run_without_hops(self):
         self.assertEqual(plain(view.path_rows([], 40)), ["path   "])
         self.assertEqual(plain(view.path_rows([], 40, hold=True)), ["path   ", "  "])

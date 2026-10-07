@@ -726,7 +726,9 @@ class SimPlayer:
     def node_name(self, nid: str) -> str:
         """A node id of the run as the document writes it (`(Shopper)`)."""
         sn = self.canon.nodes.get(nid)
-        return kit.node_label(sn.node) if sn is not None else nid
+        if sn is not None:
+            return kit.node_label(sn.node)
+        return scene.decision_name(self.canon, nid) or nid
 
     def log_line(self) -> str:
         """The run's latest log line at the shown frame ("" before any)."""
