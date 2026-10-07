@@ -202,9 +202,11 @@ _PAYLOAD_TAIL_RE = re.compile(r"(?:\s*×\s*\w+|\s+x(?:\d+|N)\b|(?<=[\s>])\^\w+|\
 #               no edge between arms: the branch is a choice, not a chain.
 #   access      [Access]: the permission graph — `|S| @read(P)` / `@write(P)`
 #               (one Access per principal, anchored on the store the modifier
-#               follows) and `[P] @borrow(read)? |S|`. principal is the node id
-#               the name resolves to (exact name first, then a generic role's base
-#               name — `@read(Worker)` → `[Worker<N>]`), None if it names nothing.
+#               follows) and `[P] @borrow(read)? |S|` (a borrowed |S| that is a
+#               node nowhere else becomes one where the borrow is written — see
+#               _place_borrowed). principal is the node id the name resolves to
+#               (exact name first, then a generic role's base name —
+#               `@read(Worker)` → `[Worker<N>]`), None if it names nothing.
 #   sections    [Section(level, title, line)]: `--- L2: [Core] ---` → ("L2",
 #               "[Core]", line); a topic header `--- Control ---` has level None.
 #   layers      the Lk layers seen, in order (Node.layer is the one in force).
@@ -395,7 +397,7 @@ class Join:
 @dataclass
 class Access:
     principal: Optional[str]  # node id of the principal (None: names no node)
-    store: Optional[str]      # node id of the store (None: a borrowed store that is no node)
+    store: Optional[str]      # node id of the store (None: a borrowed name that is no glyph)
     mode: str                 # "read" | "write" | "borrow"
     line: int
     name: str = ""            # the principal as written (`Worker`)
@@ -1285,6 +1287,28 @@ def _resolve_access(g: Graph, top: Graph):
                     a.store = n.id
 
 
+def _place_borrowed(top: Graph):
+    """A borrowed store named by glyph that is a node nowhere in the document
+    (`[Helper] @borrow(read) |Feed|`, |Feed| in no flow) becomes a node of the
+    graph the borrow is written in, so its access edge has an end to draw to.
+    A store that is a node in some other expansion is left to that expansion."""
+    graphs = [g for g, _o, _l in _walk(top)]
+    known = {nid for g in graphs for nid in g.nodes}
+    for g in graphs:
+        for a in g.access:
+            if a.mode != "borrow" or a.store is not None or not a.store_name:
+                continue
+            who = g.nodes.get(a.principal)  # the store sits in its borrower's layer
+            n = parse_glyph(a.store_name, who.layer if who else "L1")
+            if n is None or n.is_hole:
+                continue
+            if n.id not in known:
+                known.add(n.id)
+                g.nodes[n.id] = n
+            if n.id in g.nodes:
+                a.store = n.id
+
+
 def _mark_roles(top: Graph):
     """Mark each generic glyph whose base name some access list names as a
     principal (`[Worker<N>]` with `@read(Worker)` anywhere in the document) a
@@ -1659,6 +1683,7 @@ class _DocParser:
         if self.top:                        # top level: wire events to transitions
             for g2, _o, _l in _walk(graph):  # access lists inside expansions may
                 _resolve_access(g2, graph)   # name a top-level principal / store
+            _place_borrowed(graph)
             _mark_roles(graph)
             graph.triggers, graph.narrowed = find_triggers(graph)
             _expand_alias_refs(graph)

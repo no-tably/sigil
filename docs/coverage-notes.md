@@ -105,6 +105,13 @@ inline trailing comments (86). A mutable stream `~*` keeps `~`'s heavy box in th
 (no glyph set is both heavy and shadowed); its label's `~*` and the tree's ` ≋` still
 say stream.
 
+Follow-up (render.py): every `@borrow` line keeps its access edge. A borrowed store that
+is a node nowhere in the document (`[Helper] @borrow(read) |Feed2|`, `|Feed2|` in no
+flow) used to resolve to nothing, so its `b` / `ƀ` edge was never drawn; the model now
+places it as a node where the borrow is written (in the borrower's layer), and the edge
+reads `[Helper] ┄┄b┄ƀ` / `|Feed2| ◀┄┄┘`. lint.py and check.py output is unchanged on
+every fixture and site example.
+
 ## Construct table
 
 | # | Construct | Example line | Graph | Tree | What the reader sees (quoted) | Idea for drawing it | Model (render.py) |
@@ -136,7 +143,7 @@ say stream.
 | 25 | `@inv` | `[Payment] @inv idempotent(…)`, `{User}.age @inv >= 0` | DRAWN | DRAWN | with `m`: `[Payment] @inv idempotent(transa…`, `{User} .age @inv >= 0` | done (view.py) | KEPT: node mods (".", "age"), ("inv", ">= 0") |
 | 26 | `@cap` | `[Auth] -> \|UserDB\| @cap(read)` | DRAWN | DRAWN | with `m`: a chip `┆ @cap read ┆` on the `[Auth] → \|UserDB\|` edge (graph), after the payload in the right margin (tree) | done (view.py) | KEPT: edge mod ("cap", "read") |
 | 27 | `@owns X { … }` | `[Handler] @owns \|Conn\| { … }` | DRAWN | DRAWN | graph: a frame `╭╌ □ [Handler] @owns \|Conn\| ╌╮` around `[Handler] → \|Conn\|`; tree: a bracket `┌─ □ [Handler] @owns \|Conn\|` over the two rows | done (view.py) | KEPT: `Block(kind="owns")`, node mod ("owns", "\|Conn\|") |
-| 28 | `@borrow` / `@borrow(read)` | `[Helper] @borrow \|Directives\|` | DRAWN | DRAWN | with `a`: dotted access edges into `\|Directives\|` headed `b` and into `\|Results\|` headed `ƀ` — the `(read)` narrowing (graph); `[Helper] ┄┄ƀ┄b` lanes (tree). `@borrow(write)` keeps `b`. Both legends list `ƀ` borrow(read) (the tree's only when drawn) | done (view.py) | KEPT: `Graph.access` mode "borrow", `narrow` |
+| 28 | `@borrow` / `@borrow(read)` | `[Helper] @borrow \|Directives\|` | DRAWN | DRAWN | with `a`: dotted access edges into `\|Directives\|` headed `b` and into `\|Results\|` headed `ƀ` — the `(read)` narrowing (graph); `[Helper] ┄┄ƀ┄b` lanes (tree). `@borrow(write)` keeps `b`. Both legends list `ƀ` borrow(read) (the tree's only when drawn) | done (view.py) | KEPT: `Graph.access` mode "borrow", `narrow`; a borrowed store in no flow is placed as a node |
 | 29 | `@timeout` (flow) | `… : score({Cart}) @timeout(30s) ×3 @fallback(0)` | DRAWN | DRAWN | with `m`: `┆ score({Cart}) ┆ @timeout 30s ×3 @fallback 0 ┆` (payload, then the modifiers) | done (view.py) | KEPT: edge mods timeout / × / fallback |
 | 30 | `@after` | `[Retry] @after(exp-backoff, cap=1min)` | DRAWN | DRAWN | with `m`: `[Retry] @after exp-backoff, cap=…`, `[[retry]] @after …` | done (view.py) | KEPT: node mod ("after", …) |
 | 31 | `@deadline` | `[Worker] -> run() @deadline(2s)` | DRAWN | DRAWN | graph: `[Worker] ↺` with a stub under the box, `└─● ┆ ↺ run() ┆ @deadline 2s ┆` (`p`, `m`); tree: `[Worker] ↺` and the chip `┆ ↺ run() ┆ @deadline 2s ┆` on its row | done (scene + views) | FIXED: the flow is a self-edge, `target_op` "run()", edge mod ("deadline", "2s") |

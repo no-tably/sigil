@@ -327,10 +327,30 @@ class Access(unittest.TestCase):
             ("Helper_service", "Directives_store", "borrow", None, 6),
             ("Helper_service", "Log_store", "borrow", "read", 7),
             (None, "Other_store", "read", None, 8),         # names nothing
-            ("Helper_service", None, "borrow", None, 9),    # store is no node
+            ("Helper_service", "Nowhere_store", "borrow", None, 9),  # placed below
         ])
         self.assertEqual(g.access[0].name, "Worker")
-        self.assertNotIn("Nowhere_store", g.nodes)          # a modifier arg is no node
+
+    def test_a_borrowed_store_in_no_flow_is_placed(self):
+        # Each borrow line keeps its edge, also to a store no flow names: the
+        # store becomes a node where the borrow is written, once.
+        g = parse("[Api] -> |Jobs|\n[Helper] @borrow(write) |Jobs|\n"
+                  "[Helper] @borrow(read) |Feed2|\n[Pool] @borrow |Feed2|\n")
+        acc = [(a.principal, a.store, a.narrow) for a in g.access]
+        self.assertEqual(acc, [("Helper_service", "Jobs_store", "write"),
+                               ("Helper_service", "Feed2_store", "read"),
+                               ("Pool_service", "Feed2_store", None)])
+        self.assertEqual(list(g.nodes).count("Feed2_store"), 1)
+        self.assertEqual(g.nodes["Feed2_store"].kind, "store")
+
+    def test_a_borrowed_store_takes_its_borrowers_layer(self):
+        g = parse("--- L2: [Core] ---\n[Helper] @borrow |Feed|\n")
+        self.assertEqual(g.nodes["Feed_store"].layer, g.nodes["Helper_service"].layer)
+
+    def test_a_borrowed_name_that_is_no_glyph_stays_unresolved(self):
+        g = parse("[Helper] @borrow tree\n")
+        self.assertEqual([a.store for a in g.access], [None])
+        self.assertEqual(list(g.nodes), ["Helper_service"])
 
 
 class Modifiers(unittest.TestCase):

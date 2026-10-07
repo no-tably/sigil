@@ -45,7 +45,9 @@ class MidLineModifier(unittest.TestCase):           # 1
 
     def test_modifier_target_is_still_stripped(self):
         g = parse("[A] @borrow(read) |tree|\n[B] @owns |Conn|")
-        self.assertEqual(set(g.nodes), {"A_service", "B_service"})
+        self.assertEqual(edges(g), set())   # an argument is no flow target; a
+        # borrowed store named nowhere else is placed as a node (its access edge's end)
+        self.assertEqual(set(g.nodes), {"A_service", "B_service", "tree_store"})
 
     def test_nested_parens_in_argument(self):
         g = parse("[A] @inv(f(x) > 0) -> [B]")
