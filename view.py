@@ -889,7 +889,7 @@ def path_rows(branches: list, cols: int, hold: bool = False, mono: bool = False)
             x += n
         return rows
 
-    tries = [(k, 0) for k in range(len(branches))]
+    tries = [(k, 0) for k in range(len(branches))] or [(0, 0)]     # no hops: `path` alone
     if branches:
         tries += [(len(branches) - 1, j) for j in range(1, len(branches[-1][1]))]
     body = next((r for r in (laid(words(k, j)) for k, j in tries) if r is not None), None)

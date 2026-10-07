@@ -179,6 +179,15 @@ class TestSimMode(_Doc):
         st.key("x")
         self.assertEqual(st.player.at, 1)                      # resumed where it was
 
+    def test_x_on_a_design_without_hops(self):
+        for text in ("[A]\n", "", "[A] -> [B]\n[B] -> [A]\n"):
+            self.path.write_text(text)
+            st = view.ViewState(self.path, do_lint=False, view="flow")
+            st.reload(force=True)
+            st.frame(80, 24)
+            self.assertTrue(st.key("x"))
+            self.assertTrue(st.frame(80, 24), text)          # drew: the path row is `path` alone
+
     def test_sim_keys_only_in_sim_mode(self):
         st = self.state()
         st.frame(100, 20)
@@ -484,6 +493,10 @@ class TestReadablePlayback(unittest.TestCase):
         self.assertTrue(rows[0].startswith("path   ① …"), rows)
         self.assertTrue(rows[1].endswith("-> n12"), rows)
         self.assertTrue(all(len(r) <= 40 for r in rows))
+
+    def test_path_rows_of_a_run_without_hops(self):
+        self.assertEqual(plain(view.path_rows([], 40)), ["path   "])
+        self.assertEqual(plain(view.path_rows([], 40, hold=True)), ["path   ", "  "])
 
     def test_story_rows(self):
         rows = [plain([r])[0] for r in view.sim_story_rows(self.p, 120)]
