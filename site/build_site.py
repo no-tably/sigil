@@ -14,10 +14,13 @@ What it does:
       theme.css (the default theme as CSS variables, so the first paint is right
       before site.js loads the YAML);
     - renders every example in site/examples/ one line at a time through
-      view.py — the tree view and the graph view after each typed line — into
-      frames.json, which the page's background plays back in step with the
-      typing. Colours are stored as theme roles (e.g. "kinds-service"), so the
-      background follows a theme change like everything else;
+      view.py — all four views (graph, tree, flow, and the run view's happy run)
+      after each typed line, wrapped to PLANE_COLS — into frames.json, which the
+      page's background planes play back in step with the typing; and the URL
+      shortener's RUNS frame by frame in the run view, with their narration, for
+      the run section. Only what a plane plays is stored. Colours are stored as
+      theme roles (e.g. "kinds-service"), so the background follows a theme
+      change like everything else;
     - copies the playground's Python into py/ — the repo's own view.py, lint.py,
       sim.py, check.py and the rest, byte for byte, plus frames.py and playground.py — for
       Pyodide to run in the browser (loaded only when the playground opens).
@@ -47,6 +50,10 @@ ASSETS = ["site.css", "site.js"]     # copied verbatim
 PY_SITE = ["frames.py", "playground.py"]
 PLACEHOLDER_REPO = "OWNER/sigil"
 MAX_DEPTH = 99                       # expand every := block in the frames
+PLANE_COLS = 72                      # the planes' frames wrap to this many columns
+PLANE_VIEWS = ("graph", "tree", "flow", "run")   # a plane each, view.py's VIEWS order
+RUN_EXAMPLE = "shortener"            # the run section plays this example's RUNS
+RUNS = (("happy", "happy"), ("Redirect.lookup:fails", "not found"))   # scenario, label
 PLACEHOLDER_RE = re.compile(r"\{\{\w+\}\}")
 
 
@@ -140,33 +147,60 @@ def public_name(path: Path) -> str:
     return re.sub(r"^\d+-", "", path.name)
 
 
+def draw(g, name: str, player=None) -> list:
+    """`g` drawn in view `name` as the planes show it: everything the viewer can
+    show (payload chips; comments as callouts in the tree, ¶/# markers in the
+    graph and flow views; the run view its own run notes, as `--run` draws it)
+    wrapped to PLANE_COLS. `player`: a SimPlayer whose shown frame is drawn over
+    it (the run view: that run's timeline at that frame)."""
+    shown, tick = None, 0
+    if player is not None:
+        shown = player.shown(view.scene.SceneOptions(view.DEFAULT_EVENTS[name], True,
+                                                     False, MAX_DEPTH))
+        tick = player.at
+    rows, _w = view.compose_view(g, name, depth=MAX_DEPTH, payloads=True,
+                                 notes={"tree": "callouts", "run": "off"}.get(name, "markers"),
+                                 triggers=True, spaced=True, width=PLANE_COLS,
+                                 access=False, mods=False, events=view.DEFAULT_EVENTS[name],
+                                 trace=shown, tick=tick)
+    return rows
+
+
+def intern(rows, styles: Styles, frames: list, seen: dict) -> int:
+    """The index of `rows` packed in `frames`, appending it when new (seen:
+    json -> index, so an unchanged drawing is stored once)."""
+    packed = pack_rows(rows, styles)
+    key = json.dumps(packed, ensure_ascii=False)
+    if key not in seen:
+        seen[key] = len(frames)
+        frames.append(packed)
+    return seen[key]
+
+
+def happy_player(g):
+    """The happy run of `g` at its final frame (a SimPlayer)."""
+    player = view.SimPlayer(g, "happy")
+    player.at = player.last
+    return player
+
+
 def render_example(path: Path, styles: Styles, frames: list, seen: dict) -> dict:
-    """One example's typing steps. Mutates styles, frames and seen: new styles
-    and frames are appended (frames deduplicated through seen: json -> index).
-    A crash in the viewer fails the build — the parser is tolerant, so a crash
-    here is a real bug, not a half-typed line."""
+    """One example's typing steps: a frame per plane (PLANE_VIEWS; the run
+    plane the happy run's last frame) after each typed line. Mutates styles,
+    frames and seen (see intern). A crash in the viewer or the simulator fails
+    the build — the parser is tolerant, so a crash here is a real bug, not a
+    half-typed line."""
     lines = path.read_text(encoding="utf-8").rstrip("\n").split("\n")
     steps = []
     for k in range(1, len(lines) + 1):
         text = autoclose(lines[:k])
         g = view.render.parse_document(text)
-        # Both views show everything the viewer can: payload chips, and the
-        # comments as notes (callouts in the tree, ¶/# tags + a list in the graph).
-        tree, _ = view.compose_tree(g, MAX_DEPTH, triggers=True, spaced=True,
-                                    notes="callouts", payloads=True)
-        graph, _ = view.compose(g, MAX_DEPTH, payloads=True, notes="markers")
+        ids = {name: intern(draw(g, name, happy_player(g) if name == "run" else None),
+                            styles, frames, seen) for name in PLANE_VIEWS}
         diags = view.run_lint(text)
-        ids = []
-        for rows in (tree, graph):
-            packed = pack_rows(rows, styles)
-            key = json.dumps(packed, ensure_ascii=False)
-            if key not in seen:
-                seen[key] = len(frames)
-                frames.append(packed)
-            ids.append(seen[key])
         n_err = sum(d.severity == "error" for d in diags)
         n_warn = sum(d.severity == "warn" for d in diags)
-        steps.append({"line": k - 1, "tree": ids[0], "graph": ids[1],
+        steps.append({"line": k - 1, **ids,
                       "nodes": len(g.nodes), "edges": len(g.edges),
                       "lint": "OK" if not (n_err or n_warn) else f"{n_err}E {n_warn}W"})
     name = public_name(path)
@@ -175,13 +209,37 @@ def render_example(path: Path, styles: Styles, frames: list, seen: dict) -> dict
             "lines": lines, "steps": steps}
 
 
+def render_runs(path: Path, styles: Styles, frames: list, seen: dict) -> list:
+    """The run section's runs (RUNS) of one example, frame by frame in the run
+    view, each frame with view.py's narration line (SimPlayer.narration)."""
+    g = view.render.parse_document(path.read_text(encoding="utf-8"))
+    out = []
+    for scenario, label in RUNS:
+        player = view.SimPlayer(g, scenario)
+        seq = []
+        for at in range(player.last + 1):
+            player.at = at
+            seq.append({"run": intern(draw(g, "run", player), styles, frames, seen),
+                        "say": player.narration()})
+        out.append({"scenario": scenario, "label": label,
+                    "outcome": str(player.trace.outcome), "frames": seq})
+    return out
+
+
 def build_frames() -> dict:
-    """frames.json: the style table, the deduplicated frames, and every example's steps."""
+    """frames.json: the style table, the deduplicated frames, every example's
+    steps, the example the view sections show, and its runs."""
     view.use_dialect(None)
     view.use_theme(themes.DEFAULT)
     styles, frames, seen = Styles(), [], {}
-    examples = [render_example(p, styles, frames, seen) for p in example_paths()]
-    return {"styles": styles.table, "frames": frames, "examples": examples}
+    paths = example_paths()
+    examples = [render_example(p, styles, frames, seen) for p in paths]
+    shown = next((p for p in paths if public_name(p) == f"{RUN_EXAMPLE}.sigil"), None)
+    if shown is None:
+        raise BuildError(f"no {RUN_EXAMPLE}.sigil in site/examples/ for the run section")
+    runs = render_runs(shown, styles, frames, seen)
+    return {"styles": styles.table, "frames": frames, "examples": examples,
+            "views": RUN_EXAMPLE, "runs": runs}
 
 
 # ---------------------------------------------------------------------------

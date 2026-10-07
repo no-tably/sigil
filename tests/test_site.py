@@ -2,7 +2,9 @@
 
 Covers:
   - build_site.py output: pages with every {{placeholder}} filled, themes and
-    their menu, theme.css, frames.json;
+    their menu, theme.css, frames.json (a frame per view plane for every typed
+    line, the run section's runs, nothing a plane does not play);
+  - the view strip: a section per view, in view.py's order;
   - every example lints clean once fully typed, and a half-typed block still draws;
   - the page's colours all come from the theme: every var(--…) the CSS and the
     frames use is defined by theme.css or by site.css itself;
@@ -15,7 +17,8 @@ Covers:
     is complete (playground.py runs from py/ alone, in a fresh interpreter), what
     it draws is what view.py draws, and its findings on every bundled example
     are what check.py finds at k = 1;
-  - with node available: the findings panel's list items (findingsHtml).
+  - with node available: the findings panel's list items (findingsHtml) and the
+    run section's narration (runSayHtml).
 
 Run:  python3 -m unittest discover tests
 """
@@ -96,6 +99,51 @@ class TestBuild(unittest.TestCase):
                 self.assertEqual(last["line"], len(ex["lines"]) - 1)
                 self.assertGreater(last["nodes"], 2)
 
+    def test_every_step_has_a_frame_per_plane(self):
+        frames = self.frames["frames"]
+        for ex in self.frames["examples"]:
+            for step in ex["steps"]:
+                for name in site.PLANE_VIEWS:
+                    with self.subTest(ex=ex["id"], line=step["line"], view=name):
+                        self.assertIn(step[name], range(len(frames)))
+        self.assertEqual(list(site.PLANE_VIEWS), list(site.view.VIEWS))
+
+    def test_frames_fit_the_plane(self):
+        # the views that wrap draw within PLANE_COLS, so a plane brought forward
+        # is readable rather than scaled down to fit
+        def width(i):
+            return max((sum(len(t) for t, _s in row) for row in self.frames["frames"][i]), default=0)
+        for ex in self.frames["examples"]:
+            for step in ex["steps"]:
+                for name in ("tree", "flow", "run"):
+                    self.assertLessEqual(width(step[name]), site.PLANE_COLS, (ex["id"], name))
+        for run in self.frames["runs"]:
+            for f in run["frames"]:
+                self.assertLessEqual(width(f["run"]), site.PLANE_COLS)
+
+    def test_runs_play_the_shorteners_happy_and_failing_runs(self):
+        self.assertEqual(self.frames["views"], site.RUN_EXAMPLE)
+        self.assertIn(site.RUN_EXAMPLE, [e["id"] for e in self.frames["examples"]])
+        runs = self.frames["runs"]
+        self.assertEqual([(r["scenario"], r["label"]) for r in runs], list(site.RUNS))
+        self.assertEqual([r["outcome"] for r in runs], ["ok", "failed"])
+        g = site.view.render.parse_document((SITE / "examples" / "00-shortener.sigil").read_text())
+        for run in runs:
+            player = site.view.SimPlayer(g, run["scenario"])
+            self.assertEqual(len(run["frames"]), player.last + 1)
+            player.at = player.last
+            self.assertEqual(run["frames"][-1]["say"], player.narration())   # view.py's words
+            last = self.frames["frames"][run["frames"][-1]["run"]]
+            self.assertIn(f"run · {run['scenario']}", "".join(t for t, _s in last[0]))
+
+    def test_frames_hold_only_what_a_plane_plays(self):
+        used = {step[n] for ex in self.frames["examples"] for step in ex["steps"]
+                for n in site.PLANE_VIEWS}
+        used |= {f["run"] for r in self.frames["runs"] for f in r["frames"]}
+        self.assertEqual(used, set(range(len(self.frames["frames"]))))
+        for r in self.frames["runs"]:
+            self.assertEqual({k for f in r["frames"] for k in f}, {"run", "say"})
+
     def test_half_typed_block_still_draws(self):
         text = site.autoclose(["[Shop] := {", "  [Cart] -> [Pay]"])
         self.assertTrue(text.rstrip().endswith("}"))
@@ -112,7 +160,7 @@ class TestBuild(unittest.TestCase):
         defined = self._defined()
         used = set(VAR_RE.findall((SITE / "site.css").read_text()))
         # Variables set at runtime by site.js (scene state), not by a theme.
-        runtime = {"x", "y", "z", "rx", "ry", "d", "focus-k", "delay", "dur"}
+        runtime = {"x", "y", "z", "rx", "ry", "d", "o", "s", "focus-k"}
         self.assertEqual(used - defined - runtime, set())
         css = (SITE / "site.css").read_text()
         rules = re.sub(r":root\s*\{.*?\}", "", css, count=1, flags=re.S)
@@ -267,7 +315,7 @@ class TestBuild(unittest.TestCase):
     def test_symbols_outside_the_font_get_a_fixed_cell(self):
         # Departure Mono 1.500 lacks these viewer and simulation symbols (fontTools);
         # site.js must wrap each in a 1ch fallback cell or frame columns drift.
-        missing = "↺↻⇱↩⇢∗∥⊘▶▸▾◀◆◇◉○◎●✕✖✱"
+        missing = "↺↻⇱↩⇢∗∥⊘▶▸▾◀◆◇◉○◎●✕✖✱✓ƀ‥≋"
         js = (SITE / "site.js").read_text()
         pattern = re.search(r"const FALLBACK = /\[(.*?)\]/g", js).group(1)
         for ch in missing:
@@ -342,6 +390,18 @@ class TestBanner(unittest.TestCase):
         for code in banner.code_colours(themes.load("sigil")):
             self.assertIn(f".logo .k-{code} ", css)
 
+
+class TestPageMarkup(unittest.TestCase):
+    """index.html and site.js read as text: no browser, no node."""
+
+    def test_view_strip_has_a_section_per_view(self):
+        page = (SITE / "index.html").read_text(encoding="utf-8")
+        view = _load("sigil_view_strip", _DIR / "view.py")
+        strip = re.search(r'<div class="vsecs" id="views".*?\n</div>', page, re.S).group(0)
+        self.assertEqual(re.findall(r'<section class="vsec" id="view-(\w+)" data-view="(\w+)"', strip),
+                         [(v, v) for v in view.VIEWS])
+        self.assertIn('<p class="say">', strip)                 # the run's narration
+        self.assertIn('<a href="#views">views</a>', page)
 
 NODE = shutil.which("node")
 
@@ -446,6 +506,16 @@ class TestSiteJs(unittest.TestCase):
         empty = self._run(code + '\nprocess.stdout.write(storyHtml({}));')
         self.assertEqual(empty.split("\n")[-1], '<span class="pg-now">› </span>')
 
+    def test_run_section_narration(self):
+        code = _js_section("  function runSayHtml", "  // the run section's pace")
+        run = {"label": "not found", "outcome": "failed",
+               "frames": [{"run": 0, "say": "<A> starts"}, {"run": 1, "say": "[B] fails"}]}
+        out = json.loads(self._run(code + f"\nconst r = {json.dumps(run)};\n"
+                                   "process.stdout.write(JSON.stringify([runSayHtml(r, 0), runSayHtml(r, 1)]));"))
+        self.assertEqual(out[0], '<span class="run-name">not found</span> &lt;A&gt; starts')
+        self.assertEqual(out[1], '<span class="run-name">not found</span> [B] fails'
+                                 ' — <b>failed</b>')
+
     def test_playground_view_picker_offers_every_view(self):
         page = (SITE / "index.html").read_text(encoding="utf-8")
         view = _load("sigil_view_names", _DIR / "view.py")
@@ -477,7 +547,6 @@ class TestSiteJs(unittest.TestCase):
         js = (SITE / "site.js").read_text()
         self.assertIn('speed: $("#pg-speed")', js)
         self.assertNotIn("localStorage.setItem(SPEED_KEY", js)   # through the try/catch store
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -336,10 +336,12 @@ The format is a small YAML subset (nested maps, scalars, `#` comments) that
 ## Web page
 
 `site/` is a static page: an explainer, a live editor that types the examples in
-`site/examples/` line by line while `view.py`'s tree and graph views redraw in a
-3D background, the skill, and install commands. `site/build_site.py` renders every
-typing step through `view.py` into `frames.json` and turns the theme YAML into CSS
-variables; `.github/workflows/pages.yml` publishes it with GitHub Pages.
+`site/examples/` line by line while `view.py`'s four views redraw on planes in a 3D
+background, a strip of short sections that brings each plane forward in turn (the
+run view playing the URL shortener's happy and failing runs), the skill, and install
+commands. `site/build_site.py` renders every typing step and those runs through
+`view.py` into `frames.json` and turns the theme YAML into CSS variables;
+`.github/workflows/pages.yml` publishes it with GitHub Pages.
 
 The **playground** runs the tools themselves in the browser: the build copies
 `view.py`, `lint.py`, `sim.py` and the modules they load into `py/` byte for byte, and

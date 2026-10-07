@@ -38,7 +38,6 @@
   --accent-ring: color-mix(in srgb, var(--accent) 12%, transparent);
   --row-now: color-mix(in srgb, var(--accent) 7%, transparent);
   --warn-wash: color-mix(in srgb, var(--ui-warn) 8%, transparent);
-  --grid-faint: color-mix(in srgb, var(--line) 60%, transparent);
   --radius: 10px;
   --gutter: clamp(16px, 4vw, 40px);
   --measure: 72ch;
@@ -113,15 +112,18 @@ h3 { font-size: var(--fs-m); margin: 0 0 0.6em; color: var(--syntax-name); }
   margin: 0;
   white-space: pre;
   font: var(--fs-s)/1.22 var(--font-mono);
+  /* site.js places each plane (--x … --rx), scales it to fit (--s) and sets
+     its blur depth (--d) and opacity (--o); the transitions move it there */
   transform: translate(-50%, -50%) translate3d(var(--x, 0), var(--y, 0), var(--z, 0))
-             rotateY(var(--ry, 0deg)) rotateX(var(--rx, 0deg));
+             rotateY(var(--ry, 0deg)) rotateX(var(--rx, 0deg)) scale(var(--s, 1));
   filter: blur(calc(var(--site-scene-blur) * var(--d, 1) * var(--focus-k, 1)));
-  transition: filter 0.6s ease, opacity 0.6s ease;
+  opacity: var(--o, 0.85);
+  transition: transform 1.1s cubic-bezier(0.2, 0.7, 0.2, 1), filter 0.8s ease, opacity 0.8s ease;
   will-change: transform, filter;
 }
 
-/* the viewer's own frames: slightly out of focus */
-.plane.view { opacity: 0.85; font-size: var(--fs-m); }
+/* the viewer's own frames: one plane per view, out of focus until it leads */
+.plane.view { font-size: var(--fs-m); }
 .plane.view .frame { transition: opacity 0.25s ease; }
 .plane.view.swap .frame { opacity: 0.25; }
 .plane.view .label {
@@ -130,26 +132,71 @@ h3 { font-size: var(--fs-m); margin: 0 0 0.6em; color: var(--syntax-name); }
   color: var(--dim);
   font-size: var(--fs-s);
   letter-spacing: 0.12em;
+  transition: color 0.8s ease;
 }
-
-/* glyph grids: half opacity, mostly out of focus */
-.plane.grid { opacity: var(--site-scene-opacity); }
-/* nodes pulse in opacity only (a static glow): animating the glow itself would
-   repaint and re-blur the plane every frame */
-.plane.grid .node {
-  text-shadow: 0 0 12px currentColor;
-  animation: pulse var(--dur, 6s) ease-in-out var(--delay, 0s) infinite;
-}
-.plane.grid .wire { color: color-mix(in srgb, var(--line) 70%, var(--dim)); }
-.plane.grid .faint { color: var(--grid-faint); }
-
-@keyframes pulse {
-  0%, 100% { opacity: 0.55; }
-  50% { opacity: 1; }
-}
+.plane.view.lead .label { color: var(--muted); }
 
 body.focused { --focus-k: 0.08; }
-body.focused .plane.view { opacity: 1; }
+body.focused .plane.view { opacity: max(var(--o, 0.85), 0.9); }
+
+/* ---------------------------------------------------------------- view strip */
+/* A short section per view below the editor: text in a left column, its plane
+   (site.js initViewStrip) brought forward to the right; on a phone the plane
+   holds the top half and the text comes up under it. */
+
+.vsecs {
+  position: relative;
+  z-index: 1;
+  padding: 10vh var(--gutter) 30vh;
+}
+.vsecs-intro { max-width: 40ch; margin: 0 0 4vh; }
+.vsec {
+  min-height: 46vh;
+  display: flex;
+  align-items: center;
+}
+.vsec-text {
+  width: min(38ch, 30vw);
+  padding: 1.1rem 1.2rem;
+  background: var(--glass);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  backdrop-filter: blur(6px);
+  opacity: 0.38;
+  transition: opacity 0.6s ease, border-color 0.6s ease;
+}
+.vsec.current .vsec-text { opacity: 1; border-color: var(--accent); }
+.vsec h2 { margin-bottom: 0.4em; }
+.vsec-n { color: var(--dim); margin-right: 0.4ch; }
+.vsec.current .vsec-n { color: var(--accent); }
+.vsec-what { color: var(--text); margin: 0 0 0.7em; }
+.vsec .snippet { margin-top: 0.4em; font-size: var(--fs-s); }
+
+/* the run's narration under the section's sentence: view.py's words */
+.say {
+  min-height: 3.2em;
+  margin: 0 0 0.7em;
+  color: var(--muted);
+  font-size: var(--fs-s);
+}
+.say:empty { display: none; }
+.say b { color: var(--strong); font-weight: 400; }
+.run-name {
+  display: inline-block;
+  padding: 0 0.5em;
+  margin-right: 0.3em;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--accent);
+}
+
+@media (max-width: 700px) {
+  .vsecs { padding: 6vh var(--gutter) 40vh; }
+  .vsec { min-height: 58vh; align-items: flex-end; }
+  .vsec-text { width: 100%; }
+  /* the cards pass under the lead plane: only the current one keeps its glass */
+  .vsec:not(.current) .vsec-text { opacity: 0.14; backdrop-filter: none; }
+}
 
 /* ---------------------------------------------------------------- nav */
 
@@ -638,7 +685,6 @@ body[data-released="true"] .pending { display: none; }
   .controls button, .tabs button { padding: 0.5em 0.6em; }
   .editor-status { flex-wrap: wrap; gap: 0.2em 0.8em; padding: 0.35em 0.7em; }
   .editor-status span { white-space: nowrap; }
-  .plane.view { opacity: 0.4; }
   .hero-text { text-shadow: 0 0 12px var(--bg), 0 0 4px var(--bg); }
   .panel { padding: 1rem 0.8rem; margin-bottom: 2.5rem; }
   .card { padding: 0.8rem 0.75rem; }
@@ -663,6 +709,7 @@ body[data-released="true"] .pending { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  #scene, .stage, .plane, .plane.view .frame, .pg-findings { transition: none; }
-  .plane.grid .node, .caret { animation: none; }
+  #scene, .stage, .plane, .plane.view .frame, .plane.view .label, .vsec-text,
+  .pg-findings { transition: none; }
+  .caret { animation: none; }
 }

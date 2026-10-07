@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <!-- the fallback font, only for the symbols Departure Mono lacks (site.js FALLBACK) -->
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400&text=%E2%86%BA%E2%86%BB%E2%87%B1%E2%86%A9%E2%87%A2%E2%88%97%E2%96%B8%E2%96%BE%E2%97%80%E2%96%B6%E2%97%86%E2%97%87%E2%97%89%E2%97%8B%E2%97%8E%E2%97%8F%E2%9C%96%E2%9C%B1%E2%97%A6%E2%9C%A6%E2%88%A5%E2%8A%98%E2%9C%95%E2%8E%AB%E2%8E%AA%E2%8E%AD%E2%91%A0%E2%91%A1%E2%91%A2%E2%91%A3%E2%91%A4%E2%91%A5%E2%91%A6%E2%91%A7%E2%91%A8%E2%91%A9%E2%91%AA%E2%91%AB%E2%91%AC%E2%91%AD%E2%91%AE%E2%91%AF%E2%91%B0%E2%91%B1%E2%91%B2%E2%91%B3&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400&text=%E2%86%BA%E2%86%BB%E2%87%B1%E2%86%A9%E2%87%A2%E2%88%97%E2%96%B8%E2%96%BE%E2%97%80%E2%96%B6%E2%97%86%E2%97%87%E2%97%89%E2%97%8B%E2%97%8E%E2%97%8F%E2%9C%96%E2%9C%B1%E2%97%A6%E2%9C%A6%E2%9C%93%C6%80%E2%80%A5%E2%89%8B%E2%88%A5%E2%8A%98%E2%9C%95%E2%8E%AB%E2%8E%AA%E2%8E%AD%E2%91%A0%E2%91%A1%E2%91%A2%E2%91%A3%E2%91%A4%E2%91%A5%E2%91%A6%E2%91%A7%E2%91%A8%E2%91%A9%E2%91%AA%E2%91%AB%E2%91%AC%E2%91%AD%E2%91%AE%E2%91%AF%E2%91%B0%E2%91%B1%E2%91%B2%E2%91%B3&display=swap">
 <link rel="stylesheet" href="theme.css">
 <link rel="stylesheet" href="site.css">
 </head>
@@ -20,6 +20,7 @@
   <a class="brand" href="#top" aria-label="Sigil (Symbolic Intent Glyph Intermediate Language), top of page"
      data-expand="Symbolic Intent Glyph Intermediate Language"><span class="brand-text" aria-hidden="true"><span class="g-service">[</span>S<span class="g-service">]</span><span class="g-data">{</span>I<span class="g-data">}</span><span class="g-event">&lt;</span>G<span class="g-event">&gt;</span><span class="g-actor">(</span>I<span class="g-actor">)</span><span class="g-store">|</span>L<span class="g-store">|</span></span></a>
   <nav aria-label="Sections">
+    <a href="#views">views</a>
     <a href="#language">language</a>
     <a href="#playground">playground</a>
     <a href="#viewer">viewer</a>
@@ -61,9 +62,44 @@
       <span id="st-lint"></span><span id="st-count"></span><span id="st-line"></span>
     </div>
   </div>
-  <p class="hint">Behind the editor is <code>view.py</code> redrawing after every line — the
-  tree view in front, the graph view further back. Press <kbd>focus</kbd> to pull them into focus.</p>
+  <p class="hint">Behind the editor, <code>view.py</code> redraws after every line in all four
+  of its views. Scroll on and each one comes forward in turn; <kbd>focus</kbd> sharpens them here.</p>
 </section>
+
+<div class="vsecs" id="views" role="region" aria-label="Four views of one design">
+<p class="vsecs-intro small">One design, four ways to look at it: each is a plane from behind the
+editor, brought forward. All four draw the URL shortener.</p>
+<section class="vsec" id="view-graph" data-view="graph" aria-labelledby="vh-graph">
+  <div class="vsec-text">
+    <h2 id="vh-graph"><span class="vsec-n">1</span> graph</h2>
+    <p class="vsec-what">The whole design at once: layered boxes coloured by glyph, every arrow its own stroke.</p>
+    <pre class="snippet cmd">view.py shortener.sigil  # key 1</pre>
+  </div>
+</section>
+<section class="vsec" id="view-tree" data-view="tree" aria-labelledby="vh-tree">
+  <div class="vsec-text">
+    <h2 id="vh-tree"><span class="vsec-n">2</span> tree</h2>
+    <p class="vsec-what">What holds what: the composition as an outline, each flow a lane in the gutter.</p>
+    <pre class="snippet cmd">view.py shortener.sigil --tree</pre>
+  </div>
+</section>
+<section class="vsec" id="view-flow" data-view="flow" aria-labelledby="vh-flow">
+  <div class="vsec-text">
+    <h2 id="vh-flow"><span class="vsec-n">3</span> flow</h2>
+    <p class="vsec-what">Who calls whom: the call graph left to right, each payload on its wire.</p>
+    <pre class="snippet cmd">view.py shortener.sigil --flow</pre>
+  </div>
+</section>
+<section class="vsec" id="view-run" data-view="run" aria-labelledby="vh-run">
+  <div class="vsec-text">
+    <h2 id="vh-run"><span class="vsec-n">4</span> run</h2>
+    <p class="vsec-what">What happens: one run as a timeline, a lane per participant, time left to
+    right. Here the happy run, then the one where the lookup fails.</p>
+    <p class="say"></p>
+    <pre class="snippet cmd">view.py shortener.sigil --run --sim happy</pre>
+  </div>
+</section>
+</div>
 
 <section id="language" class="panel">
   <h2><span class="sec-rail">---</span> language <span class="sec-rail">---</span></h2>

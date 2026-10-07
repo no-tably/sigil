@@ -1,5 +1,6 @@
-/* Sigil site — themes from YAML, the live-coding editor, the 3D background and
-   the playground (the repo's own Python, run by Pyodide).
+/* Sigil site — themes from YAML, the live-coding editor, the 3D background of
+   view planes and the view strip that brings each forward, and the playground
+   (the repo's own Python, run by Pyodide).
    No dependencies. The background frames are view.py's own output (frames.json,
    made by build_site.py), coloured by theme role so they follow a theme change. */
 (() => {
@@ -22,7 +23,7 @@
   // Symbols Departure Mono lacks: they fall back to another font inside a fixed
   // 1ch cell (.fb), so a row's columns stay aligned. index.html loads the fallback
   // font for exactly these characters.
-  const FALLBACK = /[↺↻⇱↩⇢∗▸▾◀▶◆◇◉○◎●✖✱◦✦∥⊘✕⎫⎪⎭①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]/g;
+  const FALLBACK = /[↺↻⇱↩⇢∗▸▾◀▶◆◇◉○◎●✖✱◦✦✓ƀ‥≋∥⊘✕⎫⎪⎭①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]/g;
   const wrapFallback = (html) => html.replace(FALLBACK, '<span class="fb">$&</span>');
 
   const store = {
@@ -359,102 +360,33 @@
     .join("\n");
 
   // ------------------------------------------------------------------ scene
+  // A plane per view (view.py's order) in the 3D background from the start,
+  // each playing view.py's frames as the editor types. Below the editor, a strip
+  // of short sections (#views .vsec), one per view: the one across the reading
+  // line pulls ITS plane forward beside its text (larger, sharper, still a
+  // little tilted) while the others slide aside and back, dimmer, in order —
+  // seen ones above, coming ones below. Outside the strip the planes settle
+  // home. CSS transitions do the moving; JS only sets targets (placePlane).
 
-  function rng(seed) {                                   // mulberry32
-    return () => {
-      seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
-      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-  }
-
-  const NAMES = ["Api", "Auth", "Cart", "Pay", "Log", "Db", "Queue", "Cache", "Job", "User",
-    "Ord", "Bus", "Ship", "Hp", "Xf", "Risk", "Edge", "Feed", "Sync", "Lock", "Tick", "Mesh"];
-  const KINDS = [["[", "]", "service"], ["{", "}", "data"], ["<", ">", "event"], ["(", ")", "actor"], ["|", "|", "store"]];
-  const LATTICE = "··········[]{}<>()|~*&";
-
-  /** A floating grid of glyph characters: a faint lattice, glyph nodes, and
-      circuit wiring between them. Returns HTML. */
-  function glyphGrid(cols, rows, seed) {
-    const r = rng(seed);
-    const grid = Array.from({ length: rows }, () => Array.from({ length: cols }, () => [" ", ""]));
-    const set = (x, y, ch, cls, force) => {
-      if (y < 0 || y >= rows || x < 0 || x >= cols) return false;
-      const c = grid[y][x];
-      if (!force && c[1] && c[1] !== "faint") return false;
-      grid[y][x] = [ch, cls];
-      return true;
-    };
-    for (let y = 1; y < rows; y += 2) {
-      for (let x = 2; x < cols; x += 4) if (r() < 0.55) set(x, y, LATTICE[Math.floor(r() * LATTICE.length)], "faint");
-    }
-    const nodes = [];
-    const want = Math.floor((cols * rows) / 170);
-    for (let tries = 0; nodes.length < want && tries < want * 20; tries++) {
-      const [open, close, kind] = KINDS[Math.floor(r() * KINDS.length)];
-      const label = open + NAMES[Math.floor(r() * NAMES.length)] + close;
-      const x = 2 + Math.floor(r() * (cols - label.length - 4));
-      const y = 1 + 2 * Math.floor(r() * ((rows - 2) / 2));
-      if (nodes.some((n) => Math.abs(n.y - y) < 3 && x < n.x + n.w + 6 && n.x < x + label.length + 6)) continue;
-      nodes.push({ x, y, w: label.length, label, kind, delay: (r() * 6).toFixed(2), dur: (4 + r() * 5).toFixed(2) });
-    }
-    for (const n of nodes) {
-      [...n.label].forEach((ch, i) => set(n.x + i, n.y, ch, `node g-${n.kind}`, true));
-    }
-    // wires: each node to its nearest neighbour to the right, routed right-down/up-right
-    for (const a of nodes) {
-      const b = nodes.filter((n) => n.x > a.x + a.w + 3)
-        .sort((p, q) => Math.hypot(p.x - a.x, (p.y - a.y) * 2) - Math.hypot(q.x - a.x, (q.y - a.y) * 2))[0];
-      if (!b || r() < 0.2) continue;
-      const x0 = a.x + a.w, x1 = b.x - 1, mid = Math.floor((x0 + x1) / 2);
-      const y0 = a.y, y1 = b.y;
-      for (let x = x0; x < mid; x++) set(x, y0, "─", "wire");
-      if (y0 !== y1) {
-        const down = y1 > y0;
-        set(mid, y0, down ? "╮" : "╯", "wire");
-        for (let y = Math.min(y0, y1) + 1; y < Math.max(y0, y1); y++) set(mid, y, "│", "wire");
-        set(mid, y1, down ? "╰" : "╭", "wire");
-      } else set(mid, y0, "─", "wire");
-      for (let x = mid + 1; x < x1; x++) set(x, y1, "─", "wire");
-      set(x1, y1, "▶", "t-operator");
-    }
-    const nodeAt = new Map(nodes.map((n) => [`${n.x},${n.y}`, n]));     // a node's first cell
-    return grid.map((row, y) => {
-      let html = "", run = "", cls = null, style = "";
-      const flush = () => {
-        if (!run) return;
-        const text = wrapFallback(esc(run));
-        html += cls ? `<span class="${cls}"${style}>${text}</span>` : text;
-        run = "";
-      };
-      row.forEach(([ch, c], x) => {
-        const node = nodeAt.get(`${x},${y}`);
-        if (c !== cls || node) {
-          flush();
-          cls = c;
-          style = node ? ` style="--delay:-${node.delay}s;--dur:${node.dur}s"` : "";
-        }
-        run += ch;
-      });
-      flush();
-      return html;
-    }).join("\n");
-  }
-
-  const GRIDS = [
-    { x: "-40vw", y: "-26vh", z: -1500, ry: 24, d: 4.6, cols: 74, rows: 26, seed: 11 },
-    { x: "42vw", y: "-30vh", z: -1150, ry: -26, d: 3.8, cols: 64, rows: 22, seed: 23 },
-    { x: "-46vw", y: "30vh", z: -820, ry: 30, d: 2.8, cols: 60, rows: 20, seed: 37 },
-    { x: "44vw", y: "32vh", z: -620, ry: -22, d: 2.4, cols: 56, rows: 18, seed: 41 },
-    { x: "2vw", y: "-46vh", z: -1350, rx: -24, d: 4.2, cols: 90, rows: 16, seed: 53 },
-    { x: "-34vw", y: "44vh", z: 260, ry: 16, d: 5.4, cols: 46, rows: 14, seed: 67 },
-    { x: "38vw", y: "-6vh", z: 380, ry: -14, d: 6.0, cols: 40, rows: 16, seed: 71 },
-  ];
-  const VIEWS = {
-    tree: { x: "27vw", y: "14vh", z: -40, ry: -16, d: 0.7, label: "view.py --tree" },
-    graph: { x: "-27vw", y: "8vh", z: -340, ry: 18, d: 1.2, label: "view.py --payloads" },
+  const PLANES = ["graph", "tree", "flow", "run"];
+  const PLANE_LABEL = {
+    graph: "view.py · graph", tree: "view.py · tree", flow: "view.py · flow", run: "view.py · run",
   };
+  // home: the hero arrangement — tree near, graph behind it, flow and run
+  // further back above them, dimmer and softer (d: blur, o: opacity)
+  const HOME = {
+    graph: { x: "-27vw", y: "8vh", z: -340, ry: 18, d: 1.2, o: 0.8 },
+    tree: { x: "27vw", y: "14vh", z: -40, ry: -16, d: 0.7, o: 0.85 },
+    flow: { x: "24vw", y: "-30vh", z: -900, ry: -22, d: 2.2, o: 0.5 },
+    run: { x: "-26vw", y: "-32vh", z: -1150, ry: 22, d: 2.8, o: 0.4 },
+  };
+  const HOME_SMALL = {
+    graph: { x: "-10vw", y: "6vh", z: -640, ry: 18, d: 1.2, o: 0.38 },
+    tree: { x: "10vw", y: "16vh", z: -340, ry: -16, d: 0.8, o: 0.4 },
+    flow: { x: "12vw", y: "-26vh", z: -1100, ry: -20, d: 2.2, o: 0.26 },
+    run: { x: "-12vw", y: "-30vh", z: -1300, ry: 20, d: 2.8, o: 0.2 },
+  };
+  const isSmall = () => innerWidth < 700;
 
   function placePlane(el, p) {
     el.style.setProperty("--x", p.x);
@@ -463,35 +395,83 @@
     el.style.setProperty("--ry", `${p.ry || 0}deg`);
     el.style.setProperty("--rx", `${p.rx || 0}deg`);
     el.style.setProperty("--d", p.d);
+    el.style.setProperty("--o", p.o);
   }
 
+  /** The lead plane's place: right of the text column on a desktop, the top
+      half under the nav on a phone. w × h is the box it is fitted to (layout px). */
+  const leadBox = (small) => (small
+    ? { x: "0vw", y: "-15vh", w: innerWidth * 0.92, h: innerHeight * 0.4, ry: -4, rx: 4 }
+    : { x: "16vw", y: "1vh", w: innerWidth * 0.58, h: innerHeight * 0.7, ry: -9, rx: 3 });
+
+  /** A plane k sections away from the lead (k < 0: seen, above; k > 0: coming,
+      below), further back and dimmer the further it is. */
+  function aside(k, small) {
+    const a = Math.abs(k), s = Math.sign(k);
+    return small
+      ? { x: `${s * 6}vw`, y: `${s * (34 + 10 * a)}vh`, z: -900 - 250 * a, ry: -12, rx: s * -10,
+          d: 2.4 + a, o: 0.14 / a }
+      : { x: `${40 + 3 * a}vw`, y: `${s * (30 + 12 * a)}vh`, z: -700 - 260 * a, ry: -30, rx: s * -8,
+          d: 2 + 0.8 * a, o: 0.42 / a };
+  }
+
+  /** The scale that fits a plane's layout size (transforms aside) into w × h,
+      at most `max`. */
+  function fitScale(el, w, h, max = 1.25) {
+    const ew = el.offsetWidth, eh = el.offsetHeight;
+    return ew && eh ? Math.min(w / ew, h / eh, max) : 1;
+  }
+
+  /** The four planes, at home. scene.lead(name | null) brings one forward (null:
+      all home); scene.refit() after a plane's frame or the window changes. */
   function buildScene() {
     const stage = $("#stage");
-    const small = innerWidth < 700;
-    GRIDS.slice(0, small ? 4 : GRIDS.length).forEach((g) => {
+    const planes = {};
+    for (const name of PLANES) {
       const el = document.createElement("pre");
-      el.className = "plane grid";
-      el.innerHTML = glyphGrid(g.cols, g.rows, g.seed);
-      placePlane(el, g);
+      el.className = `plane view v-${name}`;
+      el.innerHTML = `<span class="label">${esc(PLANE_LABEL[name])}</span><div class="frame"></div>`;
       stage.appendChild(el);
-    });
-    const views = {};
-    for (const [name, p] of Object.entries(VIEWS)) {
-      const el = document.createElement("pre");
-      el.className = `plane view ${name}`;
-      el.innerHTML = `<span class="label">${esc(p.label)}</span><div class="frame"></div>`;
-      placePlane(el, small ? { ...p, x: name === "tree" ? "8vw" : "-8vw", z: p.z - 300 } : p);
-      stage.appendChild(el);
-      views[name] = el;
+      planes[name] = el;
     }
-    initTilt(stage);
+    let active = null;
+    const layout = () => {
+      const small = isSmall();
+      const at = PLANES.indexOf(active);
+      PLANES.forEach((name, i) => {
+        const el = planes[name];
+        let p, s;
+        if (active === null) {
+          p = (small ? HOME_SMALL : HOME)[name];
+          s = 1;
+        } else if (name === active) {
+          const b = leadBox(small);
+          p = { x: b.x, y: b.y, z: 0, ry: b.ry, rx: b.rx, d: 0, o: 1 };
+          s = fitScale(el, b.w, b.h);
+        } else {
+          p = aside(i - at, small);
+          s = small ? 0.8 : 0.9;
+        }
+        placePlane(el, p);
+        el.style.setProperty("--s", s.toFixed(4));
+        el.classList.toggle("lead", name === active);
+      });
+    };
+    layout();
+    addEventListener("resize", layout);
+    initTilt(stage, () => (active ? 0.35 : 1));
     initSceneFade($("#scene"));
-    return views;
+    return {
+      planes,
+      lead(name) { active = name; layout(); },
+      refit(name) { if (name === active) layout(); },
+    };
   }
 
   /** Drift + pointer tilt, eased by the stage's CSS transition (1.8 s, so it
-      settles before the next 2 s tick). Off with reduced motion or a hidden tab. */
-  function initTilt(stage) {
+      settles before the next 2 s tick), scaled by k() (less while a plane leads).
+      Off with reduced motion or a hidden tab. */
+  function initTilt(stage, k) {
     let px = 0, py = 0, timer = null;
     const onPointer = (e) => {
       px = e.clientX / innerWidth - 0.5;
@@ -499,8 +479,8 @@
     };
     const tilt = () => {
       const t = performance.now() / 1000;
-      const ry = px * 5 + Math.sin(t / 9) * 2.5;
-      const rx = -py * 4 + Math.cos(t / 11) * 1.5;
+      const ry = (px * 5 + Math.sin(t / 9) * 2.5) * k();
+      const rx = (-py * 4 + Math.cos(t / 11) * 1.5) * k();
       stage.style.transform = `rotateX(${rx.toFixed(2)}deg) rotateY(${ry.toFixed(2)}deg)`;
     };
     const start = () => {
@@ -529,12 +509,15 @@
     start();
   }
 
-  /** The background dims as the page scrolls: #scene's own opacity, once per frame. */
+  /** The background dims once the view strip is behind you: #scene's own
+      opacity, once per frame. */
   function initSceneFade(scene) {
     let queued = false;
     const fade = () => {
       queued = false;
-      const k = Math.min(scrollY / innerHeight, 1);
+      const strip = $("#views");
+      const from = strip ? strip.offsetTop + strip.offsetHeight - innerHeight * 0.6 : 0;
+      const k = Math.min(Math.max(scrollY - from, 0) / innerHeight, 1);
       scene.style.opacity = (1 - 0.6 * k).toFixed(3);
     };
     addEventListener("scroll", () => {
@@ -543,6 +526,158 @@
       requestAnimationFrame(fade);
     }, { passive: true });
     fade();
+  }
+
+  /** Frames into the planes. hero(name, id): the typing's frame for a view; a
+      plane a section has claimed keeps its own until released (it then takes
+      the typing's latest). A swap fades the old frame out first (instant with
+      reduced motion, or when asked). onPaint(name) after each paint. */
+  function frameDisplay(data, planes, onPaint) {
+    const st = {};
+    for (const n of PLANES) st[n] = { hero: null, claimed: false, shown: null, timer: null };
+    function paint(name, id, instant = false) {
+      const s = st[name], el = planes[name], rows = data.frames[id];
+      if (!rows || s.shown === id) return;
+      s.shown = id;
+      const swap = () => {
+        $(".frame", el).innerHTML = frameHtml(rows);
+        el.classList.remove("swap");
+        onPaint(name);
+      };
+      clearTimeout(s.timer);
+      if (instant || reduceMotion) {
+        swap();
+        return;
+      }
+      el.classList.add("swap");
+      s.timer = setTimeout(swap, 140);
+    }
+    return {
+      hero(name, id) {
+        st[name].hero = id;
+        if (!st[name].claimed) paint(name, id);
+      },
+      claim(name, id, instant) {
+        st[name].claimed = true;
+        paint(name, id, instant);
+      },
+      release(name) {
+        st[name].claimed = false;
+        if (st[name].hero !== null) paint(name, st[name].hero);
+      },
+    };
+  }
+
+  /** A run's narration line: its label, view.py's words for the frame, and the
+      outcome on the last frame. */
+  function runSayHtml(run, i) {
+    const f = run.frames[i];
+    const end = i === run.frames.length - 1 ? ` — <b>${esc(run.outcome)}</b>` : "";
+    return `<span class="run-name">${esc(run.label)}</span> ${esc(f.say || "")}${end}`;
+  }
+
+  // the run section's pace: ms a frame, and the pause after a run's last frame
+  const RUN_STEP = 360;
+  const RUN_HOLD = 2800;
+
+  /** The runs (data.runs) played one after another into the run plane (el),
+      the narration in sayEl. While they play the plane's frame keeps the size
+      of their largest frame, so its fit holds still as the timeline grows.
+      Reduced motion: the last run's last frame, still. */
+  function runLoop(data, disp, el, sayEl) {
+    const runs = data.runs || [];
+    const frame = $(".frame", el);
+    let timer = null, ri = 0, fi = 0, cols = 0, rows = 0;
+    for (const r of runs) {
+      for (const f of r.frames) {
+        const fr = data.frames[f.run] || [];
+        rows = Math.max(rows, fr.length);
+        for (const row of fr) cols = Math.max(cols, row.reduce((n, [t]) => n + [...String(t)].length, 0));
+      }
+    }
+    const show = () => {
+      disp.claim("run", runs[ri].frames[fi].run, true);
+      if (sayEl) sayEl.innerHTML = runSayHtml(runs[ri], fi);
+    };
+    const tick = () => {
+      show();
+      if (fi < runs[ri].frames.length - 1) {
+        fi++;
+        timer = setTimeout(tick, RUN_STEP);
+        return;
+      }
+      timer = setTimeout(() => { ri = (ri + 1) % runs.length; fi = 0; tick(); }, RUN_HOLD);
+    };
+    return {
+      start() {
+        clearTimeout(timer);
+        if (!runs.length) return;
+        frame.style.minWidth = `${cols}ch`;
+        frame.style.minHeight = `calc(${rows} * 1.22em)`;   // .plane's line height
+        ri = reduceMotion ? runs.length - 1 : 0;
+        fi = reduceMotion ? runs[ri].frames.length - 1 : 0;
+        if (reduceMotion) show();
+        else tick();
+      },
+      stop() {
+        clearTimeout(timer);
+        timer = null;
+        frame.style.minWidth = frame.style.minHeight = "";
+      },
+    };
+  }
+
+  /** The section across the reading line (mid-screen; lower on a phone, where
+      the lead plane holds the top half), or null outside the strip. */
+  function currentSection(secs) {
+    const line = innerHeight * (isSmall() ? 0.7 : 0.52);
+    return secs.find((s) => {
+      const r = s.getBoundingClientRect();
+      return r.top <= line && r.bottom > line;
+    }) || null;
+  }
+
+  /** The view strip: as its sections pass the reading line, the planes follow
+      (scene.lead), each section showing data.views' finished frames (the run
+      section plays data.runs instead). */
+  function initViewStrip(data, scene, disp) {
+    const secs = $$("#views .vsec");
+    const ex = data.examples.find((e) => e.id === data.views);
+    if (!secs.length || !ex) return;
+    const done = ex.steps[ex.steps.length - 1];
+    const runs = runLoop(data, disp, scene.planes.run, $("#view-run .say"));
+    let active = null, queued = false;
+    const focus = (name) => {
+      const was = active;
+      active = name;
+      secs.forEach((s) => s.classList.toggle("current", s.dataset.view === name));
+      if (was === null && name !== null) PLANES.forEach((n) => disp.claim(n, done[n]));
+      if (was === "run") runs.stop();
+      if (name === null) PLANES.forEach((n) => disp.release(n));
+      else if (name === "run") runs.start();
+      else if (was === "run") disp.claim("run", done.run, true);
+      scene.lead(name);
+    };
+    const check = () => {
+      queued = false;
+      const sec = currentSection(secs);
+      const name = sec ? sec.dataset.view : null;
+      if (name !== active) focus(name);
+    };
+    const queue = () => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(check);
+    };
+    addEventListener("scroll", queue, { passive: true });
+    addEventListener("resize", queue);
+    document.addEventListener("visibilitychange", () => {
+      if (active !== "run") return;
+      if (document.hidden) runs.stop();
+      else runs.start();
+    });
+    motionListeners.push(() => { if (active === "run") runs.start(); });
+    check();
   }
 
   // ------------------------------------------------------------------ tabs
@@ -582,14 +717,13 @@
 
   // ------------------------------------------------------------------ player
 
-  function player(data, views) {
+  function player(data, disp) {
     const code = $("#code");
     const tablist = $("#tabs");
     const playBtn = $("#play");
     const status = { lint: $("#st-lint"), count: $("#st-count"), line: $("#st-line") };
-    const st = { ex: 0, line: 0, col: 0, playing: !reduceMotion, timer: null, shown: {} };
+    const st = { ex: 0, line: 0, col: 0, playing: !reduceMotion, timer: null };
     const highlighted = data.examples.map(() => []);   // per example, per line: highlight() output
-    const swaps = {};                                  // per view: its pending frame swap
     let rowsShown = 0;                                 // finished rows in #code
     let nowRow = null;                                 // the row being typed
 
@@ -605,30 +739,11 @@
       return cache[i];
     };
 
-    function showFrame(name, id) {
-      const rows = data.frames[id];
-      if (!rows || st.shown[name] === id) return;
-      st.shown[name] = id;
-      const el = views[name];
-      const swap = () => {
-        $(".frame", el).innerHTML = frameHtml(rows);
-        el.classList.remove("swap");
-      };
-      clearTimeout(swaps[name]);
-      if (reduceMotion) {
-        swap();
-        return;
-      }
-      el.classList.add("swap");
-      swaps[name] = setTimeout(swap, 140);
-    }
-
     function applyStep(lineIdx) {
       let s = null;
       for (const step of ex().steps) if (step.line <= lineIdx) s = step;
       if (!s) return;
-      showFrame("tree", s.tree);
-      showFrame("graph", s.graph);
+      PLANES.forEach((name) => disp.hero(name, s[name]));
       status.lint.textContent = `lint: ${s.lint}`;
       status.lint.className = s.lint === "OK" ? "ok" : "bad";
       status.count.textContent = `${s.nodes} nodes · ${s.edges} edges`;
@@ -1379,9 +1494,9 @@
   }
 
   /** No frames: say so in the editor, hide the viewer planes, disable the controls. */
-  function editorUnavailable(views, err) {
+  function editorUnavailable(planes, err) {
     console.warn("frames.json unavailable", err);
-    Object.values(views).forEach((el) => { el.hidden = true; });
+    Object.values(planes).forEach((el) => { el.hidden = true; });
     $$("#play, #skip").forEach((b) => { b.disabled = true; });
     $("#tabs").textContent = "";
     $("#code").textContent = "The examples could not be loaded.";
@@ -1395,15 +1510,17 @@
     initFocus();
     initInstall();
     initThemes();
-    const views = buildScene();
+    const scene = buildScene();
     let examples = [];
     try {
       const data = await loadFrames();
       examples = data.examples;
       installFrameStyles(data.styles);
-      player(data, views);
+      const disp = frameDisplay(data, scene.planes, scene.refit);
+      player(data, disp);
+      initViewStrip(data, scene, disp);
     } catch (err) {
-      editorUnavailable(views, err);
+      editorUnavailable(scene.planes, err);
     }
     initPlayground(examples);
   }

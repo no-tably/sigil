@@ -1,6 +1,6 @@
 """
 frames.py — a document drawn as page frames, shared by build_site.py (the
-pre-rendered frames.json behind the hero editor) and playground.py (the same
+pre-rendered frames.json the page's view planes play) and playground.py (the same
 drawing done live in the browser by Pyodide). Standard library only.
 
     autoclose(lines)     a half-typed document with its open `{` blocks closed
