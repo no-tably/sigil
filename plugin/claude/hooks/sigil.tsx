@@ -31,7 +31,9 @@ type $ = EngineInterface
 
 const TOOL_DESCRIPTION = [
   'Show a Sigil design to the person in a live viewer beside the conversation:',
-  'the graph, tree or flow view, redrawn on every save of the file. With',
+  'the graph, tree or flow view (the design), or the run view (one simulated',
+  'run as a timeline: a lane per participant, time left to right; the happy',
+  'run when no scenario is given), redrawn on every save of the file. With',
   'scenario, the simulated run of that pathway (view.py --sim names: happy, or',
   'one from the scenarios list the reply gives), shown at frame (0-based, or',
   '"last") or played (play: true). Fields left out keep their last value.',
@@ -43,7 +45,7 @@ const TOOL_SCHEMA = {
   type: 'object',
   properties: {
     file: { type: 'string', description: 'The .sigil file (relative to the working directory, or absolute).' },
-    view: { type: 'string', enum: ['graph', 'tree', 'flow'], description: 'Which view (default graph).' },
+    view: { type: 'string', enum: ['graph', 'tree', 'flow', 'run'], description: 'Which view (default graph).' },
     depth: { oneOf: [{ type: 'integer', minimum: 0 }, { const: 'all' }], description: 'Expansion depth (default 1).' },
     scenario: { type: 'string', description: 'A scenario to simulate; "" ends the run.' },
     frame: { oneOf: [{ type: 'integer', minimum: 0 }, { const: 'last' }], description: 'The run frame to show (default: the last).' },
@@ -272,7 +274,7 @@ export const register: Register = (on, options) => {
     await $.command.register({
       name: 'sigil-pane',
       description: 'Show a Sigil file in the viewer pane (any width), reopen the last one, or set where it draws (display)',
-      argumentHint: '[FILE] [graph|tree|flow] [depth N|all] [sim SCENARIO] [frame N|last] [play] | display [mod|multiplex|auto]',
+      argumentHint: '[FILE] [graph|tree|flow|run] [depth N|all] [sim SCENARIO] [frame N|last] [play] | display [mod|multiplex|auto]',
     })
     return started
   })

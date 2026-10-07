@@ -23,7 +23,7 @@ import {
 import type { Asked, Display, DisplayChoice } from './logic.ts'
 
 // The shapes this file uses (types/index.d.ts in plugin/claude has them all).
-type ViewRequest = { file: string; view: 'graph' | 'tree' | 'flow'; depth: number; scenario?: string; payloads?: boolean }
+type ViewRequest = { file: string; view: 'graph' | 'tree' | 'flow' | 'run'; depth: number; scenario?: string; payloads?: boolean }
 type PackedRow = [string, number][]
 type Style = [string | null, string | null, boolean]
 type Drawing = {
@@ -66,14 +66,16 @@ const PLAY_MS = 125 // a played run's frame time: 8 frames a second, view.py's s
 const ALIVE_MS = 3000 // a split whose follow loop touched its file this recently is up
 const CHROME_ROWS = 14 // the editor, footer and some conversation the widget leaves room for
 const MIN_BODY_ROWS = 10
-const HINT = `/${COMMAND} graph|tree|flow · depth N|all · sim NAME · play · pause · back · next · close · display`
+const HINT = `/${COMMAND} graph|tree|flow|run · depth N|all · sim NAME · play · pause · back · next · close · display`
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PANE_PY = join(HERE, '..', '..', 'skills', 'sigil', 'scripts', 'pane.py')
 
 const TOOL_DESCRIPTION = [
   'Show a Sigil design to the person in a live viewer in their terminal:',
-  'the graph, tree or flow view, redrawn on every save of the file. With',
+  'the graph, tree or flow view (the design), or the run view (one simulated',
+  'run as a timeline: a lane per participant, time left to right; the happy',
+  'run when no scenario is given), redrawn on every save of the file. With',
   'scenario, the simulated run of that pathway (view.py --sim names: happy, or',
   'one from the scenarios list the reply gives), shown at frame (0-based, or',
   '"last") or played (play: true). Fields left out keep their last value.',

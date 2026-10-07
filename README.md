@@ -140,8 +140,8 @@ claude --plugin-dir ./sigil-claude-<version>
 Commands appear as `/sigil:sigil-view <file>` and `/sigil:sigil-lint <file>`.
 
 The Claude Code plugin also carries a viewer mod. The agent gets a `view` tool
-that shows a design to you while you design it together: the graph, tree or flow
-view, redrawn on every save, and a simulated run stepped or played. Where it draws
+that shows a design to you while you design it together: the graph, tree, flow or
+run view, redrawn on every save, and a simulated run stepped or played. Where it draws
 is the plugin's `display` option:
 
 - `mod` draws in a pane beside the conversation, in the theme's colours. A pane

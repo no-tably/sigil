@@ -144,6 +144,24 @@ class DrawTest(unittest.TestCase):
         self.assertEqual(len(run["frames"]), len(run["status"]))
         self.assertTrue(run["say"][-1])
 
+    def test_draws_the_run_view_and_runs_in_it(self):
+        out = run_pane("draw", str(SHOP), "--view", "run", "--width", "120")
+        g = view.render.parse_document(SHOP.read_text(encoding="utf-8"))
+        rows, _w = view.compose_view(g, "run", depth=1, payloads=False, notes="off",
+                                     triggers=True, spaced=True, width=120, access=False,
+                                     mods=False, events=view.DEFAULT_EVENTS["run"])
+        want = [ln.rstrip() for ln in text_of(rows)]
+        while want and not want[-1]:
+            want.pop()
+        self.assertEqual([ln.rstrip() for ln in text_of(out["frames"][0])], want)
+        self.assertIn("no scenario chosen", want[0])            # the happy run, said so
+        legend = "".join(text_of(out["legend"]))
+        self.assertTrue(legend.startswith("run    █ working"), legend)
+        run = run_pane("draw", str(SHOP), "--view", "run", "--scenario", "happy")
+        self.assertEqual(run["view"], "run")
+        self.assertEqual(len(run["frames"]), len(run["status"]))
+        self.assertTrue(any("▼" in ln for ln in text_of(run["frames"][1])))   # the playhead
+
     def test_a_view_py_without_the_flow_view_is_named(self):
         old = types.SimpleNamespace(VIEWS=("graph", "tree"))
         with self.assertRaisesRegex(LookupError, "no flow view"):

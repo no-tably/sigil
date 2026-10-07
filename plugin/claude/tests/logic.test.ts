@@ -58,7 +58,7 @@ describe('requests', () => {
   test('another file drops the run; bad values are named', () => {
     const shown = { file: 'a.sigil', view: 'graph' as const, depth: 1, scenario: 'happy' }
     expect(parseRequest({ file: 'b.sigil' }, shown)).toEqual({ request: { file: 'b.sigil', view: 'graph', depth: 1 } })
-    expect(parseRequest({ file: 'a.sigil', view: 'side' }, null)).toEqual({ error: 'view must be one of graph, tree, flow' })
+    expect(parseRequest({ file: 'a.sigil', view: 'side' }, null)).toEqual({ error: 'view must be one of graph, tree, flow, run' })
     expect(parseRequest({ file: 'a.sigil', depth: -1 }, null)).toEqual({ error: 'depth must be a whole number or "all"' })
   })
   test('/sigil words', () => {
@@ -99,7 +99,8 @@ describe('cells', () => {
     expect(frameIndex(drawing, { at: 9, isPlaying: false })).toBe(2)
     expect(nextView('graph')).toBe('tree')
     expect(nextView('tree')).toBe('flow')
-    expect(nextView('flow')).toBe('graph')
+    expect(nextView('flow')).toBe('run')
+    expect(nextView('run')).toBe('graph')
     expect(parseDrawing('{"error":"x: no such file"}')).toEqual({ error: 'x: no such file' })
     expect(parseDrawing('garbage')).toEqual({ error: 'pane.py printed no drawing' })
   })

@@ -9,7 +9,7 @@ is packed — with the theme's hex colours in the style table instead of its
 role names, since the mod paints cells, not CSS.
 
 Usage:
-    pane.py draw FILE [--view graph|tree|flow] [--depth N|all] [--width N]
+    pane.py draw FILE [--view graph|tree|flow|run] [--depth N|all] [--width N]
                       [--scenario NAME] [--payloads] [--theme NAME]
         One JSON object on stdout: {"file", "view", "width", "styles":
         [[fg hex|null, bg hex|null, bold]], "frames": [rows], "legend": rows,
@@ -21,7 +21,9 @@ Usage:
         the hop now marked `▸`], "path": [the same row per frame as view.py
         draws it, at most two rows, the hop now bold], "outcome"}; a row is
         [[text, style id], …].
-        The legend is the tree's key or the flow view's, then a run's marks. A document or
+        The legend is the tree's key, the flow view's or the run view's, then a
+        run's marks (the run view: its path's only; without --scenario it draws
+        the happy run). A document or
         view that cannot be drawn: {"error"}. Exit status 0 either way.
     pane.py follow CONTROL
         The multiplexer split's loop: runs `view.py` live with the argv in the
@@ -54,7 +56,7 @@ _HERE = Path(__file__).resolve().parent
 _TOOLS = _HERE if (_HERE / "view.py").is_file() else _HERE.parents[2]
 _FRAMES = _HERE / "frames.py" if (_HERE / "frames.py").is_file() else _TOOLS / "site" / "frames.py"
 
-VIEWS = ("graph", "tree", "flow")
+VIEWS = ("graph", "tree", "flow", "run")
 MAX_FRAMES = 400            # a longer run is sampled evenly, its last frame kept
 LINT_LINES = 5              # diagnostics carried into the reply
 FOLLOW_POLL_S = 0.3         # how often follow looks at CONTROL
@@ -180,8 +182,11 @@ def draw(path: Path, view_name: str = "graph", depth: int = 1, width: int | None
                                          calls=view.drawn_call_marks(g, depth, payloads))
     elif view_name == "flow":
         legend.append(view.vflow.flow_legend(True, payloads, False, False, events))
+    elif view_name == "run":
+        legend.append(view.vrun.run_legend())
     if scenario:
-        legend += [view.sim_legend(tree), view.path_legend()]
+        legend += ([view.path_legend()] if view_name == "run"
+                   else [view.sim_legend(tree), view.path_legend()])
     cols = min(view.LEGEND_WIDTH, width or view.LEGEND_WIDTH)
     out["legend"] = packed([ln for r in legend for ln in view.wrap_legend(r, cols)],
                            styles, frames)

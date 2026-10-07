@@ -9,7 +9,7 @@ export type ViewRequest = {
   payloads?: boolean
 }
 
-export type ViewName = 'graph' | 'tree' | 'flow'
+export type ViewName = 'graph' | 'tree' | 'flow' | 'run'
 
 /** One packed row: [text, style id] runs (site/frames.py's packing). */
 export type PackedRow = [string, number][]

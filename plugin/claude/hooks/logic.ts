@@ -6,7 +6,7 @@ import type { Drawing, Mux, PackedRow, Playback, Style, ViewName, ViewRequest } 
 export const PANE = 'sigil'
 export const TOOL = 'view'
 export const COMMAND = 'sigil-pane' // /sigil is the skill's own
-export const VIEWS: readonly ViewName[] = ['graph', 'tree', 'flow']
+export const VIEWS: readonly ViewName[] = ['graph', 'tree', 'flow', 'run']
 export const ALL_DEPTH = 99
 export const UNASKED_COLUMNS = 144 // the engine's floor for a pane opened unasked
 export const DEFAULT_WIDTH = 100 // the width drawn for before the pane has measured
@@ -197,9 +197,9 @@ export function frameIndex(drawing: Drawing, playback: Playback): number {
   return Math.max(0, Math.min(playback.at, drawing.frames.length - 1))
 }
 
-/** The views in `t` order (the viewer's): graph → tree → flow → graph. */
+/** The views in `t` order (the viewer's): graph → tree → flow → run → graph. */
 export function nextView(view: ViewName): ViewName {
-  return view === 'graph' ? 'tree' : view === 'tree' ? 'flow' : 'graph'
+  return VIEWS[(VIEWS.indexOf(view) + 1) % VIEWS.length] ?? 'graph'
 }
 
 /** The depths in `d` order: 0 → 1 → all → 0. */

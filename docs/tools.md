@@ -227,7 +227,8 @@ redrawn on every save.
 The tool's input:
 
 - `file` — the `.sigil` file.
-- `view` — `graph`, `tree` or `flow`.
+- `view` — `graph`, `tree`, `flow` or `run` (one run as a timeline: the
+  scenario's, else the happy one).
 - `depth` — a number, or `"all"`.
 - `scenario` — a scenario to simulate, as `--sim` names it. `""` ends the run.
 - `frame` — the frame of the run to show: a 0-based number, or `"last"`. A new
@@ -256,12 +257,13 @@ the new value and the next view draws there.
   inline above the prompt. Its keys work while it holds the keyboard: a pane you
   open with `/sigil-pane` takes it at once, one the agent opens never does
   (ctrl+x then Tab, or a click, gives it the keys; Esc hands them back, and the
-  footer says which). `1` `2` `3` pick graph, tree and flow (the current one in
-  brackets), `t` cycles them, `d` the depth; with a run, `p` plays or pauses it
+  footer says which). `1` `2` `3` `4` pick graph, tree, flow and run (the current
+  one in brackets), `t` cycles them, `d` the depth; with a run, `p` plays or pauses it
   and `b` and `n` step it, and under the drawing the pane shows the run's path
   (in view.py's styles) and, after `›`, its narration line, as the live view's rows under its footer.
   Docked, the drawing fills the pane and the legend,
-  summary and keys sit at its bottom. The flow view draws with its own legend. The pane draws the cells that `pane.py
+  summary and keys sit at its bottom. The flow and run views draw with their own
+  legends. The pane draws the cells that `pane.py
   draw` packs (frames.py's packing, with hex colours), not ANSI. A pane opened
   without being asked needs 144 columns. Below that, the reply says it's waiting
   and names `/sigil-pane`, which opens it at any width.

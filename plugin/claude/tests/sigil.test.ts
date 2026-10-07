@@ -116,6 +116,7 @@ describe('mod display', () => {
     expect(await desk.find({ key: 'view' })).toBeDefined()
     expect(await desk.find({ key: 'view-graph' })).toMatchObject({ props: { label: '[graph]', hotkey: '1' } })
     expect(await desk.find({ key: 'view-flow' })).toMatchObject({ props: { label: 'flow', hotkey: '3' } })
+    expect(await desk.find({ key: 'view-run' })).toMatchObject({ props: { label: 'run', hotkey: '4' } })
     expect(await desk.find({ type: 'Box', props: { height: 40 } })).toBeDefined()   // docked: fills, info at the bottom
   })
 
