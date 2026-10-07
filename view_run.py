@@ -48,6 +48,7 @@ from __future__ import annotations
 import importlib.util
 import re
 import sys
+import textwrap
 from pathlib import Path
 from typing import NamedTuple, Optional
 
@@ -102,6 +103,8 @@ NOTE_GAP = 3                       # columns between the timeline and the notes
 NOTE_MIN = 16                      # notes sit beside the drawing with this many columns left
 QUIET_RUN = 3                      # a quiet stretch longer than this folds into one ≈ column
 BAND_FROM = 0.6                    # a band's cut is chosen in the last 40% of its width
+BAND_MIN = 8                       # a band's fewest columns: labels are cut to leave them
+LABEL_MIN = 4                      # the labels are never cut narrower than this
 RUN_NOTES = ("run", "design", "off")   # n in the run view: run notes → the design's → off
 
 _U, _R, _D, _L = kit.U, kit.R, kit.D, kit.L
@@ -492,13 +495,15 @@ def _label_runs(ln, scn, numbered: set, tick: int, marks) -> list:
     return runs
 
 
-def _ruler(fr: _Frame, tl, lo: int, hi: int, x0: int, witnessed: tuple = ()) -> list:
+def _ruler(fr: _Frame, tl, lo: int, hi: int, x0: int, witnessed: tuple = (),
+           room: Optional[int] = None) -> list:
     """The ruler over columns lo … hi - 1: the playhead `▼t`, a finding's
     number where this run shows it (`witnessed`: ((tick, CheckMark), …)), `ep2`
     where an episode starts, `↺k` where a loop's k-th iteration starts (k ≥ 2),
     the last tick, ticks at multiples of 10, ≈ on a folded stretch — each only
     where it touches no label placed before it, and nothing right of the
-    playhead."""
+    playhead. room: the columns after x0 a label may reach (None: any); the
+    playhead short of room is `▼` alone."""
     st = _styles()
     want = []
     if not fr.final:
@@ -517,6 +522,10 @@ def _ruler(fr: _Frame, tl, lo: int, hi: int, x0: int, witnessed: tuple = ()) -> 
     for c, text, style in want:
         if not lo <= c < hi:
             continue
+        if room is not None and c - lo + len(text) > room:
+            if not text.startswith(NOW):
+                continue
+            text = NOW
         cells = set(range(c - 1, c + len(text) + 1))
         if cells & taken:
             continue
@@ -843,12 +852,17 @@ def compose_run(g, trace=None, tick: Optional[int] = None, width: Optional[int] 
     banded = width is not None and total > width
     if banded:
         beside = False
-    rows = [kit.section_rule(title), []]
+        if width - x0 < BAND_MIN and label_w > LABEL_MIN:      # labels cut to leave a band room
+            label_w = max(width - GUTTER - 1 - BAND_MIN, LABEL_MIN)
+            labels = {k: _cut_runs(v, label_w) for k, v in labels.items()}
+            x0 = GUTTER + label_w + 1
+    rows = [kit.section_rule(title if width is None else kit.fit_title(title, width - 6)), []]
     bands = _bands(fr, width - x0 if banded else fr.cols.n, shown_cols)
     for k, (lo, hi) in enumerate(bands):
         if k:
             rows.append([])
-        rows.append(_ruler(fr, tl, lo, hi, x0, witnessed))
+        rows.append(_ruler(fr, tl, lo, hi, x0, witnessed,
+                           None if width is None else width - x0))
         for ln in fr.lanes:
             r = fr.rows[ln.key]
             cells = [fr.grid.glyph(r, c) for c in range(lo, min(hi, shown_cols))]
@@ -876,10 +890,17 @@ def compose_run(g, trace=None, tick: Optional[int] = None, width: Optional[int] 
                 lab.append((" " * (x0 - kit.row_len(lab)), None))
                 rows.append(lab + [(_fit_note(said[ln.key], budget), st["note"])])
     if not chosen:
-        rows += [[], [(f"happy run (every default) · {trace.outcome} · "
-                       f"{len(trace.frames)} frames", st["mid"]),
-                      ("   x plays it   [ ] another scenario", st["dim"])]]
+        head = f"happy run (every default) · {trace.outcome} · {len(trace.frames)} frames"
+        keys = "x plays it   [ ] another scenario"
+        rows.append([])
+        if width is None or len(head) + 3 + len(keys) <= width:
+            rows.append([(head, st["mid"]), ("   " + keys, st["dim"])])
+        else:                                   # each on lines of its own, wrapped
+            rows += [[(ln, st["mid"])] for ln in _wrapped(head, width)]
+            rows += [[(ln, st["dim"])] for ln in _wrapped(keys, width)]
     w = max(kit.row_len(r) for r in rows if not isinstance(r, kit.RuleRow))
+    if width is not None and w > width:         # still wider: too narrow for a band
+        rows += [[]] + kit.wide_hint("run", "the timeline", w, width, advice=None)
     if width is not None:                       # the title runs out to the width
         w = max(w, width)
     rows = [_strip(r) for r in kit.stretch_rules(rows, w)]
@@ -891,6 +912,19 @@ def _title(trace, chosen: bool) -> str:
     if not chosen:
         return f"run · {sc.name} — no scenario chosen: the happy run"
     return f"run · {sc.name}" + (f" — {sc.label}" if sc.label else "")
+
+
+def _cut_runs(row: list, w: int) -> list:
+    """A label's runs cut to w columns, the last one `…`."""
+    if kit.row_len(row) <= w:
+        return row
+    cut = kit.clip(row, 0, w - 1)
+    return cut + [("…", cut[-1][1] if cut else None)]
+
+
+def _wrapped(text: str, width: int) -> list:
+    """Text wrapped at width between words (a word longer stays whole)."""
+    return textwrap.wrap(text, width, break_long_words=False, break_on_hyphens=False) or [text]
 
 
 def _merge(row: list) -> list:

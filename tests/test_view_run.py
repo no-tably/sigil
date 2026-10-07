@@ -251,6 +251,25 @@ class TestWidth(unittest.TestCase):
         self.assertTrue(any(ln.strip().startswith("[Indexer]") for ln in band2))
         self.assertTrue(all(len(ln) <= 100 for ln in lines))
 
+    def test_every_row_keeps_to_the_width(self):
+        # the title rule, the line under a run nobody chose, and the ruler's
+        # labels at a band's end once ran past it
+        for width in (60, 40, 30):
+            for name in (None, "happy"):
+                lines = drawn(EXECUTIONS, name, width=width)
+                self.assertTrue(all(len(ln) <= width for ln in lines),
+                                "\n".join(ln for ln in lines if len(ln) > width))
+        lines = drawn(EXECUTIONS, width=40)
+        self.assertTrue(lines[0].startswith("── run · happy — no scenario chosen:…"), lines[0])
+        self.assertIn("x plays it   [ ] another scenario", lines)
+
+    def test_narrow_labels_are_cut_to_leave_a_band_room(self):
+        lines = drawn(EXECUTIONS, width=20)            # labels 11 wide: a band would get 6
+        self.assertTrue(all(len(ln) <= 20 for ln in lines), "\n".join(lines))
+        self.assertTrue(any("…" in ln and "█" in ln for ln in lines))
+        tiny = drawn(EXECUTIONS, width=12)             # no band fits: said, not silent
+        self.assertIn("run: the timeline is", " ".join(tiny))
+
     def test_quiet_stretches_fold(self):
         limits = sim.limits_from(["hop=12"])
         lines = drawn(CHECKOUT, "API.charge:fails", width=140, limits=limits)
