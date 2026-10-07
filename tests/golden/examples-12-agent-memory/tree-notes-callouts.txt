@@ -29,11 +29,11 @@
                                                               ┆e┆ # new entity + wasRevisionOf
                                                               ┆f┆ # withdraw, no replacement
 
-tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
-       (N) weight  
-wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
-       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  
-blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
+tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of
+       (N) weight
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of
        ── ── section
 
 examples-12-agent-memory.sigil: 17 nodes, 16 edges, 1 expansions · #!spec

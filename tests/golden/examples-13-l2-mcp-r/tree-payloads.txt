@@ -7,12 +7,12 @@
 ├┄┄ [Surface]
 └┄┄ [Validator]
 
-tree   ─ contains  ┄ := internals  & has  * spawns  ? when  $ from data  @ attached  ! alerts  
-       = gathers  _ one of  (N) weight  
-wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
-       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  
+tree   ─ contains  ┄ := internals  & has  * spawns  ? when  $ from data  @ attached  ! alerts
+       = gathers  _ one of  (N) weight
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour
        ┄┆{…}┆ payload, on its target row
-blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of
        ── ── section
 
 examples-13-l2-mcp-r.sigil: 2 nodes, 0 edges, 2 expansions

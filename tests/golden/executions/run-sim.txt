@@ -29,10 +29,10 @@
   [Doc.walk]  runs 2×; recurses to depth 3 each time
   [Notifier]  episode 3's entry; calls the host: mail.send()
 
-run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  ╰══▶ broadcast  
-       ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  ⊘ cancelled  ↺ self-call  ↻k depth k  
+run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  ╰══▶ broadcast
+       ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  ⊘ cancelled  ↺ self-call  ↻k depth k
        ┤ base case  ⇱ host  • reached  ◌ spawning  ┆ episode  ≈ quiet ticks  ▼ now  ▸ running
-path   the hops taken so far:  ①② its branches  ✖ failed  ⊘ cancelled  ×N repeated  
+path   the hops taken so far:  ①② its branches  ✖ failed  ⊘ cancelled  ×N repeated
        ▸ the hop now (bold in colour)
 
 executions.sigil: 16 nodes, 18 edges, 2 expansions · #!spec

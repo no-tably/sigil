@@ -7,10 +7,10 @@
   (Visitor)                  ┆█░░░░░░░░░░░░░░✕   episode 2's entry; calls [Redirect]; reached: an actor, no work of its own; fails
   [Redirect]                 ┆╰──▶██░░░░█░░░░✕   calls |Links|; routes the failure; fails
 
-run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  ╰══▶ broadcast  
-       ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  ⊘ cancelled  ↺ self-call  ↻k depth k  
+run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  ╰══▶ broadcast
+       ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  ⊘ cancelled  ↺ self-call  ↻k depth k
        ┤ base case  ⇱ host  • reached  ◌ spawning  ┆ episode  ≈ quiet ticks  ▼ now  ▸ running
-path   the hops taken so far:  ①② its branches  ✖ failed  ⊘ cancelled  ×N repeated  
+path   the hops taken so far:  ①② its branches  ✖ failed  ⊘ cancelled  ×N repeated
        ▸ the hop now (bold in colour)
 
 00-shortener.sigil: 7 nodes, 8 edges, 0 expansions · #!sketch

@@ -5,15 +5,15 @@
 [Payments] ◀─────────────●───────┘
 [Card] ⇱ ◀───────────────┘
 
-tree   ─ contains  & has  * spawns  ? when  $ from data  
-       @ attached  ! alerts  = gathers  _ one of  
-       (N) weight  
-wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  
-       ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  ›─ emits  
-       ◀ target  ─│─ crossing  ■ lane: its source's colour  
-       ↻ recursion  ⇱ host-provided (opaque)  
-blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  
-       □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
+tree   ─ contains  & has  * spawns  ? when  $ from data
+       @ attached  ! alerts  = gathers  _ one of
+       (N) weight
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe
+       ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  ›─ emits
+       ◀ target  ─│─ crossing  ■ lane: its source's colour
+       ↻ recursion  ⇱ host-provided (opaque)
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›
+       □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of
        ── ── section
 
 examples-24-booking-declared.sigil: 6 nodes, 8 edges, 0

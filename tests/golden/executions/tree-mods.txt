@@ -23,12 +23,12 @@
    [[follow]]                                  │ ╎ │ │
    └┄┄ [Crawler] ↻ ◀───────────────────────────●─○─●─┘
 
-tree   ─ contains  ┄ := internals  & has  * spawns  ? when  $ from data  @ attached  ! alerts  
-       = gathers  _ one of  (N) weight  
-wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
-       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  ↺ self-call  ↻ recursion  
+tree   ─ contains  ┄ := internals  & has  * spawns  ? when  $ from data  @ attached  ! alerts
+       = gathers  _ one of  (N) weight
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  ↺ self-call  ↻ recursion
        ⇱ host-provided (opaque)  ┆@… ×N┆ modifiers
-blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of
        ── ── section
 
 executions.sigil: 16 nodes, 18 edges, 2 expansions · #!spec

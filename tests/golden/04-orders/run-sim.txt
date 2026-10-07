@@ -12,10 +12,10 @@
   Cancelled                      ┆     ├╍╍▶
   Idle                           ┆     ╰╍╍▶
 
-run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  ╰══▶ broadcast  
-       ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  ⊘ cancelled  ↺ self-call  ↻k depth k  
+run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  ╰══▶ broadcast
+       ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  ⊘ cancelled  ↺ self-call  ↻k depth k
        ┤ base case  ⇱ host  • reached  ◌ spawning  ┆ episode  ≈ quiet ticks  ▼ now  ▸ running
-path   the hops taken so far:  ①② its branches  ✖ failed  ⊘ cancelled  ×N repeated  
+path   the hops taken so far:  ①② its branches  ✖ failed  ⊘ cancelled  ×N repeated
        ▸ the hop now (bold in colour)
 
 04-orders.sigil: 7 nodes, 5 edges, 2 expansions · #!sketch

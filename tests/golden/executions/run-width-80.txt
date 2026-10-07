@@ -59,9 +59,9 @@
 
 happy run (every default) · ok · 163 frames   x plays it   [ ] another scenario
 
-run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  
-       ╰══▶ broadcast  ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  
-       ⊘ cancelled  ↺ self-call  ↻k depth k  ┤ base case  ⇱ host  • reached  
+run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces
+       ╰══▶ broadcast  ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed
+       ⊘ cancelled  ↺ self-call  ↻k depth k  ┤ base case  ⇱ host  • reached
        ◌ spawning  ┆ episode  ≈ quiet ticks  ▼ now  ▸ running
 
 executions.sigil: 16 nodes, 18 edges, 2 expansions · #!spec

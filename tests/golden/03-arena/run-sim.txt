@@ -15,10 +15,10 @@
   [Spawner]          ┆     ┆               ╰──▶██░░░░    produces into [Shard]: a new instance
   [Shard·1]          ┆     ┆                    ╰━━▶█    spawned by [Spawner] for [Asteroid]
 
-run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  ╰══▶ broadcast  
-       ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  ⊘ cancelled  ↺ self-call  ↻k depth k  
+run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  ╰══▶ broadcast
+       ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  ⊘ cancelled  ↺ self-call  ↻k depth k
        ┤ base case  ⇱ host  • reached  ◌ spawning  ┆ episode  ≈ quiet ticks  ▼ now  ▸ running
-path   the hops taken so far:  ①② its branches  ✖ failed  ⊘ cancelled  ×N repeated  
+path   the hops taken so far:  ①② its branches  ✖ failed  ⊘ cancelled  ×N repeated
        ▸ the hop now (bold in colour)
 
 03-arena.sigil: 12 nodes, 7 edges, 0 expansions · #!sketch

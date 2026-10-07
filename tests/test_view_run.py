@@ -324,6 +324,17 @@ class TestApp(unittest.TestCase):
                        "--limit", "spawn=6", "--unroll", "all"])
         self.assertNotIn("more}", out.getvalue())
 
+    def test_legend_lines_end_without_blanks(self):
+        for flag in ("--run", "--tree", "--flow"):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                view.main([str(CHECKOUT), flag, "--once", "--no-lint", "--color", "never",
+                           "--width", "90"])
+            for ln in out.getvalue().splitlines():
+                self.assertEqual(ln, ln.rstrip(), f"{flag}: {ln!r}")
+        for r in view.wrap_legend(vrun.run_legend(), 60):
+            self.assertEqual(r[-1][0], r[-1][0].rstrip())
+
 
 if __name__ == "__main__":
     unittest.main()

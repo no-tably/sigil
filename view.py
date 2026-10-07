@@ -367,7 +367,18 @@ def wrap_legend(row, cols: int):
             cur = [indent]
         cur = cur + item
     out.append(cur)
-    return out
+    return [_rstrip_row(r) for r in out]
+
+
+def _rstrip_row(row):
+    """A row with its trailing blanks dropped (an entry's spacing after the last
+    one on a line)."""
+    row = list(row)
+    while row and not row[-1][0].strip():
+        row.pop()
+    if row:
+        row[-1] = (row[-1][0].rstrip(), row[-1][1])
+    return row
 
 
 KEY_LEGEND = (("views", "view"), ("t", "next"), ("x", "sim"), ("c", "checks"),
