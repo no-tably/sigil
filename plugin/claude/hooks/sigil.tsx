@@ -156,7 +156,9 @@ async function showInPane($: $, asked: Asked, isAsked: boolean): Promise<string>
   const now = playbackFor(asked, got, await read($, playback), isNewRun)
   await setPlayback($, now)
   startWatch($)
-  const opened: UiOpenResult = await $.ui.open({ id: PANE, title: TITLE })
+  // Opened by the person, the pane takes the keys (Esc hands them back); opened
+  // by the agent, it never takes the prompt from them.
+  const opened: UiOpenResult = await $.ui.open({ id: PANE, title: TITLE, ...(isAsked ? { focus: true as const } : {}) })
   const where = opened.isPlaced
     ? 'Shown in the sigil pane (redrawn on every save).'
     : isAsked
@@ -287,7 +289,7 @@ export const register: Register = (on, options) => {
     const display = resolveDisplay(options.display, await muxEnv($))
     const input = parseCommandArgs(e.args)
     if (Object.keys(input).length === 0 && display === 'mod' && (await read($, request)) !== null) {
-      await $.ui.open({ id: PANE, title: TITLE })
+      await $.ui.open({ id: PANE, title: TITLE, focus: true })
       return { text: 'Sigil pane opened.' }
     }
     return { text: await show($, input, display, true) }
@@ -366,6 +368,7 @@ export const register: Register = (on, options) => {
             })} />}
           {isRun && <Button key="back" plain hotkey="b" label="back" onPress={step(-1)} />}
           {isRun && <Button key="next" plain hotkey="n" label="next" onPress={step(1)} />}
+          <Text dimColor>{e.props.isFocused ? '· esc: prompt' : '· ctrl+x tab: keys'}</Text>
         </Box>
       </Box>
     )

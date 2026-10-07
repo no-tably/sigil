@@ -18,10 +18,10 @@ function drawingOf(argv: readonly string[]): string {
   })
 }
 
-type World = { runs: string[][]; writes: { path: string; text: string }[]; opens: number }
+type World = { runs: string[][]; writes: { path: string; text: string }[]; opens: number; focused: boolean[] }
 
 function world(on: On, opts: { isPlaced: boolean; env?: Record<string, string>; stdout?: (argv: readonly string[]) => string }): World {
-  const seen: World = { runs: [], writes: [], opens: 0 }
+  const seen: World = { runs: [], writes: [], opens: 0, focused: [] }
   mock.env(on, opts.env ?? {})
   mock.clock(on, { now: 10_000 })
   on('session.start', ($, e) => ({ cwd: e.cwd }))
@@ -40,8 +40,9 @@ function world(on: On, opts: { isPlaced: boolean; env?: Record<string, string>; 
     const stdout = opts.stdout?.(e.argv) ?? (e.argv.includes('draw') ? drawingOf(e.argv) : e.argv[0] === 'tmux' ? '%7\n' : '')
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
-  on('ui.open', () => {
+  on('ui.open', ($, e) => {
     seen.opens++
+    seen.focused.push(e.focus === true)
     return { value: opts.isPlaced ? { isPlaced: true } : { isPlaced: false, reason: 'unasked panes need 144 columns; the terminal is 120' } }
   })
   return seen
@@ -94,6 +95,8 @@ describe('mod display', () => {
     const again = await $.command.run({ command: 'sigil-pane', args: '', ...run })
     expect(again.text).toBe('Sigil pane opened.')
     expect(seen.opens).toBe(2)
+    await $.tool.call({ tool: 'mcp__sigil__view', file: 'shop.sigil' })
+    expect(seen.focused).toEqual([true, true, false])   // the person's opens take the keys, the agent's never
   })
 
   test('the pane draws theme-coloured cells on the terminal, text runs elsewhere', { options: { display: 'mod' } }, async ($, on) => {

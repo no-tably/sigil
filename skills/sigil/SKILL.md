@@ -89,7 +89,9 @@ ways to show it. Pick by where you are running:
   is narrower than 144 columns), tell the user they can open it with
   `/sigil-pane` in Claude Code or pi. To draw somewhere else, the user runs
   `/sigil-pane display mod|multiplex|auto` (with no value it says the current
-  setting). If it says there is no UI, or the tool fails, use `--once`.
+  setting). The pane's keys work once the user gives it the keyboard (ctrl+x
+  then Tab); it docks as a sidebar in Claude Code's fullscreen layout. If it
+  says there is no UI, or the tool fails, use `--once`.
 - **A multiplexer split**, everywhere else (Codex, OpenCode), or when the user
   prefers it. Ask the user to run `python3 scripts/view.py FILE` in a split or a
   second terminal. If you can open the split yourself, do: `tmux split-window -h

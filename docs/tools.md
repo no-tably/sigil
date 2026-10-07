@@ -188,7 +188,12 @@ The plugin option `display` picks where the viewer draws. `/sigil-pane display
 VALUE` writes it, as `/config sigil.display=VALUE` does; the module reloads with
 the new value and the next view draws there.
 
-- `mod` draws in a pane. `t` cycles the view, `d` the depth; with a run, `p` plays
+- `mod` draws in a pane: a sidebar beside the transcript in Claude Code's
+  fullscreen layout (`CLAUDE_CODE_NO_FLICKER=1`, from 110 columns), otherwise
+  inline above the prompt. Its keys work while it holds the keyboard: a pane you
+  open with `/sigil-pane` takes it at once, one the agent opens never does
+  (ctrl+x then Tab, or a click, gives it the keys; Esc hands them back, and the
+  footer says which). `t` cycles the view, `d` the depth; with a run, `p` plays
   or pauses it and `b` and `n` step it, and under the drawing the pane shows the
   run's trail and, after `›`, its narration line, as the live view's rows under
   its footer. The flow view draws with its own legend. The pane draws the cells that `pane.py
