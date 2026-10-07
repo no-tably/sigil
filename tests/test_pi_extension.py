@@ -227,6 +227,9 @@ class DriveMixin:
         self.assertIn("❚❚ 4 frames/s · sim happy", self.steps["faster"]["lines"][0])
         self.assertIn("❚❚ 1 frame/s · sim happy", self.steps["slower twice"]["lines"][0])
 
+    def test_naming_the_shown_file_again_keeps_its_run(self):
+        self.assertIn("paused at sim happy", self.steps["the file named again"]["reply"])
+
     def test_rpc_mode_sends_the_widget_as_text_on_a_change(self):
         call = self.steps["rpc tool call"]
         self.assertFalse(call["widget"])                       # no component: pi drops it there

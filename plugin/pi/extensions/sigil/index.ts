@@ -550,7 +550,11 @@ export default function sigil(pi: Pi): void {
   }
 
   async function show(ctx: Ctx, input: Record<string, unknown>, isAsked: boolean): Promise<string> {
-    const asked = parseRequest(input, request as never)
+    // the file as the request stores it (its full path), so naming the shown
+    // file again keeps its run
+    const named = typeof input.file === 'string' && input.file !== '' ? await located(ctx.cwd, input.file) : undefined
+    if (typeof named === 'object') return `sigil: ${named.error}`
+    const asked = parseRequest(named === undefined ? input : { ...input, file: named }, request as never)
     if ('error' in asked) return `sigil: ${asked.error}`
     return display() === 'multiplex' ? showInSplit(ctx, asked) : showInWidget(ctx, asked, isAsked)
   }

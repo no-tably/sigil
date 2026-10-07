@@ -90,6 +90,15 @@ describe('mod display', () => {
     expect(String(back.result)).toContain('(frame 1 of 2)')
   })
 
+  test('naming the shown file again (as written, not its real path) keeps its run', { options: { display: 'mod' } }, async ($, on) => {
+    const seen = world(on, { isPlaced: true })
+    await $.session.start(START)
+    await $.tool.call({ tool: 'mcp__sigil__view', file: 'shop.sigil', scenario: 'happy' })
+    const { result } = await $.tool.call({ tool: 'mcp__sigil__view', file: 'shop.sigil', view: 'tree' })
+    expect(String(result)).toContain('paused at sim happy · end · ok')
+    expect(seen.runs.at(-1)).toContain('--scenario')
+  })
+
   test('/sigil-pane shows a file, and with no words reopens the pane', { options: { display: 'mod' } }, async ($, on) => {
     const seen = world(on, { isPlaced: true })
     await $.session.start(START)

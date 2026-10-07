@@ -106,6 +106,7 @@ if (out.errors.length === 0) {
   await step('next', () => command.handler('next', ctx))
   await step('faster', () => command.handler('+', ctx))
   await step('slower twice', async () => { await command.handler('-', ctx); await command.handler('-', ctx) })
+  await step('the file named again', () => call({ file, view: 'tree' }))
   await step('close', () => command.handler('close', ctx))
   // RPC mode: stdout is pi's JSON channel, no terminal; widgets go as text
   process.stdout.isTTY = false

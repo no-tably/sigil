@@ -261,7 +261,11 @@ async function isAlive($: $, held: Split): Promise<boolean> {
 }
 
 async function show($: $, input: Record<string, unknown>, display: Display, isAsked: boolean): Promise<string> {
-  const asked = parseRequest(input, await read($, request))
+  // the file as the request stores it (its real path), so naming the shown
+  // file again keeps its run
+  const named = typeof input.file === 'string' && input.file !== '' ? await located($, input.file) : undefined
+  if (typeof named === 'object') return `sigil: ${named.error}`
+  const asked = parseRequest(named === undefined ? input : { ...input, file: named }, await read($, request))
   if ('error' in asked) return `sigil: ${asked.error}`
   return display === 'multiplex' ? showInSplit($, asked) : showInPane($, asked, isAsked)
 }
