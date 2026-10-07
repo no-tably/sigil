@@ -428,8 +428,13 @@ class TestStreamsAndRoles(unittest.TestCase):
         self.assertEqual(self.box(out, "[Cache<K,V>]")[1], "│ [Cache<K,V>] │")   # a type
 
     def test_self_call_stub_leaves_a_role_box(self):
-        out = graph("[Worker<N>] -> run()\n|Q| @write(Worker)\n", payloads=True)
+        out = graph("[Worker<N>] -> run()\n[Worker<N>] -> stop()\n|Q| @write(Worker)\n",
+                    payloads=True)
         self.assertIn("╢", out)
+        self.assertIn("╟─● ┆ ↺ run() ┆", out)       # the double side runs on into its stubs
+        self.assertIn("╙─● ┆ ↺ stop() ┆", out)
+        col = line_with(out, "╢").index("╢")
+        self.assertEqual(line_with(out, "╙─●").index("╙"), col)
 
     def test_tree_marks_streams_and_roles(self):
         out = tree(self.DOC)
