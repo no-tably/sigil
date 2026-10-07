@@ -23,7 +23,8 @@ Covers (each in the graph view and the tree + wires view):
  11. tree: an expansion's members on dotted rails (├┄┄ ┆), apart from `\\->`'s
      solid ├──; a brace (⎫ ⎪ ⎭) joining a run of `\\-_` one-of siblings.
  12. graph: a flow into a qualified path `[Bullet]/{Transform}` carries the
-     path's prefix `[Bullet]/` beside its head; a bare flow to the name none.
+     path's prefix `[Bullet]/` beside its head; a bare flow to the name none;
+     a flow out of one `from [Bullet]/` beside its tail (its head on a shared trunk).
  13. a comment above a glyph-less block header tags the block (graph frame
      title, tree header row), not its first arm; a document header comment
      that precedes no statement is listed as the document's note `¶`.
@@ -559,7 +560,32 @@ class TestQualifiedPaths(unittest.TestCase):
         self.assertIn("▼ Ship/", graph("[A] -> [Ship]/{T}\n"))   # no [Ship] node: bare
 
     def test_legend_lists_the_path_mark(self):
-        self.assertIn("[A]/ in path", "".join(t for t, _ in view.graph_legend()))
+        legend = "".join(t for t, _ in view.graph_legend())
+        self.assertIn("[A]/ in path", legend)
+        self.assertIn("│ from [A]/ out of path", legend)
+
+    SHIP = "[Ship]\n    \\-*-> [Bullet]\n        \\-& {Transform}\n"
+
+    def test_source_path_sits_beside_the_tail(self):
+        out = graph(self.SHIP + "[Homing] -> [Bullet]/{Transform}\n"
+                    "[Bullet]/{Transform} -> [Render]\n")
+        lines = out.splitlines()
+        at = next(i for i, ln in enumerate(lines) if "from [Bullet]/" in ln)
+        self.assertRegex(lines[at], r"│ from \[Bullet\]/")   # on the stroke, not a head
+        self.assertIn("{Transform}", lines[at - 2])            # just under the source box
+        self.assertIn("▼ [Bullet]/", out)                     # the head side's, unchanged
+
+    def test_shared_trunk_moves_it_beside_the_head(self):
+        out = graph(self.SHIP + "{Transform} -> [Audit]\n[Bullet]/{Transform} -> [Render]\n")
+        self.assertRegex(out, r"▼ from \[Bullet\]/")
+        self.assertNotRegex(out, r"│ from")                   # not on the shared trunk
+        self.assertEqual(out.count("from [Bullet]/"), 1)       # Audit's edge: none
+
+    def test_back_edge_tail_and_head(self):
+        out = graph(self.SHIP + "{Transform} -> [Audit]\n[Bullet]/{Transform} -> [Render]\n"
+                    "[Render] -> [Ship]/[Bullet]/{Transform}\n")
+        self.assertIn("▲ [Ship]/[Bullet]/", out)
+        self.assertIn("from [Bullet]/", out)
 
     def test_graph_legend_lists_the_stream_and_role_boxes(self):
         legend = "".join(t for t, _ in view.graph_legend())

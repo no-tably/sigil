@@ -179,6 +179,12 @@ class TestAnnotations(unittest.TestCase):
         self.assertIn("(Shopper) #1", line(rows, "(Shopper)"))
         self.assertIn("#2 retried, idempotent", "\n".join(plain(rows)))
 
+    def test_qualified_paths_ride_the_wire(self):
+        text = drawn("[Ship]\n    \\-*-> [Bullet]\n        \\-& {Transform}\n"
+                     "[Homing] -> [Bullet]/{Transform}\n[Bullet]/{Transform} -> [Render]\n")
+        self.assertRegex(text, r"\[Homing\] ─+ \[Bullet\]/ ─+▶ \{Transform\}")
+        self.assertRegex(text, r"─ from \[Bullet\]/ ─+▶ \[Render\]")
+
     def test_transition_label_and_expansion_parts(self):
         text = drawn("[Svc]\nstate [Svc] {\n  Idle -<go>-> Busy\n}\n")
         self.assertIn("[Svc] ▾", text)

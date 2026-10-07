@@ -30,9 +30,10 @@ wire between the two columns, a self-call's chip on a stub under its subject
 (`╰─● ┆ ↺ plan({Seed}) ↩ {Plan} ┆`), the marks after a label (#N notes, ▾ / ▸
 expansions, `↺` `↻` `⇱` calls, writer badges), what is written beside a wire's
 head in the graph view (`↩`, a landed event's name, a path's `[A]/`, an inline
-note's #N) as bare text on its wire, triggers (e), the checks overlay (c: a
-marked wire's stroke and a marked label's brackets in the finding's style, its
-number after the label or on the wire) and a simulation frame (view_graph's
+note's #N), led by a qualified source path's `from [A]/`, as bare text on its
+wire, triggers (e), the checks overlay (c: a marked wire's stroke and a marked
+label's brackets in the finding's style, its number after the label or on the
+wire) and a simulation frame (view_graph's
 sim_look: lit and muted wires, tokens on their cells, labels by status, badges).
 `:=` expansions and state machines are drawn as parts under the document's, like
 the graph view's sections; control blocks are not framed (their flows are drawn
@@ -884,6 +885,9 @@ class _Ctx:
         elif label and st.role == "flow" and not _driven(part, label):
             bare.append((label, kit.LABEL_STYLE))
         tag = self.tags.get(st.key, [])
+        tail = self.tags.get(vgraph.tail_key(st.key), []) if st.role == "flow" else []
+        if tail:                                # a qualified source path's `from [A]/` first
+            tag = tail + [(" ", None)] + tag if tag else tail
         if tag:
             bare += [(" ", None)] + tag
         bare = _strip(bare)

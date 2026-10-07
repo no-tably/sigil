@@ -19,6 +19,7 @@ from __future__ import annotations
 import importlib.util
 import re
 import sys
+from collections import Counter
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import NamedTuple, Optional
@@ -463,6 +464,18 @@ def _free_port(v, x: int, k: int, used: set) -> int:
     return min(max(x + k, lo), hi)
 
 
+def _port_users(lay: _Layout) -> Counter:
+    """{(vertex, "out" / "in", x): how many segments leave / enter it there} —
+    a parallel edge's own offset ports left out."""
+    users = Counter()
+    for ci, (_e, _rev, chain) in enumerate(lay.chains):
+        for k, (u, w) in enumerate(zip(chain, chain[1:])):
+            if (ci, k) not in lay.dup:
+                users[(u, "out", lay.out_port[u][w])] += 1
+                users[(w, "in", lay.in_port[w][u])] += 1
+    return users
+
+
 def _draw(lay: _Layout) -> kit.Canvas:
     """Edges, then boxes over them, then edge labels where they fit, then the
     grid of unconnected nodes, then a sim frame's tokens over it all."""
@@ -477,6 +490,7 @@ def _draw(lay: _Layout) -> kit.Canvas:
     edge_labels = []   # (x, y, runs) beside an arrowhead
     bar_style = {}     # join bar → the style of the edges it joins
     traces = []        # per chain: _Trace, for the shared-cell colour rule
+    ports = _port_users(lay)
     for ci, (e, rev, chain) in enumerate(lay.chains):
         key = _wire_key(g, e)
         style = lay.styles.get(key) or _unkeyed_style(e.kind, lay.sim is not None)
@@ -486,6 +500,16 @@ def _draw(lay: _Layout) -> kit.Canvas:
         def path(pts):
             cv.path(pts, e.kind, style)
             trace.cells += _cells(pts)
+
+        # A qualified source path's `from [A]/` sits beside its tail where the
+        # tail is this edge's own (else beside its head: on a trunk shared with
+        # other edges it would read as theirs too).
+        tail = lay.tags.get(tail_key(key)) if e.src == key[0] else None
+        if tail:
+            end = 0 if not rev else len(chain) - 2
+            u, w = chain[end], chain[end + 1]
+            port = (u, "out", lay.out_port[u][w]) if not rev else (w, "in", lay.in_port[w][u])
+            shared = (ci, end) not in lay.dup and ports[port] > 1
 
         for k, (u, w) in enumerate(zip(chain, chain[1:])):
             i = V[u].layer
@@ -525,10 +549,16 @@ def _draw(lay: _Layout) -> kit.Canvas:
             # sits beside its head: a chip remembers the wire it splits, so the
             # tag follows into the chip half.
             runs = lay.tags.get(key)
-            if runs and last and not rev and e.dst == key[1]:
-                edge_labels.append((dx, y1, runs))
-            elif runs and first and rev and e.src == key[0]:
-                edge_labels.append((sx, y0, runs))
+            here = bool(runs) and ((last and not rev and e.dst == key[1])
+                                   or (first and rev and e.src == key[0]))
+            if tail and shared and ((last and not rev) or (first and rev)):
+                runs, here = tail + [(" ", None)] + runs if here else tail, True
+            if here:
+                edge_labels.append((dx, y1, runs) if not rev else (sx, y0, runs))
+            if tail and not shared and (first and not rev):
+                edge_labels.append((sx, y0, tail))
+            elif tail and not shared and (last and rev):
+                edge_labels.append((dx, y1, tail))
             into_chip = g.nodes[chain[-1]].kind in (kit.CHIP, kit.JOIN) if not rev else False
             if last and not rev and not into_chip:
                 heads.append((dx, y1, _head(e.kind), style))
@@ -1702,8 +1732,9 @@ def _tags(scn, notes: bool, mods: bool) -> dict:
     badges (the Scene's, with the access option); `↩` on the `=>` edge a
     self-call returns along (Wire.returns_of), a landed event's name, a
     qualified path's prefix (`[Bullet]/`, _path_tags), then the #N of the
-    inline notes about its edge's line. A control block's notes tag its
-    frame's title (key kit.block_note_key); the document's are only listed."""
+    inline notes about its edge's line; a qualified source path's
+    `from [Bullet]/` beside its tail (key tail_key(wire key)). A control
+    block's notes tag its frame's title (key kit.block_note_key); the document's are only listed."""
     tags = {nid: [(" ⇱", kit.SYNTAX["operator"])] for nid, sn in scn.nodes.items()
             if sn.external}
     note_runs = {}
@@ -1728,6 +1759,7 @@ def _tags(scn, notes: bool, mods: bool) -> dict:
     for key in set().union(*heads):
         parts = [h[key] for h in heads if key in h]
         tags[key] = [run for k, runs in enumerate(parts) for run in [(" ", None)][:k] + runs]
+    tags.update(_path_tags(scn, 0))
     return tags
 
 
@@ -1747,21 +1779,33 @@ def _return_tags(scn) -> dict:
             if w.returns_of is not None}
 
 
-def _path_tags(scn) -> dict:
+TAIL = "\0tail"
+
+
+def tail_key(key) -> tuple:
+    """The tags key of what sits beside a wire's tail (its source end)."""
+    return (TAIL,) + tuple(key)
+
+
+def _path_tags(scn, side: int = 1) -> dict:
     """{key: runs}: the qualifying path of a flow into a qualified path
     (`[Homing] -> [Bullet]/{Transform}`, Wire.paths) beside its head — the
     path's leading glyphs and their slashes (`[Bullet]/`), since the graph has
     one box per name and the edge would read as reaching every `{Transform}`.
-    A path name with no node of its own shows bare (`Bullet/`)."""
+    A path name with no node of its own shows bare (`Bullet/`). side 0: a flow
+    out of a qualified path (`[Bullet]/{Transform} -> [Render]`), keyed
+    tail_key(key) and written `from [Bullet]/` (it may end up beside the head,
+    and in the flow view it is text on the wire)."""
     labels = {}
     for sn in scn.nodes.values():
         labels.setdefault(sn.node.name, kit.node_label(sn.node))
     out = {}
     for w in scn.wires:
-        path = w.paths[1]
-        if path and len(path) > 1 and w.key not in out:
-            out[w.key] = [("".join(labels.get(name, name) + "/" for name in path[:-1]),
-                           kit.LABEL_STYLE)]
+        path = w.paths[side]
+        key = w.key if side else tail_key(w.key)
+        if path and len(path) > 1 and key not in out:
+            text = "".join(labels.get(name, name) + "/" for name in path[:-1])
+            out[key] = [("from " + text if not side else text, kit.LABEL_STYLE)]
     return out
 
 
@@ -1800,7 +1844,8 @@ def graph_legend(triggers: bool = True, payloads: bool = False, access: bool = F
     then the trigger edge, an event drawn where it lands (events "land": the
     event-coloured edge emitter → destination, its name beside the head),
     structure marks (block frames, joins, branch arms, a qualified path's
-    `[A]/` beside its head), the box shapes the tree marks apart (a stream's
+    `[A]/` beside its head and a qualified source's `from [A]/` beside its
+    tail), the box shapes the tree marks apart (a stream's
     shadow ┒┃┛, or ≋ in a mutable stream's heavy box, a generic role's stack ╖║╜), the call marks (a box's self-call ↺, recursion ↻,
     host-provided op ⇱), the permission edges,
     payload chips (with a call's `↩` return) and modifier chips when they are
@@ -1825,6 +1870,7 @@ def graph_legend(triggers: bool = True, payloads: bool = False, access: bool = F
             ("━┷━ &", kit.LABEL_STYLE), (" join: all  ", mid), ("&?", kit.LABEL_STYLE),
             (" race  ", mid), ("/", kit.LABEL_STYLE), (" one of  ", mid),
             ("▼ [A]/", kit.LABEL_STYLE), (" in path  ", mid),
+            ("│ from [A]/", kit.LABEL_STYLE), (" out of path  ", mid),
             ("┒┃┛", box), (" ", mid), (kit.STREAM_MARK, box), (" stream  ", mid), ("╖║╜", box), (" role  ", mid)]
     op = kit.SYNTAX["operator"]
     row += [("↺", op), (" self-call  ", mid), ("↻", op), (" recursion  ", mid),
