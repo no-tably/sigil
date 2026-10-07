@@ -76,4 +76,5 @@ a┆<assert>
 #9 new entity + wasRevisionOf
 #10 withdraw, no replacement
 
-examples-12-agent-memory.sigil: 17 nodes, 16 edges, 1 expansions · #!spec
+examples-12-agent-memory.sigil: 17 nodes, 16
+  edges, 1 expansions · #!spec

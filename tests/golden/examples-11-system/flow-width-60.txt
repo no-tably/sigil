@@ -7,4 +7,5 @@
 
 [[Retry]]
 
-examples-11-system.sigil: 7 nodes, 6 edges, 0 expansions · #!spec
+examples-11-system.sigil: 7 nodes, 6 edges, 0 expansions
+  · #!spec

@@ -19,5 +19,6 @@
 └───────────┘
 
 examples-10.sigil: 7 nodes, 7 edges, 0 expansions
-warn:1:SGL002: first content line is not a mode declaration (#!spec / #!sketch / #!craft). Got: '[API] -> [Payment] : charge'
+warn:1:SGL002: first content line is not a mode declaration (#!spec / #!sketch / #!craft). Got:
+  '[API] -> [Payment] : charge'
 error:4:SGL080: mode line '#!spec' must be the first non-empty line of the document.

@@ -12,4 +12,5 @@
 
 [Ship]   [Bullet]   [Asteroid]
 
-examples-16-arena.sigil: 14 nodes, 9 edges, 0 expansions · #!sketch
+examples-16-arena.sigil: 14 nodes, 9 edges, 0 expansions
+  · #!sketch

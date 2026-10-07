@@ -239,12 +239,15 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     recursion, `⇱` a host op), and the far node of an external op call `⇱`.
 
     `width`: the columns to fit (None: the natural width). When the drawing is
-    wider, the margins give way — the outline and lanes never change shape: the
+    wider, the margins give way first — the outline never changes shape: the
     callout boxes narrow (down to CALLOUT_MIN); then the right margin moves to a
     panel at the bottom-right (each row keeps a `┆a┆` marker, the panel repeats
     it beside the payload / comment); then the callouts move to a panel at the
     top-left (each entity keeps its `#N` tag, the panel's box is headed `#N`).
     A callout that would be cut off widens (up to CALLOUT_MAX) when there is room.
+    Then the lanes past the gutter columns that fit fold into numbered plugs
+    (_fold_lanes: `●①` on a source row, `◀───①` on a target row); a row still
+    too wide leaves a hint under the drawing (kit.wide_hint).
 
     `--- sections ---` divide the outline (a rule before each section's first
     unit); control blocks are brackets in a gutter left of it, from a header row
@@ -299,15 +302,19 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     trailing = scene.wire_notes(scn) if notes != "off" else {}
     bases = {}
 
-    def base(left: bool, right: bool):
+    def base(left: bool, right: bool, keep: int | None = None):
         """The outline, lanes and right margin; `left`: callouts relocated (so
-        rows carry #N tags), `right`: the right margin relocated."""
-        if (left, right) not in bases:
+        rows carry #N tags), `right`: the right margin relocated; `keep`: the
+        gutter columns kept, the lanes past them folded (None: none folded)."""
+        if (left, right, keep) not in bases:
             cv = kit.Canvas()
             out = _draw_outline(cv, rows, blocks, show_tags=notes != "callouts" or left,
                                 x0=x0, extra=after_label, marks=marks, sim=sim_rows)
             _draw_brackets(cv, brackets, xs, x0)
-            lanes = _pack_lanes(_collect_lanes(cv, wires, out), max(out.ends) + 3, frame)
+            gutter = max(out.ends) + 3
+            lanes = _pack_lanes(_collect_lanes(cv, wires, out), gutter, frame)
+            if keep is not None:
+                lanes = _fold_lanes(lanes, gutter, keep)
             if checks is not None:
                 lanes = _check_lanes(lanes, checks)
             _draw_lanes(cv, lanes, out.ends, muted_sources=frame is not None)
@@ -320,11 +327,12 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
             for y, row in enumerate(rows):      # section rules run the full width
                 if isinstance(row, Banner) and row.kind == "section" and out.ends[y] < cv.w:
                     cv.put(out.ends[y], y, "─" * (cv.w - out.ends[y]), kit.SECTION_STYLE)
-            bases[(left, right)] = (list(cv.rows()), cv.w, out, drawn, moved or [])
-        return bases[(left, right)]
+            bases[(left, right, keep)] = (list(cv.rows()), cv.w, out, drawn, moved or [],
+                                          lanes, gutter)
+        return bases[(left, right, keep)]
 
-    def assemble(left: bool, right: bool, tw: int):
-        out_rows, w, out, _drawn, _moved = base(left, right)
+    def assemble(left: bool, right: bool, tw: int, keep: int | None = None):
+        out_rows, w, out, _drawn, _moved, _lanes, _gutter = base(left, right, keep)
         if notes == "callouts" and out.tagged and not left:
             out_rows, w = _with_callouts(out_rows, blocks, out.tagged, tw)
         return out_rows, w
@@ -348,9 +356,21 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
             tries = [t for group in tries if assemble(*group[-1])[1] <= width for t in group]
             choice = next((t for t in tries if assemble(*t)[1] <= width),
                           (callouts, True, need))
+    keep = None
+    over = assemble(*choice)[1] if width is not None else 0
+    if width is not None and over > width:
+        # the margins have given way and the lanes still don't fit: fold the
+        # lanes past the most gutter columns that then fit, else the fold that
+        # is narrowest (folding none when that is)
+        lanes, gutter = base(*choice[:2])[5:]
+        reach = {k: _fold_reach(lanes, gutter, k) for k in range(_lane_cols(lanes, gutter))}
+        keep = next((k for k in sorted(reach, reverse=True) if reach[k] <= width),
+                    min(reach, key=lambda k: (reach[k], -k), default=None))
+        if keep is not None and reach[keep] >= over:
+            keep = None
     left, right, tw = choice
-    out_rows, w = assemble(left, right, tw)
-    _r, _w, out, drawn, moved = base(left, right)
+    out_rows, w = assemble(left, right, tw, keep)
+    _r, _w, out, drawn, moved, _lanes, _gutter = base(left, right, keep)
     # (A list that already fits rewraps to the same lines at the narrower width.)
     extra = _extras(g, idx, notes, payloads, drawn,
                     kit.NOTE_WIDTH if width is None else min(kit.NOTE_WIDTH, width))
@@ -366,6 +386,8 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
         out_rows = kit._fit_panel(out_rows, lambda t: kit._callout_panel(entries, t), width, "tl", need)
     if (left, right) != (False, False):
         w = max([0] + [kit.row_len(r) for r in out_rows])
+    if width is not None and w > width:         # nothing left to give way
+        out_rows = list(out_rows) + [[]] + kit.wide_hint("tree", "a row", w, width, None)
     out_rows = list(out_rows) + extra
     return out_rows, max([w] + [kit.row_len(r) for r in extra])
 
@@ -828,6 +850,7 @@ class _Lane(NamedTuple):
     idents: frozenset = frozenset()             # the wires its stroke stands for
     x: int = 0
     style: tuple = None
+    plug: str = ""                              # folded (_fold_lanes): its number, no vertical
 
 
 def _collect_lanes(cv: kit.Canvas, wires, out: _Outline) -> list:
@@ -866,6 +889,52 @@ def _pack_lanes(lanes, left: int, frame=None) -> list:
             for lane in lanes]
 
 
+def _lane_cols(lanes, left: int) -> int:
+    """How many gutter columns packed lanes take."""
+    return max([(ln.x - left) // LANE_GAP + 1 for ln in lanes if not ln.plug] + [0])
+
+
+def _fold_lanes(lanes, left: int, keep: int) -> list:
+    """Lanes past the first `keep` gutter columns folded into plugs, for a
+    drawing narrower than its gutter: a folded lane draws no vertical — each of
+    its rows runs out past the kept lanes to the plug column, where it lists its
+    plugs (_plug_rows): a source's mark and number (`●①`), a target's number
+    (`◀───①`) — the flow view's numbered plugs (kit.plug_label), numbered in
+    reading order of their first row. The kept lanes keep their columns
+    (first-fit packing only ever moved them left)."""
+    kept = [ln for ln in lanes if (ln.x - left) // LANE_GAP < keep]
+    folded = sorted((ln for ln in lanes if (ln.x - left) // LANE_GAP >= keep),
+                    key=lambda ln: (min(ln.sy + ln.dy), ln.lo, ln.x))
+    start = left + keep * LANE_GAP
+    return kept + [ln._replace(x=start, plug=kit.plug_label(k + 1))
+                   for k, ln in enumerate(folded)]
+
+
+def _fold_reach(lanes, left: int, keep: int) -> int:
+    """How far right _fold_lanes(lanes, left, keep) reaches: the plug column
+    plus the longest row of plugs, or the last kept lane (the outline and the
+    right margin aside)."""
+    folded = _fold_lanes(lanes, left, keep)
+    rows = _plug_rows(folded)
+    start = left + keep * LANE_GAP
+    longest = max([sum(len(text) for text, _st in runs) for runs in rows.values()] + [0])
+    return max([ln.x + 1 for ln in folded if not ln.plug] + [start + longest])
+
+
+def _plug_rows(lanes) -> dict:
+    """{row: runs} written from the plug column on each row a folded lane taps,
+    its plugs in number order: a source's mark then the number, a target's
+    number, each in its lane's style."""
+    out = {}
+    for ln in lanes:
+        if not ln.plug:
+            continue
+        for y in dict.fromkeys(ln.sy + ln.dy):
+            mark = _source_mark(ln.wire) if y in ln.sy else ""
+            out.setdefault(y, []).append((mark + ln.plug, ln.style))
+    return out
+
+
 EMIT_MARK = "›"          # the source of a lane that carries an emitted event
 
 
@@ -886,7 +955,7 @@ def _draw_lanes(cv: kit.Canvas, lanes, ends, *, muted_sources: bool = False):
     out from the static marks."""
     verticals = set()
     for ln in lanes:
-        if ln.hi > ln.lo:
+        if ln.hi > ln.lo and not ln.plug:
             cv.path([(ln.x, ln.lo), (ln.x, ln.hi)], ln.wire.kind, ln.style)
             verticals |= {(ln.x, y) for y in range(ln.lo, ln.hi + 1)}
 
@@ -933,6 +1002,12 @@ def _draw_lanes(cv: kit.Canvas, lanes, ends, *, muted_sources: bool = False):
                 heads.append((ends[y] + 1, y, "◀", style))
     for x, y, ch, st in heads:
         cv.put(x, y, ch, st)
+    plugs = _plug_rows(lanes)                   # folded lanes: their plugs, in a row
+    for y, runs in plugs.items():
+        x = next(ln.x for ln in lanes if ln.plug)
+        for text, style in runs:
+            cv.put(x, y, text, style)
+            x += len(text)
 
 
 # ---------------------------------------------------------------------------
@@ -1113,9 +1188,12 @@ def _token_glyph(tok, wire) -> tuple:
 
 def _token_row(lane: _Lane, at: float) -> int:
     """The row `at` of the way from a lane's source row to its target row (the
-    target row nearest the first source row)."""
+    target row nearest the first source row); a folded lane has no rows between:
+    its source row's plug for the first half, then its target row's."""
     src = lane.sy[0]
     dst = min(lane.dy, key=lambda y: (abs(y - src), y))
+    if lane.plug:
+        return src if at < 0.5 else dst
     return round(src + at * (dst - src))
 
 
@@ -1223,11 +1301,13 @@ def _draw_right_margin(cv: kit.Canvas, lanes, out: _Outline, chips: dict,
     `moved` (a list), a row's payloads and comment text are relocated instead:
     the row ends in a `┆a┆` marker and moved gets (letter, [chip text],
     [(number, text)]); `#N` markers stay on the row."""
-    margin = max([ln.x for ln in lanes] + [max(out.ends) - 1]) + 3
+    plugs = {y: sum(len(text) for text, _st in runs) - 1 for y, runs in _plug_rows(lanes).items()}
+    margin = max([ln.x + plugs.get(y, 0) for ln in lanes for y in ln.sy + ln.dy]
+                 + [max(out.ends) - 1]) + 3
     rightmost, notes_at = {}, {}
     for ln in lanes:
         for y in list(ln.sy) + list(ln.dy):
-            rightmost[y] = max(rightmost.get(y, 0), ln.x)
+            rightmost[y] = max(rightmost.get(y, 0), ln.x + (plugs.get(y, 0) if ln.plug else 0))
         for y in ln.dy:
             for note in trailing.get(ln.wire.key, ()):
                 if note not in notes_at.setdefault(y, []):

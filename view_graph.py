@@ -106,6 +106,7 @@ class _Layout:
     sim: Optional["SimLook"] = None                 # a simulation frame drawn over it
     marked: set = field(default_factory=set)        # node ids whose box ends in a self mark
     borders: dict = field(default_factory=dict)     # node id → its border's style (checks)
+    wrap: Optional[int] = None                      # the columns to fit (None: natural)
 
     def centre(self, vid):
         v = self.V[vid]
@@ -152,7 +153,8 @@ def _break_cycles(ids, succ):
 
 def layout(g, expanded: set, collapsed: set, tags: dict | None = None,
            styles: dict | None = None, selfs: dict | None = None,
-           sim: Optional["SimLook"] = None, borders: dict | None = None) -> kit.Canvas:
+           sim: Optional["SimLook"] = None, borders: dict | None = None,
+           wrap: int | None = None) -> kit.Canvas:
     """g drawn as boxes and edges. `tags`: runs after a box's label (node id) or
     beside an edge's head (its wire key); `styles`: each wire key's stroke style
     (_wire_styles), an edge without one drawn in its arrow's style; `selfs`:
@@ -161,9 +163,13 @@ def layout(g, expanded: set, collapsed: set, tags: dict | None = None,
     frame over the drawing — boxes styled by status, a state machine's states
     led by their ◉ slot, tokens on the edges' cells (styles then come from it
     too, an edge without one muted). `borders` ({node id: style}): a box's
-    border drawn in that style whatever its look (the checks overlay)."""
+    border drawn in that style whatever its look (the checks overlay). `wrap`:
+    the columns to fit — a layer wider than that wraps onto the layers below it
+    (_wrap_layers), each row's boxes are kept inside it, and the unconnected
+    nodes' grid wraps at it; None: the natural layout."""
     lay = _prepare(g, expanded, collapsed, tags, styles, selfs or {}, sim)
     lay.borders = borders or {}
+    lay.wrap = wrap
     _layer(lay)
     _order(lay)
     _place_x(lay)
@@ -254,6 +260,8 @@ def _layer(lay: _Layout) -> None:
             indeg[b] -= 1
             if indeg[b] == 0:
                 queue.append(b)
+    if lay.wrap is not None:
+        _wrap_layers(lay, ids, dag)
 
     n_dummy = 0
     for a, b, e, rev in dag:
@@ -285,6 +293,43 @@ def _layer(lay: _Layout) -> None:
         lay.layers[v.layer].append(vid)
 
 
+WRAP_ROUNDS = 4       # _wrap_layers: passes that make room for the edges passing a layer
+
+
+def _wrap_layers(lay: _Layout, ids: list, dag: list) -> None:
+    """Fit each layer to lay.wrap: nodes in layer order (document order within
+    one) each take the first layer at or below where their parents allow that
+    still has room, so an overfull layer wraps onto the next ones — a node only
+    ever moves down, and a layout whose layers all fit is left as it is. The
+    edges passing a layer (a dummy each, 1 + NODE_GAP columns) take room too:
+    each pass reserves what the last one's edges took, until nothing moves. A
+    box wider than the wrap gets a layer to itself."""
+    V, up = lay.V, {i: [] for i in ids}
+    for a, b, _e, _rev in dag:
+        up[b].append(a)
+    start = {i: V[i].layer for i in ids}
+    order = sorted(ids, key=start.get)              # stable: document order within a layer
+    reserve, placed = Counter(), None
+    for _ in range(WRAP_ROUNDS):
+        layer, used = {}, Counter()                 # node → its layer; layer → columns taken
+        for i in order:
+            span = V[i].reach or V[i].w
+            at = max([layer[p] + 1 for p in up[i]] + [start[i]])
+            while used[at] and used[at] + NODE_GAP + span + reserve[at] > lay.wrap:
+                at += 1
+            used[at] += (NODE_GAP if used[at] else 0) + span
+            layer[i] = at
+        if layer == placed:
+            break
+        placed, passing = layer, Counter()
+        for a, b, _e, _rev in dag:
+            for k in range(layer[a] + 1, layer[b]):
+                passing[k] += 1 + NODE_GAP
+        reserve = reserve | passing                 # only grows: the passes settle
+    for i in ids:
+        V[i].layer = placed[i]
+
+
 def _order(lay: _Layout) -> None:
     """Barycenter ordering sweeps: down orders each layer by its parents, up by
     its children."""
@@ -307,13 +352,17 @@ def _order(lay: _Layout) -> None:
 
 def _place_x(lay: _Layout) -> None:
     """Pack each layer, then pull each node toward the mean of its neighbours'
-    centres (never overlapping its left neighbour), a few sweeps each way."""
+    centres (never overlapping its left neighbour), a few sweeps each way; with
+    lay.wrap, every row kept inside it (_inside) after each pull."""
     V, layers = lay.V, lay.layers
     for row in layers:
         x = 0
         for vid in row:
             V[vid].x = x
             x += (V[vid].reach or V[vid].w) + NODE_GAP
+    if lay.wrap is not None:
+        for row in layers:
+            _inside(V, row, lay.wrap)
 
     for sweep in range(PLACE_SWEEPS):
         order = range(len(layers)) if sweep % 2 == 0 else range(len(layers) - 1, -1, -1)
@@ -325,6 +374,8 @@ def _place_x(lay: _Layout) -> None:
                 want.append(sum(lay.centre(n) for n in nb) / len(nb) - V[vid].w // 2
                             if nb else V[vid].x)
             _place(V, row, want)
+            if lay.wrap is not None:
+                _inside(V, row, lay.wrap)
     minx = min((v.x for v in V.values()), default=0)
     for v in V.values():
         v.x -= minx
@@ -351,6 +402,20 @@ def _place(V, row, want):
         left = b.left()
         for j, off in enumerate(b.offsets):
             V[row[b.first + j]].x = left + off
+
+
+def _inside(V, row, wrap: int) -> None:
+    """Shift a row's nodes (left → right, already apart) the least that puts
+    them all within columns 0 … wrap-1; a row that can't fit keeps its left
+    edge at 0 and runs past the wrap."""
+    limit = wrap
+    for vid in reversed(row):
+        V[vid].x = min(V[vid].x, limit - (V[vid].reach or V[vid].w))
+        limit = V[vid].x - NODE_GAP
+    lo = 0
+    for vid in row:
+        V[vid].x = max(V[vid].x, lo)
+        lo = V[vid].x + (V[vid].reach or V[vid].w) + NODE_GAP
 
 
 def _ports(lay: _Layout) -> None:
@@ -592,13 +657,18 @@ def _draw(lay: _Layout) -> kit.Canvas:
 
     for x, y, runs in edge_labels:
         n = kit.row_len(runs)
-        for x0 in (x + 2, x - 1 - n):
+        at = (x + 2, x - 1 - n)
+        if lay.wrap is not None:                    # inside the wrap first
+            at = [x0 for x0 in at if x0 + n <= lay.wrap] + list(at)
+        for x0 in at:
             if free(x0, y, n):
                 kit._put_runs(cv, x0, y, runs)
                 break
 
     if lay.isolated:
         wrap = max(cv.w, ISOLATED_WRAP)
+        if lay.wrap is not None:
+            wrap = min(wrap, lay.wrap)
         x, y = 0, cv.h + 1 if cv.h else 0
         row_h = BOX_H
         for vid in lay.isolated:
@@ -1075,10 +1145,13 @@ def graph_parts(g, top: bool = True, drivers: dict | None = None,
     return parts
 
 
-def _frame_content(g, bi: int, eb: dict, draw, tags: dict | None = None) -> "kit.Canvas":
+def _frame_content(g, bi: int, eb: dict, draw, tags: dict | None = None,
+                   wrap: int | None = None) -> "kit.Canvas":
     """What a block's frame holds: its own flows laid out (a branch: a ◇ decision
     node with each arm's label chip on the way to the arm's entry), then its
-    nested blocks' frames (titled _frame_title)."""
+    nested blocks' frames (titled _frame_title). `draw(sub, wrap)` lays a graph
+    out; `wrap`: the columns the content fits (None: natural), a nested frame
+    FRAME_PAD fewer."""
     b = g.blocks[bi]
     kids = [ci for ci, c in enumerate(g.blocks) if c.parent == bi]
     nested = set()
@@ -1106,10 +1179,11 @@ def _frame_content(g, bi: int, eb: dict, draw, tags: dict | None = None) -> "kit
             edges += [kit.render.Edge(src=dec, dst=cid, kind="arm"),
                       kit.render.Edge(src=cid, dst=ids[0], kind="arm")]
     sub = replace(g, nodes=nodes, edges=edges, blocks=[], access=[])
-    own_cv = draw(sub) if nodes else kit.Canvas()
-    frames = [_framed(_frame_content(g, ci, eb, draw, tags), _frame_title(g.blocks[ci], tags))
+    own_cv = draw(sub, wrap) if nodes else kit.Canvas()
+    inner = None if wrap is None else max(wrap - FRAME_PAD, 1)
+    frames = [_framed(_frame_content(g, ci, eb, draw, tags, inner), _frame_title(g.blocks[ci], tags))
               for ci in kids]
-    return _stack(own_cv, frames)
+    return _stack(own_cv, frames, wrap)
 
 
 def _frame_title(b, tags: dict | None) -> list:
@@ -1136,14 +1210,18 @@ def _framed(content: "kit.Canvas", title_runs: list) -> "kit.Canvas":
 
 
 FRAME_GAP = 2                                   # columns between frames in a row
+FRAME_PAD = 4                                   # columns a frame adds around its content
 
 
-def _stack(main: "kit.Canvas", frames: list) -> "kit.Canvas":
+def _stack(main: "kit.Canvas", frames: list, fit: int | None = None) -> "kit.Canvas":
     """main, with the frames in rows under it (left to right, wrapped at the
-    wider of main and ISOLATED_WRAP); main is centred over a wider frame row."""
+    wider of main and ISOLATED_WRAP, or at `fit` when that is narrower); main is
+    centred over a wider frame row."""
     if not frames:
         return main
     wrap = max(main.w, ISOLATED_WRAP)
+    if fit is not None:
+        wrap = min(wrap, fit)
     placed, x, y, row_h, width = [], 0, 0, 0, 0
     for f in frames:
         if x and x + f.w > wrap:
@@ -1164,7 +1242,7 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
              payloads: bool = False, scn=None, fit: int | None = None,
              marks: list | None = None, mods: bool = False, _secs=None, _level=None,
              _owner: Optional[str] = None, sim: Optional[SimLook] = None,
-             checks: Optional["kit.CheckMarks"] = None):
+             checks: Optional["kit.CheckMarks"] = None, wrap: int | None = None):
     """Yield (title, graph, canvas) for the graph and its expansions up to depth.
     `scn`: the document's Scene (scene.build_scene; None: built without triggers
     or permissions) — what drives each machine draws as a dashed edge into it,
@@ -1182,7 +1260,8 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
     strokes, boxes and tokens (its badges come in `tags`). `checks`
     (kit.CheckMarks named as scn names things): each marked wire's stroke and
     marked box's border in its worst finding's style, over the sim's (the
-    findings' numbers come in `tags`, check_tags)."""
+    findings' numbers come in `tags`, check_tags). `wrap`: the columns each
+    part is laid out to fit (layout's; a frame's content FRAME_PAD fewer)."""
     if scn is None:
         scn = scene.build_scene(g, triggers=False, depth=depth)
     g = _landed(g, scn, _owner)
@@ -1204,24 +1283,33 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
         borders = {nid: kit.check_mark_style(kit.check_worst(ms))
                    for nid, ms in checks.nodes.items()}
 
-    def draw_all(part, chip_marks):
-        def draw(sub):
+    def draw_all(part, chip_marks, within):
+        def draw(sub, fit):
             gc = with_chips(sub, payloads, scn, chip_marks, mods, chips)
             return layout(gc, show, collapsed, tags, styles,
-                          _self_calls(sub, calls, payloads, mods, chip_marks), sim, borders)
-        main = draw(part.graph) if part.graph.nodes else kit.Canvas()
-        frames = [_framed(_frame_content(g, bi, eb, draw, tags), _frame_title(g.blocks[bi], tags))
+                          _self_calls(sub, calls, payloads, mods, chip_marks), sim, borders, fit)
+        main = draw(part.graph, within) if part.graph.nodes else kit.Canvas()
+        inner = None if within is None else max(within - FRAME_PAD, 1)
+        frames = [_framed(_frame_content(g, bi, eb, draw, tags, inner),
+                          _frame_title(g.blocks[bi], tags))
                   for bi in part.blocks]
-        return _stack(main, frames)
+        return _stack(main, frames, within)
 
     for part in graph_parts(g, level == 0, drivers, scn.options.access):
-        cv = draw_all(part, None)
+        cv = draw_all(part, None, None)
+        lettered = None
         if fit is not None and marks is not None and cv.w > fit and chipped:
             trial = list(marks)
-            marked = draw_all(part, trial)
+            marked = draw_all(part, trial, None)
             # Worth it when that fits, or saves at least a fifth of the width.
             if marked.w < cv.w and (marked.w <= fit or marked.w * 5 <= cv.w * 4):
-                cv, marks[:] = marked, trial
+                cv, lettered = marked, trial
+        if wrap is not None:                    # the same chips, laid out to fit
+            trial = list(marks) if lettered is not None else None
+            cv = draw_all(part, trial, wrap)
+            lettered = trial
+        if lettered is not None:
+            marks[:] = lettered
         yield part.title or title, part.graph, cv
     for nid in g.expansions:
         if nid in show:
@@ -1238,7 +1326,7 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
             if getattr(sub, "role", "") == "state":
                 sub = scene.with_trigger_sources(scn, sub, nid)
             yield from sections(sub, depth, sub_title, level + 1, tags, payloads, scn,
-                                fit, marks, mods, secs, zoom or _level, nid, sim, checks)
+                                fit, marks, mods, secs, zoom or _level, nid, sim, checks, wrap)
 
 
 def _drivers(scn) -> dict:
@@ -1638,11 +1726,17 @@ def compose(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = 
     mode but "off") tag commented boxes `#N` and list the notes below.
 
     `width`: the columns to fit (None: draw at the natural width). When the
-    drawing is wider, it is rearranged — never squashed: block notes move to a
-    panel at the top-left, inline notes to one at the bottom-right, and a
-    section still too wide because of its payload chips draws each chip as a
-    marker letter (┆ a ┆) with the payload beside its letter in that panel.
-    Panels go into empty corners of the drawing when one is big enough.
+    drawing is wider, it is rearranged — never squashed — by a ladder, each
+    step taken only when the one before still doesn't fit: (a) a section too
+    wide because of its payload chips draws each chip as a marker letter
+    (┆ a ┆) with the payload beside its letter in a panel at the bottom-right;
+    (b) every section laid out again to fit (layout's `wrap`): a layer too
+    wide wraps onto the layers below it, rows and frames kept inside the width;
+    (c) a row still too wide (a box wider than the width, or more edges passing
+    a layer than it holds) leaves a hint under the drawing (kit.wide_hint).
+    Block notes move to a panel at the top-left, inline notes to one at the
+    bottom-right; panels go into empty corners of the drawing when one is big
+    enough.
 
     `--- sections ---` split the drawing into parts under divider rules; control
     blocks are titled frames under their part's flows; joined endpoints fork
@@ -1709,10 +1803,17 @@ def _compose(g, depth, payloads, notes, triggers, width, access, mods, events,
         return kit.stretch_rules(natural, natural_w), natural_w
 
     marks = []
-    if (payloads or mods) and drawing_w > width:
+    chipped = payloads or mods
+    if chipped and drawing_w > width:                               # (a)
         parts = list(sections(g, depth, tags=tags, payloads=payloads, scn=scn,
                               fit=width, marks=marks, mods=mods, sim=look, checks=checks))
-        rows, _w = _section_rows(parts)
+        rows, drawing_w = _section_rows(parts)
+    if drawing_w > width:                                           # (b)
+        marks = []
+        parts = list(sections(g, depth, tags=tags, payloads=payloads, scn=scn,
+                              fit=width if chipped else None, marks=marks if chipped else None,
+                              mods=mods, sim=look, checks=checks, wrap=width))
+        rows, drawing_w = _section_rows(parts)
     listed = sorted(e for entries in idx.values() for e in entries)
     block = [([(kit.note_label(num), kit.NOTE_STYLE[kind])], [(text, kind)])
              for num, text, kind, _e in listed if kind == "block"]
@@ -1724,6 +1825,8 @@ def _compose(g, depth, payloads, notes, triggers, width, access, mods, events,
     if side:
         rows = kit._fit_panel(rows, lambda tw: kit._panel_rows(side, tw), width, "br", kit.CALLOUT_MAX)
     w = max([0] + [kit.row_len(r) for r in rows if not isinstance(r, kit.RuleRow)])
+    if drawing_w > width:                                           # (c)
+        rows = list(rows) + [[]] + kit.wide_hint("graph", "a row", drawing_w, width)
     return kit.stretch_rules(rows, w), max([w] + [kit.row_len(r) for r in rows])
 
 

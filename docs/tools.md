@@ -61,11 +61,11 @@ participant, instance and recursion level, time left to right). The first three
 draw the design, what can happen; the run view draws what did happen in one run.
 
 Which view reads best depends on the question. The flow view suits request paths,
-call chains and failure routes, and is usually the shortest drawing; it wraps in a
-narrow pane. The tree view suits composition and ownership (has, spawns, `:=`
-internals) and state machines, and is the narrowest for a small design. The graph
-view suits the overall topology of a small design: fan-in, fan-out, where flows
-converge; it never wraps. The run view presents a simulation: order and timing,
+call chains and failure routes, and is usually the shortest drawing. The tree view
+suits composition and ownership (has, spawns, `:=` internals) and state machines,
+and is the narrowest for a small design. The graph view suits the overall topology
+of a small design: fan-in, fan-out, where flows converge; it is the tallest. Every
+view fits a narrow pane by growing down (see below). The run view presents a simulation: order and timing,
 retries, spawned instances and recursion levels; it shows only what ran. An agent
 that opens or presents a view tells the person in one sentence which view it
 picked and why (the skill's "Which view" has the details).
@@ -124,7 +124,10 @@ Options:
 - `--theme NAME` picks a colour theme (see [themes](#themespy-namepath)); `--color
   auto|always|never` decides when to colour.
 - `--width N` fits a `--once` drawing to N columns (default: the terminal's width, or
-  100 when stdout is not a terminal).
+  100 when stdout is not a terminal). Every view wraps to it and grows down: the
+  graph view's layers wrap onto the rows below, the tree view's lanes fold, the flow
+  view cuts into bands, the run view into bands of ticks. The summary and lint
+  lines under the drawing wrap at it too.
 - `--dialect NAME` draws with a dialect.
 
 The graph and tree views also draw:
@@ -157,6 +160,18 @@ the band it lands in (`①──┬─▶`). The cuts take the fewest bands, the
 plugs. A band that still can't fit leaves a hint under the drawing that the tree
 view reads narrow panes best; the view never switches by itself. A run plays
 without reflowing, its tokens crossing the plugs.
+
+The graph and tree views fit a width the same way, never squashing a box or a
+label. In the graph view a chip becomes a marker letter first; then every layer
+too wide for the width wraps onto the layers below it (a node only moves down, the
+edges passing a layer take its room too), and each row of boxes, each row of
+control-block frames and the grid of unconnected nodes keeps inside the width. In
+the tree view the margins give way first (callouts narrow, then move to panels);
+then the lanes past the gutter columns that fit fold into the same numbered plugs:
+a folded lane draws no vertical, its source row ends `●①` and each target row
+`◀───①`, a row's plugs in a run after the lanes it keeps. A drawing that still
+can't fit (a box wider than the width, a row with more plugs than room) leaves a
+hint under it saying how wide it is.
 
 The run view draws one run as a timeline. Time (ticks) runs left to right under a
 ruler, one column a tick; a quiet stretch of more than three ticks folds into one

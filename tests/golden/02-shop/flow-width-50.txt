@@ -32,4 +32,5 @@ a┆{Cart}     b┆charge(total)   ╰╌▶ <OrderPlaced>
 #5 only above the risk threshold
 #6 retrained weekly
 
-02-shop.sigil: 7 nodes, 6 edges, 2 expansions · #!sketch
+02-shop.sigil: 7 nodes, 6 edges, 2 expansions
+  · #!sketch

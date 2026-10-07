@@ -20,4 +20,5 @@ blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›
        □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
        ── ── section
 
-examples-05-l1-system.sigil: 4 nodes, 3 edges, 1 expansions · #!sketch
+examples-05-l1-system.sigil: 4 nodes, 3 edges, 1 expansions
+  · #!sketch

@@ -16,4 +16,5 @@ blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›
        □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
        ── ── section
 
-00-shortener.sigil: 7 nodes, 8 edges, 0 expansions · #!sketch
+00-shortener.sigil: 7 nodes, 8 edges, 0 expansions
+  · #!sketch

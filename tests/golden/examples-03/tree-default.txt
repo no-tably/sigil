@@ -18,4 +18,5 @@ blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  �
        ── ── section
 
 examples-03.sigil: 1 nodes, 0 edges, 1 expansions
-warn:1:SGL002: first content line is not a mode declaration (#!spec / #!sketch / #!craft). Got: 'state {Job} {'
+warn:1:SGL002: first content line is not a mode declaration (#!spec / #!sketch / #!craft). Got:
+  'state {Job} {'

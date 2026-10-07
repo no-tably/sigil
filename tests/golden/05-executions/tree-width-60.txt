@@ -19,4 +19,5 @@ blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›
        □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
        ── ── section
 
-05-executions.sigil: 8 nodes, 10 edges, 0 expansions · #!sketch
+05-executions.sigil: 8 nodes, 10 edges, 0 expansions
+  · #!sketch

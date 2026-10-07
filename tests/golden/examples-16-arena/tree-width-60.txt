@@ -28,4 +28,5 @@ blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›
        □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
        ── ── section
 
-examples-16-arena.sigil: 14 nodes, 9 edges, 0 expansions · #!sketch
+examples-16-arena.sigil: 14 nodes, 9 edges, 0 expansions
+  · #!sketch

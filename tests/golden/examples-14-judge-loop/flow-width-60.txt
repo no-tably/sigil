@@ -11,4 +11,5 @@
 
 ~|total|
 
-examples-14-judge-loop.sigil: 14 nodes, 10 edges, 0 expansions · #!spec
+examples-14-judge-loop.sigil: 14 nodes, 10 edges, 0
+  expansions · #!spec

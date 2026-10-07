@@ -40,4 +40,5 @@ a┆#1
 #3 the checkout is busy while a payment is in
    flight
 
-04-orders.sigil: 7 nodes, 5 edges, 2 expansions · #!sketch
+04-orders.sigil: 7 nodes, 5 edges, 2 expansions
+  · #!sketch

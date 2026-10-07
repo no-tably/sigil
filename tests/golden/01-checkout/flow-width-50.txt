@@ -20,4 +20,5 @@ a┆{Cart}      b┆charge(total)
 #2 retried, idempotent
 #3 fan-out: each consumer keeps its own pace
 
-01-checkout.sigil: 9 nodes, 8 edges, 0 expansions · #!sketch
+01-checkout.sigil: 9 nodes, 8 edges, 0 expansions
+  · #!sketch

@@ -11,4 +11,5 @@
                 ╰─▶ [Data] ▸
                     @inv write-only-primary
 
-examples-05-l1-system.sigil: 4 nodes, 3 edges, 1 expansions · #!sketch
+examples-05-l1-system.sigil: 4 nodes, 3 edges, 1
+  expansions · #!sketch

@@ -52,5 +52,7 @@ run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ asyn
        ┤ base case  ⇱ host  • reached  ◌ spawning  ┆ episode  ≈ quiet ticks  ▼ now  ▸ running
 
 executions.sigil: 16 nodes, 18 edges, 2 expansions · #!spec
-info:28:SGL070: glyph [Doc.walk] appears twice on one flow line. If it plays two roles, consider role-qualified names (e.g. [Doc.walk.read] / [Doc.walk.write]) or expand at L2 with `:= { ... }`.
-info:47:SGL070: glyph [Builder] appears twice on one flow line. If it plays two roles, consider role-qualified names (e.g. [Builder.read] / [Builder.write]) or expand at L2 with `:= { ... }`.
+info:28:SGL070: glyph [Doc.walk] appears twice on one flow line. If it plays two roles, consider
+  role-qualified names (e.g. [Doc.walk.read] / [Doc.walk.write]) or expand at L2 with `:= { ... }`.
+info:47:SGL070: glyph [Builder] appears twice on one flow line. If it plays two roles, consider
+  role-qualified names (e.g. [Builder.read] / [Builder.write]) or expand at L2 with `:= { ... }`.

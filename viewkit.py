@@ -1062,6 +1062,29 @@ def section_rule(name: str, width: int = 0) -> list:
     return RuleRow(runs + [(" " + "─" * max(width - n - 1, 2), SECTION_STYLE)])
 
 
+NARROW_ADVICE = "the tree view reads narrow panes best"
+CIRCLED = 20                    # ① … ⑳; past them «21», as the circled 21+ are wide
+
+
+def plug_label(n: int) -> str:
+    """The n-th plug's number (from 1): ① … ⑳, then «21» … — the flow view's cut
+    wires and the tree view's folded lanes."""
+    return chr(0x2460 + n - 1) if n <= CIRCLED else f"«{n}»"
+
+
+def wide_hint(view: str, what: str, over: int, width: int,
+              advice: str | None = NARROW_ADVICE) -> list:
+    """The rows that end a drawing still wider than `width` after its view's
+    wrap ladder (it never switches view by itself): `VIEW: WHAT is OVER wide,
+    WIDTH here;` and the advice, dim, rewrapped when a line is wider than width."""
+    dim = (GREY["dim"], None, False)
+    hint = [f"{view}: {what} is {over} wide, {width} here" + (";" if advice else "")]
+    hint += [advice] if advice else []
+    if any(len(text) > width for text in hint):
+        hint = textwrap.wrap(" ".join(hint), width)
+    return [[(ln, dim)] for ln in hint]
+
+
 def stretch_rules(rows, width: int):
     """Run every title rule out to `width` columns."""
     for row in rows:

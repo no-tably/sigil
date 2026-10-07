@@ -113,6 +113,10 @@ b┆[Bullet]/
                                         a┆<assign>
 
 coverage.sigil: 127 nodes, 75 edges, 7 expansions · #!sketch
-info:83:SGL070: glyph [Tree.walk] appears twice on one flow line. If it plays two roles, consider role-qualified names (e.g. [Tree.walk.read] / [Tree.walk.write]) or expand at L2 with `:= { ... }`.
-info:63:SGL187: trailing `×4` on a flow with no payload reads as cardinality; write `[Shard]×4` to say so, or put it after a call payload (`: op() ×3`) for retries.
-info:64:SGL187: trailing `x2` on a flow with no payload reads as cardinality; write `[Replica]x2` to say so, or put it after a call payload (`: op() ×3`) for retries.
+info:83:SGL070: glyph [Tree.walk] appears twice on one flow line. If it plays two roles, consider
+  role-qualified names (e.g. [Tree.walk.read] / [Tree.walk.write]) or expand at L2 with `:= { ...
+  }`.
+info:63:SGL187: trailing `×4` on a flow with no payload reads as cardinality; write `[Shard]×4` to
+  say so, or put it after a call payload (`: op() ×3`) for retries.
+info:64:SGL187: trailing `x2` on a flow with no payload reads as cardinality; write `[Replica]x2` to
+  say so, or put it after a call payload (`: op() ×3`) for retries.

@@ -6,4 +6,5 @@
 │              ╰╌▶ <Booked> ────▶ (User) ↻ ─╮
 ╰───────────────────────────────────────────╯
 
-examples-24-booking-declared.sigil: 6 nodes, 8 edges, 0 expansions · #!spec
+examples-24-booking-declared.sigil: 6 nodes, 8 edges, 0
+  expansions · #!spec

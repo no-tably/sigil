@@ -110,12 +110,16 @@ it fits and scrolled when it doesn't; natural (f again) it shows the drawing as
 wheel — clamped so part of it always stays on screen. The status bar says which.
 
 Fitting: a drawing wider than the window (the live pane, or --width) is
-rearranged, never squashed — boxes, lanes and the outline keep their shapes.
-Comment text rewraps between 16 and 40 columns; block comments move to a panel
-at the top-left (their entity keeps its #N tag), payloads and inline comments to
-one at the bottom-right (the flow keeps a ┆a┆ marker; in the graph view a chip
-shrinks to its letter). A panel takes an empty corner of the drawing when one is
-big enough. When everything fits, the drawing is exactly the natural one.
+rearranged, never squashed — boxes, labels and the outline keep their shapes —
+and grows down. Comment text rewraps between 16 and 40 columns; block comments
+move to a panel at the top-left (their entity keeps its #N tag), payloads and
+inline comments to one at the bottom-right (the flow keeps a ┆a┆ marker; in the
+graph view a chip shrinks to its letter). A panel takes an empty corner of the
+drawing when one is big enough. Then each view wraps: the graph view's layers
+onto the layers below, the tree view's lanes into numbered plugs (●① … ◀───①),
+the flow view into bands joined by plugs, the run view into bands of ticks; a
+drawing that still can't fit says so under it. The summary and lint lines wrap
+too. When everything fits, the drawing is exactly the natural one.
 
 Boxes are colour-coded by node type (border + tinted fill); the sigil theme:
     [component] periwinkle   {data} violet   <event> pink   (actor) green
@@ -705,6 +709,18 @@ PATH_ROWS = 2                                    # the most rows the path takes
 PATH_NOW = "▸"                                   # the hop now, where there is no colour
 
 
+def info_lines(text: str, cols: int, indent: int = 2) -> list[str]:
+    """A line of text under a drawing (the summary, a diagnostic) wrapped at
+    `cols` between words, each continuation indented `indent`; a ` · ` stays
+    with the word after it, a word longer than cols stays whole, and a line
+    that fits is kept as it is."""
+    if len(text) <= cols:
+        return [text]
+    lines = textwrap.wrap(text.replace(" · ", " ·\xa0"), cols, subsequent_indent=" " * indent,
+                          break_long_words=False, break_on_hyphens=False)
+    return [ln.replace("\xa0", " ") for ln in lines] or [text]
+
+
 def beat_line(beat) -> str:
     """A sim.Beat as one line: `tNNN [API] calls [Payments] with charge(total)`,
     the tick zero-padded as the log pads it."""
@@ -845,7 +861,8 @@ def sim_report(player: SimPlayer, cols: int = LEGEND_WIDTH, colour: bool = False
     path = [kit.ansi(r, colour).rstrip()
             for r in path_rows(player.path_branches(), cols, mono=not colour)]
     conventions = simulator.Beat(0, 0, simulator.CONVENTIONS)
-    return [head] + path + [beat_line(conventions)] + [beat_line(b) for b in player.beats]
+    return (info_lines(head, cols) + path + [beat_line(conventions)]
+            + [beat_line(b) for b in player.beats])
 
 
 def sim_run(player: SimPlayer, limits=None) -> dict:
@@ -1355,20 +1372,20 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
         out += [""] + [kit.ansi(ln, colour) for r in legend for ln in wrap_legend(r, legend_w)]
     out.append("")
     mode = kit.doc_mode(text)
-    out.append(f"{path.name}: {len(g.nodes)} nodes, {len(g.edges)} edges, "
-               f"{len(g.expansions)} expansions" + (f" · {mode}" if mode else ""))
+    out += info_lines(f"{path.name}: {len(g.nodes)} nodes, {len(g.edges)} edges, "
+                      f"{len(g.expansions)} expansions" + (f" · {mode}" if mode else ""), legend_w)
     status = 0
     if do_lint:
         diags = kit.run_lint(text, dialect)
         if diags:
-            out.extend(d.format() for d in diags)
+            out.extend(ln for d in diags for ln in info_lines(d.format(), legend_w))
         else:
             out.append("lint: OK")
         status = 1 if any(d.severity == "error" for d in diags) else 0
     if overlay is not None:
         out += [""] + [kit.ansi(r, colour) for r in overlay.panel(legend_w)]
     elif check_failed:
-        out += ["", check_failed]
+        out += [""] + info_lines(check_failed, legend_w)
     if player is not None:
         out += [""] + sim_report(player, legend_w, colour)
     print("\n".join(out))
@@ -1787,23 +1804,29 @@ class ViewState:
         parse error, the simulator's error, the lint panel and the checks panel
         (or why the checker failed); in sim mode the run's latest log line last."""
         rows = []
+        failed = (kit.SEVERITY_COLOR["error"], None, True)
         if self.error:
-            rows.append([(self.error, (kit.SEVERITY_COLOR["error"], None, True))])
+            rows += [[(ln, failed)] for ln in info_lines(self.error, cols)]
         if self.sim_on and self.sim_error:
-            rows.append([(self.sim_error, (kit.SEVERITY_COLOR["error"], None, True))])
+            rows += [[(ln, failed)] for ln in info_lines(self.sim_error, cols)]
         if self.show_lint:
             if not self.diags:
                 rows.append([("lint: OK", (kit.OK_COLOR, None, False))])
-            shown = self.diags[:LINT_ROWS - len(rows)]
-            for d in shown:
+            shown = 0
+            for d in self.diags:
+                lines = info_lines(f"{d.severity}:{d.line} {d.rule}: {d.message}", cols)
+                if len(rows) + len(lines) > LINT_ROWS - (shown + 1 < len(self.diags)):
+                    break
                 colour = kit.SEVERITY_COLOR.get(d.severity, kit.GREY["mid"])
-                rows.append([(f"{d.severity}:{d.line}", (colour, None, True)),
-                             (f" {d.rule}: {d.message}", None)])
-            if len(self.diags) > len(shown):
-                rows[-1] = [(f"… {len(self.diags) - len(shown) + 1} more (view.py --once)",
-                             (kit.GREY["mid"], None, False))]
+                head = len(f"{d.severity}:{d.line}")
+                rows.append([(lines[0][:head], (colour, None, True)), (lines[0][head:], None)])
+                rows += [[(ln, None)] for ln in lines[1:]]
+                shown += 1
+            if shown < len(self.diags):
+                rows.append([(f"… {len(self.diags) - shown} more (view.py --once)",
+                              (kit.GREY["mid"], None, False))])
         if self.show_checks and self.check_error:
-            rows.append([(self.check_error, (kit.SEVERITY_COLOR["error"], None, True))])
+            rows += [[(ln, failed)] for ln in info_lines(self.check_error, cols)]
         elif self.show_checks and self.checks is not None:
             rows += self.checks.panel(cols, CHECK_ROWS)
         if self.tree:

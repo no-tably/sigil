@@ -252,4 +252,5 @@
 #14 route by request kind
 #15 inline note on a branch
 
-coverage.sigil: 127 nodes, 75 edges, 7 expansions · #!sketch
+coverage.sigil: 127 nodes, 75 edges, 7 expansions
+  · #!sketch

@@ -8,4 +8,5 @@
       ^10k         ╠═▶ |RealtimeIdx|
                    ╰─✖ |DLQ|
 
-examples-04.sigil: 9 nodes, 8 edges, 0 expansions · #!spec
+examples-04.sigil: 9 nodes, 8 edges, 0 expansions
+  · #!spec

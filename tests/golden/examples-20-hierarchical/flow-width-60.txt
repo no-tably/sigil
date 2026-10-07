@@ -3,4 +3,5 @@
 [Boss] ────▶ |Directives|
 [Worker] ──▶ |Results|
 
-examples-20-hierarchical.sigil: 4 nodes, 2 edges, 0 expansions · #!spec
+examples-20-hierarchical.sigil: 4 nodes, 2 edges, 0
+  expansions · #!spec

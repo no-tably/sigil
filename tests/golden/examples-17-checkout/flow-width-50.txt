@@ -28,4 +28,5 @@
                <Paid> ╍╍╍╍╍╯ ╰─▶┐Cancelled
                <Declined> ╍╍╍╍╍▶┘
 
-examples-17-checkout.sigil: 7 nodes, 5 edges, 2 expansions · #!sketch
+examples-17-checkout.sigil: 7 nodes, 5 edges, 2
+  expansions · #!sketch

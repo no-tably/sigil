@@ -32,4 +32,5 @@ blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›
        □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
        ── ── section
 
-examples-12-agent-memory.sigil: 17 nodes, 16 edges, 1 expansions · #!spec
+examples-12-agent-memory.sigil: 17 nodes, 16 edges, 1
+  expansions · #!spec

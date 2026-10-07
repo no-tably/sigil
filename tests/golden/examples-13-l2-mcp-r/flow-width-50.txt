@@ -12,4 +12,5 @@
 
 #1 @miss → triggers [Renderer]
 
-examples-13-l2-mcp-r.sigil: 2 nodes, 0 edges, 2 expansions
+examples-13-l2-mcp-r.sigil: 2 nodes, 0 edges, 2
+  expansions

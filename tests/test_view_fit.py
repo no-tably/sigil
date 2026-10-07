@@ -244,10 +244,12 @@ class TestGraphRelocation(unittest.TestCase):
         rows, _w = view.compose(g, 1, False, notes="markers", width=nat_w - 1)
         lines = text_rows(rows)
         note = next(i for i, ln in enumerate(lines) if "#1 where it all begins" in ln)
-        root = next(i for i, ln in enumerate(lines) if "[Root]" in ln)
-        self.assertTrue(note <= root <= note + 2)          # beside the graph's top box
+        alpha = next(i for i, ln in enumerate(lines) if "[Alpha]" in ln)
+        self.assertLess(note, alpha)                        # beside the graph's upper boxes
         self.assertTrue(lines[note].startswith("#1"))       # at the left
-        self.assertEqual(len(lines), len(natural) - 4)      # no list rows added
+        self.assertNotIn("── notes", "\n".join(lines))      # no list rows added
+        # the fan-out row was a column too wide: it wraps (view_graph's ladder, b)
+        self.assertTrue(all(len(ln) <= nat_w - 1 for ln in lines))
 
 
 class TestFitsUnchanged(unittest.TestCase):

@@ -9,4 +9,5 @@
 │ |Directives| │     │ |Reports| │
 └──────────────┘     └───────────┘
 
-examples-21-coordinated.sigil: 4 nodes, 2 edges, 0 expansions · #!spec
+examples-21-coordinated.sigil: 4 nodes, 2 edges, 0
+  expansions · #!spec

@@ -26,4 +26,5 @@ blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›
        □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
        ── ── section
 
-examples-17-checkout.sigil: 7 nodes, 5 edges, 2 expansions · #!sketch
+examples-17-checkout.sigil: 7 nodes, 5 edges, 2 expansions
+  · #!sketch

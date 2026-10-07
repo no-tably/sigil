@@ -25,4 +25,5 @@ a┆[Bullet]/ #5
 #4 systems query components by kind
 #5 bullets only
 
-03-arena.sigil: 12 nodes, 7 edges, 0 expansions · #!sketch
+03-arena.sigil: 12 nodes, 7 edges, 0 expansions
+  · #!sketch

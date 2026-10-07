@@ -56,7 +56,6 @@ import importlib.util
 import itertools
 import re
 import sys
-import textwrap
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -1213,7 +1212,6 @@ def _token_cell(tok, lay: _Layout, routes: dict):
 # ---------------------------------------------------------------------------
 
 BAND_SEARCH = 12                # columns up to which every cut set is tried (else greedy)
-CIRCLED = 20                    # ① … ⑳; past them «21», as the circled 21+ are wide
 
 
 @dataclass
@@ -1241,9 +1239,7 @@ class _Drawn(NamedTuple):
     routes: dict
 
 
-def plug_label(n: int) -> str:
-    """The n-th plug's number (from 1): ① … ⑳, then «21» …"""
-    return chr(0x2460 + n - 1) if n <= CIRCLED else f"«{n}»"
+plug_label = kit.plug_label                     # ① … ⑳, «21» … (the tree's folded lanes too)
 
 
 def _cut_groups(strokes: list, col: dict, starts: tuple) -> dict:
@@ -1513,12 +1509,7 @@ def compose_flow(g, depth: int, payloads: bool, notes: str = "off", triggers: bo
                 return done(fitted)
     hung, _w, _dw, over = _part_rows(*args, None, hang=True, width=width)   # (b), (c)
     if over:                                    # (d)
-        dim = (kit.GREY["dim"], None, False)
-        hint = [f"flow: a band is {over} wide, {width} here;",
-                "the tree view reads narrow panes best"]
-        if any(len(text) > width for text in hint):
-            hint = textwrap.wrap(" ".join(hint), width)
-        hung += [[]] + [[(ln, dim)] for ln in hint]
+        hung += [[]] + kit.wide_hint("flow", "a band", over, width)
     return done(hung, width)
 
 

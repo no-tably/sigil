@@ -21,4 +21,5 @@
                       ╠═▶ [Email]
                       ╚═▶ |Ledger|
 
-examples-02.sigil: 9 nodes, 11 edges, 0 expansions · #!spec
+examples-02.sigil: 9 nodes, 11 edges, 0 expansions
+  · #!spec

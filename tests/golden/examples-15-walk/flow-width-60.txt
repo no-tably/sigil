@@ -3,4 +3,5 @@
 [Walker] ───▶ [Planner] ━┳━▶ ~|node|
 [Fetcher] ──▶ [Web] ⇱    ┗━▶ *|visited|
 
-examples-15-walk.sigil: 6 nodes, 4 edges, 0 expansions · #!spec
+examples-15-walk.sigil: 6 nodes, 4 edges, 0 expansions
+  · #!spec

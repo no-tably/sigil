@@ -18,4 +18,5 @@ blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›
        □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
        ── ── section
 
-examples-15-walk.sigil: 6 nodes, 4 edges, 0 expansions · #!spec
+examples-15-walk.sigil: 6 nodes, 4 edges, 0 expansions
+  · #!spec

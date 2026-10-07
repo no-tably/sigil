@@ -95,4 +95,5 @@ the tree view reads narrow panes best
    reaches the host, far side unnamed
 #10 the builder recurses into nested blocks
 
-executions.sigil: 16 nodes, 18 edges, 2 expansions · #!spec
+executions.sigil: 16 nodes, 18 edges, 2 expansions
+  · #!spec

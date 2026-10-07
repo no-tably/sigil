@@ -14,4 +14,5 @@ blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›
        □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
        ── ── section
 
-examples-19-flat.sigil: 4 nodes, 3 edges, 0 expansions · #!spec
+examples-19-flat.sigil: 4 nodes, 3 edges, 0 expansions
+  · #!spec
