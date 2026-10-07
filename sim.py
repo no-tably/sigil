@@ -162,6 +162,10 @@ Trace(scenario, frames, outcome, end, scene)
               spawn       node, inst (the new key), parent (its parent instance's
                           key), wire
               ignored     event, label, owner, state
+              iterate     owner (the unit's owner node; None: the document),
+                          block (index into its graph's blocks), k (from 1), of
+                          (the iterations it runs), act (the one running it;
+                          None): a loop starting its k-th iteration
               quiet       waiting (task ids still waiting when the run went quiet)
             A source join is a deposit, so its arrivers never wait: there is no
             gate resume; a gate's round counts the times it fired.
@@ -1770,6 +1774,8 @@ class _Run:
                 for k in range(1, n + 1):
                     self.loops[key] = k
                     self.loops_most[key] = max(self.loops_most.get(key, 0), k)
+                    self._event("iterate", task, owner=key[0], block=r.index, k=k, of=n,
+                                act=task.stack[-1].id if task.stack else None)
                     self._log(f"iteration {k}/{n}")
                     yield from self._items(task, r.items, arm)
             elif kind == "parallel":
@@ -2948,6 +2954,8 @@ class Lane(NamedTuple):
     fold: tuple = ()           # a fold of instances: the instance keys it stands for
     levels: tuple = ()         # a fold of levels: (lowest, highest)
     owners: tuple = ()         # a fold of instances: their owners (instance keys), in order
+    par: int = 1               # k ≥ 2: a `∥k` sub-row of its parent lane, the activations
+                               # that ran while the rows above it were taken (key + (k,))
 
 
 class Span(NamedTuple):
@@ -2999,6 +3007,17 @@ class Mark(NamedTuple):
     carries: Optional[str] = None  # a pulse's call (`plan({Seed})`, `mail.send(…)`)
 
 
+class Iteration(NamedTuple):
+    """A loop starting its k-th iteration (of `of`) at tick t: `block` (unit
+    owner node id | None, block index), `act` the activation running it (its
+    spans say on which lanes; None: none)."""
+    t: int
+    k: int
+    of: int
+    block: tuple
+    act: Optional[int]
+
+
 class Timeline(NamedTuple):
     lanes: tuple               # Lane, in drawing order
     spans: tuple               # Span, by enter
@@ -3007,6 +3026,7 @@ class Timeline(NamedTuple):
     episodes: tuple            # ((k, start tick, entry node id), …)
     last: int                  # the run's last tick
     folded: dict               # {"show", "instances", "levels"}: what folding left out
+    iterations: tuple = ()     # Iteration, by tick
 
 
 def timeline(trace: Trace, *, limits: Limits = Limits(),
@@ -3019,8 +3039,10 @@ def timeline(trace: Trace, *, limits: Limits = Limits(),
     sets out towards them and ordered by birth (in one tick the sender before
     the receiver), an expansion's lanes under the node it reads closer, a
     recursion's levels under its lane, the instances of one node together in
-    ordinal order. Each activation is a Span per lane it stands for, each hop
-    a Move, each self-call pulse, host op and base case a Mark. `limits`: the
+    ordinal order, a lane's concurrent activations (on other tasks) on `∥k`
+    sub-rows under it (_parallel_lanes). Each activation is a Span per lane it stands for, each hop
+    a Move, each self-call pulse, host op and base case a Mark, each loop
+    iteration an Iteration. `limits`: the
     run's (its setup instances). `show` (None: no folding): a group of more
     than `show` instances of one node under one kind of owner keeps its first
     show − 1 and every one that failed or was cancelled, the rest one lane
@@ -3035,7 +3057,7 @@ def timeline(trace: Trace, *, limits: Limits = Limits(),
     last = trace.frames[-1].tick if trace.frames else 0
     acts, lanes, spawns = {}, {}, {}
     hops, lands, enters_by_hop = {}, {}, {}
-    marks, awaits, episodes = [], {}, []
+    marks, awaits, episodes, iterations = [], {}, [], []
     seq, hop_seq = [0], {}
 
     def keys_of(nid: str, insts, level: int) -> tuple:
@@ -3102,8 +3124,11 @@ def timeline(trace: Trace, *, limits: Limits = Limits(),
             awaits[ev["task"]][-1][1] = t
         elif kind == "fork" and ev["why"] == "entry":
             episodes.append((ev["episode"], t, ev["node"]))
+        elif kind == "iterate":
+            iterations.append(Iteration(t, ev["k"], ev["of"], (ev["owner"], ev["block"]),
+                                        ev["act"]))
 
-    moves, last_out = [], {}
+    moves, last_out, move_acts = [], {}, {}
     for hid, ev in sorted(hops.items()):
         w = wires.get(ev["wire"])
         land = lands.get(hid)
@@ -3122,8 +3147,10 @@ def timeline(trace: Trace, *, limits: Limits = Limits(),
             dst = src
             src = (callee["lanes"] if callee is not None
                    else last_out.get((ev["task"], ev["wire"]), ()))
+            move_acts[hid] = (ev.get("callee"), ev["act"])
         elif hid in enters_by_hop:
             dst = acts[enters_by_hop[hid]]["lanes"]
+            move_acts[hid] = (ev["act"], enters_by_hop[hid])
         else:
             dst = keys_of(w.dst, ev["lanes"], 1)
             for k in dst:
@@ -3152,9 +3179,11 @@ def timeline(trace: Trace, *, limits: Limits = Limits(),
     if show is not None:
         lane_rows, spans, moves, marks, born_at = _fold_lanes(
             lane_rows, spans, moves, marks, born_at, prog, show, folded)
+    lane_rows, spans, moves, marks = _parallel_lanes(lane_rows, spans, moves, marks, born_at,
+                                                     move_acts, last)
     return Timeline(_lane_order(lane_rows, born_at), tuple(sorted(spans, key=lambda s: (s.enter, s.act))),
                     tuple(moves), tuple(sorted(marks, key=lambda m: m.t)), tuple(episodes), last,
-                    folded)
+                    folded, tuple(iterations))
 
 
 def _spans(acts: dict, moves: list, awaits: dict, last: int) -> list:
@@ -3285,10 +3314,66 @@ def _fold_lanes(lanes: list, spans: list, moves: list, marks: list, born_at: dic
     return list(out.values()), spans, moves, marks, seen
 
 
+def _parallel_lanes(lanes: list, spans: list, moves: list, marks: list, born_at: dict,
+                    move_acts: dict, last: int) -> tuple:
+    """The lanes with a `∥k` sub-row for each activation that ran while one on
+    its lane was still going (a lane's activations on different tasks at
+    once), and the spans, moves and marks moved onto them: each activation
+    takes the first row of its lane free from its enter (a failed or
+    cancelled one keeps the cell after it, for its ✕ / ⊘). A fold stays one
+    row. `born_at` gains the sub-rows; `move_acts`: {hop id: (the act it
+    leaves, the act it lands in)}."""
+    by_lane = {}
+    for s in spans:
+        by_lane.setdefault(s.lane, []).append(s)
+    lane_of = {ln.key: ln for ln in lanes}
+    moved, made = {}, {}                    # (lane, act) → its sub-row key; key → [Span]
+    for key, ss in by_lane.items():
+        ln = lane_of.get(key)
+        if ln is None or ln.fold or ln.levels:
+            continue
+        free = []                           # per row: the tick it is free from
+        for s in sorted(ss, key=lambda s: (s.enter, s.act)):
+            stop = max(s.leave if s.leave is not None else last + 1, s.enter + 1)
+            stop += s.how in ("failed", "cancelled")
+            row = next((k for k, t in enumerate(free) if t <= s.enter), len(free))
+            if row == len(free):
+                free.append(stop)
+            free[row] = stop
+            if row:
+                sub = key + (row + 1,)
+                moved[(key, s.act)] = sub
+                made.setdefault(sub, []).append(s)
+    if not made:
+        return lanes, spans, moves, marks
+
+    def to(key, act):
+        return moved.get((key, act), key)
+
+    out_moves = []
+    for m in moves:
+        a, b = move_acts.get(m.id, (None, None))
+        out_moves.append(m._replace(src=tuple(to(k, a) for k in m.src),
+                                    dst=tuple(to(k, b) for k in m.dst)))
+    out_marks = []
+    for mk in marks:                        # on the row of the activation then running
+        on = [s for s in by_lane.get(mk.lane, ()) if s.enter <= mk.t
+              and (s.leave is None or mk.t < max(s.leave, s.enter + 1))]
+        out_marks.append(mk._replace(lane=to(mk.lane, on[-1].act)) if on else mk)
+    out_lanes = list(lanes)
+    for sub, ss in made.items():
+        base = lane_of[sub[:-1]]
+        first = min([s.enter for s in ss] + [m.start for m in out_moves if sub in m.dst])
+        out_lanes.append(base._replace(key=sub, parent=base.key, born=first, par=sub[-1]))
+        born_at[sub] = (first, born_at[base.key][1])
+    out_spans = [s._replace(lane=to(s.lane, s.act)) for s in spans]
+    return out_lanes, out_spans, out_moves, out_marks
+
+
 def _lane_order(lanes: list, born_at: dict) -> tuple:
     """The lanes in drawing order: by birth, each lane's recursion levels
-    right under it (by depth), then its other children (an expansion's lanes)
-    the same way; the instances of one node among siblings together, in
+    right under it (by depth), each row's ∥ sub-rows right under that row,
+    then its other children (an expansion's lanes) the same way; the instances of one node among siblings together, in
     ordinal order, where the first of them was born."""
     kids, roots = {}, []
     by_key = {ln.key: ln for ln in lanes}
@@ -3321,12 +3406,17 @@ def _lane_order(lanes: list, born_at: dict) -> tuple:
             seen.add(ln.key)
             out.append(ln)
             mine = kids.get(ln.key, [])
-            levels = sorted((x for x in mine if x.node == ln.node and x.level > 1),
-                            key=lambda x: x.level)
-            for x in levels:
-                seen.add(x.key)
-                out.append(x)
-            walk([x for x in mine if x not in levels])
+            levels = sorted((x for x in mine if x.node == ln.node and x.level > 1
+                             and x.par == 1), key=lambda x: x.level)
+            for x in [ln] + levels:             # each row's ∥ sub-rows right under it
+                if x is not ln:
+                    seen.add(x.key)
+                    out.append(x)
+                for y in sorted((y for y in kids.get(x.key, ()) if y.par > 1),
+                                key=lambda y: y.par):
+                    seen.add(y.key)
+                    out.append(y)
+            walk([x for x in mine if x not in levels and x.par == 1])
 
     walk(roots)
     out += [ln for ln in lanes if ln.key not in seen]

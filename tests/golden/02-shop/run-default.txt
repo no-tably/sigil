@@ -24,7 +24,8 @@ happy run (every default) · ok · 77 frames   x plays it   [ ] another scenario
 
 run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  ╰══▶ broadcast
        ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  ⊘ cancelled  ↺ self-call  ↻k depth k
-       ┤ base case  ⇱ host  • reached  ◌ spawning  ┆ episode  ≈ quiet ticks  ▼ now  ▸ running
+       ∥k at once  ┤ base case  ⇱ host  • reached  ◌ spawning  ┆ episode  ≈ quiet ticks
+       ↺k iteration k  ▼ now  ▸ running
 
 02-shop.sigil: 7 nodes, 6 edges, 2 expansions · #!sketch
 lint: OK

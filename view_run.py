@@ -23,7 +23,8 @@ the callee's first cell; an attempt failing on arrival ends ✖ with no bar,
 retries repeat the segment, a race's loser ends ⊘; a reply runs on the callee's
 lane from its last cell to ↩. A recursion's levels are sub-rows `↻k` under the
 lane (flame-chart style), the deepest ending ┤ where the depth limit stopped
-it; a self-call is a ↺ pulse in the bar, a host op ⇱; an actor reached with no
+it; an activation that runs while one on its lane still does (another task's)
+takes a sub-row `∥k` under it; a self-call is a ↺ pulse in the bar, a host op ⇱; an actor reached with no
 work of its own •. A spawned instance's lane forks from its spawner by the `=>`
 hop itself and carries ◌ while that hop flies. Each lane has a note in plain
 words (n: run notes → the design's notes on the node → off).
@@ -34,7 +35,7 @@ tokens ride the transits (● out, ○ a reply). Without a scenario chosen the v
 draws the happy run's final frame and says so. Given a width the notes move
 below the drawing, then the timeline wraps into bands (each with its own ruler
 and the lanes active in it), then labels are cut. Long quiet stretches fold
-into one ≈ column.
+into one ≈ column. The ruler says where a loop's next iteration starts (`↺2`).
 
 compose_run() returns the rows view.py prints, the same shape as the other
 views' compose functions; the facts are sim.timeline()'s. Drawing primitives
@@ -93,6 +94,8 @@ SELF, HOST, BASE, REACHED = "↺", "⇱", "┤", "•"
 PENDING = "◌"                      # a spawned lane whose spawn hop still flies
 EPISODE, QUIET, NOW, NOW_COL, RUNNING = "┆", "≈", "▼", "┊", "▸"
 LEVEL = "↻"
+PAR = "∥"                          # `∥k`: a lane's k-th row of activations at once
+ITERATION = "↺"                    # `↺k` on the ruler: a loop's k-th iteration starts
 GUTTER = 2                         # the ▸ column and a space before the labels
 LABEL_MAX = 24                     # a longer label is cut with …
 NOTE_GAP = 3                       # columns between the timeline and the notes
@@ -230,6 +233,7 @@ def _busy_ticks(tl) -> set:
         if m.end is not None:
             out |= {m.end, m.end - 1}
     out |= {m.t for m in tl.marks}
+    out |= {it.t for it in tl.iterations}
     for _k, t, _n in tl.episodes:
         out |= {t, t - 1}
     return out
@@ -449,6 +453,8 @@ def _inst_name(scn, key, numbered: set) -> str:
 
 
 def _label_text(ln, scn, numbered: set) -> str:
+    if ln.par > 1:
+        return f"{PAR}{ln.par}"
     if ln.levels:
         return f"{LEVEL}{ln.levels[0]}‥{LEVEL}{ln.levels[1]}"
     if ln.level > 1:
@@ -471,7 +477,7 @@ def _cut(text: str, n: int) -> str:
 def _label_runs(ln, scn, numbered: set, tick: int, marks) -> list:
     text = _cut(_label_text(ln, scn, numbered), LABEL_MAX)
     st = _styles()
-    if ln.level > 1 or ln.levels:
+    if ln.level > 1 or ln.levels or ln.par > 1:
         runs = [(text, st["op"])]
     else:
         kind = _kind_of(scn, ln.node)
@@ -486,14 +492,17 @@ def _label_runs(ln, scn, numbered: set, tick: int, marks) -> list:
 
 def _ruler(fr: _Frame, tl, lo: int, hi: int, x0: int) -> list:
     """The ruler over columns lo … hi - 1: the playhead `▼t`, `ep2` where an
-    episode starts, the last tick, ticks at multiples of 10, ≈ on a folded
-    stretch — each only where it touches no label placed before it."""
+    episode starts, `↺k` where a loop's k-th iteration starts (k ≥ 2), the last
+    tick, ticks at multiples of 10, ≈ on a folded stretch — each only where it
+    touches no label placed before it, and nothing right of the playhead."""
     st = _styles()
     want = []
     if not fr.final:
         want.append((fr.cols.of[fr.tick], NOW + str(fr.tick), st["now"]))
     want += [(fr.cols.of[t], f"ep{k}", st["section"]) for k, t, _n in tl.episodes[1:]
              if t in fr.cols.of]
+    want += [(fr.cols.of[it.t], f"{ITERATION}{it.k}", st["op"]) for it in tl.iterations
+             if it.k > 1 and it.t in fr.cols.of and it.t <= fr.tick]
     want += [(c, QUIET, st["dim"]) for c in sorted(fr.cols.quiet)]
     want += [(fr.cols.of[t], str(t), st["dim"]) for t in range(0, tl.last + 1, 10)
              if t in fr.cols.of and fr.cols.of[t] not in fr.cols.quiet]
@@ -557,15 +566,19 @@ def lane_notes(tl, scn, numbered: set, tick: int, final: bool) -> dict:
             top = ln.levels[1] + 1 if ln.levels else ln.level
             base = (ln.node, ln.key[1], 1)
             depth[base] = max(depth.get(base, 1), top)
+    rows = {}                           # lane key → it and its ∥ sub-rows
+    for ln in tl.lanes:
+        rows.setdefault(ln.key[:3], set()).add(ln.key)
     out = {}
     for ln in tl.lanes:
-        if ln.born > tick or ln.level > 1 or ln.levels:
+        if ln.born > tick or ln.level > 1 or ln.levels or ln.par > 1:
             continue
-        mine = [s for s in spans if s.lane == ln.key]
+        fam = rows[ln.key]
+        mine = [s for s in spans if s.lane in fam]
         acts = {s.act for s in mine}
-        into = [m for m in moves if ln.key in m.dst and not m.back]
-        outof = [m for m in moves if ln.key in m.src and not m.back]
-        replies = [m for m in moves if ln.key in m.src and m.back]
+        into = [m for m in moves if fam & set(m.dst) and not m.back]
+        outof = [m for m in moves if fam & set(m.src) and not m.back]
+        replies = [m for m in moves if fam & set(m.src) and m.back]
         kind = _kind_of(scn, ln.node)
         cl = []
         if ln.fold:
@@ -625,7 +638,7 @@ def lane_notes(tl, scn, numbered: set, tick: int, final: bool) -> dict:
         returned = [m for m in replies if m.how == "returned" and m.carries]
         if returned:
             cl.append(Clause(f"returns {returned[-1].carries}", ROLE))
-        mine_marks = [m for m in marks if m.lane == ln.key]
+        mine_marks = [m for m in marks if m.lane in fam]
         selfs = [m for m in mine_marks if m.what == "self"]
         hosts = [m for m in mine_marks if m.what == "host"]
         if selfs:
@@ -639,6 +652,12 @@ def lane_notes(tl, scn, numbered: set, tick: int, final: bool) -> dict:
             cl.append(Clause("reached: the host's side, opaque", ROLE, "reached: opaque"))
         if len(acts) > 1 and kind != "event":
             cl.append(Clause(f"runs {len(acts)}×{so_far}", REPEAT))
+        loops = {}
+        for it in tl.iterations:
+            if it.act in acts and it.t <= tick:
+                loops[it.block] = max(loops.get(it.block, 0), it.k)
+        if loops and max(loops.values()) > 1:
+            cl.append(Clause(f"loops {max(loops.values())}×{so_far}", REPEAT))
         if ln.key in depth:
             cl.append(Clause(f"recurses to depth {depth[ln.key]}"
                              + (" each time" if len(acts) > 1 else ""), REPEAT))
@@ -656,7 +675,7 @@ def lane_notes(tl, scn, numbered: set, tick: int, final: bool) -> dict:
             cl.append(Clause("cancelled on the way: lost", OUTCOME, "lost"))
         elif len(attempts) > 1:
             cl.append(Clause(f"{_plural(len(attempts), 'attempt')}{so_far}", REPEAT))
-        fb = [m for m in moves if m.back and m.how == "fallback" and ln.key in m.src
+        fb = [m for m in moves if m.back and m.how == "fallback" and fam & set(m.src)
               and m.end is not None and m.end <= tick]
         if fb:
             cl.append(Clause(f"falls back to {fb[-1].carries}", OUTCOME))
@@ -711,7 +730,7 @@ def _fit_note(clauses: list, budget: int, cut: bool = True) -> Optional[str]:
 def _design_notes(scn, ln) -> list:
     """The design's notes (its `#` comments) on a lane's node, as clauses."""
     sn = scn.nodes.get(ln.node)
-    if sn is None or ln.level > 1 or ln.levels:
+    if sn is None or ln.level > 1 or ln.levels or ln.par > 1:
         return []
     return [Clause(f"#{num} {text}" if num else text, MINOR) for num, text, _k, _e in sn.notes]
 
@@ -790,7 +809,7 @@ def compose_run(g, trace=None, tick: Optional[int] = None, width: Optional[int] 
         while p is not None and depth < 50:
             depth += 1
             p = next((x.parent for x in tl.lanes if x.key == p), None)
-        ms = () if ln.level > 1 or ln.levels else tuple(sorted(set(
+        ms = () if ln.level > 1 or ln.levels or ln.par > 1 else tuple(sorted(set(
             list(node_marks.get(ln.node, ())) + wire_marks.get(ln.node, []))))
         lead = [(" " * (2 * depth), None)]
         widest = lead + _label_runs(ln, scn, numbered, -1, ms)    # with ◌ if it is ever spawned
@@ -946,10 +965,12 @@ def run_legend() -> list:
             (FAILS, st["error"]), (" fails on arrival  ", mid),
             (FAILED, st["error"]), (" failed  ", mid), (CANCELLED, st["dim"]),
             (" cancelled  ", mid), (SELF, st["op"]), (" self-call  ", mid),
-            (LEVEL + "k", st["op"]), (" depth k  ", mid), (BASE, mid), (" base case  ", mid),
+            (LEVEL + "k", st["op"]), (" depth k  ", mid), (PAR + "k", st["op"]),
+            (" at once  ", mid), (BASE, mid), (" base case  ", mid),
             (HOST, st["op"]), (" host  ", mid), (REACHED, mid), (" reached  ", mid),
             (PENDING, mid), (" spawning  ", mid), (EPISODE, st["frame"]), (" episode  ", mid),
-            (QUIET, st["dim"]), (" quiet ticks  ", mid), (NOW, st["now"]), (" now  ", mid),
+            (QUIET, st["dim"]), (" quiet ticks  ", mid), (ITERATION + "k", st["op"]),
+            (" iteration k  ", mid), (NOW, st["now"]), (" now  ", mid),
             (RUNNING, st["now"]), (" running", mid)]
     return row
 
@@ -961,16 +982,19 @@ def timeline_json(trace, limits=None, show: Optional[int] = None) -> dict:
     prog = sim._program_of(trace.scene.graph)
     scn = prog.scene
     numbered = _shows_ordinal(tl, prog)
-    key = lambda k: [k[0], k[1], k[2]]
+    key = lambda k: list(k)
     return {
         "scenario": trace.scenario.name, "outcome": trace.outcome, "last": tl.last,
         "episodes": [{"episode": k, "tick": t, "entry": _name(scn, n)}
                      for k, t, n in tl.episodes],
         "folded": tl.folded,
+        "iterations": [{"t": it.t, "k": it.k, "of": it.of, "owner": it.block[0],
+                        "block": it.block[1], "act": it.act} for it in tl.iterations],
         "lanes": [{"key": key(ln.key), "label": _label_text(ln, scn, numbered),
                    "parent": key(ln.parent) if ln.parent else None, "born": ln.born,
                    "owner": list(ln.owner) if ln.owner else None, "spawned": ln.spawned,
-                   "fold": [list(i) for i in ln.fold], "levels": list(ln.levels)}
+                   "fold": [list(i) for i in ln.fold], "levels": list(ln.levels),
+                   "par": ln.par}
                   for ln in tl.lanes],
         "spans": [{"lane": key(s.lane), "act": s.act, "task": s.task, "enter": s.enter,
                    "leave": s.leave, "how": s.how, "waits": [list(w) for w in s.waits]}

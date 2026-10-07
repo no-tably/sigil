@@ -1,6 +1,6 @@
 ── run · Crawler.throttle:fails — throttle fails 1×, no fallback ───────────────────────────────────────────────────────────────────────────
 
-              0         10        ep2       30        40        50        60        70        80        90          ep3
+              0         10        ep2       30        40        50        60      ↺2          80        90          ep3
   (Operator)  █░░░░░░░░░░░░░░░░░░✕                                                                                 ┆
   [Scheduler] ╰──▶█↺██░░░░█░░░░░░✕                                                                                 ┆
   {Plan}             ╰━━▶█│      ┆                                                                                 ┆
@@ -21,7 +21,7 @@
   [Scheduler] calls [Crawler]; runs plan() itself; fails
   {Plan}      produced by [Scheduler]
   [Crawler]   its call fails on arrival; fails
-  [Indexer]   episode 2's entry; calls |Index|, then [Parser]
+  [Indexer]   episode 2's entry; calls |Index|, then [Parser]; loops 2×
   |Index|     returns {Lease}; runs 2×
   [Parser]    calls [Doc.walk]; returns {Doc}; runs 2×
     [Lexer]   calls [Builder]; runs 2×
@@ -31,7 +31,8 @@
 
 run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  ╰══▶ broadcast
        ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  ⊘ cancelled  ↺ self-call  ↻k depth k
-       ┤ base case  ⇱ host  • reached  ◌ spawning  ┆ episode  ≈ quiet ticks  ▼ now  ▸ running
+       ∥k at once  ┤ base case  ⇱ host  • reached  ◌ spawning  ┆ episode  ≈ quiet ticks
+       ↺k iteration k  ▼ now  ▸ running
 path   the hops taken so far:  ①② its branches  ✖ failed  ⊘ cancelled  ×N repeated
        ▸ the hop now (bold in colour)
 

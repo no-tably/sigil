@@ -6,7 +6,8 @@ Covers:
   3. the run's structured facts: enter / leave / hop / land / spawn events, a
      depth limit's act and level, Token.act;
   4. timeline(): lane order and nesting, work and waits, moves and marks,
-     episodes, folds.
+     episodes, folds, ∥ sub-rows for a lane's activations at once, loop
+     iterations (the iterate event).
 
 Run:  python3 -m unittest discover tests
 """
@@ -362,6 +363,71 @@ class TestTimelineFolds(unittest.TestCase):
         got = names(timeline(EXECUTIONS, limits=limits))
         k = got.index("Builder")
         self.assertEqual(got[k:k + 4], ["Builder", "Builder↻2", "Builder↻3‥5", "Builder↻6"])
+
+
+CONCURRENT = """#!spec
+(User) -> [Api]
+parallel @all {
+  [Api] -> [Fraud]
+  [Api] -> [Stock]
+}
+[Fraud] -> [Db]
+[Stock] -> [Db]
+"""
+LOOP = """#!spec
+(User) -> [Api]
+loop @times 3 {
+  [Api] -> [Worker]
+}
+"""
+
+
+class TestTimelineParallel(unittest.TestCase):
+    def setUp(self):
+        self.tl = sim.timeline(run(canon(CONCURRENT)))
+
+    def test_activations_at_once_take_a_sub_row(self):
+        db = [ln for ln in self.tl.lanes if ln.node == "Db_service"]
+        self.assertEqual([(ln.key, ln.par) for ln in db],
+                         [(("Db_service", None, 1), 1), (("Db_service", None, 1, 2), 2)])
+        self.assertEqual(db[1].parent, db[0].key)
+        keys = [ln.key for ln in self.tl.lanes]
+        self.assertEqual(keys.index(db[1].key), keys.index(db[0].key) + 1)
+
+    def test_spans_and_moves_follow_their_activation(self):
+        spans = {s.lane: s for s in self.tl.spans if s.node == "Db_service"}
+        self.assertEqual(len(spans), 2)
+        self.assertNotEqual(spans[("Db_service", None, 1)].task,
+                            spans[("Db_service", None, 1, 2)].task)
+        into = {m.dst for m in self.tl.moves if m.wire[1] == "Db_service" and not m.back}
+        self.assertEqual(into, {(("Db_service", None, 1),), (("Db_service", None, 1, 2),)})
+
+    def test_no_overlap_left_on_a_row(self):
+        rows = {}
+        for s in self.tl.spans:
+            rows.setdefault(s.lane, []).append(s)
+        for ss in rows.values():
+            ss.sort(key=lambda s: s.enter)
+            for a, b in zip(ss, ss[1:]):
+                self.assertLessEqual(a.leave, b.enter)
+
+
+class TestIterations(unittest.TestCase):
+    def setUp(self):
+        self.tr = run(canon(LOOP))
+
+    def test_an_iterate_event_per_iteration(self):
+        its = events(self.tr, "iterate")
+        self.assertEqual([(e["k"], e["of"], e["block"], e["owner"]) for e in its],
+                         [(1, 2, 0, None), (2, 2, 0, None)])    # @times 3 capped at 2
+        api = next(e["act"] for e in events(self.tr, "enter") if e["node"] == "Api_service")
+        self.assertEqual({e["act"] for e in its}, {api})
+
+    def test_the_timeline_keeps_them(self):
+        tl = sim.timeline(self.tr)
+        self.assertEqual([(it.k, it.of, it.block) for it in tl.iterations],
+                         [(1, 2, (None, 0)), (2, 2, (None, 0))])
+        self.assertLess(tl.iterations[0].t, tl.iterations[1].t)
 
 
 if __name__ == "__main__":

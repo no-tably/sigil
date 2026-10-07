@@ -187,7 +187,8 @@ The run view draws one run as a timeline. Time (ticks) runs left to right under 
 ruler, one column a tick; a quiet stretch of more than three ticks folds into one
 `≈` column. Each participant gets a lane in the order it first acted — one per
 composition instance (`{Transform·2}`), the levels of a recursion as `↻2` `↻3`
-sub-rows under it, an expansion's lanes indented under its node:
+sub-rows under it, activations that run on one lane at once (other tasks') as `∥2`
+sub-rows, an expansion's lanes indented under its node:
 
 ```text
 ── run · API.charge:fails — charge fails 4×, no fallback ─────────────────────────
@@ -207,7 +208,8 @@ transit along the receiver's lane in its arrow's stroke (`╰──▶` `╰╌�
 no bar, and retries repeat the segment; a race's loser ends `⊘`; a reply runs on the
 callee's lane to `↩`. `↺` is a self-call's pulse, `┤` where the depth limit stopped
 a recursion, `⇱` a host op, `•` an actor reached with no work of its own, `┆` the
-boundary between episodes. A spawned lane carries `◌` while its spawn hop flies;
+boundary between episodes, `↺2` on the ruler where a loop's next iteration starts
+("loops 2×" in the note of the lane running it). A spawned lane carries `◌` while its spawn hop flies;
 many instances fold into `{…×k more}` (`u` / `--unroll`). Each lane has a note in
 plain words ("4 attempts, each fails", "spawned by [Spawner] for [Asteroid]"); `n`
 cycles run notes, the design's own notes on the node, and none. In sim mode the

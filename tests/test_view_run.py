@@ -7,6 +7,8 @@ Covers:
     (╰───✖), a route's ✖ head, a reply on the callee's lane (───↩), async (╮ ╎),
     fan-out sharing one vertical (├══▶ ╰══▶), a race's loser (⊘);
   - recursion levels as ↻k sub-rows ending ┤, self-calls ↺, host ops ⇱;
+  - a lane's activations at once on ∥k sub-rows; a loop's iterations (↺2 on
+    the ruler, "loops 2×");
   - spawned lanes (◌ while the spawn hop flies) and folds (`{…×4 more}`);
   - the playhead: nothing right of the tick, lanes appear when born, ▼ on the
     ruler, ┊ down the blank cells, tokens on the transits, ▸ running;
@@ -55,6 +57,22 @@ parallel @all {
 parallel @any {
   [Api] -> [MirrorA]
   [Api] -> [MirrorB]
+}
+"""
+
+CONCURRENT = """#!spec
+(User) -> [Api]
+parallel @all {
+  [Api] -> [Fraud]
+  [Api] -> [Stock]
+}
+[Fraud] -> [Db]
+[Stock] -> [Db]
+"""
+LOOP = """#!spec
+(User) -> [Api]
+loop @times 3 {
+  [Api] -> [Worker]
 }
 """
 
@@ -323,6 +341,22 @@ class TestApp(unittest.TestCase):
             view.main([str(ARENA), "--run", "--once", "--no-lint", "--color", "never",
                        "--limit", "spawn=6", "--unroll", "all"])
         self.assertNotIn("more}", out.getvalue())
+
+    def test_activations_at_once_on_sub_rows(self):
+        text = "\n".join(drawn(CONCURRENT))
+        self.assertIn("[Db]", text)
+        sub = row(drawn(CONCURRENT), "∥2")
+        self.assertIn("╰──▶█", sub)
+        self.assertIn("runs 2×", row(drawn(CONCURRENT), "[Db]"))
+        data = vrun.timeline_json(trace_of(parse(CONCURRENT)))
+        self.assertIn(["Db_service", None, 1, 2], [ln["key"] for ln in data["lanes"]])
+
+    def test_a_loop_iteration_on_the_ruler_and_in_the_notes(self):
+        lines = drawn(LOOP)
+        ruler = next(ln for ln in lines if ln.strip().startswith("0"))
+        self.assertIn("↺2", ruler)
+        self.assertIn("loops 2×", row(lines, "[Api]"))
+        self.assertIn("↺k iteration k", "".join(t for t, _ in vrun.run_legend()))
 
     def test_legend_lines_end_without_blanks(self):
         for flag in ("--run", "--tree", "--flow"):

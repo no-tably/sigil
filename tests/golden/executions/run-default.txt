@@ -18,7 +18,7 @@
     ↻2                                                                       ╰██░
     ↻3                                                                         ╰█┤
 
-               ep2         90        100       110       120       130       140       150       ep3
+               ep2         90        100       110       120   ↺2  130       140       150       ep3
   [Parser]    ┆               ╭──▶█░░░░░░░░░░░░░░█░░░░░░░░───↩ ╭──▶█░░░░░░░░░░░░░░█░░░░░░░░───↩ ┆
     [Lexer]   ┆               │    █░░░░░░░░░░░░░│             │    █░░░░░░░░░░░░░│             ┆
     [Builder] ┆               │    ╰──▶██░░░───↩ │             │    ╰──▶██░░░───↩ │             ┆
@@ -41,7 +41,7 @@
     [Lexer]   calls [Builder]; runs 3×
     [Builder] returns {Doc}; runs 3×; recurses to depth 3 each time
   [Doc.walk]  runs 3×; recurses to depth 3 each time
-  [Indexer]   episode 2's entry; calls |Index|, then [Parser]
+  [Indexer]   episode 2's entry; calls |Index|, then [Parser]; loops 2×
   |Index|     returns {Lease}; runs 2×
   [Notifier]  episode 3's entry; calls the host: mail.send()
 
@@ -49,7 +49,8 @@ happy run (every default) · ok · 163 frames   x plays it   [ ] another scenari
 
 run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  ╰══▶ broadcast
        ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  ⊘ cancelled  ↺ self-call  ↻k depth k
-       ┤ base case  ⇱ host  • reached  ◌ spawning  ┆ episode  ≈ quiet ticks  ▼ now  ▸ running
+       ∥k at once  ┤ base case  ⇱ host  • reached  ◌ spawning  ┆ episode  ≈ quiet ticks
+       ↺k iteration k  ▼ now  ▸ running
 
 executions.sigil: 16 nodes, 18 edges, 2 expansions · #!spec
 info:28:SGL070: glyph [Doc.walk] appears twice on one flow line. If it plays two roles, consider

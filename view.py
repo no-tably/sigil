@@ -194,7 +194,8 @@ what did happen, where the other three views draw what can. Time runs left to
 right on a tick ruler, one column a tick (a quiet stretch of more than 3 ticks
 folds into one ≈ column); one lane per participant, composition instance
 (`{Transform·2}`) and recursion level (`↻2` sub-rows), in the order they first
-acted, an expansion's lanes indented under its node. █ working, ░ waiting, ◆
+acted, an expansion's lanes indented under its node, a lane's activations at
+once on `∥2` sub-rows; `↺2` on the ruler where a loop's next iteration starts. █ working, ░ waiting, ◆
 an event landing, then ✕ failed / ⊘ cancelled; a call drawn at its send tick
 (╰──▶ in its arrow's stroke into the callee's first cell, a fan-out sharing one
 vertical ├══▶ ╰══▶), an attempt failing on arrival ╰───✖ (retries repeat it), a

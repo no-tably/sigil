@@ -20,7 +20,8 @@ happy run (every default) · ok · 47 frames   x plays it   [ ] another scenario
 
 run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces
        ╰══▶ broadcast  ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed
-       ⊘ cancelled  ↺ self-call  ↻k depth k  ┤ base case  ⇱ host  • reached
-       ◌ spawning  ┆ episode  ≈ quiet ticks  ▼ now  ▸ running
+       ⊘ cancelled  ↺ self-call  ↻k depth k  ∥k at once  ┤ base case  ⇱ host
+       • reached  ◌ spawning  ┆ episode  ≈ quiet ticks  ↺k iteration k  ▼ now
+       ▸ running
 
 00-shortener.sigil: 7 nodes, 8 edges, 0 expansions · #!sketch
