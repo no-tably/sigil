@@ -110,7 +110,7 @@ class WireStates(unittest.TestCase):
                       frozenset({("b",), ("c",)}), frozenset({("a",)}), {}, {}, {},
                       frozenset(), {}, {}, frozenset(), frozenset(), (), False)
         self.assertEqual([vgraph.wire_state(f, (k,)) for k in "abcd"],
-                         ["failed", "active", "plain", "inactive"])
+                         ["failed", "active", "trail", "inactive"])
 
     def test_styles_follow_the_frame(self):
         run = Run(CHECKOUT)

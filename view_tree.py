@@ -203,14 +203,16 @@ def _sim_legend() -> list:
     alike; the tree's own: `▸` an active row."""
     dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
     wire = (kit.EDGE_DEFAULT, None, True)
-    quiet = (kit.muted(kit.EDGE_DEFAULT), None, False)
+    trail = (kit.faded(kit.EDGE_DEFAULT, kit.SIM_TRAIL, "trail"), None, False)
+    faint = (kit.faded(kit.EDGE_DEFAULT, kit.SIM_FAINT, "faint"), None, False)
     fail = (scene.colour_of("edges-fail"), None, True)
     light = (kit.GREY["light"], None, False)
     state = (kit.kind_color("state"), None, True)
     return [("run    ", dim),
             ("●", wire), (" out  ", mid), ("○", wire), (" return / fallback  ", mid),
-            ("✕", fail), (" failed  ", mid), (CANCELLED_MARK, quiet), (" cancelled  ", mid),
-            ("─", wire), (" lit  ", mid), ("─", quiet), (" untouched (muted)  ", mid),
+            ("✕", fail), (" failed  ", mid), (CANCELLED_MARK, faint), (" cancelled  ", mid),
+            ("─", wire), (" now  ", mid), ("─", trail), (" taken (trail)  ", mid),
+            ("─", faint), (" untouched (faint)  ", mid),
             ("▸", (kit.GREY["light"], None, True)), (" active  ", mid),
             ("…", light), (" waiting  ", mid), ("✕", fail), (" failed  ", mid),
             ("×n", light), (" instances  ", mid), ("↻k", light), (" recursion  ", mid),
@@ -221,7 +223,7 @@ def _sim_legend() -> list:
 def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
                  notes: str = "off", payloads: bool = False, width: int | None = None,
                  access: bool = False, mods: bool = False, events: str = "land",
-                 trace=None, tick: int = 0, checks=None):
+                 trace=None, tick: int = 0, checks=None, probe: bool = False):
     """The drawing as outline rows with a lane gutter; same return shape as compose().
     `triggers`: draw event → state lanes. `events`: "land" draws a pass-through
     event where it lands — no row of its own, its emitters wired straight to its
@@ -266,7 +268,8 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     checks overlay — a marked wire's lane in its worst finding's style
     (ui.error / ui.warn; an acknowledged one muted), each finding's number
     (`▲1`, `◆2`, `✓3`) after its node's label, a wire's on its target's row;
-    None: no overlay."""
+    None: no overlay. `probe`: the frame's tokens and active labels drawn in
+    kit.Probe styles (sim_focus)."""
     scn = scene.build_scene(g, events=events, triggers=triggers, access=access, depth=depth)
     rows = [r for r in _tree_rows(g, depth)
             if not (r.depth == 0 and r.node.id in scn.collapsed)]
@@ -285,7 +288,7 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
             after_label[nid] = after_label.get(nid, []) + runs
     calls = _self_call_rows(scn, rows)
     marks = _call_marks(scn, rows, calls, frame)
-    sim_rows = _sim_rows(scn, rows, trace, frame) if trace is not None else None
+    sim_rows = _sim_rows(scn, rows, trace, frame, probe) if trace is not None else None
     joins = scene.join_marks(scn)
     # Block notes are about a component: tagged on its row, called out on the
     # left. Inline notes are about their line: they trail it on the right, after
@@ -312,7 +315,7 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
             _draw_lanes(cv, lanes, out.ends, muted_sources=frame is not None)
             _draw_join_taps(cv, lanes, out.ends, joins)
             if frame is not None:
-                _draw_tokens(cv, frame.tokens, lanes, _self_call_cells(calls, out))
+                _draw_tokens(cv, frame.tokens, lanes, _self_call_cells(calls, out), probe)
             moved = [] if right else None
             chips, drawn = _row_chips(lanes, chip_lists, self_chips)
             _draw_right_margin(cv, lanes, out, chips, trailing, notes, moved)
@@ -630,6 +633,8 @@ def _draw_outline(cv: kit.Canvas, rows, idx: dict, show_tags: bool = True, x0: i
             x += slot
         _border, text = kit.node_styles(n)
         runs = kit.label_runs(n) if state is None else _status_label_runs(n, state.status)
+        if state is not None and state.probe:
+            runs = kit.probed(runs)
         runs += _stream_runs(n) + ([(" ▸", (text[0], None, True))] if row.collapsed else [])
         x = kit._put_runs(cv, x, y, runs)
         if marks and y in marks:
@@ -940,7 +945,8 @@ def _draw_lanes(cv: kit.Canvas, lanes, ends, *, muted_sources: bool = False):
 # layout keeps for them, so nothing moves while a trace plays (sim.md §7):
 #   lanes     failed (a route taken, a call that failed) edges-fail; lit (a token
 #             on it, a call in progress) full colour + bold; taken earlier the
-#             policy colour; never taken muted — chips, ◀ and taps follow;
+#             trail (faded, ui.sim_trail); never taken faint (ui.sim_faint) —
+#             chips, ◀ and taps follow;
 #             source marks (`●`, `›`, …) always muted, so a token stands out
 #   tokens    in the lane's gutter column, on the row `at` of the way from its
 #             source row to its target row; a self-call's on its call mark
@@ -956,7 +962,7 @@ STATUS_MARK = {"active": "▸", "current": "◉"}
 CANCELLED_MARK = "⊘"     # a cancelled token: neither `●` out nor `✕` failed
 QUIET = ("idle", "cancelled", "dormant")    # statuses drawn muted (idle: untouched)
 RAN = ("visited", "waiting", "opaque")      # statuses whose label is drawn as without a sim
-STROKE_STATES = ("failed", "active", "plain", "inactive")   # the first that applies wins
+STROKE_STATES = ("failed", "active", "trail", "inactive")   # the first that applies wins
 
 
 class _SimRow(NamedTuple):
@@ -964,11 +970,12 @@ class _SimRow(NamedTuple):
     status: str             # a sim node status, or "idle" / "current" / "dormant"
     mark: str               # the status slot's mark ("" for none)
     badges: list            # runs after the call marks, padded to the node's widest
+    probe: bool = False     # its label drawn in kit.Probe styles (sim_focus)
 
 
 def _stroke_state(idents, frame) -> str:
     """The scene.wire_style state of a stroke standing for the wires `idents` in
-    a frame ("plain" without one): failed > lit (active) > taken (plain) >
+    a frame ("plain" without one): failed > lit (active) > taken (trail) >
     never taken (inactive)."""
     if frame is None:
         return "plain"
@@ -1017,7 +1024,7 @@ def _padded(runs: list, width: int) -> list:
     return runs + ([(" " * pad, None)] if pad > 0 else [])
 
 
-def _sim_rows(scn, rows, trace, frame) -> dict:
+def _sim_rows(scn, rows, trace, frame, probe: bool = False) -> dict:
     """{row index: _SimRow} for every outline row in `frame`; each node's badges
     padded to its widest over the whole trace, so the layout holds still."""
     owner = {id(u.graph): u.owner for u in scn.units}
@@ -1036,7 +1043,7 @@ def _sim_rows(scn, rows, trace, frame) -> dict:
         status = _row_status(r, owner.get(id(r.graph)) if state_unit else None, frame)
         out[y] = _SimRow(status, STATUS_MARK.get(status, ""),
                          _padded(_badge_runs(r.node, frame, hidden, names),
-                                 widest.get(r.node.id, 0)))
+                                 widest.get(r.node.id, 0)), probe and status == "active")
     return out
 
 
@@ -1114,11 +1121,11 @@ def _token_row(lane: _Lane, at: float) -> int:
     return round(src + at * (dst - src))
 
 
-def _draw_tokens(cv: kit.Canvas, tokens, lanes, self_cells: dict):
+def _draw_tokens(cv: kit.Canvas, tokens, lanes, self_cells: dict, probe: bool = False):
     """Each token over the drawing: in its lane's gutter column on _token_row, or
     on a self-call's mark (self_cells, _self_call_cells); a later token (a later
     task) on the same cell wins. Tokens on wires the tree does not draw are
-    skipped."""
+    skipped. `probe`: each in a kit.Probe style (sim_focus)."""
     lane_of = {i: ln for ln in lanes for i in ln.idents}
     for tok in tokens:
         if tok.wire in lane_of:
@@ -1129,7 +1136,7 @@ def _draw_tokens(cv: kit.Canvas, tokens, lanes, self_cells: dict):
         else:
             continue
         mark, style = _token_glyph(tok, wire)
-        cv.put(x, y, mark, style)
+        cv.put(x, y, mark, kit.Probe(style) if probe else style)
 
 
 def check_extras(scn, checks) -> dict:

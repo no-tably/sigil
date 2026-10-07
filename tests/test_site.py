@@ -123,7 +123,8 @@ class TestBuild(unittest.TestCase):
         for fg, bg, _bold in self.frames["styles"]:
             for c in (fg, bg):
                 if c:
-                    self.assertIn(c.removeprefix("tint:").removeprefix("muted:"), defined, c)
+                    self.assertIn(re.sub(r"^(tint|muted|trail|faint):", "", c), defined, c)
+        self.assertLessEqual({"ui-sim-trail", "ui-sim-faint", "ui-fill"}, defined)
 
 
     def test_playground_ships_the_tools_verbatim(self):
@@ -226,6 +227,22 @@ class TestBuild(unittest.TestCase):
                 while want and not want[-1]:
                     want.pop()
                 self.assertEqual(drawn, want)
+
+    def test_playground_sim_narrates_as_the_viewer_does(self):
+        """sim() carries the viewer's wording: "say" (the narration line), "story"
+        (the beats so far), "beats" (where stepping by event stops), "trail"."""
+        pg = _load("sigil_playground_t3", SITE / "playground.py")
+        view = pg.view
+        text = (SITE / "examples" / "01-checkout.sigil").read_text()
+        player = view.SimPlayer(view.render.parse_document(text), "API.charge:fails")
+        player.at = 12
+        got = json.loads(pg.sim(json.dumps({"text": text, "view": "graph",
+                                            "scenario": "API.charge:fails", "frame": 12})))
+        self.assertEqual(got["say"], player.narration())
+        self.assertIn("attempt 2 of 4", got["say"])
+        self.assertEqual(got["story"], [view.beat_line(b) for b in player.told()])
+        self.assertEqual(got["beats"], [b.frame for b in player.beats])
+        self.assertEqual(got["trail"], "(Shopper) -> [API] -> [Payments] ×2")
 
     def test_symbols_outside_the_font_get_a_fixed_cell(self):
         # Departure Mono 1.500 lacks these viewer and simulation symbols (fontTools);
@@ -363,6 +380,23 @@ class TestSiteJs(unittest.TestCase):
         self.assertIn('<span class="t-name">Paid</span>', out[3])
         self.assertIn("t-shebang", out[4])
         self.assertIn('<span class="t-section">arena</span>', out[5])
+
+    def test_frame_role_css(self):
+        """A frame colour role and the roles derived from it (a box fill, a muted
+        name, a run's trail and never-taken wires) as CSS over the theme's variables."""
+        code = _js_section("  function roleCss", "  function installFrameStyles")
+        roles = ["kinds-service", "tint:kinds-service", "muted:kinds-service",
+                 "trail:kinds-service", "faint:kinds-service", "#123456", "bogus:x y"]
+        out = json.loads(self._run(code + f"\nprocess.stdout.write(JSON.stringify("
+                                   f"{json.dumps(roles)}.map(roleCss)));"))
+        self.assertEqual(out[0], "var(--kinds-service)")
+        self.assertIn("var(--ui-fill)", out[1])
+        self.assertIn("var(--ui-name-saturation)", out[2])
+        self.assertIn("var(--ui-sim-trail)", out[3])
+        self.assertIn("var(--ui-sim-faint)", out[4])
+        self.assertIn("var(--ui-name-saturation)", out[4])     # faint fades the muted colour
+        self.assertEqual(out[5], "#123456")
+        self.assertIsNone(out[6])
 
     def test_findings_panel_items(self):
         code = _js_section("  function findingsHtml", "  function initPlayground")

@@ -1,7 +1,9 @@
-"""Sim mode in the app (view.py): SimPlayer's controls (step, play / pause on a
-clock passed in, speed, scenario choice, rebuild on reload), the live view's
-keys (x, space, , . [ ] - +), the status bar and log row, one run shared by both
-views, and `--sim SCENARIO --once`.
+"""Sim mode in the app (view.py): SimPlayer's controls (step by frame and by
+event, play / pause on a clock passed in, speed, scenario choice, rebuild on
+reload), the live view's keys (x, space, , . < > [ ] - + w), the status bar,
+the narration rows (trail, recent events, the narration line), following the
+run's focus in every view, one run shared by the views, and `--sim SCENARIO
+--once`.
 """
 
 import contextlib
@@ -19,7 +21,8 @@ import view  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 CHECKOUT = ROOT / "site" / "examples" / "01-checkout.sigil"
 ORDERS = ROOT / "site" / "examples" / "04-orders.sigil"
-TICKS = re.compile(r"^sim happy ❚❚ 8/s · t(\d+)/(\d+) · ")   # paused, the default speed
+EXECUTIONS = ROOT / "tests" / "fixtures" / "executions.sigil"
+TICKS = re.compile(r"^sim happy ❚❚ 2 frames/s · t(\d+)/(\d+) · ")   # paused, the default speed
 
 
 def plain(rows):
@@ -304,7 +307,8 @@ class TestSimFrames(_Doc):
                 status = frame[0][frame[0].index("sim happy"):]
                 self.assertEqual(int(TICKS.match(status)[1]), st.player.trace.frames[1].tick)
                 self.assertIn("episode 1: (Shopper)", frame[0])
-                self.assertEqual(frame[-1], st.player.log_line()[:200])
+                # the narration line last: the latest beat, after `›`
+                self.assertEqual(frame[-1], ("› " + st.player.narration())[:200])
 
     def test_frames_stay_exactly_cols_by_rows(self):
         for tree in (False, True):
@@ -337,8 +341,9 @@ class TestOnce(unittest.TestCase):
                 self.assertIn("lint: OK", out)
                 tail = out[out.index("sim Payments:fails"):].splitlines()
                 self.assertIn(": failed · ", tail[0])
-                self.assertIn("episode 2: [Payments]", "\n".join(tail))
-                self.assertTrue(tail[-1].endswith("done: failed"))
+                self.assertTrue(tail[1].endswith(view.simulator.CONVENTIONS))
+                self.assertIn("episode 2 begins at [Payments]", "\n".join(tail))
+                self.assertTrue(tail[-1].endswith("the run ends: failed"))
 
     def test_without_sim_unchanged(self):
         out = self.run_once(CHECKOUT)
@@ -351,6 +356,145 @@ class TestOnce(unittest.TestCase):
         self.assertEqual(res.returncode, 2)
         self.assertIn("--sim: unknown scenario nope", res.stderr)
         self.assertIn("happy", res.stderr)
+
+
+class TestReadablePlayback(unittest.TestCase):
+    def setUp(self):
+        self.p = view.SimPlayer(parse(CHECKOUT), "API.charge:fails")
+
+    def test_speeds_start_slow_and_reach_a_quarter(self):
+        self.assertEqual(view.SIM_SPEEDS[:2], (0.25, 0.5))
+        self.assertEqual(self.p.fps, 2)
+        self.assertEqual([view.speed_text(f) for f in (0.25, 0.5, 1, 2, 32)],
+                         ["¼ frame/s", "½ frame/s", "1 frame/s", "2 frames/s", "32 frames/s"])
+        self.p.faster(-1)
+        self.assertIn("❚❚ 1 frame/s", self.p.status())
+        for _ in range(3):
+            self.p.faster(-1)
+        self.assertEqual(self.p.interval, 4.0)
+
+    def test_step_by_event_stops_on_beats(self):
+        frames = [b.frame for b in self.p.beats]
+        self.assertTrue(self.p.step_event(1))
+        self.assertEqual(self.p.at, frames[1])
+        self.p.step(1)                                  # between two beats
+        self.assertTrue(self.p.step_event(-1))
+        self.assertEqual(self.p.at, frames[1])
+        self.p.playing = True
+        self.p.step_event(10)
+        self.assertFalse(self.p.playing)
+        for _ in range(len(frames) + 2):
+            self.p.step_event(1)
+        self.assertEqual(self.p.at, self.p.last)
+        self.assertFalse(self.p.step_event(1))
+        for _ in range(len(frames) + 2):
+            self.p.step_event(-1)
+        self.assertEqual(self.p.at, 0)
+
+    def test_narration_holds_while_a_token_travels(self):
+        self.p.step(6)                                  # attempt 1 is on its way
+        self.assertEqual(self.p.narration(), f"t{5:03} [API] calls [Payments] with "
+                                             "charge(total) — attempt 1 of 4")
+        self.p.step(-6)
+        self.assertTrue(self.p.narration().endswith("(Shopper) calls [API] with {Cart}"))
+
+    def test_trail_writes_the_hops_so_far(self):
+        self.p.step(12)
+        self.assertEqual(self.p.trail(), "(Shopper) -> [API] -> [Payments] ×2")
+        self.p.step(10 ** 6)
+        self.assertEqual(self.p.trail(),
+                         "(Shopper) -> [API] -> [Payments] ×4 · [API] !> <PaymentFailed>")
+
+    def test_trail_is_per_episode(self):
+        p = view.SimPlayer(parse(ORDERS))
+        p.step(10 ** 6)
+        self.assertTrue(p.trail().startswith("[Payments] ~> <Paid>"), p.trail())
+
+    def test_sim_trail_segments(self):
+        hop = view.simulator.Hop
+        hops = [hop(0, "a", "->", "b"), hop(1, "b", "->", "c"), hop(2, "b", "->", "c"),
+                hop(3, "x", "~>", "y"), hop(4, "e", "trigger", "s")]
+        self.assertEqual(view.sim_trail(hops, str), "a -> b -> c ×2 · x ~> y · e ⇢ s")
+        self.assertEqual(view.sim_trail([], str), "")
+
+    def test_story_rows(self):
+        rows = [plain([r])[0] for r in view.sim_story_rows(self.p, 120)]
+        self.assertEqual(len(rows), 2 + view.SIM_LOG_ROWS)
+        self.assertTrue(rows[0].startswith("trail  (Shopper) -> [API]"))
+        self.assertEqual(rows[1:-1], ["  "] * view.SIM_LOG_ROWS)    # nothing before yet
+        self.assertEqual(rows[-1], "› " + self.p.narration())
+        self.p.step(10 ** 6)
+        rows = [plain([r])[0] for r in view.sim_story_rows(self.p, 40)]
+        self.assertTrue(rows[0].startswith("trail  … "))
+        self.assertLessEqual(len(rows[0]), 40)
+        told = [view.beat_line(b) for b in self.p.told()]
+        self.assertEqual([r[2:] for r in rows[1:-1]], told[-view.SIM_LOG_ROWS - 1:-1])
+
+    def test_keys_row_shows_speed_and_follow(self):
+        row = "".join(t for t, _ in view.sim_keys_legend(self.p, True))
+        for entry in ("< > event", ", . frame", "- + speed 2 frames/s", "w follow:on"):
+            self.assertIn(entry, row)
+        self.assertIn("w follow:off", "".join(t for t, _ in view.sim_keys_legend(self.p, False)))
+
+
+class TestFollow(_Doc):
+    def test_follow_origin_moves_the_least(self):
+        self.assertEqual(view.follow_origin(0, 5, 3, 20), 0)        # already in view
+        self.assertEqual(view.follow_origin(0, 30, 3, 20), 15)      # below: just enough
+        self.assertEqual(view.follow_origin(40, 30, 3, 20), 28)     # above: margin kept
+        self.assertEqual(view.follow_origin(0, 30, 40, 20), 30)     # bigger than the view
+
+    def test_focus_in_every_view(self):
+        g = parse(CHECKOUT)
+        p = view.SimPlayer(g, "API.charge:fails")
+        p.step(6)                                       # a token on [API] -> [Payments]
+        for v in view.VIEWS:
+            with self.subTest(view=v):
+                events = view.DEFAULT_EVENTS[v]
+                trace = p.shown(view.scene.SceneOptions(events, True, False, 1))
+                kw = dict(depth=1, payloads=False, notes="off", triggers=True, spaced=True,
+                          width=None, access=False, mods=False, events=events)
+                rows, _w = view.compose_view(g, v, trace=trace, tick=p.at, **kw)
+                x, y, w, h = view.sim_focus(g, v, trace=trace, tick=p.at, **kw)
+                cells = "".join(plain(rows)[y + k][x:x + w] for k in range(h))
+                self.assertIn("●", cells)
+
+    def test_the_view_follows_the_run_down_a_tall_drawing(self):
+        st = self.state(EXECUTIONS, sim="happy")
+        st.frame(100, 30)
+        top = st.sy
+        for _ in range(30):
+            st.key(">")
+        st.frame(100, 30)
+        self.assertGreater(st.sy, top)
+        box = view.sim_focus(st.graph, st.view, depth=st.depth, payloads=st.payloads,
+                             notes=st.notes, triggers=True, spaced=True, width=100,
+                             access=False, mods=False, events=st.events_mode,
+                             trace=st.sim_trace(), tick=st.player.at)
+        self.assertTrue(st.sy <= box[1] < st.sy + st._vh)
+
+    def test_w_turns_following_off(self):
+        st = self.state(EXECUTIONS, sim="happy")
+        st.frame(100, 30)
+        top = st.sy
+        st.key("w")
+        self.assertFalse(st.follow)
+        for _ in range(30):
+            st.key(">")
+        st.frame(100, 30)
+        self.assertEqual(st.sy, top)
+        self.assertIn("w follow:off", "\n".join(plain(st.frame(160, 40))))
+
+    def test_panning_holds_between_frames(self):
+        st = self.state(EXECUTIONS, sim="happy")
+        for _ in range(30):
+            st.key(">")
+        st.frame(100, 30)
+        st.key("up")
+        st.key("up")
+        held = st.sy
+        st.frame(100, 30)                               # the same frame: no follow
+        self.assertEqual(st.sy, held)
 
 
 if __name__ == "__main__":

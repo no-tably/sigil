@@ -1272,7 +1272,7 @@ def _landed_tags(scn) -> dict:
 # (_Probe), and the marked cells are read back out of the rows.
 # ---------------------------------------------------------------------------
 
-_STATE_RANK = {"inactive": 0, "plain": 1, "active": 2, "failed": 3}
+_STATE_RANK = {"inactive": 0, "trail": 1, "active": 2, "failed": 3}
 _STATUS_LOOK = {"active": "active", "waiting": "plain", "visited": "plain",
                 "opaque": "plain", "failed": "failed", "cancelled": "muted"}
 TOKEN_MARK = {"out": "●", "back": "○", "failed": "✕", "cancelled": "⊘"}
@@ -1281,7 +1281,7 @@ TOKEN_MARK = {"out": "●", "back": "○", "failed": "✕", "cancelled": "⊘"}
 class SimLook(NamedTuple):
     """One sim frame as the graph view draws it (sim_look)."""
     styles: dict    # wire key → stroke style (the state of its busiest wire)
-    states: dict    # wire key → "active" | "plain" | "inactive" | "failed"
+    states: dict    # wire key → "active" | "trail" | "inactive" | "failed"
     tokens: tuple   # _Token, task order (a later one drawn over an earlier)
     looks: dict     # node id → "active" | "plain" | "failed" | "muted"
     badges: dict    # node id → runs after its label, padded to its slot
@@ -1289,19 +1289,7 @@ class SimLook(NamedTuple):
     probe: frozenset = frozenset()  # node ids whose borders are _Probe styles (sim_focus)
 
 
-class _Probe(tuple):
-    """A style that draws exactly like the (fg, bg, bold) it wraps but equals
-    only another _Probe, so Canvas.rows never merges it into a plain run and
-    the cells drawn in it can be found in the finished rows (_probed_box)."""
-    __slots__ = ()
-
-    def __eq__(self, other):
-        return isinstance(other, _Probe) and tuple.__eq__(self, other)
-
-    def __ne__(self, other):
-        return not self == other
-
-    __hash__ = tuple.__hash__
+_Probe = kit.Probe          # (kept under its old name: tests and callers use it)
 
 
 class _Token(NamedTuple):
@@ -1348,12 +1336,12 @@ def _stage(scn) -> _Stage:
 
 def wire_state(frame, ident: tuple) -> str:
     """A wire's state in a frame: "failed" (a route taken, a call that
-    failed), "active" (lit), "plain" (taken before), else "inactive"."""
+    failed), "active" (lit), "trail" (taken before), else "inactive"."""
     if ident in frame.failed:
         return "failed"
     if ident in frame.lit:
         return "active"
-    return "plain" if ident in frame.taken else "inactive"
+    return "trail" if ident in frame.taken else "inactive"
 
 
 def _key_states(scn, frame) -> dict:
@@ -1656,19 +1644,7 @@ def sim_focus(g, depth: int, payloads: bool, notes: str = "off", triggers: bool 
     return _probed_box(rows)
 
 
-def _probed_box(rows) -> Optional[tuple]:
-    """(x, y, w, h) around every cell drawn in a _Probe style; None: none."""
-    cells = []
-    for y, row in enumerate(rows):
-        x = 0
-        for text, style in row:
-            if isinstance(style, _Probe) and text:
-                cells += [(x, y), (x + len(text) - 1, y)]
-            x += len(text)
-    if not cells:
-        return None
-    xs, ys = [x for x, _y in cells], [y for _x, y in cells]
-    return min(xs), min(ys), max(xs) - min(xs) + 1, max(ys) - min(ys) + 1
+_probed_box = kit.probed_box
 
 
 def _compose(g, depth, payloads, notes, triggers, width, access, mods, events,

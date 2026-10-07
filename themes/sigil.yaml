@@ -105,6 +105,9 @@ ui:
   note_inline: $sky       # a comment trailing a statement
   name_saturation: "0.4"  # a glyph's name: its kind's colour at this fraction of the
                           #   saturation (the brackets keep the full colour)
+  sim_trail: "0.6"        # a sim run: a wire taken before, its colour kept this far over bg
+  sim_faint: "0.4"        #   a wire never taken, its muted colour kept this far over bg
+                          #   (the wire it is on now: full colour, bold)
   bar_fg: $fg
   bar_bg: $surface
   bar_name: $bright

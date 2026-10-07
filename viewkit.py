@@ -95,6 +95,7 @@ _BUILTIN_THEME = {
            "relation": "#5abea0", "label": "#5abea0", "title": "#c9d1d9",
            "payload": "#8b949e", "note": "#8b949e", "note_tag": "#6e7681",
            "note_block": "#8b7aad", "note_inline": "#a5d6ff", "name_saturation": "0.4",
+           "sim_trail": "0.6", "sim_faint": "0.4",
            "bar_fg": "#c9d1d9", "bar_bg": "#161b22", "bar_name": "#e6edf3",
            "key_fg": "#e6edf3", "key_bg": "#30363d",
            "error": "#f85149", "warn": "#ffbf47", "ok": "#3fb950", "fill": "0.22",
@@ -142,6 +143,27 @@ def muted(colour: "Colour") -> "Colour":
     return _MUTED[key]
 
 
+_FADED: dict = {}
+
+
+def faded(colour: "Colour", k: float, kind: str) -> "Colour":
+    """A colour mixed toward the background, keeping fraction `k` of it — a sim
+    overlay's rank: "trail" (a wire taken before, ui.sim_trail) the colour,
+    "faint" (never taken, ui.sim_faint) its muted() colour. Its role,
+    "<kind>:<role>", lets the page do the same. Raises ValueError for another kind."""
+    if kind not in ("trail", "faint"):
+        raise ValueError(f"kind must be trail or faint, not {kind!r}")
+    role = getattr(colour, "role", "")
+    base = muted(colour) if kind == "faint" else colour
+    key = (str(base), role, kind, k, str(BG))
+    if key not in _FADED:
+        fg = [int(base[i:i + 2], 16) for i in (1, 3, 5)]
+        bg = [int(BG[i:i + 2], 16) for i in (1, 3, 5)]
+        mixed = "#%02x%02x%02x" % tuple(round(b + (f - b) * k) for f, b in zip(fg, bg))
+        _FADED[key] = Colour(mixed, f"{kind}:{role}" if role else "")
+    return _FADED[key]
+
+
 def _theme_styles(t: dict) -> dict:
     """Every themed module-level style, by name, from a theme merged over the
     built-ins (apply_theme binds them). A value that isn't a colour (or a fill
@@ -179,6 +201,8 @@ def _theme_styles(t: dict) -> dict:
                    for role in _BUILTIN_THEME["syntax"]},
         "NAME_SATURATION": _fraction(t["ui"].get("name_saturation"),
                                      _BUILTIN_THEME["ui"]["name_saturation"]),
+        "SIM_TRAIL": _fraction(t["ui"].get("sim_trail"), _BUILTIN_THEME["ui"]["sim_trail"]),
+        "SIM_FAINT": _fraction(t["ui"].get("sim_faint"), _BUILTIN_THEME["ui"]["sim_faint"]),
         "FRAME_STYLE": (pick("ui", "frame"), None, False),          # block frames / brackets
         "SECTION_STYLE": (pick("ui", "section"), None, False),      # `--- section ---` rules
         "MODE_STYLE": (pick("ui", "mode"), bar_bg, True),           # `#!sketch` in the bar
@@ -363,6 +387,44 @@ def _stroke(kind: str) -> str:
     return {"=>": "heavy", "*>": "double", "~>": "dashed", "trigger": "hdash",
             "?>": "dotted", "]>[": "dotted", "arm": "dotted",
             "access": "dotted"}.get(_base_kind(kind), "light")
+
+
+class Probe(tuple):
+    """A style that draws exactly like the (fg, bg, bold) it wraps but equals
+    only another Probe, so Canvas.rows never merges it into a plain run and
+    the cells drawn in it can be found in the finished rows (probed_box): a
+    view's sim focus — where a frame's action is — read back out of a drawing
+    made with its tokens and active nodes in Probe styles."""
+    __slots__ = ()
+
+    def __eq__(self, other):
+        return isinstance(other, Probe) and tuple.__eq__(self, other)
+
+    def __ne__(self, other):
+        return not self == other
+
+    __hash__ = tuple.__hash__
+
+
+def probed(runs: list) -> list:
+    """runs with every style a Probe (an unstyled run a plain-text Probe)."""
+    return [(text, Probe(style if style is not None else (None, None, False)))
+            for text, style in runs]
+
+
+def probed_box(rows) -> tuple | None:
+    """(x, y, w, h) around every cell drawn in a Probe style; None: none."""
+    cells = []
+    for y, row in enumerate(rows):
+        x = 0
+        for text, style in row:
+            if isinstance(style, Probe) and text:
+                cells += [(x, y), (x + len(text) - 1, y)]
+            x += len(text)
+    if not cells:
+        return None
+    xs, ys = [x for x, _y in cells], [y for _x, y in cells]
+    return min(xs), min(ys), max(xs) - min(xs) + 1, max(ys) - min(ys) + 1
 
 
 class Canvas:

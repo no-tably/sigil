@@ -326,7 +326,11 @@ class ColourPolicy(unittest.TestCase):
         base = scene.colour_of("kinds-service")
         self.assertEqual(scene.wire_style(w), (base, None, False))
         self.assertEqual(scene.wire_style(w, "active"), (base, None, True))
-        self.assertEqual(scene.wire_style(w, "inactive"), (kit.muted(base), None, False))
+        # a run's ranks: bright (active) > trail (taken before) > faint (never taken)
+        self.assertEqual(scene.wire_style(w, "inactive"),
+                         (kit.faded(base, kit.SIM_FAINT, "faint"), None, False))
+        self.assertEqual(scene.wire_style(w, "trail"),
+                         (kit.faded(base, kit.SIM_TRAIL, "trail"), None, False))
         self.assertEqual(scene.wire_style(w, "failed"), (scene.colour_of("edges-fail"), None, True))
         with self.assertRaises(ValueError):
             scene.wire_style(w, "lit")

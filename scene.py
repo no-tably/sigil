@@ -187,7 +187,7 @@ kit = _sibling("sigil_viewkit", "viewkit.py")
 
 ROLES = ("flow", "emit", "trigger", "access", "arm", "compose")
 EVENTS = ("land", "nodes")          # an event drawn where it lands, or as a node
-STATES = ("plain", "active", "inactive", "failed")     # wire_style overlays
+STATES = ("plain", "active", "trail", "inactive", "failed")     # wire_style overlays
 ANY_UNIT = object()     # a `unit` filter's default: the wires of every unit
 
 
@@ -1050,13 +1050,18 @@ def colour_of(role: str):
 
 def wire_style(w: Wire, state: str = "plain"):
     """The (fg, bg, bold) style a wire's stroke and head are drawn in. A
-    simulation overlay: "active" full colour and bold, "inactive" muted,
-    "failed" edges-fail and bold. Raises ValueError for an unknown state."""
+    simulation overlay ranks a run's wires bright > trail > faint: "active" (a
+    token on it now) full colour and bold, "trail" (taken before) the colour
+    faded to ui.sim_trail, "inactive" (never taken) the muted colour faded to
+    ui.sim_faint; "failed" edges-fail and bold. Raises ValueError for an
+    unknown state."""
     if state not in STATES:
         raise ValueError(f"state must be one of {', '.join(STATES)}, not {state!r}")
     if state == "failed":
         return (colour_of("edges-fail"), None, True)
     colour = colour_of(w.colour)
     if state == "inactive":
-        return (kit.muted(colour), None, False)
+        return (kit.faded(colour, kit.SIM_FAINT, "faint"), None, False)
+    if state == "trail":
+        return (kit.faded(colour, kit.SIM_TRAIL, "trail"), None, False)
     return (colour, None, state == "active")

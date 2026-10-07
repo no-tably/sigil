@@ -212,14 +212,16 @@ class Lanes(unittest.TestCase):
         style = self.lane_style(0, "(User)", "[API]")
         self.assertEqual(style, (kit.kind_color("actor"), None, True))
 
-    def test_never_taken_lane_muted(self):
+    def test_never_taken_lane_faint(self):
         self.assertEqual(self.lane_style(0, "[API]", "|DB|"),
-                         (kit.muted(kit.kind_color("service")), None, False))
+                         (kit.faded(kit.kind_color("service"), kit.SIM_FAINT, "faint"),
+                          None, False))
 
-    def test_taken_lane_back_to_the_policy_colour(self):
+    def test_taken_lane_in_the_trail_colour(self):
         last = len(self.trace.frames) - 1
         self.assertEqual(self.lane_style(last, "(User)", "[API]"),
-                         (kit.kind_color("actor"), None, False))
+                         (kit.faded(kit.kind_color("actor"), kit.SIM_TRAIL, "trail"),
+                          None, False))
 
     def test_failure_route_in_fail_colour(self):
         name = next(s.name for s in sim.scenarios(scene.build_scene(self.g)) if s.name != "happy")
@@ -319,7 +321,7 @@ class Legend(unittest.TestCase):
         text = "".join(t for t, _ in rows[-1])
         for mark in ("▸ active", "… waiting", "✕ failed", "⊘ cancelled", "◉ current state",
                      "● out", "○ return / fallback", "×n instances", "↻k recursion",
-                     "─ lit", "─ untouched (muted)"):
+                     "─ now", "─ taken (trail)", "─ untouched (faint)"):
             self.assertIn(mark, text)
 
     def test_words_shared_with_the_graph_views_row(self):

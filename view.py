@@ -52,14 +52,18 @@ Options:
                      default), a scenario's name (an unknown one lists them all),
                      or `a+b` to combine two. With --once: the final frame of the
                      run drawn over the view, the sim legend, then the outcome and
-                     the run's log. Live: start in sim mode on that scenario.
+                     the run in plain words, one `tNNN …` line per step (sim.narrate).
+                     Live: start in sim mode on that scenario.
                      `list`: the scenarios, one a line with its label. `all`: run
                      every scenario and print, with no drawing, a line per run —
                      name, outcome, frames, label — then its facts (machines' end
                      states, what failed, routes taken, ignored events, nodes left
                      waiting, open joins, bounds hit) and a summary line; diff
                      two versions' tables to see what changed. Exit status 0.
-    --json           With --sim list / all: the same as JSON.
+    --json           With --sim list / all: the same as JSON. With a scenario: that
+                     run as JSON, no drawing — its facts (as --sim all lists them),
+                     "steps" (the run in plain words: frame, tick, text) and "log"
+                     (the simulator's own lines).
     --checks         The composition checks overlay (check.py, the document's mode):
                      with --once, the findings marked on the drawing, the checks
                      legend, then the findings list (each finding's question) after
@@ -77,10 +81,12 @@ Keys (live view):
     arrows / h j k L pan   pgup / pgdn / space page   g home   z  re-centre   q  quit
     mouse: drag to pan; wheel scrolls (shift+wheel or a sideways wheel: across)
     x  sim mode: play the chosen scenario's run over the drawing (every view plays
-       the same run). In sim mode: space play / pause   , .  step back / on
+       the same run). In sim mode: space play / pause   , .  a frame back / on
+       < >  the previous / next event (a frame where something happens)
        [ ]  previous / next scenario (named in the status bar; which of how many
-       and what it is in the sim keys row)   - +  speed (frames a second; a slow
-       drawing skips frames to keep the pace)
+       and what it is in the sim keys row)   - +  speed (¼ ½ 1 2 4 … 32 frames a
+       second, starting at 2; a slow drawing skips frames to keep the pace)
+       w  follow: pan to keep the run's tokens and active nodes in view (on)
 
 Zero dependencies: python3 standard library only. The graph comes from
 render.parse_document (the same parse render.py turns into Mermaid), laid out
@@ -138,13 +144,19 @@ hangs on a stub under its subject (╰─● ┆ ↺ plan() ┆). Expansions and
 machines are parts under the document's; control blocks are not framed.
 
 Simulation (x, --sim): the run's tokens travel the drawn wires — ● out (bold,
-in the wire's colour), ○ a return or fallback, ✕ a failure (edges.fail), a muted
-⊘ cancelled; lit wires in full colour, untouched boxes and wires muted; a node
-running is bold (▸ in the tree); after a label … waiting, ✕ failed, ×n spawned
-instances, ↻k recursion depth, `◉ State` on a machine's owner when the machine
-is not drawn; ◉ before a drawn machine's current state. The status bar shows
-`sim <scenario> ▶ <speed> · t<tick>/<last> · episode <k>: <entry>` (the outcome
-on the last frame) and the bottom row the run's latest log line.
+in the wire's colour), ○ a return or fallback, ✕ a failure (edges.fail), a faint
+⊘ cancelled. Wires rank bright > trail > faint: the one a token is on now in
+full colour and bold, those taken before faded (ui.sim_trail), those never
+taken fainter (ui.sim_faint); untouched boxes muted; a node running is bold (▸
+in the tree); after a label … waiting, ✕ failed, ×n spawned instances, ↻k
+recursion depth, `◉ State` on a machine's owner when the machine is not drawn;
+◉ before a drawn machine's current state. The status bar shows `sim <scenario>
+▶ <speed> · t<tick>/<last> · episode <k>: <entry>` (the outcome on the last
+frame). Under the footer, in words a mono terminal reads as well: `trail` and
+the hops of the episode so far in notation (`(Shopper) -> [API] -> [Payments]
+×4 · [API] !> <PaymentFailed>`), the last few events dim, and the narration
+line after `›` — what is happening now in plain words (`[API] calls [Payments]
+with charge(total) — attempt 2 of 4`), held while a token travels.
 
 Checks (c, --checks): check.py's findings, as the document's mode shows them,
 marked on the drawing in the theme's ui.error / ui.warn colours — a box's
@@ -343,18 +355,29 @@ def keys_legend(state):
     return row
 
 
-SIM_KEYS = (("space", "play/pause"), (", .", "step"), ("[ ]", "scenario"), ("- +", "speed"))
+SIM_KEYS = (("space", "play/pause"), (", .", "frame"), ("< >", "event"), ("[ ]", "scenario"),
+            ("- +", "speed"), ("w", "follow"))
 
 
-def sim_keys_legend(player=None):
+def sim_keys_legend(player=None, follow: bool | None = None):
     """The sim-mode hotkeys row (shown while sim mode is on); with a SimPlayer, the
     scenario entry says which of how many is chosen and what it is
-    (`[ ] scenario 2/14 · Auth fails → Unauthorized`)."""
+    (`[ ] scenario 2/14 · Auth fails → Unauthorized`) and the speed entry the
+    speed (`- + speed 2 frames/s`); `follow`: the follow toggle's state
+    (`w follow:on`), bright while on."""
+    mid = (kit.GREY["mid"], None, False)
     row = [("sim    ", (kit.GREY["dim"], None, False))]
     for key, word in SIM_KEYS:
+        style = mid
         if key == "[ ]" and player is not None:
             word = player.choice()
-        row += [(key, kit.KEY_STYLE), (f" {word}  ", (kit.GREY["mid"], None, False))]
+        elif key == "- +" and player is not None:
+            word = f"speed {speed_text(player.fps)}"
+            style = (kit.GREY["light"], None, True)
+        elif key == "w" and follow is not None:
+            word = f"follow:{'on' if follow else 'off'}"
+            style = (kit.GREY["light"], None, True) if follow else mid
+        row += [(key, kit.KEY_STYLE), (f" {word}  ", style)]
     return row
 
 
@@ -364,20 +387,22 @@ def sim_legend(tree: bool = False) -> list:
     fallback, ✕ failed, a muted ⊘ cancelled — view_graph.sim_look, which the flow
     view draws with too, and view_tree's lanes draw them alike; a failed node's
     badge shares the token's ✕ and its meaning, so it is listed once, here), wires
-    lit or untouched, the other badges after a label (… waiting, ×n, ↻k) and the
+    now, taken before (the trail) or untouched, the other badges after a label (… waiting, ×n, ↻k) and the
     drawn machine's current state. `tree`: adds the tree view's own entry, `▸` an
     active row."""
     dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
     wire = (kit.EDGE_DEFAULT, None, True)
-    quiet = (kit.muted(kit.EDGE_DEFAULT), None, False)
+    trail = (kit.faded(kit.EDGE_DEFAULT, kit.SIM_TRAIL, "trail"), None, False)
+    faint = (kit.faded(kit.EDGE_DEFAULT, kit.SIM_FAINT, "faint"), None, False)
     fail = (scene.colour_of("edges-fail"), None, True)
     light = (kit.GREY["light"], None, False)
     state = (kit.kind_color("state"), None, True)
     active = [("▸", (kit.GREY["light"], None, True)), (" active  ", mid)] if tree else []
     return ([("run    ", dim),
              ("●", wire), (" out  ", mid), ("○", wire), (" return / fallback  ", mid),
-             ("✕", fail), (" failed  ", mid), (vtree.CANCELLED_MARK, quiet), (" cancelled  ", mid),
-             ("─", wire), (" lit  ", mid), ("─", quiet), (" untouched (muted)  ", mid)]
+             ("✕", fail), (" failed  ", mid), (vtree.CANCELLED_MARK, faint), (" cancelled  ", mid),
+             ("─", wire), (" now  ", mid), ("─", trail), (" taken (trail)  ", mid),
+             ("─", faint), (" untouched (faint)  ", mid)]
             + active
             + [("…", light), (" waiting  ", mid),
                ("×n", light), (" instances  ", mid), ("↻k", light), (" recursion  ", mid),
@@ -390,9 +415,18 @@ def sim_legend(tree: bool = False) -> list:
 # running; the views draw a Frame). Pure: the clock comes in as `now`.
 # ---------------------------------------------------------------------------
 
-SIM_KEY_NAMES = (" ", ",", ".", "[", "]", "-", "+", "=")   # = is + without shift
-SIM_SPEEDS = (1, 2, 4, 8, 16, 32)               # frames per second, - / + steps
-SIM_SPEED = 3                                   # the starting speed: 8 frames a second
+SIM_KEY_NAMES = (" ", ",", ".", "<", ">", "[", "]", "-", "+", "=", "w")   # = is + without shift
+SIM_SPEEDS = (0.25, 0.5, 1, 2, 4, 8, 16, 32)   # frames per second, - / + steps
+SIM_SPEED = 3                                   # the starting speed: 2 frames a second (a hop
+                                                # of Limits.hop = 4 ticks takes 2 s)
+SIM_LOG_ROWS = 3                                # the recent events above the narration line
+_FRACTIONS = {0.25: "¼", 0.5: "½"}
+
+
+def speed_text(fps: float) -> str:
+    """A speed as the status bar writes it: `2 frames/s`, `½ frame/s`, `1 frame/s`."""
+    n = _FRACTIONS.get(fps, f"{fps:g}")
+    return f"{n} frame{'s' if fps > 1 else ''}/s"
 
 
 class UnknownScenario(LookupError):
@@ -433,6 +467,22 @@ class SimPlayer:
                                         limits=self.limits)
         self.at = 0
         self._shown = {}                # SceneOptions → the trace projected onto them
+        self._beats = self._hops = None  # sim.narrate / sim.hops of the run, when first asked
+
+    @property
+    def beats(self) -> tuple:
+        """The run in plain words (sim.narrate): a Beat per frame where something
+        happens."""
+        if self._beats is None:
+            self._beats = simulator.narrate(self.trace)
+        return self._beats
+
+    @property
+    def hops(self) -> tuple:
+        """Every hop the run sets out on (sim.hops), for the trail."""
+        if self._hops is None:
+            self._hops = simulator.hops(self.trace)
+        return self._hops
 
     @property
     def scenario(self):
@@ -469,6 +519,19 @@ class SimPlayer:
         changed, self.at = at != self.at, at
         return changed
 
+    def step_event(self, delta: int) -> bool:
+        """Pause and move to the next (+1) / previous (-1) frame where something
+        happens (a beat); past the last beat: the final frame, before the first:
+        the first frame."""
+        self.playing = False
+        frames = [b.frame for b in self.beats]
+        if delta > 0:
+            at = next((k for k in frames if k > self.at), self.last)
+        else:
+            at = next((k for k in reversed(frames) if k < self.at), 0)
+        changed, self.at = at != self.at, at
+        return changed
+
     def toggle(self, now: float) -> bool:
         """Play / pause; playing from the final frame starts the run over."""
         self.playing = not self.playing
@@ -481,6 +544,11 @@ class SimPlayer:
     def faster(self, delta: int) -> None:
         """Speed up (+1) / slow down (-1) a step, clamped to SIM_SPEEDS."""
         self.speed = max(0, min(self.speed + delta, len(SIM_SPEEDS) - 1))
+
+    @property
+    def fps(self) -> float:
+        """The speed: frames a second."""
+        return SIM_SPEEDS[self.speed]
 
     @property
     def interval(self) -> float:
@@ -523,7 +591,7 @@ class SimPlayer:
         then the outcome on the final frame."""
         f = self.trace.frames[self.at]
         mark = "▶" if self.playing else "❚❚"
-        text = (f"sim {self.scenario.name} {mark} {SIM_SPEEDS[self.speed]}/s · "
+        text = (f"sim {self.scenario.name} {mark} {speed_text(self.fps)} · "
                 f"t{f.tick}/{self.trace.frames[-1].tick}")
         if f.entry is not None:
             text += f" · episode {f.episode}: {self.node_name(f.entry)}"
@@ -538,14 +606,75 @@ class SimPlayer:
         """The run's latest log line at the shown frame ("" before any)."""
         return next((f.log[-1] for f in reversed(self.trace.frames[:self.at + 1]) if f.log), "")
 
+    def told(self) -> list:
+        """The beats up to the shown frame, oldest first."""
+        return [b for b in self.beats if b.frame <= self.at]
+
+    def narration(self) -> str:
+        """The latest beat at or before the shown frame, as `tNNN text` ("" before
+        any): what is happening, in plain words, while a token travels."""
+        told = self.told()
+        return beat_line(told[-1]) if told else ""
+
+    def trail(self) -> str:
+        """The hops the shown frame's episode has taken so far, in notation
+        (sim_trail)."""
+        f = self.trace.frames[self.at]
+        start = next((k for k in range(self.at, -1, -1)
+                      if self.trace.frames[k].episode != f.episode), -1) + 1
+        return sim_trail([h for h in self.hops if start <= h.frame <= self.at],
+                         self.node_name)
+
+
+TRAIL_ARROW = {"trigger": "⇢", "arm": "◇"}       # hops with no arrow of their own
+
+
+def beat_line(beat) -> str:
+    """A sim.Beat as one line: `tNNN [API] calls [Payments] with charge(total)`,
+    the tick zero-padded as the log pads it."""
+    return f"t{beat.tick:03} {beat.text}"
+
+
+def sim_trail(hops: list, name) -> str:
+    """Hops (sim.Hop, in order) written as the trail row: each hop that goes on
+    from where the last one arrived continues the chain (`(Shopper) -> [API] ->
+    [Payments]`), any other starts a new segment after ` · `; a hop repeated
+    straight after itself (a retry) counts `×n`. name(node id) -> text."""
+    parts, last, prev = [], None, None
+    for h in hops:
+        if prev is not None and (h.src, h.kind, h.dst) == prev:
+            k = parts[-1][1] + 1
+            parts[-1] = (parts[-1][0], k)
+            continue
+        text = f"{TRAIL_ARROW.get(h.kind, h.kind)} {name(h.dst)}"
+        if h.src != last:
+            text = (" · " if parts else "") + f"{name(h.src)} {text}"
+        else:
+            text = " " + text
+        parts.append((text, 1))
+        last, prev = h.dst, (h.src, h.kind, h.dst)
+    return "".join(t + (f" ×{k}" if k > 1 else "") for t, k in parts)
+
 
 def sim_report(player: SimPlayer) -> list[str]:
     """The text --once --sim prints under the drawing: the scenario, its outcome
-    and length, then the run's whole log."""
+    and length, the simulator's reading conventions, then the run in plain
+    words — one `tNNN …` line per beat (sim.narrate). The raw log is in --json."""
     sc, trace = player.scenario, player.trace
     head = f"sim {sc.name}" + (f" ({sc.label})" if sc.label else "")
     head += f": {trace.outcome} · {len(trace.frames)} frames"
-    return [head] + list(trace.end["log"])
+    conventions = simulator.Beat(0, 0, simulator.CONVENTIONS)
+    return [head, beat_line(conventions)] + [beat_line(b) for b in player.beats]
+
+
+def sim_run(player: SimPlayer, limits=None) -> dict:
+    """One run as --sim NAME --json prints it: its facts (sim_facts), then
+    "steps" — the run in plain words, [{frame, tick, text}] (sim.narrate) — and
+    "log", the simulator's own log lines."""
+    out = sim_facts(player.trace, limits)
+    out["steps"] = [b._asdict() for b in player.beats]
+    out["log"] = list(player.trace.end["log"])
+    return out
 
 
 # -- every scenario at once (--sim list / --sim all): text an agent reads and
@@ -721,6 +850,16 @@ def sim_batch(path: Path, mode: str, dialect=None, as_json: bool = False,
         text = (json.dumps({"scenarios": facts, "summary": sim_summary(facts)}, indent=2,
                            ensure_ascii=False) if as_json else "\n".join(sim_table(facts)))
     print(text)
+    return 0
+
+
+def sim_json(path: Path, name: str, dialect=None, limits=None) -> int:
+    """--sim NAME --json: print one run (sim_run) as JSON; no drawing, no lint.
+    Exit status 0; raises UnknownScenario for an unknown name."""
+    kit.use_dialect(dialect)
+    g = kit._call(kit.render.parse_document, path.read_text(), dialect)
+    player = SimPlayer(g, name, limits)
+    print(json.dumps(sim_run(player, limits), indent=2, ensure_ascii=False))
     return 0
 
 
@@ -912,6 +1051,26 @@ def compose_view(g, view, *, depth: int, payloads: bool, notes: str, triggers: b
                           trace=trace, tick=tick, checks=checks)
 
 
+def sim_focus(g, view, *, depth: int, payloads: bool, notes: str, triggers: bool,
+              spaced: bool, width: int | None, access: bool, mods: bool, events: str,
+              trace, tick: int):
+    """(x, y, w, h): the cells of compose_view's rows (same arguments) where frame
+    `tick` of `trace` acts — its tokens and the nodes it has active — in any
+    view; None when the frame has nothing drawn in motion. Draws the frame once
+    more with those in kit.Probe styles and reads them back (kit.probed_box)."""
+    view = view_name(view)
+    if view == "graph":
+        return vgraph.sim_focus(g, depth, payloads, notes, triggers, width, access, mods,
+                                events, trace=trace, tick=tick)
+    if view == "tree":
+        rows, _w = vtree.compose_tree(g, depth, triggers, spaced, notes, payloads, width,
+                                      access, mods, events, trace=trace, tick=tick, probe=True)
+    else:
+        rows, _w = vflow.compose_flow(g, depth, payloads, notes, triggers, width, access, mods,
+                                      events, trace=trace, tick=tick, probe=True)
+    return kit.probed_box(rows)
+
+
 def once(path: Path, depth: int, payloads: bool, do_lint: bool,
          dialect=None, colour: bool = False, tree: bool = False,
          triggers: bool = True, spaced: bool = True, notes: str = "off",
@@ -1092,6 +1251,8 @@ class ViewState:
         self.player = None             # SimPlayer, made on the first sim mode with a graph
         self.sim_error = None          # why the simulator could not run (a footer row)
         self._sim_name = sim           # the scenario that player starts on
+        self.follow = True             # w: pan to keep the run's focus in view
+        self._followed = None          # what the last follow panned for (see _follow)
         self.show_checks = checks      # c: the checks overlay and its panel
         self.checks = None             # ChecksOverlay of the current text (made while on)
         self.check_error = None        # why the checker could not run (a footer row)
@@ -1324,6 +1485,12 @@ class ViewState:
             changed = p.toggle(now)
         elif k in (",", "."):
             changed = p.step(1 if k == "." else -1)
+        elif k in ("<", ">"):
+            changed = p.step_event(1 if k == ">" else -1)
+        elif k == "w":
+            self.follow = not self.follow
+            self._followed = None
+            changed = False
         elif k in ("[", "]"):
             changed = p.choose(1 if k == "]" else -1)
         else:
@@ -1406,11 +1573,12 @@ class ViewState:
                                           self.show_mods, self.events_mode)]
         legend += [sim_legend(self.tree)] if self.sim_on else []
         legend += [checks_legend()] if self.show_checks else []
-        keys = [keys_legend(self)] + ([sim_keys_legend(self.player)] if self.sim_on else [])
+        keys = [keys_legend(self)] + ([sim_keys_legend(self.player, self.follow)]
+                                      if self.sim_on else [])
         rows[0:0] = [ln for r in legend + keys for ln in wrap_legend(r, cols)]
         rows.insert(0, self._legend_rule(cols))
         if self.sim_on and self.player is not None:
-            rows.append([(self.player.log_line(), (kit.GREY["light"], None, False))])
+            rows += sim_story_rows(self.player, cols)
         return [kit.clip(r, 0, cols) for r in rows]
 
     def _legend_rule(self, cols: int):
@@ -1446,6 +1614,33 @@ class ViewState:
                                                   kit.BAR_STYLE[1], True)))
         return kit.clip(left + [(" " * max(cols - kit.row_len(left), 0), kit.BAR_STYLE)], 0, cols)
 
+    def _follow(self, cols: int, vh: int) -> bool:
+        """Following a run (sim mode, w on): when the shown frame (or the view,
+        size or placing) changed since the last follow, pan the least that brings
+        the frame's focus (sim_focus) inside the viewport; between frames the
+        origin is the reader's to pan. Returns True when it moved the origin."""
+        if not (self.sim_on and self.follow and self.player is not None):
+            return False
+        key = (self.player.index, self.player.at, self.view, self.fit, cols, vh, self.depth)
+        if key == self._followed:
+            return False
+        self._followed = key
+        try:
+            box = sim_focus(self.graph, self.view, depth=self.depth, payloads=self.payloads,
+                            notes=self.notes, triggers=self.show_triggers, spaced=self.spaced,
+                            width=cols if self.fit else None, access=self.show_access,
+                            mods=self.show_mods, events=self.events_mode,
+                            trace=self.sim_trace(), tick=self.player.at)
+        except Exception:              # following is a nicety: never break the frame
+            return False
+        if box is None:
+            return False
+        x, y, w, h = box
+        origin = (self.sx, self.sy)
+        self.sx = follow_origin(self.sx, x, w, cols)
+        self.sy = follow_origin(self.sy, y, h, vh)
+        return (self.sx, self.sy) != origin
+
     def frame(self, cols: int, rows: int):
         """Exactly `rows` rows of styled runs for a cols×rows terminal: the status bar,
         the drawing, the footer. Fitted (self.fit): the drawing rearranged to fit
@@ -1462,7 +1657,42 @@ class ViewState:
         self.sx = place(W, cols, self.sx, self.fit, self._place)
         self.sy = place(H, vh, self.sy, self.fit, self._place)
         self._place = None
+        if self.graph is not None and self._follow(cols, vh):
+            self.sx = place(W, cols, self.sx, self.fit, None)
+            self.sy = place(H, vh, self.sy, self.fit, None)
         return ([self._bar(cols)] + viewport(body, self.sx, self.sy, cols, vh) + footer)[:rows]
+
+
+def sim_story_rows(player: SimPlayer, cols: int) -> list:
+    """The rows under the footer in sim mode: `trail` and the hops of the shown
+    episode so far (sim_trail; cut from the left to fit), the SIM_LOG_ROWS beats
+    before the current one (dim), then the current one after `›` (bright) — the
+    narration line. Mono reads them all; colour only ranks them."""
+    dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
+    trail = player.trail()
+    room = max(cols - len("trail  "), 1)
+    if len(trail) > room:
+        trail = "… " + trail[len(trail) - room + 2:]
+    rows = [[("trail  ", dim), (trail, mid)]]
+    told = player.told()
+    earlier = told[-SIM_LOG_ROWS - 1:-1]
+    rows += [[("  ", None)] for _k in range(SIM_LOG_ROWS - len(earlier))]   # rows hold still
+    rows += [[("  ", None), (beat_line(b), dim)] for b in earlier]
+    now = beat_line(told[-1]) if told else ""
+    rows.append([("› ", (kit.GREY["light"], None, True)), (now, (kit.GREY["light"], None, True))])
+    return rows
+
+
+def follow_origin(origin: int, lo: int, size: int, view: int, margin: int = 2) -> int:
+    """The origin, moved the least that shows cells lo … lo + size - 1 of the
+    drawing with `margin` cells to spare (a span wider than the view: its start)."""
+    if size + 2 * margin >= view:
+        return lo - min(margin, max(view - size, 0) // 2)
+    if lo - margin < origin:
+        return lo - margin
+    if lo + size + margin > origin + view:
+        return lo + size + margin - view
+    return origin
 
 
 def viewport(body, ox: int, oy: int, cols: int, vh: int):
@@ -1647,7 +1877,9 @@ def main(argv=None) -> int:
                     help="raise one simulator bound for --sim (repeatable; e.g. frames=5000, "
                          "depth=5)")
     ap.add_argument("--json", action="store_true",
-                    help="with --sim list / all: print JSON instead of text")
+                    help="with --sim: print JSON instead of text (list / all: the "
+                         "scenarios / every run's facts; a scenario: its facts, the run in "
+                         "plain words and its log; no drawing)")
     ap.add_argument("--checks", action="store_true",
                     help="the composition checks overlay (check.py): findings marked on the "
                          "drawing, listed with their questions (live: start with it on, key c)")
@@ -1675,8 +1907,8 @@ def main(argv=None) -> int:
     except ValueError as exc:
         print(f"view.py: {exc}", file=sys.stderr)
         return 2
-    if a.json and a.sim not in SIM_BATCH:
-        print("view.py: --json needs --sim list or --sim all", file=sys.stderr)
+    if a.json and a.sim is None:
+        print("view.py: --json needs --sim (list, all or a scenario)", file=sys.stderr)
         return 2
     view = "tree" if a.tree else "flow" if a.flow else VIEWS[0]
     batch = a.sim in SIM_BATCH             # never drawn: the same live or --once
@@ -1686,6 +1918,14 @@ def main(argv=None) -> int:
         return 2
     if batch:
         return sim_batch(a.file, a.sim, dialect, a.json, limits)
+    if a.json:                             # one run, no drawing: the same live or --once
+        if not _readable(a.file):
+            return 2
+        try:
+            return sim_json(a.file, a.sim, dialect, limits)
+        except UnknownScenario as exc:
+            print(f"view.py: --sim: {exc}", file=sys.stderr)
+            return 2
     if once_out:
         colour = a.color == "always" or (a.color == "auto" and tty_out)
         width = a.width or (shutil.get_terminal_size().columns if tty_out else ONCE_WIDTH)

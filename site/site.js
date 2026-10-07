@@ -324,14 +324,19 @@
   // ------------------------------------------------------------------ frames
 
   /** A frame colour as CSS: "#hex", a theme role ("kinds-service") or a tinted
-      role ("tint:kinds-service"); anything else is dropped (it goes into <style>). */
+      role derived from one ("tint:", "muted:", "trail:", "faint:" + a role); anything
+      else is dropped (it goes into <style>). */
   function roleCss(role) {
     if (typeof role !== "string") return null;
     if (/^#[0-9a-f]{3,8}$/i.test(role)) return role;
-    const m = role.match(/^(tint:|muted:)?([a-z0-9-]+)$/);
+    const m = role.match(/^(tint:|muted:|trail:|faint:)?([a-z0-9-]+)$/);
     if (!m) return null;
+    const muted = `hsl(from var(--${m[2]}) h calc(s * var(--ui-name-saturation)) l)`;
     if (m[1] === "tint:") return `color-mix(in srgb, var(--${m[2]}) calc(var(--ui-fill) * 100%), var(--palette-bg))`;
-    if (m[1] === "muted:") return `hsl(from var(--${m[2]}) h calc(s * var(--ui-name-saturation)) l)`;
+    if (m[1] === "muted:") return muted;
+    // a sim run's wires: taken before (trail) and never taken (faint), faded toward bg
+    if (m[1] === "trail:") return `color-mix(in srgb, var(--${m[2]}) calc(var(--ui-sim-trail) * 100%), var(--palette-bg))`;
+    if (m[1] === "faint:") return `color-mix(in srgb, ${muted} calc(var(--ui-sim-faint) * 100%), var(--palette-bg))`;
     return `var(--${m[2]})`;
   }
 

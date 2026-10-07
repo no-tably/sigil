@@ -144,10 +144,30 @@ class TestCommandLine(unittest.TestCase):
         res = self.run_view(ORDERS, "--once", "--sim", "list", "--json")
         self.assertEqual([s["name"] for s in json.loads(res.stdout)], ["happy", "Payments:fails"])
 
-    def test_json_needs_list_or_all(self):
-        res = self.run_view(ORDERS, "--once", "--sim", "happy", "--json")
+    def test_json_needs_sim(self):
+        res = self.run_view(ORDERS, "--once", "--json")
         self.assertEqual(res.returncode, 2)
-        self.assertIn("--json needs --sim list or --sim all", res.stderr)
+        self.assertIn("--json needs --sim", res.stderr)
+
+    def test_json_of_one_run(self):
+        """--sim NAME --json: the run's facts, its steps in plain words, its log."""
+        res = self.run_view(ORDERS, "--sim", "Payments:fails", "--json")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        data = json.loads(res.stdout)
+        self.assertEqual(data["name"], "Payments:fails")
+        self.assertEqual(data["outcome"], "failed")
+        self.assertEqual(data["routes"], ["[Payments] !> <Declined>"])
+        texts = [s["text"] for s in data["steps"]]
+        self.assertTrue(texts[0].startswith("episode 1 begins at (Shopper)"))
+        self.assertIn("[Payments] routes the failure to <Declined>", " ".join(texts))
+        self.assertTrue(texts[-1].endswith("the run ends: failed"))
+        self.assertEqual(sorted(data["steps"][0]), ["frame", "text", "tick"])
+        self.assertTrue(data["log"][-1].endswith("done: failed"))
+
+    def test_json_of_an_unknown_run_exits_2(self):
+        res = self.run_view(ORDERS, "--sim", "nope", "--json")
+        self.assertEqual(res.returncode, 2)
+        self.assertIn("unknown scenario nope", res.stderr)
 
 
     def test_limit_raises_a_bound(self):

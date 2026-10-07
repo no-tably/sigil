@@ -61,7 +61,7 @@ All scripts are Python 3 standard library only. Write the document to a file
 | Hierarchy + wiring | `python3 scripts/view.py FILE --once --tree [--compact]` | composition tree as an outline, each flow as a lane (`●` source, `◀` targets) + legend; `--compact` drops the blank row between top-level units |
 | Live view for a human | `python3 scripts/view.py FILE` | full-screen view that redraws on every save (tell the user to run it in their own terminal); keys: `1` `2` `3` graph / flow / tree, `t` the next view, `x` sim mode (in it: space play / pause, `,` `.` step, `[` `]` scenario, `-` `+` speed), `n` notes, `e` triggers, `v` events (where they land / as nodes), `s` spacing, `f` fit to the window / natural layout with free pan, `c` checks overlay, `d` depth, `p` payloads, `m` modifiers, `a` access, `l` lint, arrows / `h j k L` or mouse drag / wheel pan, `z` centre, `g` home, `r` reload, `q` quit |
 | Run every pathway | `python3 scripts/view.py FILE --sim all [--json]` | no drawing: per scenario `NAME outcome N frames label`, then indented facts — `states:` each machine's end state, `failed:` what failed (`↩ fallback`, `critical`), `routes:` failure routes taken, `ignored:` events a state had no transition for, `waiting:` nodes left blocked, `open:` joins left open, `bounds:` a base case, visit limit, spawn cap, loop at the cap or cut — then `N scenarios: a ok, b failed, c cut`; always exit 0. `--sim list`: the scenario names and labels |
-| Walk one pathway | `python3 scripts/view.py FILE --once --tree --sim SCENARIO` | the run's last frame over the drawing (`✕` failed, `◉` a machine's state, lit vs muted wires), then `sim NAME (label): ok\|failed\|cut · N frames` and the run's log, one `tNNN …` line per step; exit 2 for an unknown scenario, listing the known ones |
+| Walk one pathway | `python3 scripts/view.py FILE --once --tree --sim SCENARIO` | the run's last frame over the drawing (`✕` failed, `◉` a machine's state, wires taken vs never taken), then `sim NAME (label): ok\|failed\|cut · N frames` and the run in plain words, one `tNNN …` line per step (`[API] calls [Payments] with charge(total) — attempt 2 of 4`, `[API] routes the failure to <PaymentFailed>`); exit 2 for an unknown scenario, listing the known ones. `--sim SCENARIO --json` (no drawing): the run's facts, `steps` [{frame, tick, text}] and the raw `log` |
 | Mark the findings | `python3 scripts/view.py FILE --once --checks [--tree]` | the check findings marked on the drawing, a checks legend, then each finding's question after lint |
 | Mermaid diagram | `python3 scripts/render.py FILE [--depth N\|all] [--composition subgraphs\|edges\|none]` | `flowchart TD` source; present it in a fenced `mermaid` block. Composition trees draw as subgraphs by default |
 
@@ -212,14 +212,19 @@ run it to find out what the design does, not only to show the user.
    past a bound, rerun with `--limit NAME=N` (e.g. `depth=6`, `frames=5000`); that
    explores further, it never fixes the design.
 3. A surprising row: `--once --tree --sim NAME` draws its last frame and prints the
-   log, one `tNNN …` line per step; find where the run diverged from the intent.
+   run in plain words, one `tNNN …` line per step; find where the run diverged from
+   the intent, and quote those lines to the user (`--sim NAME --json` has them as
+   `steps`, with the raw `log`).
 4. Propose the Sigil change (or ask) in the design's own terms; once it is made,
    `--sim all` again and diff against the previous table. The simulator's own
    choices (bounds, written order, ticks, frame counts) are not the design's
    behaviour — don't present them as such; a frame count moving is not a regression.
 
 The user can watch the same runs live: `python3 scripts/view.py FILE`, then `x`
-(space play / pause, `[` `]` scenario).
+(space play / pause, `,` `.` a frame, `<` `>` an event, `[` `]` scenario, `-` `+`
+speed from ¼ to 32 frames/s, starting at 2). Every view narrates the run the same
+way: a trail of the hops so far, the last few events and a line saying what is
+happening now. The view follows the run (`w` turns that off).
 
 ### view / render — show the shape
 For a quick look in the conversation, run `python3 scripts/view.py FILE --once` and show

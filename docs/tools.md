@@ -83,7 +83,11 @@ Options:
   but isn't directly above it is the document's own note. It is listed first as `¶`
   and tagged on nothing.
 - `--sim SCENARIO` runs one pathway of the design and draws its last frame, then the
-  outcome and the run's log (see [Simulation](../README.md#simulation)). `--sim list`
+  outcome and the run in plain words, one `tNNN …` line per step (`[API] calls
+  [Payments] with charge(total) — attempt 2 of 4`; see
+  [Simulation](../README.md#simulation)). With `--json` it prints that run as JSON
+  instead, with no drawing: the facts `--sim all` lists, `steps` (frame, tick, text)
+  and the simulator's raw `log`. `--sim list`
   prints the scenarios, one per line with its label. `--sim all` runs every scenario
   and prints no drawing: a line per run (name, outcome, frames, label), indented
   facts (`states:` each machine's end state, `failed:`, `routes:` the failure routes
@@ -126,13 +130,20 @@ notes, triggers, the checks overlay and the simulation are the graph view's.
 view; control blocks are not framed (a branch's arms are dotted wires labelled
 `‹arm›`), and joins are not drawn as bars.
 
+In sim mode every view draws the same run. The wire a token is on now is bright,
+wires taken before are faded (the trail, `ui.sim_trail`), and wires never taken are
+fainter (`ui.sim_faint`). Under the footer, in words that read without colour:
+`trail` and the episode's hops so far in notation, the last few events, and the
+narration line, `›` and what is happening now. The view follows the run's tokens
+and active nodes, panning only when they leave the window; `w` turns that off.
+
 Live keys:
 
 | Key | Does |
 | --- | --- |
 | `1` `2` `3` | the view: graph · flow · tree |
 | `t` | the next view (graph → flow → tree → graph) |
-| `x` | sim mode; then space play / pause, `,` `.` step, `[` `]` scenario, `-` `+` speed |
+| `x` | sim mode; then space play / pause, `,` `.` a frame, `<` `>` an event, `[` `]` scenario, `-` `+` speed (¼ to 32 frames/s, from 2), `w` follow |
 | `c` | checks overlay |
 | `n` `e` `v` | notes · triggers · events (where they land / as nodes) |
 | `p` `m` `a` | payloads · modifiers · access |

@@ -845,6 +845,8 @@ class _Ctx:
         label = _label_runs(n, self.look.looks.get(nid, "muted") if self.look else None)
         if nid in self.marked and len(label) == 3:      # a finding's style on the brackets
             label = [(label[0][0], self.marked[nid]), label[1], (label[2][0], self.marked[nid])]
+        if self.look is not None and nid in self.look.probe:
+            label = kit.probed(label)
         runs += label + self.tags.get(nid, [])
         if nid in part.graph.expansions:
             shown = scene_level(self.scn, part.owner) < self.depth
@@ -966,7 +968,8 @@ def _token_cell(tok, lay: _Layout, routes: dict):
 
 def compose_flow(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = True,
                  width: int | None = None, access: bool = False, mods: bool = False,
-                 events: str = "nodes", trace=None, tick: int = 0, checks=None):
+                 events: str = "nodes", trace=None, tick: int = 0, checks=None,
+                 probe: bool = False):
     """The flow view as rows of (text, style) runs, plus its width — the same
     arguments and return as view_graph.compose(). Each part (the document or a
     section of it, then each drawn expansion and machine) is a call graph read
@@ -978,10 +981,11 @@ def compose_flow(g, depth: int, payloads: bool, notes: str = "off", triggers: bo
     chips listed in a panel at the bottom-right (view_graph's way). `trace`,
     `tick`: a simulation frame over the drawing, the trace named as this
     drawing's Scene names things (sim.project), as view_graph.compose takes it;
-    `checks` (kit.CheckMarks named the same way): the checks overlay."""
+    `checks` (kit.CheckMarks named the same way): the checks overlay. `probe`:
+    the frame's tokens and active labels drawn in kit.Probe styles (sim_focus)."""
     scn = scene.build_scene(g, events=events, triggers=triggers, access=access, depth=depth)
     idx = scn.notes if notes != "off" else {}
-    look = (vgraph.sim_look(scn, trace.frames[tick], vgraph._trace_slots(trace))
+    look = (vgraph.sim_look(scn, trace.frames[tick], vgraph._trace_slots(trace), probe)
             if trace is not None else None)
     rows, drawing_w = _part_rows(scn, depth, payloads, mods, notes != "off", look, checks, None)
     tail = [[], kit.section_rule("notes"), []] + kit.note_rows(idx) if idx else []

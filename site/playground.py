@@ -115,8 +115,12 @@ def draw(request: str) -> str:
 
 def sim(request: str) -> str:
     """{"rows", "legend", "frame", "last", "tick", "ticks", "choice", "log": [lines so far, newest
-    last], "outcome" (on the final frame), "styles"}; an unknown scenario:
-    {"error"}."""
+    last], "say": the run in plain words at this frame (the latest beat,
+    `tNNN …`; "" before any), "story": [the beats so far, newest last], "beats":
+    [the frame of every beat, for stepping by event], "trail": the hops of the
+    frame's episode so far, "outcome" (on the final frame), "styles"}; an
+    unknown scenario: {"error"}. The wording is view.py's (sim.narrate) — the
+    viewer's narration line, recent events and trail row say the same."""
     req = json.loads(request)
     text, o = req.get("text", ""), _opts(req)
     name = req.get("scenario") or "happy"
@@ -137,6 +141,9 @@ def sim(request: str) -> str:
            "frame": player.at, "last": player.last,
            "tick": player.trace.frames[player.at].tick, "ticks": player.trace.frames[-1].tick,
            "choice": player.choice(), "log": log[-40:],
+           "say": player.narration(),
+           "story": [view.beat_line(b) for b in player.told()][-40:],
+           "beats": [b.frame for b in player.beats], "trail": player.trail(),
            "outcome": player.trace.outcome if player.at == player.last else None,
            "styles": STYLES.table}
     return json.dumps(out, ensure_ascii=False)

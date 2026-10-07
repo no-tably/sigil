@@ -161,12 +161,21 @@ random; the run is a function of the design and the chosen **scenario**.
   count their attempts, events drive the state machines that name them (each
   machine's current state is marked `◉`), loops and recursion are bounded.
 - **The marks:** `●` a token going out, `○` a return or fallback, `✕` a failure (in
-  the failure colour), `⊘` cancelled; lit wires in full colour, untouched ones
-  muted; `…` waiting, `×n` spawned instances, `↻k` recursion depth.
+  the failure colour), `⊘` cancelled; the wire a token is on now bright, the wires
+  taken before faded (the trail), the ones never taken fainter; `…` waiting, `×n`
+  spawned instances, `↻k` recursion depth.
+- **In words:** every step of a run reads as a sentence — `[API] calls [Payments]
+  with charge(total) — attempt 2 of 4`, `|Orders| returns {Order} to [API]`,
+  `[Checkout] moves Idle → Busy on <Placed>`.
 
-Live, `x` enters sim mode: space plays and pauses, `,` / `.` step, `[` / `]` pick the
-scenario (named in the status bar), `-` / `+` set the speed. For agents and CI,
-`--once --sim SCENARIO` prints the run's last frame, the outcome and its log (here
+Live, `x` enters sim mode in any of the three views. Space plays and pauses, `,` /
+`.` step a frame, `<` / `>` step to the previous / next event, `[` / `]` pick the
+scenario (named in the status bar), and `-` / `+` set the speed (¼ to 32 frames a
+second, starting at 2). Under the drawing, `trail` writes the episode's hops so far
+in notation, then come the last few events and the narration line (`›`, what is
+happening now). The view follows the run as it moves; `w` turns that off. For agents
+and CI, `--once --sim SCENARIO` prints the run's last frame, the outcome and the run
+in words (here
 [`examples/checkout.sigil`](https://no-tably.github.io/sigil/examples/checkout.sigil)
 with its card charge failing; legend and lint summary left out):
 
@@ -187,28 +196,25 @@ view.py checkout.sigil --once --tree --sim 'API.charge:fails'
 
 sim API.charge:fails (charge fails 4×, no fallback): failed · 31 frames
 t000 conventions: written order; entries one after another; ?> not taken by default; the first member wins a race / alternative / branch
-t000 episode 1: (Shopper)
-t000 (Shopper) -> [API] : {Cart}
-t005 [API] -> [Payments] : charge(total) attempt 1/4
-t009 attempt 1/4 failed
-t010 [API] -> [Payments] : charge(total) attempt 2/4
-t014 attempt 2/4 failed
-t015 [API] -> [Payments] : charge(total) attempt 3/4
-t019 attempt 3/4 failed
-t020 [API] -> [Payments] : charge(total) attempt 4/4
-t024 attempt 4/4 failed
-t025 [API] failed: charge(total) failed after 4 attempts
-t025 [API] failed → <PaymentFailed>
-t030 (Shopper) failed: {Cart}
-t030 episode 1 failed
-t030 done: failed
+t000 episode 1 begins at (Shopper); (Shopper) calls [API] with {Cart}
+t005 [API] calls [Payments] with charge(total) — attempt 1 of 4
+t009 charge(total) to [Payments] fails — attempt 1 of 4
+t010 [API] calls [Payments] with charge(total) — attempt 2 of 4
+t014 charge(total) to [Payments] fails — attempt 2 of 4
+t015 [API] calls [Payments] with charge(total) — attempt 3 of 4
+t019 charge(total) to [Payments] fails — attempt 3 of 4
+t020 [API] calls [Payments] with charge(total) — attempt 4 of 4
+t024 charge(total) to [Payments] fails — attempt 4 of 4
+t025 [API]'s call to [Payments] fails after 4 attempts; [API] routes the failure to <PaymentFailed>
+t030 (Shopper)'s call to [API] fails — its callee failed; episode 1 fails; the run ends: failed
 ```
 
 An agent designing with you runs every scenario at once: `--sim all` prints, with no
 drawing, a line per run (name, outcome, frames, label) and the facts that judge it
 (each state machine's end state, what failed, the routes taken, any bound hit), then
 a summary. Diff two versions' tables to see what a change did to the design's
-behaviour; `--sim list` lists the scenarios and `--json` prints either as JSON.
+behaviour; `--sim list` lists the scenarios and `--json` prints either as JSON
+(`--sim NAME --json`: one run's facts, its steps in words and its raw log).
 
 ```sh
 view.py orders.sigil --once --sim all
