@@ -1640,7 +1640,7 @@ def _part_rows(scn, depth, payloads, mods, notes, look, checks, marks, hang: boo
         """part's canvas with its blocks' frames under it (view_graph's _stack)."""
         d, kids = tree
         inner = None if fit is None else max(fit - vgraph.FRAME_PAD, 1)
-        frames = [vgraph._framed(framed(bp, kid, inner), _frame_title(ctx, bp.block), _Canvas)
+        frames = [vgraph._framed(framed(bp, kid, inner), _frame_title(ctx, bp.block), _Canvas, fit)
                   for bp, kid in zip(part.blocks, kids)]
         return vgraph._stack(d.cv if d is not None else _Canvas(), frames, fit, _Canvas)
 
@@ -1652,7 +1652,7 @@ def _part_rows(scn, depth, payloads, mods, notes, look, checks, marks, hang: boo
 def _frame_title(ctx: "_Ctx", b) -> list:
     """A block frame's title runs (kit.block_title_runs), then the #N of a
     comment above its header — as the graph view titles it."""
-    return kit.block_title_runs(b) + ctx.tags.get(kit.block_note_key(b), [])
+    return vgraph._title(kit.block_title_runs(b), ctx.tags.get(kit.block_note_key(b), []))
 
 
 # ---------------------------------------------------------------------------

@@ -6,7 +6,8 @@ Covers:
     and the frames of control blocks keep inside the width; a layout that fits
     is untouched; a box wider than the width leaves a hint;
   - part titles (graph and flow): cut to the width, a nested expansion's
-    oldest ancestors first, so a title never widens the drawing;
+    oldest ancestors first, so a title never widens the drawing; a control
+    block's frame title too, its note tag kept;
   - tree view: lanes past the gutter columns that fit fold into numbered plugs
     (`●①` on a source row, `◀───①` on a target row), packed in a run per row; a
     token on a folded lane sits on its plugs; a tree that fits is untouched;
@@ -147,6 +148,26 @@ class TestTitlesFit(unittest.TestCase):
             self.assertLessEqual(max(len(r) for r in rows), 40, "\n".join(rows))
             self.assertFalse(any("wide," in r for r in rows))
             self.assertIn("── …  ›  [Risk] := { … } ──", "\n".join(rows))
+
+
+class TestFrameTitlesFit(unittest.TestCase):
+    BLOCK = ("#!sketch\n(User) -> [Api]\n[Api] -> [Worker]\nloop @while |Q|.nonempty {\n"
+             "  [Worker] -> |Q|\n  [Worker] -> [Thing]\n}\n")
+
+    def test_a_frame_title_is_cut_to_the_width(self):
+        # `╭╌ ↺ loop @while |Q|.nonempty ╌╮` (32) once overflowed --width 28 with no hint
+        g = parse(self.BLOCK)
+        for compose in (lambda: vgraph.compose(g, 1, False, width=28),
+                        lambda: view.vflow.compose_flow(g, 1, False, width=28)):
+            rows = text_rows(compose()[0])
+            self.assertLessEqual(max(len(r) for r in rows), 28, "\n".join(rows))
+            self.assertIn("╭╌ ↺ loop @while |Q|.non… ╌╮", rows)
+
+    def test_a_cut_frame_title_keeps_its_note_tag(self):
+        g = parse((_DIR / "tests" / "fixtures" / "executions.sigil").read_text())
+        rows = text_rows(view.vflow.compose_flow(g, 1, False, notes="markers", width=40)[0])
+        self.assertLessEqual(max(len(r) for r in rows), 40)
+        self.assertIn("╭╌ ↺ loop @each page of {Site}.pa… #8 ╌╮", rows)
 
 
 class TestTreeFolds(unittest.TestCase):

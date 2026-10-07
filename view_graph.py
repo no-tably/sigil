@@ -1185,20 +1185,42 @@ def _frame_content(g, bi: int, eb: dict, draw, tags: dict | None = None,
     sub = replace(g, nodes=nodes, edges=edges, blocks=[], access=[])
     own_cv = draw(sub, wrap) if nodes else kit.Canvas()
     inner = None if wrap is None else max(wrap - FRAME_PAD, 1)
-    frames = [_framed(_frame_content(g, ci, eb, draw, tags, inner), _frame_title(g.blocks[ci], tags))
+    frames = [_framed(_frame_content(g, ci, eb, draw, tags, inner), _frame_title(g.blocks[ci], tags),
+                      fit=wrap)
               for ci in kids]
     return _stack(own_cv, frames, wrap)
+
+
+class _Title(list):
+    """A frame's title runs: the block's title (`head` runs, cut to fit), then
+    its tags (never cut)."""
+    head: int = 0
+
+
+def _title(head: list, tags: list) -> "_Title":
+    out = _Title(head + tags)
+    out.head = len(head)
+    return out
 
 
 def _frame_title(b, tags: dict | None) -> list:
     """A block frame's title runs, then its tags (the #N of a comment above the
     block's header, kit.block_note_key) — the frame is what the comment is about."""
-    return kit.block_title_runs(b) + (tags or {}).get(kit.block_note_key(b), [])
+    return _title(kit.block_title_runs(b), (tags or {}).get(kit.block_note_key(b), []))
 
 
-def _framed(content: "kit.Canvas", title_runs: list, canvas=None) -> "kit.Canvas":
+def _framed(content: "kit.Canvas", title_runs: list, canvas=None,
+            fit: int | None = None) -> "kit.Canvas":
     """A titled frame around a drawing: ╭╌ title ╌╌╮ / ╎ … ╎ / ╰╌╌╌╯ (light dashed).
-    `canvas`: the Canvas class drawn on (the flow view's rounds its corners)."""
+    `canvas`: the Canvas class drawn on (the flow view's rounds its corners).
+    `fit`: the frame's most columns — a longer title is cut, `↺ loop @while …`,
+    its tags (_Title) kept (a wider drawing is its caller's to fit)."""
+    room = None if fit is None else max(fit - 6, 1)
+    if room is not None and kit.row_len(title_runs) > room:
+        k = getattr(title_runs, "head", len(title_runs))
+        head, tail = title_runs[:k], title_runs[k:]
+        cut = kit.clip(head, 0, max(room - kit.row_len(tail) - 1, 0))
+        title_runs = cut + [("…", cut[-1][1] if cut else kit.FRAME_STYLE)] + tail
     tw = kit.row_len(title_runs)
     inner = max(content.w, tw + 2)
     w = inner + 4
@@ -1297,7 +1319,7 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
         main = draw(part.graph, within) if part.graph.nodes else kit.Canvas()
         inner = None if within is None else max(within - FRAME_PAD, 1)
         frames = [_framed(_frame_content(g, bi, eb, draw, tags, inner),
-                          _frame_title(g.blocks[bi], tags))
+                          _frame_title(g.blocks[bi], tags), fit=within)
                   for bi in part.blocks]
         return _stack(main, frames, within)
 
