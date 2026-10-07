@@ -1,0 +1,16 @@
+╭─▶ [API] @sla p99<200ms ─┬───┆a┆──┬─▶ [Payment]
+│                         ├───┆b┆──╯
+│                         ├╌╌╌╌╌╌╌╌╌╌▶ <OrderPlaced> ───▶ [Shipping]
+│                         ├───┆d┆────▶ [Inventory]
+│                         ╰───┆e┆────✖ (User) ────────╮
+╰─┆c┆─────────────────────────────────────────────────╯
+
+[[Retry]] @after exp-backoff, cap=…
+
+                           ┆a┆ charge
+                           ┆b┆ charge ┆ ×3 @after exp-backoff, cap=…
+                           ┆c┆ {Cart}
+                           ┆d┆ reserve => {Hold}
+                           ┆e┆ <Failed>
+
+examples-10.sigil: 7 nodes, 7 edges, 0 expansions

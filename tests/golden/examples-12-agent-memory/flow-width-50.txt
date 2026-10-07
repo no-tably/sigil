@@ -1,0 +1,79 @@
+── agent-memory ──────────────────────────────────
+
+  ⑫──┬─▶ |PROV| ────────────────────▶①
+  ⑦──╯   #3 @inv immutable
+         @inv content-addressed…
+         g┆{Concept}
+
+  ①──┬─▶ [MCP.r] ─────────────────╮
+     ╎   #4                       │
+     ╎   @inv excludes({Entity}…  │
+     ╎   @inv surfaces-flagged(…  │
+     ╎   @inv semantic-surface(…  │
+     ╎   a┆handles &              │
+     ╎    ┆{Summary} #5           │
+     ╰g▶ <ΔHash> ─────────────────│──▶②
+                                  ╰──▶③
+
+  ③──a▶ {Payload} ─────────────▶④
+        @inv extension-only
+  ②───▶ [Renderer] ━━━━━━━━━━━━▶⑤
+
+  ④───▶ [Agent] ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌▶⑥
+        #1
+        b┆#6
+        c┆#7
+        d┆#8
+        e┆#9
+        f┆#10
+  ⑤━━━▶ {Summary} ─────────────────▶⑦↑
+        @inv wasDerivedFrom({C…
+
+  ⑥╌╌┬╌▶ <Activity> ──╮
+     ├b▶ <Unroll>     │
+     ├c▶ <Verify>     │
+     ├d▶ <Dispute> ╍╍╍│╍╍▶⑧
+     ├e▶ <Supersede> ╍│╍╍▶⑨
+     ╰f▶ <Retract> ╍╍╍│╍╍▶⑩
+                      ╰──▶⑪
+
+  ⑪──────▶ [MCP.w] ───────────────────▶⑫↑
+           @inv validates-before-…
+  ⑧╍╍┬╍┬╍▶ {Entity} ▾
+  ⑨╍╍╯ ╏   #2
+  ⑩╍╍╍╍╯   @inv lifecycle-transit…
+
+  {Fact}   {Concept}
+
+── {Entity} state machine ────────────────────────
+
+● ────────────▶①
+a┆<assert>
+
+①─a┬─▶ live ────────┬─▶┐disputed ────╮
+   b   <Dispute> ╍╍╍│╍▶┘             │
+   │                │   b┆<resolve>  │
+   │                ├─▶┐superseded ──│c┬─▶ ◉
+   │   <Supersede> ╍│╍▶┘             │ d
+   │                │   c┆<archive>  │ │
+   │                ╰─▶┐retracted ───│─╯
+   │   <Retract> ╍╍╍╍╍▶┘             │
+   │                    d┆<archive>  │
+   ╰─────────────────────────────────╯
+
+── notes ─────────────────────────────────────────
+
+#1 aliases · mutation surface (agent-visible
+   events)
+#2 entity lifecycle
+#3 core read/write loop · summary materialization
+   (out-of-loop) · global invariants
+#4 hydration policy (on [MCP.r])
+#5 staged delivery
+#6 walk wasDerivedFrom backward
+#7 unroll + re-check antecedents
+#8 reversible flag
+#9 new entity + wasRevisionOf
+#10 withdraw, no replacement
+
+examples-12-agent-memory.sigil: 17 nodes, 16 edges, 1 expansions · #!spec

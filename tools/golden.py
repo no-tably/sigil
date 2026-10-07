@@ -20,7 +20,9 @@ Each input gets a directory `tests/golden/<input>/` with one file per variant:
   prints, for <v> in: default (lint on: the summary line ends in the lint result),
   payloads (--payloads), notes-markers (--notes markers), notes-callouts
   (--notes callouts), depth-all (--depth all), access (--access), mods (--mods),
-  width-60 (--width 60), color (--color always);
+  width-60 (--width 60), color (--color always); and for the flow view alone
+  width-80 / width-50 (--width 80 / 50 --payloads --mods --notes markers: the
+  wrap ladder's hung chips and bands);
 - `mermaid.txt` — what `render.py <input>.sigil` prints.
 
 Drawings are made in-process (view.once, its stdout captured) with the built-in
@@ -50,6 +52,7 @@ GOLDEN_DIR = ROOT / "tests" / "golden"
 THEME = "sigil"
 WIDTH = 100                     # view.py's --once width when stdout isn't a terminal
 NARROW = 60
+FLOW_WRAPS = (80, 50)           # the flow view wrapped, chips and notes on
 ALL_DEPTH = "all"
 # Set iteration order (string hashing) must not change a drawing; pinning the seed
 # keeps the goldens stable while a drawing that still depends on it gets fixed.
@@ -89,8 +92,10 @@ def _variants() -> tuple[Variant, ...]:
         Variant("width-60", width=NARROW),
         Variant("color", colour=True),
     )
+    wraps = tuple(Variant(f"flow-width-{w}", view="flow", width=w, payloads=True, mods=True,
+                          notes="markers") for w in FLOW_WRAPS)
     return tuple(replace(v, name=f"{view}-{v.name}", view=view)
-                 for view in ("graph", "tree", "flow") for v in flavours)
+                 for view in ("graph", "tree", "flow") for v in flavours) + wraps
 
 
 VARIANTS = _variants()

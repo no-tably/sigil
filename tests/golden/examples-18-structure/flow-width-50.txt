@@ -1,0 +1,23 @@
+── structure ─────────────────────────────────────
+
+     |Replica| ┄a▶ <LagAlarm>
+     a┆lagging
+
+── wiring ────────────────────────────────────────
+
+[ZoneA] ────┬─▶ [Search] ─────▶①
+[ZoneB] ────╯
+<LagAlarm> ╌╌╌▶ (OnCall)
+(User) ─────┬a▶ [Router]
+a┆{Query}   ╰─▶ [Payments] ───▶②
+                b┆{Charge}
+                c┆{Charge}
+
+       |Primary| ╌╌╌╌╌╌▶┐|Replica|
+                     ╭─▶┘
+①────▶ [ShardQuery] ━┻━▶ {Hits}
+       ×N
+②──┬b▶ [PrimaryPsp]
+   ╰c▶ [StandbyPsp]
+
+examples-18-structure.sigil: 14 nodes, 12 edges, 0 expansions · #!sketch

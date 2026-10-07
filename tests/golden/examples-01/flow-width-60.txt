@@ -1,6 +1,8 @@
-(User) ──▶ [Web] ──▶ [Auth] ━┳─▶ |UserDB|
-                             ┣━▶ ~{Session}
-                             ├─✖ <Unauthorized>
-                             ╰╌▶ <LoginEvent> ────▶ |AuditLog|
+(User) ──▶ [Web] ──▶ [Auth] ───▶①
+
+①━━┳─▶ |UserDB|
+   ┣━▶ ~{Session}
+   ├─✖ <Unauthorized>
+   ╰╌▶ <LoginEvent> ────▶ |AuditLog|
 
 examples-01.sigil: 8 nodes, 7 edges, 0 expansions · #!spec

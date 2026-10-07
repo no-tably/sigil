@@ -1,24 +1,29 @@
-── agent-memory ──────────────────────────────────────────────────────────────────────────────
+── agent-memory ────────────────────────────────────────────
 
-╭─┬─▶ |PROV| ─┬─▶ [MCP.r] ──▶ {Payload} ───▶ [Agent] ╌╌╌╌╌┬╌▶ <Activity> ──────▶ [MCP.w] ────╮
-│ │           ╰╌▶ <ΔHash> ──▶ [Renderer] ━━▶ {Summary} ─╮ ├╌▶ <Unroll>                       │
-│ │                                                     │ ├╌▶ <Verify>                       │
-│ │                                                     │ ├╌▶ <Dispute> ╍╍╍┬╍┬╍▶ {Entity} ▾  │
-│ │                                                     │ ├╌▶ <Supersede> ╍╯ ╏               │
-│ │                                                     │ ╰╌▶ <Retract> ╍╍╍╍╍╯               │
-│ ╰─────────────────────────────────────────────────────╯                                    │
-╰────────────────────────────────────────────────────────────────────────────────────────────╯
+③──┬─▶ |PROV| ─┬─▶ [MCP.r] ──▶ {Payload} ────▶①
+④──╯           ╰╌▶ <ΔHash> ──▶ [Renderer] ━━━▶②
+
+①───▶ [Agent] ╌╌╌┬╌▶ <Activity> ──────▶ [MCP.w] ──────▶③↑
+                 ├╌▶ <Unroll>
+                 ├╌▶ <Verify>
+                 ├╌▶ <Dispute> ╍╍╍┬╍┬╍▶ {Entity} ▾
+                 ├╌▶ <Supersede> ╍╯ ╏
+                 ╰╌▶ <Retract> ╍╍╍╍╍╯
+②━━━▶ {Summary} ──────────────────────────────────────▶④↑
 
 {Fact}   {Concept}
 
-── {Entity} state machine ────────────────────────────────────────────────────────────────────
+── {Entity} state machine ──────────────────────────────────
 
-         ● ──── <assert> ──┬─▶ live ────────┬─▶┐disputed ───╮
-                           │   <Dispute> ╍╍╍│╍▶┘            │
-                           │                ├─▶┐superseded ─│───── <archive> ──┬─▶ ◉
-                           │   <Supersede> ╍│╍▶┘            │ ╭─── <archive> ──╯
-                           │                ╰─▶┐retracted ──│─╯
-                           │   <Retract> ╍╍╍╍╍▶┘            │
-                           ╰─ <resolve> ────────────────────╯
+  ● ─────────a┬─▶ live ────────┬─▶┐disputed ────╮
+  a┆<assert>  b   <Dispute> ╍╍╍│╍▶┘             │
+              │                │   b┆<resolve>  │
+              │                ├─▶┐superseded ──│c┬─▶ ◉
+              │   <Supersede> ╍│╍▶┘             │ d
+              │                │   c┆<archive>  │ │
+              │                ╰─▶┐retracted ───│─╯
+              │   <Retract> ╍╍╍╍╍▶┘             │
+              │                    d┆<archive>  │
+              ╰─────────────────────────────────╯
 
 examples-12-agent-memory.sigil: 17 nodes, 16 edges, 1 expansions · #!spec

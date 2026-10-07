@@ -1,0 +1,13 @@
+── audit-mesh ──────────────────────────────────────────────────────────────
+
+[ServiceA] #1 ────┆<Event>┆──┬─┬─▶ *|EventLog|
+[ServiceB] ───────┆<Event>┆──╯ │
+(Auditor) ─────────────────────╯
+
+── notes ───────────────────────────────────────────────────────────────────
+
+#1 principals are just entities that hold edges (here, plain services + an
+   auditor). Two services append to the log (many writers ⇒ shared; a stream
+   store ⇒ appends merge); the auditor reads.
+
+examples-22-audit-mesh.sigil: 4 nodes, 3 edges, 0 expansions · #!spec

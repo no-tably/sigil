@@ -1,45 +1,40 @@
-── L1 · crawl ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+── L1 · crawl ──────────────────────────────────────────────────────────────────────────────────────
 
-(Operator) ─────┆e┆────────▶ [Scheduler] ↺ ━┳━━━ ↩ ━━━▶ {Plan}
-                             ╰─● ┆ a ┆      ╰───┆f┆───▶ [Crawler] ↺ ─┬───┆g┆────▶ [Fetcher] ──┬───┆h┆───▶ (Web) ⇱
-                                                        ╰─● ┆ b ┆    ├╌╌╌┆j┆╌╌╌╌▶ [Metrics]   ├─────────✖ <FetchFailed>
-                                                                     │                        ╰───┆i┆──◀▶ |Robots|
-[Indexer] ──┬───┆m┆──┬─────▶┐|Index|                                 ╰───┆k┆──┬─▶ [Parser] ▾ ─────┆l┆───▶ [Doc.walk] ↻
-            ├───┆n┆──╯ ╭───✖┘               ╭─────────────────────────────────╯                           ╰─● ┆ c ┆
-            ├───┆o┆────╯ ╭──────────────────╯
-            ╰───┆p┆──────╯
+(Operator) ───────────a▶ [Scheduler] ↺ ─────────────────────▶①
+a┆start({Seed})          ╰─● ┆ ↺ plan({Seed}) ↩ {Plan} ┆
+                         b┆↩
+                         c┆crawl({Plan})
+                          ┆↩ {Site}
+[Indexer] ───────────┬j▶┐|Index|
+j┆reserve(${shard})  ├k✖┘
+ ┆↩ {Lease}          ╰──────────────────────────────────────▶②
+ ┆write({Doc},
+ ┆{Lease})
+k┆release({Lease})
+l┆parse({Page})
+ ┆↩ {Doc}
 
-{Site}   [Notifier] ⇱   [[follow]] ▾
-         ╰─● ┆ d ┆
+①━━┳b▶ {Plan}
+   ╰c▶ [Crawler] ↺ ─────────────────┬──d▶ [Fetcher] ────────────┬e▶ (Web) ⇱
+       ╰─● ┆ ↺ throttle(${host}) ┆  │     e┆⇱ http.get(${url})  ├─✖ <FetchFailed>
+       d┆fetch(${url})              │     f┆allowed(${url})     ╰f▶ |Robots|
+       g┆count(${host})             ├╌╌g▶ [Metrics]
+②──╮   h┆parse({Page})              ╰h┬─▶ [Parser] ▾ ────────────i▶ [Doc.walk] ↻
+   │    ┆↩ {Doc}                      l   i┆{Doc}                   ╰─● ┆ ↻ child ┆
+   ╰──────────────────────────────────╯
 
-── [Parser] := { … } ──────────────────────────────────────────────────────────────────────────────────────────────────
+{Site}   [Notifier] ⇱                     [[follow]] ▾
+         ╰─● ┆ ⇱ mail.send(${report}) ┆
 
-                                            [Lexer] ────┆r┆───▶ [Builder] ↻
-                                                                ╰─● ┆ q ┆
+── [Parser] := { … } ───────────────────────────────────────────────────────────────────────────────
 
-── [[follow]] := { … } ────────────────────────────────────────────────────────────────────────────────────────────────
+                    [Lexer] ─────────a▶ [Builder] ↻
+                    a┆build(tokens)     ╰─● ┆ ↻ nest({Node}) ┆
+                     ┆↩ {Doc}
 
-                                                      [Crawler] ↻
-                                                      ╰─● ┆ s ┆
+── [[follow]] := { … } ─────────────────────────────────────────────────────────────────────────────
 
-                                                                     ┆a┆ ↺ plan({Seed}) ↩ {Plan}
-                                                                     ┆b┆ ↺ throttle(${host})
-                                                                     ┆c┆ ↻ child
-                                                                     ┆d┆ ⇱ mail.send(${report})
-                                                                     ┆e┆ start({Seed})
-                                                                     ┆f┆ crawl({Plan}) ↩ {Site}
-                                                                     ┆g┆ fetch(${url})
-                                                                     ┆h┆ ⇱ http.get(${url})
-                                                                     ┆i┆ allowed(${url})
-                                                                     ┆j┆ count(${host})
-                                                                     ┆k┆ parse({Page}) ↩ {Doc}
-                                                                     ┆l┆ {Doc}
-                                                                     ┆m┆ reserve(${shard}) ↩ {Lease}
-                                                                     ┆n┆ write({Doc}, {Lease})
-                                                                     ┆o┆ release({Lease})
-                                                                     ┆p┆ parse({Page}) ↩ {Doc}
-                                                                     ┆q┆ ↻ nest({Node})
-                                                                     ┆r┆ build(tokens) ↩ {Doc}
-                                                                     ┆s┆ ↻ follow(.links)
+                             [Crawler] ↻
+                             ╰─● ┆ ↻ follow(.links) ┆
 
 executions.sigil: 16 nodes, 18 edges, 2 expansions · #!spec

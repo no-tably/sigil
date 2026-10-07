@@ -1,9 +1,12 @@
-── crawler ────────────────────────────────────────────────────────────────
+── crawler ─────────────────────────────────────────────────
 
-(Operator) ──▶ [Scheduler] ↺ ━┳━━━ ↩ ━━━▶ {Plan}
-                              ╰─────────▶ [Crawler] ─┬─▶ (Web) ⇱
-                                                     ├─✖ <FetchFailed>
-                                                     ├─▶ [Crawler.follow] ↻
-                                                     ╰─▶ |Index|
+(Operator) ──▶ [Scheduler] ↺ ───▶①
+               a┆↩
+
+①━━┳a▶ {Plan}
+   ╰─▶ [Crawler] ─┬─▶ (Web) ⇱
+                  ├─✖ <FetchFailed>
+                  ├─▶ [Crawler.follow] ↻
+                  ╰─▶ |Index|
 
 05-executions.sigil: 8 nodes, 10 edges, 0 expansions · #!sketch

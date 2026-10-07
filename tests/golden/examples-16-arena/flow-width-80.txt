@@ -1,0 +1,12 @@
+── systems ─────────────────────────────────────────────────────────────────────
+
+{Input} ───▶ [Steering] ──┬─┬─▶ {Transform}
+             [Physics] ───╯ a
+             [Homing] ──────╯
+             a┆[Bullet]/
+{Damage} ──▶ [Combat] ────┬───▶ {Health}
+                          ╰╌╌╌▶ <Destroyed> ──▶ [Spawner] ━━▶ [Shard]
+
+[Ship]   [Bullet]   [Asteroid]
+
+examples-16-arena.sigil: 14 nodes, 9 edges, 0 expansions · #!sketch

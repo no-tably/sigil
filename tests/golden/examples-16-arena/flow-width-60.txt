@@ -1,10 +1,14 @@
-── systems ──────────────────────────────────────────────────────────────────────────
+── systems ─────────────────────────────────────────────────
 
-{Input} ───▶ [Steering] ──────────────────┬─┬─▶ {Transform}
-             [Physics] ───────────────────╯ │
-             [Homing] ─────── [Bullet]/ ────╯
-{Damage} ──▶ [Combat] ───┬────────────────────▶ {Health}
-                         ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌▶ <Destroyed> ──▶ [Spawner] ━━▶ [Shard]
+{Input} ───▶ [Steering] ──┬─┬─▶ {Transform}
+             [Physics] ───╯ a
+             [Homing] ──────╯
+             a┆[Bullet]/
+{Damage} ──▶ [Combat] ────┬───▶ {Health}
+                          ╰╌╌╌▶ <Destroyed> ───▶①
+
+                 ┏━▶ [Shard]
+①───▶ [Spawner] ━┛
 
 [Ship]   [Bullet]   [Asteroid]
 

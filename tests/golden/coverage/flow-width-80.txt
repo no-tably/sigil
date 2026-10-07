@@ -1,0 +1,199 @@
+                                   [[retry]]
+
+── L1 · Shop ───────────────────────────────────────────────────────────────────
+
+╭l▶ (Customer) ──────────a┬─┬─▶ [Api] ───────────────────┬──▶①
+│   #3                    │ │   #7                       │
+│   a┆{Cart} ┆ ! #4       │ │   @sla p99<100ms, avail>…  │
+│   [Gateway] ────────────╯ │   b┆{creds}                │
+│   @loc us-east            │   e┆#6                     │
+│   [Cart] ─────────────────╯   g┆charge(amount)         │
+│                                ┆↩ {Receipt}            │
+│                               h┆score({Cart})          │
+│                                ┆@timeout 30s ×3        │
+│                                ┆@fallback 0            │
+│                               i┆⇱ http.get(${url})     │
+│                                ┆@timeout 5s            │
+│                                ┆@fallback ${cache}     │
+│                               u┆#9                     │
+│                               l┆"ack"                  │
+│   <Stop> ──────────────────j▶ ~|Counter|               │
+│   j┆false                                              │
+│   [Cfg] ────────────────┬──k▶ ~|Opts|                  │
+│   k┆{retries: 3, mode:  ├──m▶ ~|Limits|                │
+│    ┆"x"}                ├──n▶ ~|Ratio|                 │
+│   m┆[1, 2, 3]           ├──o▶ ~|Last|                  │
+│   n┆0.5                 ├──r▶ ~|Merged|                │
+│   o┆null                ╰──s▶ ~|Scaled|                │
+│   r┆${a} || {b: 1}                                     │
+│   s┆${n} * 2 - ${m} /                                  │
+│    ┆4                                                  │
+│   <Tick> ───────────────┬──p▶ ~|History|               │
+│   p┆${state.history}    ╰──q▶ ~|Total|                 │
+│    ┆++ [${out}]                                        │
+│   q┆${state.count} + 1                                 │
+│   [Grader] ────────────────t▶ ~|Sys|                   │
+│   t┆"""You are a                                       │
+│    ┆strict rubric…"""                                  │
+│    ┆#8                                                 │
+│   [Ingest] ━━━━━━━━━━━━━━━━━▶ *<Raw> ──────────────────│──▶②
+│   #10                         ^10k drop                │
+│   *{Rows} ──────────────────▶ [Sink]                   │
+│   ^100 err                                             │
+│   [Handler] ───────────────v▶ |Conn|                   │
+│   v┆query => {Rows}                                    │
+╰────────────────────────────────────────────────────────╯
+
+①━━┳◀▶ [Cache<K,V>]
+   ┃   #2 @loc eu-west
+   ┣b▶ [Auth] ━━━━━━━━━━━━━━━━━━┳c▶ |UserDB|
+   ┃   c┆@cap read              ┣d▶ ~{Session}
+   ┃   d┆? #5                   ╰─✖ <Unauthorized>
+   ┣╌▶ <OrderPlaced> ═══════════╦═▶ [Shipping]
+   ┣┄▶ [Fraud]                  ╠═▶ [Email]
+   ┣─▶ [PspA]                   ╚═▶ |Ledger|
+   ┣─▶ [PspB]
+   ┣─▶ [Stock]
+   ┣─▶ [Tax]
+   ┣e▶ [Ghost] ──────────────────f▶ [?]
+   ┃   f┆#6
+   ┣g▶ [Payment]
+   ┃   @inv idempotent(transa…
+   ┣h▶ [Scorer]
+   ┣i▶ (Web) ⇱
+   ┣u▶ [Shard]
+   ┣─▶ [Replica]
+   ┣━▶ {Resp}
+   ┗━▶ {Err}
+②────▶ [Parse] ━━━━━━━━━━━━━━━━━━━▶ *<Parsed> ────────▶③
+                                    ^10k
+
+③───▶ [Enrich] ━━▶ *<Enriched> ═╦═▶ |Warehouse|
+                   ^5 latest    ╠═▶ |RealtimeIdx|
+                                ╰─✖ |DLQ|
+
+{List<T>}   <Msg<T>>   *|AuditLog|   [?]   {?}   <?>   |?|   (?)
+{User}           [Worker] ↺                       [Retry]
+                 ╰─● ┆ ↺ run() ┆ @deadline 2s ┆
+[AuthSvc]         |PaymentDB|            [Tree.walk] ↻     [Boss]   [Worker‹N›]
+                                         ╰─● ┆ ↻ child ┆
+(Auditor)   |Directives|   |Results|   [Helper]   [[walk]] ▾
+
+── Control ─────────────────────────────────────────────────────────────────────
+
+        [Worker] ↺ ─────────────────────┬a▶ |Q|
+        ╰─● ┆ ↺ run() ┆ @deadline 2s ┆  ╰╌▶ <metric> ───────────────────▶①
+        a┆pop => {Job}
+        [Payments] ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌▶ <Paid> ─────────────────────▶②
+    ╭╍▶ [Checkout] ▾ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌▶ <Placed> ╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍┬╍╍▶③
+    ╏   <Push> ─────────────────────────┬─▶┐|Queue| ▾                ╏
+    ╏                                   ╰╍▶┘                         ╏
+    ╏   [Poller] ─────────────────────────▶ [Api] ───────────────────╏──▶④
+    ╏                                       #7                       ╏
+    ╏                                       @sla p99<100ms, avail>…  ╏
+    ╏                                       b┆reserve => {Hold}      ╏
+    ╏                                       c┆score                  ╏
+    ╏                                       d┆release({Hold})        ╏
+    ╏   [Pinger] ─────────────────────────▶ (Peer)                   ╏
+    ╏   {Request} ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┬e▶ [Reader] ────────────────╏──▶⑤
+    ╏   e┆‹read›                        ├f▶ [Writer] ────────────────╏──▶⑥
+    ╏   f┆‹write›                       ├g▶ [AdminSvc]               ╏
+    ╏   g┆‹admin›                       ┆   @cap admin               ╏
+    ╏   h┆‹_›                           ╰h▶ <Rejected>               ╏
+    ╰╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╯
+
+    ④──┬c▶ [Fraud]
+       ├b▶┐[Inventory]
+       ├d✖┘
+       ├─▶ [MirrorA]
+       ├─▶ [MirrorB]
+       ╰╌▶ [Metrics]
+    ②──┬─▶┐{Order} ▾
+    ③╍╍┴╍▶┘
+           #13
+    ①────▶ |Obs|
+    ⑤──┬─▶ |DB| ─────────▶ |WAL|
+    ⑥──╯
+
+    {Items}   {Job}   <Signal> ▾   (Courier) ▾
+
+── Composition ─────────────────────────────────────────────────────────────────
+
+    {Damage} ──────▶ [Combat] ─────▶ {Health}
+    [Asteroid] ┄┄┄a▶ <LagAlarm>
+    a┆lagging
+    [Physics] ───┬─▶ {Transform}
+    [Homing] ───b╯   #15
+    b┆[Bullet]/
+
+    [Ship]   [Hull]   [Bullet]   [ShardQuery]   [Drone]   [Row]   [Tracer]
+
+    [PrimaryPsp]   [StandbyPsp]   [ZoneA]   [ZoneB]   [Log]   {Scrollable}
+
+── L2 · [Core] ─────────────────────────────────────────────────────────────────
+
+                (Client) ──▶ [Gateway] ─────▶ [Core] ▾ ──▶ |DB|
+                             @loc us-east
+
+── [Checkout] state machine ────────────────────────────────────────────────────
+
+                         ╭a▶ Idle ──────▶┐Busy ─────╮
+                         │   <Placed> ╍╍▶┘          │
+                         │                a┆<Paid>  │
+                         ╰──────────────────────────╯
+
+── {Order} state machine ───────────────────────────────────────────────────────
+
+              ● ──────────────▶┐Open ───────────a▶┐Settled ──b▶ ◉
+              <Placed> ╍╍╍╍╍╍╍▶┘               ╭╍▶┘
+                                a┆@timeout 1d  ╏   b┆<ship>
+                                <Paid> ╍╍╍╍╍╍╍╍╯
+              ∗ any ─────────c▶ Cancelled
+              c┆×3 <cancel>
+
+── |Queue| state machine ───────────────────────────────────────────────────────
+
+                                Empty ───▶┐Full
+                                <Push> ╍╍▶┘
+
+── [Core] := { … } ─────────────────────────────────────────────────────────────
+
+              [Router] ──▶ [Handler] ▸ ─┬◀▶ |Cache|
+                                        ╰╌▶ <AuditEvt> ──▶ |Log|
+
+── [[walk]] := { … } ───────────────────────────────────────────────────────────
+
+                           [Node] ↻
+                           ╰─● ┆ ↻ walk(.children) ┆
+
+── <Signal> state machine ──────────────────────────────────────────────────────
+
+                               Up ───────a▶ Down
+                               a┆<drop>
+
+── (Courier) state machine ─────────────────────────────────────────────────────
+
+                              Free ───────a▶ Away
+                              a┆<assign>
+
+── notes ───────────────────────────────────────────────────────────────────────
+
+#1 Coverage fixture: exercises every core construct in language.md once.
+   Used by docs/coverage-notes.md (viewer coverage audit).
+#2 entities: five glyphs, holes, generics, mutability, stream store
+#3 arrows: each kind once, plus unicode arrow and continuation lines
+#4 critical call
+#5 optional result
+#6 hole as a flow target
+#7 payload forms · modifiers · alternatives and a scoped block
+#8 """You are a strict rubric grader.
+   Interpolations like ${rubric} are resolved by the consumer."""
+#9 cardinality fan-out
+#10 streams + backpressure
+#11 recursion
+#12 permission graph
+#13 order lifecycle, driven by events
+#14 route by request kind
+#15 inline note on a branch
+
+coverage.sigil: 127 nodes, 75 edges, 7 expansions · #!sketch

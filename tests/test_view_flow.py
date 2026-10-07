@@ -10,6 +10,10 @@ Covers:
     wire only crossing another hops it;
   - chips on wires (one per call, never merged), self-call stubs, notes, a
     transition's label, expansions as parts, the --width fallback to letters;
+  - wrapping to a width: chips hung under their sender with a letter in the
+    wire, then bands with numbered plugs (fewest bands, then plugs), back plugs
+    (↑), a plug skipping a band, the tree-view hint when a band can't fit,
+    and a sim run that never reflows, its tokens crossing the plugs;
   - the overlays: a sim frame's tokens and label looks, the checks' numbers;
   - the app: VIEWS and the keys (t steps graph → tree → flow, 1 2 3 select),
     the status bar and legends, --flow on the CLI with --once / --sim / --json;
@@ -194,10 +198,125 @@ class TestAnnotations(unittest.TestCase):
                                        depth=0))
 
     def test_narrow_width_letters_the_chips(self):
-        rows = flow(CHECKOUT, payloads=True, mods=True, width=60)
+        rows = flow(CHECKOUT, payloads=True, mods=True, width=75)
         text = "\n".join(plain(rows))
         self.assertIn("┆a┆", line(rows, "[API]"))
         self.assertIn("┆b┆ charge(total)", text)
+
+
+ORDERS = (_DIR / "site" / "examples" / "04-orders.sigil").read_text()
+SHORTENER = (_DIR / "site" / "examples" / "00-shortener.sigil").read_text()
+RICH = dict(payloads=True, mods=True, notes="markers")
+
+
+def widest(rows) -> int:
+    """The widest drawing row (title rules are stretched to the width)."""
+    return max(len(ln) for ln in plain(rows) if not ln.startswith("── "))
+
+
+class TestWrap(unittest.TestCase):
+    def test_hung_chips_under_their_sender(self):
+        text = drawn(CHECKOUT, width=80, **RICH)
+        self.assertIn("(Shopper) ─a▶ [API] ───", text)
+        self.assertIn("#1            #3", text)
+        self.assertIn("a┆{Cart}      b┆charge(total)", text)
+        self.assertIn("               ┆×3 @timeout 2s #2", text)
+        self.assertIn("              c┆insert => {Order}", text)
+        self.assertNotIn("┆a┆", text)                  # no key panel at (b)
+        self.assertLessEqual(widest(flow(CHECKOUT, width=80, **RICH)), 80)
+
+    def test_letter_on_its_wire(self):
+        text = drawn(CHECKOUT, width=80, **RICH)
+        self.assertIn("┬b▶ [Payments]", text)            # a branch off a trunk
+        self.assertIn("├c▶ |Orders|", text)
+        rows = plain(flow(SHORTENER, width=50, **RICH))
+        at = next(i for i, ln in enumerate(rows) if "b┬─▶ |Links|" in ln)
+        self.assertEqual(rows[at + 1][rows[at].index("┬")], "d")    # a fan-in: on its vertical
+        self.assertTrue(any(ln.startswith("③──┬e✖┐(Visitor)") for ln in rows))   # a back path
+        self.assertIn("   ╰f▶┘", rows)
+
+    def test_wrap_seams(self):
+        def rows(text, budget=18):
+            return ["".join(t for t, _ in r) for r in vflow._wrap_runs([(text, None)], budget)]
+        self.assertEqual(rows("charge(total) ┆ ×3 @timeout 2s #2"),
+                         ["charge(total)", "×3 @timeout 2s #2"])
+        self.assertEqual(rows("shorten({Url}) ↩ {Code}"), ["shorten({Url})", "↩ {Code}"])
+        self.assertEqual(rows("save({Code}, {Url})"), ["save({Code},", "{Url})"])
+        self.assertEqual(rows("@inv immutable @inv content-addressed…"),
+                         ["@inv immutable", "@inv content-addressed…"])   # a modifier whole
+        self.assertEqual(rows("averyveryverylongwordindeed x"),
+                         ["averyveryverylongwordindeed", "x"])
+
+    def test_nothing_to_hang_cuts_at_once(self):
+        text = drawn(CHECKOUT, width=50)
+        self.assertIn("(Shopper) ──▶ [API] ───▶①", text)
+        self.assertIn("①──┬─▶ [Payments]", text)
+        self.assertNotIn("┆", text)
+
+    def test_a_fan_out_is_cut_before_its_trunk(self):
+        rows = flow(CHECKOUT, width=50, **RICH)
+        text = "\n".join(plain(rows))
+        self.assertIn("[API] ─────────────────▶①", text)
+        self.assertIn("①──┬b▶ [Payments]", text)
+        self.assertIn("   ╰╌▶ <OrderPlaced> ═══╦═▶ [Email]", text)
+        self.assertLessEqual(widest(rows), 50)
+
+    def test_fewest_plugs_not_greedy(self):
+        text = drawn(ORDERS, width=80, **RICH)
+        doc = text.split("── [Checkout] state machine")[0]
+        self.assertIn("[Payments] ───▶①", doc)
+        self.assertEqual([ch for ch in doc if "①" <= ch <= "⑳"], ["①", "①"])
+        self.assertIn("①──┬╌▶ <Paid>", doc)
+        self.assertIn("Idle ───────▶┐Busy", text)               # the machines stay whole
+
+    def test_numbers_in_reading_order_and_back_plugs(self):
+        rows = plain(flow(ORDERS, width=50, **RICH))
+        ends = [ln[-2:] if ln.endswith("↑") else ln[-1] for ln in rows
+                if ln and ("①" <= ln.rstrip("↑")[-1] <= "⑳")]
+        self.assertEqual(ends, ["①", "②", "③", "④", "⑤↑"])
+        self.assertTrue(any(ln.startswith("⑤╍") for ln in rows))
+
+    def test_a_plug_skips_the_band_it_only_passes(self):
+        text = "\n".join(["[Alpha] -> [Bravo]", "[Bravo] -> [Charlie]",
+                          "[Charlie] -> [Delta]", "[Alpha] -> [Delta]"])
+        rows = plain(flow(text, width=22))
+        bands = "\n".join(rows).split("\n\n")
+        holder = [b for b in bands if "[Delta]" in b][0]
+        self.assertEqual(len(bands), 4)
+        alpha = [b for b in bands if "[Alpha]" in b][0]
+        num = [ch for ch in alpha if "①" <= ch <= "⑳"]
+        self.assertEqual(len(num), 2)                              # to [Bravo], to [Delta]
+        far = next(n for n in num if n in holder)
+        self.assertEqual(["\n".join(bands).count(far)], [2])         # its cut end, its resume
+        self.assertTrue(all(far not in b for b in bands if b not in (alpha, holder)))
+
+    def test_plug_labels(self):
+        self.assertEqual([vflow.plug_label(n) for n in (1, 2, 20, 21)], ["①", "②", "⑳", "«21»"])
+
+    def test_tree_hint_when_a_band_cannot_fit(self):
+        rows = flow(CHECKOUT, width=30, **RICH)
+        text = plain(rows)
+        at = text.index("flow: a band is 31 wide, 30")
+        self.assertIn("tree view", " ".join(text[at:at + 3]))
+        self.assertTrue(all(len(ln) <= 30 for ln in text[at:at + 3]))
+        self.assertNotIn("tree view", drawn(CHECKOUT, width=50, **RICH))
+
+    def test_fits_draws_as_before(self):
+        self.assertEqual(flow(CHECKOUT, width=100), flow(CHECKOUT))
+        self.assertEqual(flow(SHORTENER, width=75, **RICH)[:3],     # (a) fits: unchanged
+                         flow(SHORTENER, width=75, **RICH)[:3])
+        self.assertIn("┆a┆", drawn(SHORTENER, width=75, **RICH))
+
+    def test_a_run_never_reflows_and_crosses_plugs(self):
+        g = view.render.parse_document(CHECKOUT)
+        player = view.SimPlayer(g, None)
+        trace = player.shown(view.scene.SceneOptions("nodes", True, False, 1))
+        frames = [plain(vflow.compose_flow(g, 1, True, "markers", width=50, mods=True,
+                                           trace=trace, tick=t)[0])
+                  for t in range(len(trace.frames))]
+        self.assertEqual(len({tuple(len(ln) for ln in f) for f in frames}), 1)
+        self.assertTrue(any("●①" in ln for f in frames for ln in f))    # at the cut end
+        self.assertTrue(any(ln.startswith("①●") for f in frames for ln in f))   # resumed
 
 
 class TestOverlays(unittest.TestCase):

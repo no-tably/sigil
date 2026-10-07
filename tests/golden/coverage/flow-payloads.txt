@@ -1,142 +1,128 @@
-                                                               [[retry]]
+                                             [[retry]]
 
-── L1 · Shop ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+── L1 · Shop ───────────────────────────────────────────────────────────────────────────────────────
 
-╭─▶ (Customer) ─────┆e┆──┬─┬─▶ [Api] ━━━━━━┳───┆f┆───▶ [Auth] ━━━━━━━━┳─▶ |UserDB|
-│   [Gateway] ───────────╯ │               ┃                          ┣━▶ ~{Session}
-│   [Cart] ────────────────╯               ┃                          ╰─✖ <Unauthorized>
-│   <Stop> ─────────┆j┆──────▶ ~|Counter|  ┣╌╌╌╌╌╌╌╌╌▶ <OrderPlaced> ═╦═▶ [Shipping]
-│   [Cfg] ──────┬───┆k┆──────▶ ~|Opts|     ┣────────◀▶ [Cache<K,V>]   ╠═▶ [Email]
-│               ├───┆m┆──────▶ ~|Limits|   ┣┄┄┄┄┄┄┄┄┄▶ [Fraud]        ╚═▶ |Ledger|
-│               ├───┆n┆──────▶ ~|Ratio|    ┣─────────▶ [PspA]
-│               ├───┆o┆──────▶ ~|Last|     ┣─────────▶ [PspB]
-│               ├───┆r┆──────▶ ~|Merged|   ┣─────────▶ [Stock]
-│               ╰───┆s┆──────▶ ~|Scaled|   ┣─────────▶ [Tax]
-│   <Tick> ─────┬───┆p┆──────▶ ~|History|  ┣─────────▶ [Ghost] ─────────▶ [?]
-│               ╰───┆q┆──────▶ ~|Total|    ┣───┆g┆───▶ [Payment]
-│   [Grader] ───────┆t┆──────▶ ~|Sys|      ┣───┆h┆───▶ [Scorer]
-│                                          ┣───┆i┆───▶ (Web) ⇱
-│                                          ┣─────────▶ [Shard]
-│                                          ┣─────────▶ [Replica]
-│                                          ┣━━━━━━━━━▶ {Resp}
-│                                          ┣━━━━━━━━━▶ {Err}
-│   [Ingest] ━━━━━━━━━━━━━━━━▶ *<Raw> ─────│─────────▶ [Parse] ━━━━━━━━━▶ *<Parsed> ───────▶ [Enrich] ━━▶ *<Enriched> ═╦═▶ |Warehouse|
-│   *{Rows} ─────────────────▶ [Sink]      │                                                                           ╠═▶ |RealtimeIdx|
-│   [Handler] ──────┆u┆──────▶ |Conn|      │                                                                           ╰─✖ |DLQ|
-╰─┆l┆──────────────────────────────────────╯
+ ╭h▶ (Customer) ──────────a┬─┬─▶ [Api] ━━━━━━━━━━━━━━━━┳b▶ [Auth] ━━━━━━━━┳─▶ |UserDB|
+ │   a┆{Cart}              │ │   b┆{creds}             ┃                  ┣━▶ ~{Session}
+ │   [Gateway] ────────────╯ │   c┆charge(amount)      ┃                  ╰─✖ <Unauthorized>
+ │   [Cart] ─────────────────╯    ┆↩ {Receipt}         ┣╌▶ <OrderPlaced> ═╦═▶ [Shipping]
+ │                               d┆score({Cart})       ┣◀▶ [Cache<K,V>]   ╠═▶ [Email]
+ │                               e┆⇱ http.get(${url})  ┣┄▶ [Fraud]        ╚═▶ |Ledger|
+ │                               h┆"ack"               ┣─▶ [PspA]
+ │   <Stop> ──────────────────f▶ ~|Counter|            ┣─▶ [PspB]
+ │   f┆false                                           ┣─▶ [Stock]
+ │   [Cfg] ────────────────┬──g▶ ~|Opts|               ┣─▶ [Tax]
+ │   g┆{retries: 3, mode:  ├──i▶ ~|Limits|             ┣─▶ [Ghost] ─────────▶ [?]
+ │    ┆"x"}                ├──j▶ ~|Ratio|              ┣c▶ [Payment]
+ │   i┆[1, 2, 3]           ├──k▶ ~|Last|               ┣d▶ [Scorer]
+ │   j┆0.5                 ├──n▶ ~|Merged|             ┣e▶ (Web) ⇱
+ │   k┆null                ╰──o▶ ~|Scaled|             ┣─▶ [Shard]
+ │   n┆${a} || {b: 1}                                  ┣─▶ [Replica]
+ │   o┆${n} * 2 - ${m} /                               ┣━▶ {Resp}
+ │    ┆4                                               ┣━▶ {Err}
+ │   <Tick> ───────────────┬──l▶ ~|History|            │
+ │   l┆${state.history}    ╰──m▶ ~|Total|              │
+ │    ┆++ [${out}]                                     │
+ │   m┆${state.count} + 1                              │
+ │   [Grader] ────────────────p▶ ~|Sys|                │
+ │   p┆"""You are a                                    │
+ │    ┆strict rubric…"""                               │
+ │   [Ingest] ━━━━━━━━━━━━━━━━━▶ *<Raw> ───────────────│─▶ [Parse] ━━━━━━━━━▶ *<Parsed> ────────▶①
+ │   *{Rows} ──────────────────▶ [Sink]                │
+ │   [Handler] ───────────────q▶ |Conn|                │
+ │   q┆query => {Rows}                                 │
+ ╰─────────────────────────────────────────────────────╯
 
-{List<T>}   <Msg<T>>   *|AuditLog|   [?]   {?}   <?>   |?|   (?)   {User}   [Worker] ↺   [Retry]   [AuthSvc]   |PaymentDB|
-                                                                            ╰─● ┆ c ┆
-[Tree.walk] ↻   [Boss]   [Worker‹N›]   (Auditor)   |Directives|   |Results|   [Helper]   [[walk]] ▾
-╰─● ┆ d ┆
+ ①───▶ [Enrich] ━━▶ *<Enriched> ═╦═▶ |Warehouse|
+                                 ╠═▶ |RealtimeIdx|
+                                 ╰─✖ |DLQ|
 
-── Control ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ {List<T>}   <Msg<T>>   *|AuditLog|   [?]   {?}   <?>   |?|   (?)   {User}   [Worker] ↺
+                                                                             ╰─● ┆ ↺ run() ┆
+ [Retry]   [AuthSvc]   |PaymentDB|   [Tree.walk] ↻     [Boss]   [Worker‹N›]   (Auditor)
+                                     ╰─● ┆ ↻ child ┆
+ |Directives|   |Results|   [Helper]   [[walk]] ▾
 
-                             [Worker] ↺ ───┬───┆x┆─────────▶ |Q|
-                             ╰─● ┆ v ┆     ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌▶ <metric> ─────────────────▶ |Obs|
-                             [Payments] ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌▶ <Paid> ─────┬─────────────▶┐{Order} ▾
-                                                                         ╰╍╍╍╍╍╍╍╍╍╍╍┬╍▶┘
-                         ╭╍▶ [Checkout] ▾ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌▶ <Placed> ╍╍╍┬╍╍╍╍╍╍╍╍╍╍╍╯
-                         ╏   <Push> ───────┬───────────────▶┐|Queue| ▾   ╏
-                         ╏                 ╰╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍▶┘            ╏
-                         ╏   [Poller] ─────────────────────▶ [Api] ──────╏─┬───┆y┆─────▶┐[Inventory]
-                         ╏   [Pinger] ─────────────────────▶ (Peer)      ╏ │         ╭─✖┘
-                         ╏                                               ╏ ├───┆z┆───│─▶ [Fraud]
-                         ╏                                               ╏ ├───┆aa┆──╯
-                         ╏                                               ╏ ├───────────▶ [MirrorA]
-                         ╏                                               ╏ ├───────────▶ [MirrorB]
-                         ╏                                               ╏ ╰╌╌╌╌╌╌╌╌╌╌╌▶ [Metrics]
-                         ╏   {Request} ┄┄┄┄┬┄┄┄ ‹read› ┄┄┄┄▶ [Reader] ───╏───────────┬─▶ |DB| ─────────▶ |WAL|
-                         ╏                 ├┄┄┄ ‹write› ┄┄┄▶ [Writer] ───╏───────────╯
-                         ╏                 ├┄┄┄ ‹admin› ┄┄┄▶ [AdminSvc]  ╏
-                         ╏                 ╰┄┄┄ ‹_› ┄┄┄┄┄┄┄▶ <Rejected>  ╏
-                         ╰╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╯
+── Control ─────────────────────────────────────────────────────────────────────────────────────────
 
-                         {Items}   {Job}   <Signal> ▾   (Courier) ▾
+                 [Worker] ↺ ──────┬a▶ |Q|
+                 ╰─● ┆ ↺ run() ┆  ╰╌▶ <metric> ────────────────▶ |Obs|
+                 a┆pop => {Job}
+                 [Payments] ╌╌╌╌╌╌╌╌▶ <Paid> ──────────────┬───▶┐{Order} ▾
+                                                           ╰╍┬╍▶┘
+             ╭╍▶ [Checkout] ▾ ╌╌╌╌╌╌▶ <Placed> ╍╍╍╍╍╍╍╍╍╍╍╍╍╍┤
+             ╏   <Push> ──────────┬─▶┐|Queue| ▾              ╏
+             ╏                    ╰╍▶┘                       ╏
+             ╏   [Poller] ──────────▶ [Api] ───────────────┬─╏b▶┐[Inventory]
+             ╏                        b┆reserve => {Hold}  ├─╏d✖┘
+             ╏                        c┆score              ├─╏c▶ [Fraud]
+             ╏                        d┆release({Hold})    ├─╏─▶ [MirrorA]
+             ╏   [Pinger] ──────────▶ (Peer)               ├─╏─▶ [MirrorB]
+             ╏                                             ╰╌╏╌▶ [Metrics]
+             ╏   {Request} ┄┄┄┄┄┄┄┬e▶ [Reader] ────────────┬─╏─▶ |DB| ─────────▶ |WAL|
+             ╏   e┆‹read›         ├f▶ [Writer] ────────────╯ ╏
+             ╏   f┆‹write›        ├g▶ [AdminSvc]             ╏
+             ╏   g┆‹admin›        ╰h▶ <Rejected>             ╏
+             ╏   h┆‹_›                                       ╏
+             ╰╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╯
 
-── Composition ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+             {Items}   {Job}   <Signal> ▾   (Courier) ▾
 
-                  {Damage} ─────────────────────▶ [Combat] ─────▶ {Health}
-                  [Asteroid] ┄┄┄┄ lagging ┄┄┄┄┄┄▶ <LagAlarm>
-                  [Physics] ──────────────────┬─▶ {Transform}
-                  [Homing] ────── [Bullet]/ ──╯
+── Composition ─────────────────────────────────────────────────────────────────────────────────────
 
-                  [Ship]   [Hull]   [Bullet]   [ShardQuery]   [Drone]   [Row]   [Tracer]   [PrimaryPsp]   [StandbyPsp]
-                  [ZoneA]   [ZoneB]   [Log]   {Scrollable}
+{Damage} ──────▶ [Combat] ─────▶ {Health}
+[Asteroid] ┄┄┄a▶ <LagAlarm>
+a┆lagging
+[Physics] ───┬─▶ {Transform}
+[Homing] ───b╯
+b┆[Bullet]/
 
-── L2 · [Core] ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[Ship]   [Hull]   [Bullet]   [ShardQuery]   [Drone]   [Row]   [Tracer]   [PrimaryPsp]   [StandbyPsp]
+[ZoneA]   [ZoneB]   [Log]   {Scrollable}
 
-                                              (Client) ──▶ [Gateway] ──▶ [Core] ▾ ──▶ |DB|
+── L2 · [Core] ─────────────────────────────────────────────────────────────────────────────────────
 
-── [Checkout] state machine ────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                            (Client) ──▶ [Gateway] ──▶ [Core] ▾ ──▶ |DB|
 
-                                                        ╭─▶ Idle ──────▶┐Busy ─╮
-                                                        │   <Placed> ╍╍▶┘      │
-                                                        ╰─ <Paid> ─────────────╯
+── [Checkout] state machine ────────────────────────────────────────────────────────────────────────
 
-── {Order} state machine ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                                    ╭a▶ Idle ──────▶┐Busy ─────╮
+                                    │   <Placed> ╍╍▶┘          │
+                                    │                a┆<Paid>  │
+                                    ╰──────────────────────────╯
 
-                           ● ────────────────────────────▶┐Open ──────────┆af┆───▶┐Settled ──── <ship> ───▶ ◉
-                           <Placed> ╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍▶┘           ╭╍╍╍╍╍╍╍╍╍╍▶┘
-                                                           <Paid> ╍╍╍╍╯
-                           ∗ any ───────┆ag┆ <cancel> ───▶ Cancelled
+── {Order} state machine ───────────────────────────────────────────────────────────────────────────
 
-── |Queue| state machine ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                        ● ──────────────▶┐Open ────────────a▶┐Settled ──b▶ ◉
+                        <Placed> ╍╍╍╍╍╍╍▶┘                ╭╍▶┘
+                                          a┆@timeout(1d)  ╏   b┆<ship>
+                                          <Paid> ╍╍╍╍╍╍╍╍╍╯
+                        ∗ any ─────────c▶ Cancelled
+                        c┆×3 <cancel>
 
-                                                            Empty ───▶┐Full
-                                                            <Push> ╍╍▶┘
+── |Queue| state machine ───────────────────────────────────────────────────────────────────────────
 
-── [Core] := { … } ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                                          Empty ───▶┐Full
+                                          <Push> ╍╍▶┘
 
-                                           [Router] ──▶ [Handler] ▸ ─┬◀▶ |Cache|
-                                                                     ╰╌▶ <AuditEvt> ──▶ |Log|
+── [Core] := { … } ─────────────────────────────────────────────────────────────────────────────────
 
-── [[walk]] := { … } ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                         [Router] ──▶ [Handler] ▸ ─┬◀▶ |Cache|
+                                                   ╰╌▶ <AuditEvt> ──▶ |Log|
 
-                                                               [Node] ↻
-                                                               ╰─● ┆ ah ┆
+── [[walk]] := { … } ───────────────────────────────────────────────────────────────────────────────
 
-── <Signal> state machine ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                                     [Node] ↻
+                                     ╰─● ┆ ↻ walk(.children) ┆
 
-                                                        Up ──── <drop> ───▶ Down
+── <Signal> state machine ──────────────────────────────────────────────────────────────────────────
 
-── (Courier) state machine ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                                         Up ───────a▶ Down
+                                         a┆<drop>
 
-                                                      Free ──── <assign> ───▶ Away
+── (Courier) state machine ─────────────────────────────────────────────────────────────────────────
 
-                                                                 ┆a┆  ↺ run()
-                                                                 ┆b┆  ↻ child
-                                                                 ┆c┆  ↺ run()
-                                                                 ┆d┆  ↻ child
-                                                                 ┆e┆  {Cart}
-                                                                 ┆f┆  {creds}
-                                                                 ┆g┆  charge(amount) ↩ {Receipt}
-                                                                 ┆h┆  score({Cart})
-                                                                 ┆i┆  ⇱ http.get(${url})
-                                                                 ┆j┆  false
-                                                                 ┆k┆  {retries: 3, mode: "x"}
-                                                                 ┆l┆  "ack"
-                                                                 ┆m┆  [1, 2, 3]
-                                                                 ┆n┆  0.5
-                                                                 ┆o┆  null
-                                                                 ┆p┆  ${state.history} ++ [${out}]
-                                                                 ┆q┆  ${state.count} + 1
-                                                                 ┆r┆  ${a} || {b: 1}
-                                                                 ┆s┆  ${n} * 2 - ${m} / 4
-                                                                 ┆t┆  """You are a strict rubric…"""
-                                                                 ┆u┆  query => {Rows}
-                                                                 ┆v┆  ↺ run()
-                                                                 ┆w┆  ↻ child
-                                                                 ┆x┆  pop => {Job}
-                                                                 ┆y┆  reserve => {Hold}
-                                                                 ┆z┆  score
-                                                                 ┆aa┆ release({Hold})
-                                                                 ┆ab┆ ↺ run()
-                                                                 ┆ac┆ ↻ child
-                                                                 ┆ad┆ ↺ run()
-                                                                 ┆ae┆ ↻ child
-                                                                 ┆af┆ @timeout(1d)
-                                                                 ┆ag┆ ×3
-                                                                 ┆ah┆ ↻ walk(.children)
+                                        Free ───────a▶ Away
+                                        a┆<assign>
 
 coverage.sigil: 127 nodes, 75 edges, 7 expansions · #!sketch

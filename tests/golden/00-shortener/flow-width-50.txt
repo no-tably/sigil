@@ -1,0 +1,21 @@
+── URL shortener ─────────────────────────────────
+
+       (User) ─────────────▶①
+       a┆shorten({Url})
+        ┆↩ {Code}
+③──┬e✖┐(Visitor) ──────────▶②
+   ╰f▶┘
+       c┆follow({Code})
+
+①──a▶ [Shortener] ──────b┬─▶ |Links|
+      b┆save({Code},     d
+       ┆{Url})           │
+②──c▶ [Redirect] ────────┼────────────────▶③↑
+      d┆lookup({Code})   ╰╌▶ <Clicked> ───▶④
+       ┆↩ {Url}
+      e┆<NotFound>
+      f┆redirect({Url})
+
+④───▶ [Stats]
+
+00-shortener.sigil: 7 nodes, 8 edges, 0 expansions · #!sketch

@@ -1,0 +1,22 @@
+                {Job} ▾
+
+── {Job} state machine ───────────────────────────
+
+④──╮   ● ─────────a┬─▶ Pending ───────▶①
+   │   a┆<submit>  e   b┆<pick>
+   ╰───────────────╯
+       ∗ any ───────h▶ Cancelled ─────▶②
+       h┆<cancel>      i┆<archive>
+
+①──b▶ Running ────▶③
+      c┆<ok>
+      d┆<fail>
+
+③──┬c▶ Done ─────────╮
+   │   g┆<archive>   │
+   ╰d▶ Retryable ────│─┬───────────▶④↑
+       f┆<exhaust>   │ ╰f▶ Dead
+②──╮   e┆×3 <retry>  ╰g┬─▶ ◉
+   ╰──────────────────i╯
+
+examples-03.sigil: 1 nodes, 0 edges, 1 expansions

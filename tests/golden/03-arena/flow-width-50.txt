@@ -1,0 +1,28 @@
+── arena ─────────────────────────────────────────
+
+       [Ship]   [Bullet]   [Asteroid]
+
+── systems ───────────────────────────────────────
+
+{Damage} ─────────▶ [Combat] ──────▶①
+[Physics] ──────┬─▶ {Transform}
+#4              a
+[Homing] ───────╯
+a┆[Bullet]/ #5
+
+①──┬─▶ {Health}
+   ╰╌▶ <Destroyed> ──▶ [Spawner] ━━▶ [Shard]
+                                     #3
+
+── notes ─────────────────────────────────────────
+
+¶ an entity-component system: trees for entities,
+  flows for systems
+#1 the player: components it has, bullets it
+   spawns
+#2 one per shot
+#3 only after a hit
+#4 systems query components by kind
+#5 bullets only
+
+03-arena.sigil: 12 nodes, 7 edges, 0 expansions · #!sketch

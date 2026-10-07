@@ -1,0 +1,10 @@
+(User) ────a▶ [Web] ─────b▶ [Auth] ━┳─▶ |UserDB|
+a┆{creds}     b┆{creds}     c┆#1    ┣c▶ ~{Session}
+                                    ├─✖ <Unauthorized>
+                                    ╰╌▶ <LoginEvent> ────▶ |AuditLog|
+
+── notes ───────────────────────────────────────────────────────────────────────
+
+#1 ttl 24h
+
+examples-01.sigil: 8 nodes, 7 edges, 0 expansions · #!spec

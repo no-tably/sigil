@@ -1,0 +1,47 @@
+── judge-loop ────────────────────────────────────
+
+[Loop] ───────────────────a┬─▶ ~|running|
+#1                         b
+a┆true                     │
+<stop> ────────────────────╯
+b┆false
+[Judge] ───────────────────┬c▶ [Scorer] ━━━━━▶①
+#2                         ├h▶ |Scores| ⇱
+c┆score({Draft})           ╰i▶ [Index] ⇱
+ ┆↩ <rated>
+h┆⇱
+ ┆db.insert(${out.score})
+ ┆@timeout 2s
+ ┆@fallback false
+i┆⇱
+ ┆mcp.search(${query})
+ ┆@timeout 2s
+ ┆@fallback []
+[Cfg] ─────────────────────┬e▶ ~|rubric|
+e┆"clarity,                ├f▶ ~|opts|
+ ┆correctness,             ╰g▶ ~|policy|
+ ┆concision"
+f┆{retries: 3, mode:
+ ┆"strict"}
+g┆"""Rate the draft
+ ┆1-10 on…""" #4
+
+①━━━▶ <rated> ─────────────d▶ ~|history|
+      #3
+      d┆${state.history}
+       ┆++ [${out.score}]
+
+~|total|
+
+── notes ─────────────────────────────────────────
+
+#1 control values written to a mutable store
+#2 an internal op-call (structural) — no `op`
+   keyword, no namespace · external op-calls: a
+   host-provided reach (far side opaque), each
+   bounded
+#3 store writes using the closed value operators
+#4 """Rate the draft 1-10 on ${state.rubric}.
+   Return only the integer."""
+
+examples-14-judge-loop.sigil: 14 nodes, 10 edges, 0 expansions · #!spec

@@ -1,5 +1,7 @@
-[Ingest] ━━▶ *<Raw> ──▶ [Parse] ━━▶ *<Parsed> ──▶ [Enrich] ━━▶ *<Enriched> ═╦═▶ |Warehouse|
-                                                                            ╠═▶ |RealtimeIdx|
-                                                                            ╰─✖ |DLQ|
+[Ingest] ━━▶ *<Raw> ──▶ [Parse] ━━▶ *<Parsed> ───▶①
+
+①───▶ [Enrich] ━━▶ *<Enriched> ═╦═▶ |Warehouse|
+                                ╠═▶ |RealtimeIdx|
+                                ╰─✖ |DLQ|
 
 examples-04.sigil: 9 nodes, 8 edges, 0 expansions · #!spec

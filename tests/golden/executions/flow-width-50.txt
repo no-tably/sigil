@@ -1,0 +1,98 @@
+── L1 · crawl ─────────────────────────────────────────
+
+(Operator) ─────────────▶①
+#1
+a┆start({Seed})
+[Indexer] ───────────┬──▶②
+#7                   ╰──▶③
+j┆reserve(${shard})
+ ┆↩ {Lease}
+ ┆write({Doc},
+ ┆{Lease})
+k┆release({Lease})
+l┆parse({Page})
+ ┆↩ {Doc}
+
+①───a▶ [Scheduler] ↺ ─────────────────────▶④
+       ╰─● ┆ ↺ plan({Seed}) ↩ {Plan} ┆
+       #2
+       b┆↩
+       c┆crawl({Plan})
+        ┆↩ {Site}
+②──┬j▶┐|Index|
+   ╰k✖┘
+
+④━━┳b▶ {Plan}
+   ╰c▶ [Crawler] ↺ ──────────────────────────────────▶⑤
+       ╰─● ┆ ↺ throttle(${host}) ┆ @deadline 2s ┆
+       #3
+       d┆fetch(${url})
+        ┆@timeout 10s ×3
+        ┆@fallback ${cached}
+       g┆count(${host})
+       h┆parse({Page})
+        ┆↩ {Doc}
+
+⑤──┬d▶ [Fetcher] ────────────╮
+   │   #4                    │
+   │   e┆⇱ http.get(${url})  │
+   │    ┆@timeout 5s         │
+   │   f┆allowed(${url})     │
+   ├g▶ [Metrics]             │
+③─l┴h▶ [Parser] ▾ ───────────│i▶ [Doc.walk] ↻
+       #5                    │   ╰─● ┆ ↻ child ┆
+       i┆{Doc}               ├e▶ (Web) ⇱
+                             ├─✖ <FetchFailed>
+                             ╰f▶ |Robots|
+
+{Site}   [Notifier] ⇱
+         ╰─● ┆ ⇱ mail.send(${report}) ┆ @timeout 5s ┆
+
+[[follow]] ▾
+
+── [Parser] := { … } ──────────────────────────────────
+
+      [Lexer] ─────────a▶ [Builder] ↻
+      a┆build(tokens)     ╰─● ┆ ↻ nest({Node}) ┆
+       ┆↩ {Doc}           #10
+
+── [[follow]] := { … } ────────────────────────────────
+
+               [Crawler] ↻
+               ╰─● ┆ ↻ follow(.links) ┆
+
+flow: a band is 55 wide, 50 here;
+the tree view reads narrow panes best
+
+── notes ──────────────────────────────────────────────
+
+¶ executions — every call-like construct in one
+  realistic design: a site crawler. Design note:
+  .claude/campaigns/scene-sim/executions.md (one
+  row per construct, E1–E12).
+#1 E1 a call carrying an internal op-call: the
+   scheduler asks, the target runs start()
+#2 E2 an op-call as the TARGET: the scheduler runs
+   plan() itself and gets {Plan} back · E3 a call
+   that returns: the scheduler waits until the
+   crawler hands back {Site}
+#3 E4 a self-call bounded as a whole: every
+   attempt of throttle() fits in 2s · E5 call
+   resilience: bound one attempt, retry, then
+   recover with the cached page · E8 fire-and-
+   forget: the crawler does not wait for the count
+#4 E6 an external op: the far side is host-
+   provided and opaque; it may fail · E7 a request
+   and its reply in one stroke
+#5 E9 recursion through a method-style glyph: one
+   call per child, depth unstated
+#6 E10 recursion through an alias: follow() calls
+   itself on every outgoing link
+#7 E11 several calls into one target: reserve,
+   then write; on failure release
+#8 a call repeated once per page
+#9 E12 an external op as the target: the notifier
+   reaches the host, far side unnamed
+#10 the builder recurses into nested blocks
+
+executions.sigil: 16 nodes, 18 edges, 2 expansions · #!spec

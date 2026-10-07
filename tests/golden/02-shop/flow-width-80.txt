@@ -1,0 +1,34 @@
+── shop ────────────────────────────────────────────────────────────────────────
+
+(Shopper) ──▶ [Edge] ──────a▶ [Shop] ▾ ────────▶①
+#1            a┆{Request}     b┆lookup(sku)
+                               ┆↩ {Item}
+                              c┆#2
+
+①──┬b▶ |Catalog|
+   ╰c▶ <OrderPlaced> ═╦d▶ [Fulfilment] ▾
+       d┆#2           ╚e▶ |Ledger|
+       e┆#2
+
+── [Shop] := { … } ─────────────────────────────────────────────────────────────
+
+[Cart] ───a▶ [Checkout] ───────┬b▶ [Payments] ▸
+a┆{Cart}     b┆charge(total)   ╰╌▶ <OrderPlaced>
+              ┆↩ {Receipt} #3
+
+── [Fulfilment] := { … } ───────────────────────────────────────────────────────
+
+      [Picker] ──▶ [Packer] ───a▶ (Courier)
+                   a┆{Parcel}
+
+── notes ───────────────────────────────────────────────────────────────────────
+
+¶ a shop, three levels deep
+#1 anonymous or signed-in; the edge does TLS, auth and rate limits
+#2 the ledger is append-only
+#3 3 retries, idempotent key
+#4 one PSP active at a time; failover is manual
+#5 only above the risk threshold
+#6 retrained weekly
+
+02-shop.sigil: 7 nodes, 6 edges, 2 expansions · #!sketch

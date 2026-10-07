@@ -1,10 +1,19 @@
-                                                       {Job} ▾
+                          {Job} ▾
 
-── {Job} state machine ───────────────────────────────────────────────────────────────────────────────────────────────
+── {Job} state machine ─────────────────────────────────────
 
-● ──────── <submit> ──┬─▶ Pending ────── <pick> ──────▶ Running ─┬─── <ok> ─────▶ Done ────────── <archive> ──┬─▶ ◉
-                      │                                          ╰─── <fail> ───▶ Retryable ─┬─── <exhaust> ──│─▶ Dead
-∗ any ──── <cancel> ──│─▶ Cancelled ──── <archive> ──────────────────────────────────────────│────────────────╯
-                      ╰─ <retry> ────────────────────────────────────────────────────────────╯
+● ────────────▶①
+a┆<submit>
+∗ any ────────▶②
+h┆<cancel>
+
+①─a┬─▶ Pending ─────b▶ Running ──┬c▶ Done ───────g┬───▶ ◉
+   e   b┆<pick>        c┆<ok>    │   g┆<archive>  i
+   │                   d┆<fail>  ╰d▶ Retryable ───│─┬f▶ Dead
+   │                                 f┆<exhaust>  │ │
+   │                                 e┆<retry>    │ │
+②──│h▶ Cancelled ─────────────────────────────────╯ │
+   │   i┆<archive>                                  │
+   ╰────────────────────────────────────────────────╯
 
 examples-03.sigil: 1 nodes, 0 edges, 1 expansions

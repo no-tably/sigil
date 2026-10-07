@@ -1,0 +1,24 @@
+③──┬f✖┐(User) ─────▶①
+   ╰g▶┘
+       a┆{Cart}
+
+①──a▶ [API] ───────────────────────┬──▶②
+      b┆reserve => {Hold}          ╰──▶③↑
+      c┆charge
+       ┆×3
+       ┆@after exp-backoff, cap=…
+      d┆score
+       ┆@timeout 500ms
+      e┆release({Hold})
+      f┆<CheckoutFailed>
+      g┆{Confirmation}
+
+②──┬b▶┐[Inventory]
+   ├e✖┘
+   ├c▶ [Payment]
+   ├d▶ [Fraud]
+   ╰╌▶ <OrderPlaced> ═╦═▶ [Shipping]
+                      ╠═▶ [Email]
+                      ╚═▶ |Ledger|
+
+examples-02.sigil: 9 nodes, 11 edges, 0 expansions · #!spec

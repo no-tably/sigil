@@ -1,0 +1,28 @@
+── crawler ─────────────────────────────────────────────────────────────────────
+
+(Operator) ──────a▶ [Scheduler] ↺ ─────────────────────▶①
+#1                  ╰─● ┆ ↺ plan({Seed}) ↩ {Plan} ┆
+a┆start({Seed})     b┆↩
+                    c┆crawl({Plan})
+                     ┆↩ {Site}
+
+①━━┳b▶ {Plan}
+   ╰c▶ [Crawler] ─────────────┬d▶ (Web) ⇱
+       #2                     ├─✖ <FetchFailed>
+       d┆⇱ http.get(${url})   ├e▶ [Crawler.follow] ↻
+        ┆@timeout 5s ×3       │   ╰─● ┆ ↻ link ┆
+        ┆@fallback ${cached}  │   #3
+       e┆{Page}               ╰f▶ |Index|
+       f┆reserve(shard)
+        ┆↩ {Lease}
+        ┆write({Page},
+        ┆{Lease})
+
+── notes ───────────────────────────────────────────────────────────────────────
+
+¶ calls: who runs what, what comes back, what leaves the system
+#1 the scheduler plans on its own, then waits for the crawl
+#2 each fetch leaves the system: host-provided, and it may fail
+#3 links are followed recursively, one call per link
+
+05-executions.sigil: 8 nodes, 10 edges, 0 expansions · #!sketch

@@ -1,0 +1,18 @@
+②──b▶ [API] ─────────────────────────▶①
+      @sla p99<200ms
+      a┆charge
+       ┆charge
+       ┆×3
+       ┆@after exp-backoff, cap=…
+      c┆reserve => {Hold}
+      d┆<Failed>
+
+①──┬a▶ [Payment]
+   ├╌▶ <OrderPlaced> ──▶ [Shipping]
+   ├c▶ [Inventory]
+   ╰d✖ (User) ─────────────────────────▶②↑
+       b┆{Cart}
+
+[[Retry]]
+
+examples-10.sigil: 7 nodes, 7 edges, 0 expansions

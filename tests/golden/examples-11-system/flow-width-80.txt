@@ -1,0 +1,14 @@
+── System ──────────────────────────────────────────────────────────────────────
+
+╭d✖ (User) ───a▶ [API] ───────────────────────┬b▶ [Inventory]
+│   a┆{Cart}     @sla p99<200ms               ├c▶ [Payment]
+│                b┆reserve => {Hold}          ├╌▶ <OrderPlaced> ──▶ [Shipping]
+│                c┆charge                     │
+│                 ┆×3                         │
+│                 ┆@after exp-backoff, cap=…  │
+│                d┆<Failed>                   │
+╰─────────────────────────────────────────────╯
+
+[[Retry]]
+
+examples-11-system.sigil: 7 nodes, 6 edges, 0 expansions · #!spec

@@ -130,6 +130,18 @@ notes, triggers, the checks overlay and the simulation are the graph view's.
 view; control blocks are not framed (a branch's arms are dotted wires labelled
 `‹arm›`), and joins are not drawn as bars.
 
+When the flow view is wider than its width (the window with `f` fit on, `--width`,
+a pane), it wraps like text, a step at a time and only while it still doesn't fit:
+chips become marker letters with a key (`┆a┆`); then what is written on a wire, and a
+label's notes and modifiers, hang under the node that sends it, the wire keeping its
+letter (`─a▶` over `a┆{Cart}`); then a part is cut between its call-depth columns
+into bands stacked down the page, a cut wire ending in a numbered plug at the right
+edge (`─▶①`, `─▶③↑` when it resumes in a band above) and resuming at the start of
+the band it lands in (`①──┬─▶`). The cuts take the fewest bands, then the fewest
+plugs. A band that still can't fit leaves a hint under the drawing that the tree
+view reads narrow panes best; the view never switches by itself. A run plays
+without reflowing, its tokens crossing the plugs.
+
 In sim mode every view draws the same run. The wire a token is on now is bright,
 wires taken before are faded (`ui.sim_trail`), and wires never taken are
 fainter (`ui.sim_faint`). Under the footer, in words that read without colour:

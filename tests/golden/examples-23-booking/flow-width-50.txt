@@ -1,0 +1,14 @@
+── booking ───────────────────────────────────────
+
+(User) ─────────a▶ [Booking] ──────────────▶①
+×N                 b┆${state.Seats} - 1
+a┆book({Seat})     c┆charge({Seat})
+                    ┆×3
+
+①──┬b▶ ~|Seats|
+   ├c▶ [Payments] ──────────────d▶ [Card] ⇱
+   ╎   d┆⇱
+   ╎    ┆card.charge(${total})
+   ╰╌▶ <Booked>
+
+examples-23-booking.sigil: 6 nodes, 5 edges, 0 expansions · #!spec

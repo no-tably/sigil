@@ -1,0 +1,20 @@
+╭───✖┐(User) ────┆a┆───▶ [API] ─┬───┆b┆────▶┐[Inventory]
+│ ╭─▶┘                          │        ╭─✖┘
+│ │                             ├───┆c┆──│─▶ [Payment]
+│ │                             ├───┆d┆──│─▶ [Fraud]
+│ │                             ├───┆e┆──╯
+│ │                             ├╌╌╌╌╌╌╌╌╌╌▶ <OrderPlaced> ═╦═▶ [Shipping]
+│ │                             │                           ╠═▶ [Email]
+│ │                             │                           ╚═▶ |Ledger|
+│ ╰─┆g┆─────────────────────────┤
+╰─┆f┆───────────────────────────╯
+
+                                 ┆a┆ {Cart}
+                                 ┆b┆ reserve => {Hold}
+                                 ┆c┆ charge ┆ ×3 @after exp-backoff, cap=…
+                                 ┆d┆ score ┆ @timeout 500ms
+                                 ┆e┆ release({Hold})
+                                 ┆f┆ <CheckoutFailed>
+                                 ┆g┆ {Confirmation}
+
+examples-02.sigil: 9 nodes, 11 edges, 0 expansions · #!spec
