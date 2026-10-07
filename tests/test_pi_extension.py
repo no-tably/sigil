@@ -10,7 +10,10 @@ Covers:
   - plugin/pi/tests/drive.mjs driving the built extension: registration,
     the 144-column rule for a widget nobody asked for, /sigil-pane opening it at any
     width, a run stepped, close, a missing file, no UI, and a multiplexer split
-    (a fake tmux on PATH), and `/sigil-pane display` (the shared settings
+    (a fake tmux on PATH) started at the run's asked frame and playing, the
+    run's speed (- / +, shown in the status), RPC mode (no terminal: the
+    widget sent as plain text lines, again only on a change), and
+    `/sigil-pane display` (the shared settings
     file under a temp XDG_CONFIG_HOME, and its precedence: --sigil-display >
     SIGIL_DISPLAY > the file > auto) — once with a stand-in API, and again
     through an installed pi's own loader when `pi` is on PATH.
@@ -143,6 +146,14 @@ class HelpersTest(unittest.TestCase):
         self.assertEqual(got[1], {"action": "next", "input": {"view": "tree"}})
         self.assertEqual(got[2], {"input": {"file": "a.sigil", "scenario": "happy", "play": False}})
 
+    def test_speed_words_and_plain_lines(self):
+        got = self.node("console.log(JSON.stringify(["
+                        "m.commandWords('+'), m.commandWords('- tree'),"
+                        "m.plainLines(['\\x1b[1;38;2;1;2;3mab\\x1b[0mc'])]))")
+        self.assertEqual(got[0], {"action": "faster", "input": {}})
+        self.assertEqual(got[1], {"action": "slower", "input": {"view": "tree"}})
+        self.assertEqual(got[2], ["abc"])
+
 
 class DriveMixin:
     pi_dir: Path | None = None
@@ -209,6 +220,25 @@ class DriveMixin:
         self.assertTrue(any(ln.startswith("› ") and len(ln) > 2 for ln in plain), plain)
         self.assertIn("\nnow: ", run["reply"])
 
+    def test_speed_steps_as_view_py_and_shows_in_the_status(self):
+        self.assertIn("❚❚ 2 frames/s · sim happy", self.steps["next"]["lines"][0])   # the start
+        self.assertIn("❚❚ 4 frames/s · sim happy", self.steps["faster"]["lines"][0])
+        self.assertIn("❚❚ 1 frame/s · sim happy", self.steps["slower twice"]["lines"][0])
+
+    def test_rpc_mode_sends_the_widget_as_text_on_a_change(self):
+        call = self.steps["rpc tool call"]
+        self.assertFalse(call["widget"])                       # no component: pi drops it there
+        self.assertIn("Shown in the sigil widget", call["reply"])
+        self.assertEqual(len(call["texts"]), 1, call["texts"])
+        sent = call["texts"][0]
+        self.assertTrue(sent[0].startswith("02-shop.sigil · flow · depth 1 · wrap · ❚❚ 1 frame/s"), sent[0])
+        self.assertIn("frame 1/", sent[0])
+        self.assertFalse(any("\x1b" in ln for ln in sent))     # plain text, no terminal styles
+        self.assertTrue(any("[Shop]" in ln or "Shop" in ln for ln in sent[1:]))
+        self.assertIn("frame 2/", self.steps["rpc next"]["texts"][-1][0])
+        self.assertEqual(self.steps["rpc reopened, unchanged"]["texts"], [])
+        self.assertEqual(self.steps["rpc close"]["texts"], [])   # cleared (undefined), not text
+
     def test_close_and_an_unasked_widget_on_a_wide_terminal(self):
         self.assertFalse(self.steps["close"]["widget"])
         wide = self.steps["wide tool call"]
@@ -230,6 +260,15 @@ class DriveMixin:
         self.assertEqual(argv[:3], ["split-window", "-h", "-d"])
         self.assertIn("follow", argv)
         self.assertTrue(argv[argv.index("follow") - 1].endswith("skills/sigil/scripts/pane.py"))
+
+    def test_the_split_starts_a_run_where_asked(self):
+        s = self.steps["multiplex run"]
+        self.assertIn("--sim happy --frame 2 --play", s["reply"])
+        self.assertIn("playing ", s["reply"])
+        self.assertIn("(frame 3 of", s["reply"])
+        argv = self.tmux_log.read_text().split("\n")
+        control = json.loads(Path(argv[argv.index("follow") + 1]).read_text())
+        self.assertEqual(control["argv"][-5:], ["--sim", "happy", "--frame", "2", "--play"])
 
     def note(self, name: str) -> list:
         notes = self.steps[name]["notes"]

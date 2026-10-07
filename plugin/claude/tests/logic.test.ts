@@ -2,8 +2,8 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import {
   colourOf, cropRows, displayReport, drawArgv, frameIndex, herdrPaneOf, herdrReadyArgv, layoutOf, layoutReport, nextView,
-  panTo, parseCommandArgs, parseDisplayArgs, parseDrawing, parseLayoutArgs, parseRequest, pickDisplay, pickLayout,
-  rasterCells, resolveDisplay, runLines, shellQuote, slices, splitArgv, viewArgv,
+  nextSpeed, panTo, parseCommandArgs, parseDisplayArgs, parseDrawing, parseLayoutArgs, parseRequest, pickDisplay, pickLayout,
+  rasterCells, resolveDisplay, runLines, shellQuote, slices, speedText, splitArgv, splitStart, statusLine, viewArgv,
 } from '../hooks/logic'
 import type { Drawing } from '../types'
 
@@ -114,6 +114,15 @@ describe('commands', () => {
       .toEqual(['/d/a.sigil', '--depth', 'all', '--graph', '--sim', 'happy'])
     expect(viewArgv({ file: '/d/a.sigil', view: 'flow', depth: 0 })).toEqual(['/d/a.sigil', '--depth', '0'])
   })
+  test("the split starts a run as the pane shows a new one: the frame asked, else the last, the first when it plays", () => {
+    const req = { file: '/d/a.sigil', view: 'graph' as const, depth: 1, scenario: 'happy' }
+    expect(splitStart({ request: req })).toEqual({ frame: -1, play: false })
+    expect(splitStart({ request: req, play: true })).toEqual({ frame: 0, play: true })
+    expect(splitStart({ request: req, frame: 4, play: false })).toEqual({ frame: 4, play: false })
+    expect(viewArgv(req, 'auto', { frame: -1, play: false }).slice(-4)).toEqual(['--sim', 'happy', '--frame', 'last'])
+    expect(viewArgv(req, 'auto', { frame: 3, play: true }).slice(-3)).toEqual(['--frame', '3', '--play'])
+    expect(viewArgv({ ...req, scenario: undefined }, 'auto', { frame: 3, play: true })).toEqual(['/d/a.sigil', '--depth', '1', '--graph'])
+  })
   test('a split per multiplexer', () => {
     const follow = ['python3', '/p/pane.py', 'follow', '/tmp/c.json']
     expect(splitArgv('tmux', follow)).toEqual(['tmux', 'split-window', '-h', '-d', '-P', '-F', '#{pane_id}', '--', ...follow])
@@ -143,6 +152,16 @@ describe('cells', () => {
     expect(nextView('run')).toBe('graph')
     expect(parseDrawing('{"error":"x: no such file"}')).toEqual({ error: 'x: no such file' })
     expect(parseDrawing('garbage')).toEqual({ error: 'pane.py printed no drawing' })
+  })
+  test("speeds: view.py's, clamped, written as its status bar writes them", () => {
+    expect([0, 1, 2, 3, 7].map(speedText)).toEqual(['¼ frame/s', '½ frame/s', '1 frame/s', '2 frames/s', '32 frames/s'])
+    expect(nextSpeed(3, 1)).toBe(4)
+    expect(nextSpeed(7, 1)).toBe(7)
+    expect(nextSpeed(0, -1)).toBe(0)
+    const run = { file: 'a.sigil', view: 'flow', frames: [[], []], status: ['sim happy · start', 'sim happy · end · ok'] } as unknown as Drawing
+    const req = { file: '/d/a.sigil', view: 'flow' as const, depth: 1 }
+    expect(statusLine(run, req, 0, true)).toBe('a.sigil · flow · depth 1 · ▶ 2 frames/s · sim happy · start · frame 1/2')
+    expect(statusLine(run, req, 1, false, 0)).toBe('a.sigil · flow · depth 1 · ❚❚ ¼ frame/s · sim happy · end · ok · frame 2/2')
   })
   test("a run's path and narration line; the log line from an older pane.py", () => {
     const row = [['path   ', 0], ['① (A) -> [B]', 1]]

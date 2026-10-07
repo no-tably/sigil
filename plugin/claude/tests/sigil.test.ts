@@ -130,6 +130,22 @@ describe('mod display', () => {
     expect(await pane.find({ type: 'Text', text: '› [API] returns to (Shopper)' })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: '① (Shopper) -> [API]' })).toBeDefined()
   })
+
+  test("a run's speed steps as view.py's (- / + there, s / f here) and shows in the status", { options: { display: 'mod' } }, async ($, on) => {
+    world(on, { isPlaced: true })
+    await $.session.start(START)
+    await $.tool.call({ tool: 'mcp__sigil__view', file: 'shop.sigil', scenario: 'happy' })
+    const props = { title: 'Sigil', isFocused: true, bodyColumns: 100, placement: 'dock' as const,
+      scroll: { offset: 0, bodyRows: 40 }, view: {} }
+    const pane = await $.ui.mount({ plugin: 'sigil', surface: 'desktop', component: 'Pane', props, requestId: 'sigil' })
+    expect(await pane.find({ type: 'Text', text: /❚❚ 2 frames\/s · sim happy/ })).toBeDefined()
+    expect(await pane.find({ key: 'faster' })).toMatchObject({ props: { hotkey: 'f' } })
+    await pane.press({ key: 'faster' })
+    await pane.press({ key: 'faster' })
+    expect(await pane.find({ type: 'Text', text: /❚❚ 8 frames\/s/ })).toBeDefined()
+    for (let i = 0; i < 9; i++) await pane.press({ key: 'slower' })
+    expect(await pane.find({ type: 'Text', text: /❚❚ ¼ frame\/s/ })).toBeDefined()
+  })
 })
 
 describe('multiplex display', () => {
@@ -158,7 +174,17 @@ describe('multiplex display', () => {
     const { result } = await $.tool.call({ tool: 'mcp__sigil__view', scenario: 'happy' })
     expect(String(result)).toContain('Shown in the herdr split')
     expect(herdr().length).toBe(3)   // split, wait, run: a reused split adds none
-    expect(JSON.parse(seen.writes[1]?.text ?? '{}')).toEqual({ argv: [FILE, '--depth', '1', '--sim', 'happy'] })
+    expect(JSON.parse(seen.writes[1]?.text ?? '{}')).toEqual({ argv: [FILE, '--depth', '1', '--sim', 'happy', '--frame', 'last'] })
+  })
+
+  test("the split's run starts at the frame asked, playing when asked", async ($, on) => {
+    const seen = world(on, { isPlaced: true, env: { TMUX: 'x', TMPDIR: '/t' } })
+    await $.session.start(START)
+    const { result } = await $.tool.call({ tool: 'mcp__sigil__view', file: 'shop.sigil', scenario: 'happy', frame: 0, play: true })
+    expect(JSON.parse(seen.writes[0]?.text ?? '{}').argv.slice(-5)).toEqual(['--sim', 'happy', '--frame', '0', '--play'])
+    expect(String(result)).toContain('--frame 0 --play')
+    expect(String(result)).toContain('playing sim happy · start (frame 1 of 2)')
+    expect(String(result)).not.toContain('starts paused')
   })
 })
 

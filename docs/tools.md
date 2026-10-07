@@ -112,6 +112,9 @@ Options:
   `--json` prints either as JSON. `--run --json` prints the run's timeline as data
   (lanes with their labels, spans with their waits, moves, marks) — the scenario's,
   else the happy one.
+- `--frame N|last` and `--play` start the live view's run (`--sim`) at frame N
+  (0-based) or its last, and playing. Without them it starts paused on the first
+  frame. The agent plugins' split passes them.
 - `--limit NAME=N` raises one simulator bound for `--sim` (repeatable): `iterations`
   (loop repetitions, 2), `depth` (recursion, 3), `spawn` / `spawns`, `visits`, `stack`,
   and the per-episode `frames` (2000) and `activations` (500). Each entry point runs
@@ -303,8 +306,10 @@ the new value and the next view draws there.
   open with `/sigil-pane` takes it at once, one the agent opens never does
   (ctrl+x then Tab, or a click, gives it the keys; Esc hands them back, and the
   footer says which). `1` `2` `3` `4` pick graph, tree, flow and run (the current
-  one in brackets), `t` cycles them, `d` the depth; with a run, `p` plays or pauses it
-  and `b` and `n` step it, and under the drawing the pane shows the run's path
+  one in brackets), `t` cycles them, `d` the depth; with a run, `p` plays or pauses it,
+  `b` and `n` step it, and `s` and `f` play it slower and faster: view.py's speeds,
+  ¼ to 32 frames a second from 2, shown in the status line (a pane's hotkey is a
+  letter or a digit, so not view.py's `-` and `+`). Under the drawing the pane shows the run's path
   (in view.py's styles) and, after `›`, its narration line, as the live view's rows under its footer.
   Docked, the drawing fills the pane and the legend,
   summary and keys sit at its bottom. The flow and run views draw with their own
@@ -315,8 +320,10 @@ the new value and the next view draws there.
 - `multiplex` opens a split to the right in herdr, tmux or zellij, running
   `pane.py follow CONTROL`. That loop runs `view.py` live with the flags in the
   control file and restarts it each time the agent's next call rewrites the file.
-  Pressing `q` in the split closes it. Frame and play are driven from the split's
-  own keys.
+  Pressing `q` in the split closes it. A run starts where the agent asked: the
+  file's flags carry `frame` and `play` as view.py's `--frame` and `--play` (a run
+  with neither starts on its last frame, as in the pane), and the reply reads the
+  run at that frame. From there the split's own keys drive it.
 - `auto`, the default, picks `multiplex` when `HERDR_ENV`, `TMUX` or `ZELLIJ` is
   set, and `mod` otherwise.
 
@@ -336,8 +343,9 @@ Claude Code, with these differences:
   any width.
 - The widget takes no keys, since it never has focus. `/sigil-pane` takes the tool's
   words (`FILE`, a view name, `depth N|all`, `sim SCENARIO`, `frame N|last`,
-  `play`, `payloads`) plus `pause`, `back`, `next` and `close`, and `left` and
-  `right`, which pan a panned drawing half a widget across. With no words it
+  `play`, `payloads`) plus `pause`, `back`, `next`, `-` and `+` (the run's speed,
+  as view.py's keys, shown in the status line), `left` and `right`, which pan a
+  panned drawing half a widget across, and `close`. With no words it
   reopens the widget.
 - `multiplex` opens the same split, running `pane.py follow`.
 - pi has no plugin settings, so `/sigil-pane display VALUE` and `/sigil-pane layout
@@ -346,8 +354,10 @@ Claude Code, with these differences:
   environment variable wins over the file (`--sigil-layout`, `SIGIL_LAYOUT` for the
   layout); with none of them set it's `auto`.
 - In print and json modes (`-p`, `--mode json`) there's no UI. The `mod` reply
-  says so and points to `view.py --once`. In RPC mode the widget isn't drawn:
-  pi sends RPC clients only plain-text widgets, and this one is a component.
+  says so and points to `view.py --once`. In RPC mode (stdout is pi's JSON
+  channel, not a terminal) pi sends clients only plain-text widgets, so the widget
+  goes as text lines: the whole drawing at 100 columns, no colours, sent again
+  whenever its lines change (a run's frame, a save, the speed).
 
 ## The viewer plugin contract
 

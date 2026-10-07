@@ -9,7 +9,9 @@
 // exec runs the command. The UI is always a stand-in: setWidget keeps the
 // factory and the script renders it at a chosen width. The multiplexer step
 // expects a fake `tmux` on PATH that records its argv; the display steps
-// write the settings file under $XDG_CONFIG_HOME (the test's own folder).
+// write the settings file under $XDG_CONFIG_HOME (the test's own folder). The
+// script's stdout is a pipe, so a terminal is claimed (process.stdout.isTTY)
+// except for the RPC steps, where text widgets (string arrays) are recorded.
 
 import { execFile } from 'node:child_process'
 import { join } from 'node:path'
@@ -59,8 +61,13 @@ if (out.errors.length === 0) {
   let rendered = null
   const tui = { requestRender() {} }
   const notes = []
+  const texts = []
   const ui = {
-    setWidget: (key, content) => { factory = content ?? null; rendered = content ? content(tui, {}) : null },
+    setWidget: (key, content) => {
+      if (Array.isArray(content)) return texts.push(content)
+      factory = content ?? null
+      rendered = content ? content(tui, {}) : null
+    },
     notify: (message, level) => notes.push([level, message]),
   }
   const ctx = { cwd: process.cwd(), hasUI: true, ui }
@@ -78,16 +85,27 @@ if (out.errors.length === 0) {
       name, reply: reply ?? null, widget: factory !== null,
       lines: drawn && drawn.map(strip), coloured: drawn !== null && drawn.some(l => /\x1b\[[0-9;]*38;2;/.test(l)),
       widest: drawn ? Math.max(...drawn.map(l => [...strip(l)].length)) : 0, notes: notes.splice(0),
+      texts: texts.splice(0),
     })
   }
   const call = input => tool.execute('call-1', input, undefined, undefined, ctx).then(r => r.content[0].text)
 
   process.stdout.columns = 100
+  process.stdout.isTTY = true
   await step('narrow tool call', () => call({ file, view: 'tree' }))
   await step('command opens it', () => command.handler('', ctx))
   await step('a run at frame 0', () => call({ scenario: 'happy', frame: '0' }))
   await step('next', () => command.handler('next', ctx))
+  await step('faster', () => command.handler('+', ctx))
+  await step('slower twice', async () => { await command.handler('-', ctx); await command.handler('-', ctx) })
   await step('close', () => command.handler('close', ctx))
+  // RPC mode: stdout is pi's JSON channel, no terminal; widgets go as text
+  process.stdout.isTTY = false
+  await step('rpc tool call', () => call({ file, view: 'flow', scenario: 'happy', frame: '0' }))
+  await step('rpc next', () => command.handler('next', ctx))
+  await step('rpc reopened, unchanged', () => command.handler('', ctx))
+  await step('rpc close', () => command.handler('close', ctx))
+  process.stdout.isTTY = true
   process.stdout.columns = 160
   await step('wide tool call', () => call({ file, view: 'graph', scenario: '' }), 150)
   await step('missing file', () => call({ file: 'no-such.sigil' }), 150)
@@ -96,6 +114,7 @@ if (out.errors.length === 0) {
   for (const fn of reg.handlers.session_shutdown ?? []) await fn({}, ctx)
   process.env.TMUX = '/tmp/fake,1,0'
   await step('multiplex', () => call({ file, view: 'tree' }))
+  await step('multiplex run', () => call({ scenario: 'happy', frame: '2', play: true }))
   // /sigil-pane display: the flag, SIGIL_DISPLAY, the settings file, auto
   await step('display default', () => command.handler('display', ctx))
   await step('display set mod', () => command.handler('display mod', ctx))

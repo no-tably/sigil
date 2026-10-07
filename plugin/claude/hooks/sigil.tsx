@@ -9,11 +9,11 @@ import type { EngineInterface, Register, UiOpenResult } from 'claude-code'
 
 import type { Drawing, Playback, Split, ViewRequest } from '../types'
 import {
-  COMMAND, DEFAULT_WIDTH, PANE, VIEWS, RASTER_COLUMNS, TOOL, UNASKED_COLUMNS,
-  cropRows, detectMux, displayReport, drawArgv, frameIndex, herdrPaneOf, herdrReadyArgv, isDisplayChoice, layoutOf,
-  layoutReport, nextDepth, nextView, panTo, parseCommandArgs, parseDisplayArgs, parseDrawing, parseLayoutArgs,
-  parseRequest, rasterCells, replyText, resolveDisplay, rowsWidth, runLines, shellQuote, slices, splitArgv,
-  statusLine, viewArgv,
+  COMMAND, DEFAULT_WIDTH, PANE, VIEWS, RASTER_COLUMNS, START_SPEED, TOOL, UNASKED_COLUMNS,
+  cropRows, detectMux, displayReport, drawArgv, frameIndex, frameMs, herdrPaneOf, herdrReadyArgv, isDisplayChoice,
+  layoutOf, layoutReport, nextDepth, nextSpeed, nextView, panTo, parseCommandArgs, parseDisplayArgs, parseDrawing,
+  parseLayoutArgs, parseRequest, rasterCells, replyText, resolveDisplay, rowsWidth, runLines, shellQuote, slices,
+  splitArgv, splitStart, statusLine, viewArgv,
 } from './logic'
 import type { Asked, Display, DisplayChoice, LayoutChoice } from './logic'
 
@@ -23,9 +23,9 @@ const failure = atom({ plugin: 'sigil', key: 'error' } as const, null)
 const playback = atom({ plugin: 'sigil', key: 'playback' } as const, { at: 0, isPlaying: false })
 const split = atom({ plugin: 'sigil', key: 'split' } as const, null)
 const panX = atom({ plugin: 'sigil', key: 'panX' } as const, 0)
+const speed = atom({ plugin: 'sigil', key: 'speed' } as const, START_SPEED)
 
 const WATCH_MS = 1000 // how often the shown file is looked at
-const PLAY_MS = 125 // a played run's frame time: 8 frames a second, view.py's start
 const ALIVE_MS = 3000 // a split whose follow loop touched its file this recently is up
 const TITLE = 'Sigil'
 
@@ -133,9 +133,11 @@ function stopPlay(): void {
   playTimer = null
 }
 
-function startPlay($: $): void {
+async function startPlay($: $): Promise<void> {
   if (playTimer !== null) return
-  playTimer = $.clock.every(PLAY_MS, async () => {
+  const ms = frameMs(await read($, speed))
+  if (playTimer !== null) return
+  playTimer = $.clock.every(ms, async () => {
     const shown = await read($, drawing)
     const now = await read($, playback)
     if (shown === null || !now.isPlaying) return stopPlay()
@@ -148,8 +150,15 @@ function startPlay($: $): void {
 
 async function setPlayback($: $, next: Playback): Promise<void> {
   await update($, playback, () => next)
-  if (next.isPlaying) startPlay($)
+  if (next.isPlaying) await startPlay($)
   else stopPlay()
+}
+
+/** A speed step faster (+1) or slower (-1); a playing run goes on at it. */
+async function setSpeed($: $, delta: number): Promise<void> {
+  await update($, speed, s => nextSpeed(s, delta))
+  stopPlay()
+  if ((await read($, playback)).isPlaying) await startPlay($)
 }
 
 /** The playback a request asks for over the drawing: `frame` (-1: the last),
@@ -198,11 +207,12 @@ async function showInSplit($: $, asked: Asked): Promise<string> {
   if (mux === null) {
     return `sigil: display is multiplex, but no herdr, tmux or zellij session was found; /${COMMAND} display mod draws in the pane.`
   }
-  const control = JSON.stringify({ argv: viewArgv(req, layout) })
+  const live = viewArgv(req, layout, splitStart(asked))
+  const control = JSON.stringify({ argv: live })
   const held = await read($, split)
   if (held !== null && held.mux === mux && (await isAlive($, held))) {
     await $.fs.write(held.control, control)
-    return about($, req, asked, `Shown in the ${mux} split running view.py live: ${shellQuote(viewArgv(req, layout))}.`)
+    return about($, req, asked, `Shown in the ${mux} split running view.py live: ${shellQuote(live)}.`)
   }
   const tmp = (await $.env.get('TMPDIR')) ?? '/tmp'
   const opened: Split = { mux, control: `${tmp.replace(/\/$/, '')}/sigil-view-${crypto.randomUUID()}.json` }
@@ -221,22 +231,21 @@ async function showInSplit($: $, asked: Asked): Promise<string> {
   }
   await update($, split, () => opened)
   return about($, req, asked, `Opened a ${mux} split running view.py live (it redraws on every save; `
-    + `q closes it): ${shellQuote(viewArgv(req, layout))}.`)
+    + `q closes it): ${shellQuote(live)}.`)
 }
 
-/** A split's reply: where, then the summary and the run's end as pane.py
- * reads them (the split plays from its own keys: space, , and .). */
+/** A split's reply: where, then the summary and the run where the split
+ * starts it (splitStart) as pane.py reads them. */
 async function about($: $, req: ViewRequest, asked: Asked, where: string): Promise<string> {
-  const steer = asked.frame !== undefined || asked.play !== undefined
-    ? ' Its run starts paused at the first frame: space plays it, , and . step it there.'
-    : ''
   const ran = await $.process.run(drawArgv(await scriptPath($), req, DEFAULT_WIDTH), { timeoutMs: 60000 })
     .catch(() => undefined)
   const got = ran?.exitCode === 0 ? parseDrawing(ran.stdout) : undefined
-  if (got === undefined) return where + steer
-  if ('error' in got) return `${where}${steer}\nsigil: ${got.error}`
+  if (got === undefined) return where
+  if ('error' in got) return `${where}\nsigil: ${got.error}`
+  const start = splitStart(asked)
   const last = got.frames.length - 1
-  return replyText(got, last, false, where + steer).replace(/^paused at /m, 'the run ends at ')
+  const at = start.frame < 0 || start.frame > last ? last : start.frame
+  return replyText(got, at, start.play && at < last, where)
 }
 
 async function isAlive($: $, held: Split): Promise<boolean> {
@@ -348,6 +357,7 @@ export const register: Register = (on, options) => {
     const shown = await read($, drawing)
     const error = await read($, failure)
     const now = await read($, playback)
+    const pace = await read($, speed)
     const width = Math.max(20, Math.min(e.props.bodyColumns, RASTER_COLUMNS))
     const rows = e.props.scroll.bodyRows
     const resized = shown !== null && (shown.width !== width || (layout === 'auto' && shown.height !== rows))
@@ -398,7 +408,7 @@ export const register: Register = (on, options) => {
     const fill = e.props.placement === 'dock' ? { height: e.props.scroll.bodyRows } : {}
     return (
       <Box flexDirection="column" {...fill}>
-        <Text bold wrap="truncate">{statusLine(shown, req, at, now.isPlaying)}</Text>
+        <Text bold wrap="truncate">{statusLine(shown, req, at, now.isPlaying, pace)}</Text>
         {error !== null && <Text color="error" wrap="truncate">✖ {error}</Text>}
         <Box flexDirection="column" flexGrow={1}>{body(frame, 'frame')}</Box>
         {told !== null && (told.path !== null ? body(told.path, 'path')
@@ -427,6 +437,8 @@ export const register: Register = (on, options) => {
             onPress={() => update($, panX, p => panTo(p, -Math.floor(width / 2), across, width))} />}
           {isPanned && <Button key="right" plain hotkey="l" label="▶"
             onPress={() => update($, panX, p => panTo(p, Math.floor(width / 2), across, width))} />}
+          {isRun && <Button key="slower" plain hotkey="s" label="slower" onPress={() => setSpeed($, -1)} />}
+          {isRun && <Button key="faster" plain hotkey="f" label="faster" onPress={() => setSpeed($, 1)} />}
           <Text dimColor>{e.props.isFocused ? '· esc: prompt' : '· ctrl+x tab: keys'}</Text>
         </Box>
       </Box>

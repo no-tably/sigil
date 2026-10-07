@@ -15,6 +15,8 @@ export const DEFAULT_WIDTH = 100 // the width drawn for before the pane has meas
 export const RASTER_ROWS = 256 // a Raster's tallest; a taller drawing is several
 export const RASTER_COLUMNS = 512
 export const DEFAULT_COLOUR = 0x01000000 // the terminal's own colour
+export const SPEEDS: readonly number[] = [0.25, 0.5, 1, 2, 4, 8, 16, 32] // frames a second: view.py's SIM_SPEEDS
+export const START_SPEED = 3 // 2 frames a second, view.py's start (an index into SPEEDS)
 
 export type Display = 'mod' | 'multiplex'
 export type MuxEnv = { herdr?: string; tmux?: string; zellij?: string }
@@ -198,13 +200,26 @@ export function drawArgv(script: string, request: ViewRequest, width: number,
   return argv
 }
 
+/** Where the split's view.py starts a request's run, as the pane shows a new
+ * run: `frame` (-1: the last), else the last frame, or the first when it plays. */
+export function splitStart(asked: Asked): { frame: number; play: boolean } {
+  const play = asked.play === true
+  return { frame: asked.frame ?? (play ? 0 : -1), play }
+}
+
 /** view.py's own flags for the live view the split runs (`layout`: its
- * --layout, left out for auto, view.py's own default). */
-export function viewArgv(request: ViewRequest, layout: LayoutChoice = 'auto'): string[] {
+ * --layout, left out for auto, view.py's own default; `start`: where its run
+ * starts (--frame, --play), for a request with a scenario). */
+export function viewArgv(request: ViewRequest, layout: LayoutChoice = 'auto',
+                         start?: { frame: number; play: boolean }): string[] {
   const argv = [request.file, '--depth', request.depth >= ALL_DEPTH ? 'all' : String(request.depth)]
   if (request.view !== DEFAULT_VIEW) argv.push(`--${request.view}`)
   if (layout !== 'auto') argv.push('--layout', layout)
   if (request.scenario) argv.push('--sim', request.scenario)
+  if (request.scenario && start) {
+    argv.push('--frame', start.frame < 0 ? 'last' : String(start.frame))
+    if (start.play) argv.push('--play')
+  }
   if (request.payloads) argv.push('--payloads')
   return argv
 }
@@ -283,6 +298,23 @@ export function nextView(view: ViewName): ViewName {
   return VIEWS[(VIEWS.indexOf(view) + 1) % VIEWS.length] ?? 'graph'
 }
 
+/** A speed `delta` steps faster (+) or slower (-), kept within SPEEDS. */
+export function nextSpeed(speed: number, delta: number): number {
+  return Math.max(0, Math.min(speed + delta, SPEEDS.length - 1))
+}
+
+/** A played run's frame time in milliseconds at a speed. */
+export function frameMs(speed: number): number {
+  return 1000 / (SPEEDS[speed] ?? SPEEDS[START_SPEED]!)
+}
+
+/** A speed as view.py's status bar writes it: `2 frames/s`, `½ frame/s`. */
+export function speedText(speed: number): string {
+  const fps = SPEEDS[speed] ?? SPEEDS[START_SPEED]!
+  const n = fps === 0.25 ? '¼' : fps === 0.5 ? '½' : String(fps)
+  return `${n} frame${fps > 1 ? 's' : ''}/s`
+}
+
 /** The depths in `d` order: 0 → 1 → all → 0. */
 export function nextDepth(depth: number): number {
   return depth === 0 ? 1 : depth === 1 ? ALL_DEPTH : 0
@@ -353,13 +385,15 @@ export function slices<T>(rows: readonly T[], size: number = RASTER_ROWS): T[][]
   return out
 }
 
-/** The pane's status line for a frame: file · view · depth, then the run. */
-export function statusLine(drawing: Drawing, request: ViewRequest, at: number, isPlaying: boolean): string {
+/** The pane's status line for a frame: file · view · depth, then the run:
+ * played or paused at its speed (an index into SPEEDS), as view.py's bar. */
+export function statusLine(drawing: Drawing, request: ViewRequest, at: number, isPlaying: boolean,
+                           speed: number = START_SPEED): string {
   const depth = request.depth >= ALL_DEPTH ? 'all' : String(request.depth)
   const head = `${drawing.file} · ${drawing.view} · depth ${depth}${drawing.layout ? ` · ${drawing.layout}` : ''}`
   const run = drawing.status?.[at]
   if (run === undefined) return head
-  return `${head} · ${isPlaying ? '▶' : '❚❚'} ${run} · frame ${at + 1}/${drawing.frames.length}`
+  return `${head} · ${isPlaying ? '▶' : '❚❚'} ${speedText(speed)} · ${run} · frame ${at + 1}/${drawing.frames.length}`
 }
 
 /** A run's lines under the drawing at a frame, as view.py's rows under its

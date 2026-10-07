@@ -57,6 +57,8 @@ declare module 'claude-code' {
       playback: Playback
       split: Split | null
       panX: number // the first column a panned drawing shows
+      /** The played run's speed: an index into logic.ts's SPEEDS. */
+      speed: number
     }
   }
 }

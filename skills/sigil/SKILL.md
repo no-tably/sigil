@@ -99,6 +99,8 @@ ways to show it. Pick by where you are running:
   'python3 scripts/view.py FILE'`, or `zellij run --direction right -- python3
   scripts/view.py FILE`. In herdr, run `herdr pane split`, then `herdr pane run`
   on the new pane. It redraws on every save, and its keys are in the table above.
+  To show a run, add `--sim SCENARIO`, and `--frame N|last` or `--play` to start
+  it at a frame or playing.
 - **`--once`**, for you, or when the drawing belongs in your reply. It prints one
   drawing as text. Read it yourself to check the shape, or paste it into a code
   block when the user asked to see it here, or can't run a live view. It is also

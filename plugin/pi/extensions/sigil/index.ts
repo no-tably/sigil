@@ -15,10 +15,10 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
-  DEFAULT_WIDTH, DISPLAYS, LAYOUTS, UNASKED_COLUMNS, VIEWS,
-  cropRows, detectMux, displayReport, drawArgv, frameIndex, herdrPaneOf, herdrReadyArgv, layoutReport, panTo,
-  parseCommandArgs, parseDisplayArgs, parseDrawing, parseLayoutArgs, parseRequest, pickDisplay, pickLayout, replyText,
-  resolveDisplay, runLines, shellQuote, splitArgv, statusLine, viewArgv,
+  DEFAULT_WIDTH, DISPLAYS, LAYOUTS, START_SPEED, UNASKED_COLUMNS, VIEWS,
+  cropRows, detectMux, displayReport, drawArgv, frameIndex, frameMs, herdrPaneOf, herdrReadyArgv, layoutReport,
+  nextSpeed, panTo, parseCommandArgs, parseDisplayArgs, parseDrawing, parseLayoutArgs, parseRequest, pickDisplay,
+  pickLayout, replyText, resolveDisplay, runLines, shellQuote, splitArgv, splitStart, statusLine, viewArgv,
 } from './logic.ts'
 import type { Asked, Display, DisplayChoice, LayoutChoice } from './logic.ts'
 
@@ -64,11 +64,10 @@ export const WIDGET = 'sigil'
 export const FLAG = 'sigil-display'
 export const LAYOUT_FLAG = 'sigil-layout'
 const WATCH_MS = 1000 // how often the shown file is looked at
-const PLAY_MS = 125 // a played run's frame time: 8 frames a second, view.py's start
 const ALIVE_MS = 3000 // a split whose follow loop touched its file this recently is up
 const CHROME_ROWS = 14 // the editor, footer and some conversation the widget leaves room for
 const MIN_BODY_ROWS = 10
-const HINT = `/${COMMAND} graph|tree|flow|run · depth N|all · sim NAME · play · pause · back · next · close · display · layout`
+const HINT = `/${COMMAND} graph|tree|flow|run · depth N|all · sim NAME · play · pause · back · next · - + speed · close · display · layout`
 const PAN_HINT = `/${COMMAND} left · right: pan the drawing`   // while a panned one is wider than the widget
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -194,16 +193,18 @@ export function wrapped(text: string, width: number, sgr?: string): string[] {
   return out.map(l => styled(l, width, sgr))
 }
 
-/** The widget's lines: the status, the frame (cut to `bodyRows`, saying how
- * many rows are left out; a panned one from column `panX`), the run's path and
- * narration line (runLines), the legend, summary, lint and the command hint. */
+/** The widget's lines: the status (the run at `speed`, an index into SPEEDS),
+ * the frame (cut to `bodyRows`, saying how many rows are left out; a panned one
+ * from column `panX`), the run's path and narration line (runLines), the
+ * legend, summary, lint and the command hint. */
 export function widgetLines(drawing: Drawing, request: ViewRequest, playback: Playback,
-                            error: string | null, width: number, bodyRows: number, panX = 0): string[] {
+                            error: string | null, width: number, bodyRows: number, panX = 0,
+                            speed: number = START_SPEED): string[] {
   const at = frameIndex(drawing as never, playback)
   const drawn = drawing.frames[at] ?? []
   const isPanned = drawing.layout === 'pan' && drawn.some(r => r.reduce((n, [t]) => n + [...t].length, 0) > width)
   const rows = isPanned ? cropRows(drawn, panX, width) : drawn
-  const lines = [styled(statusLine(drawing as never, request, at, playback.isPlaying), width, '1')]
+  const lines = [styled(statusLine(drawing as never, request, at, playback.isPlaying, speed), width, '1')]
   if (error !== null) lines.push(styled(`✖ ${error}`, width, '31'))
   const shown = rows.length > bodyRows ? rows.slice(0, Math.max(1, bodyRows - 1)) : rows
   for (const row of shown) lines.push(ansiRow(row, drawing.styles, width))
@@ -224,15 +225,24 @@ export function widgetLines(drawing: Drawing, request: ViewRequest, playback: Pl
   return lines
 }
 
-type Action = 'close' | 'back' | 'next' | 'left' | 'right'
-const ACTIONS: readonly string[] = ['close', 'back', 'next', 'left', 'right']
+/** The widget's lines as plain text: what pi's RPC mode sends a client, which
+ * takes text lines and no terminal styles. */
+export function plainLines(lines: readonly string[]): string[] {
+  return lines.map(line => line.replace(/\x1b\[[0-9;]*m/g, ''))
+}
+
+type Action = 'close' | 'back' | 'next' | 'left' | 'right' | 'slower' | 'faster'
+const ACTIONS: Record<string, Action> = {
+  close: 'close', back: 'back', next: 'next', left: 'left', right: 'right', '-': 'slower', '+': 'faster',
+}
 
 /** /sigil-pane's own words over the tool's: `close`, `pause`, `back`, `next`,
- * and `left` / `right` (a panned drawing, half a widget across). */
+ * `left` / `right` (a panned drawing, half a widget across) and `-` / `+`
+ * (the run's speed, as view.py's keys). */
 export function commandWords(args: string): { action?: Action; input: Record<string, unknown> } {
   const words = args.trim().split(/\s+/).filter(w => w !== '')
-  const own = words.find(w => ACTIONS.includes(w)) as Action | undefined
-  const rest = words.filter(w => ![...ACTIONS, 'pause'].includes(w))
+  const own = words.map(w => ACTIONS[w]).find(a => a !== undefined)
+  const rest = words.filter(w => ACTIONS[w] === undefined && w !== 'pause')
   const input = parseCommandArgs(rest.join(' '))
   if (words.includes('pause')) input.play = false
   return own === undefined ? { input } : { action: own, input }
@@ -243,9 +253,11 @@ export default function sigil(pi: Pi): void {
   let drawing: Drawing | null = null
   let failure: string | null = null
   let playback: Playback = { at: 0, isPlaying: false }
+  let speed = START_SPEED // the played run's speed, an index into SPEEDS
   let split: Split | null = null
   let tui: Tui | null = null // set while the widget is shown
   let ui: Ui | null = null
+  let texted: string | null = null // RPC mode: the lines last sent as a text widget
   let watchTimer: ReturnType<typeof setInterval> | null = null
   let playTimer: ReturnType<typeof setInterval> | null = null
   let seenMtime = 0
@@ -254,6 +266,9 @@ export default function sigil(pi: Pi): void {
 
   const columns = () => process.stdout.columns || DEFAULT_WIDTH
   const bodyRows = () => Math.max(MIN_BODY_ROWS, (process.stdout.rows || 40) - CHROME_ROWS)
+  /** RPC mode: pi speaks JSON on stdout, so it is no terminal, and it sends a
+   * client only text widgets (a component widget is dropped). */
+  const isTextOnly = () => !process.stdout.isTTY
   const env = () => ({ herdr: process.env.HERDR_ENV, tmux: process.env.TMUX, zellij: process.env.ZELLIJ })
   /** The display setting by precedence: --sigil-display, SIGIL_DISPLAY, the
    * shared settings file (read on each use), else auto. */
@@ -317,6 +332,20 @@ export default function sigil(pi: Pi): void {
     return full
   }
 
+  /** Shows what changed: the component redrawn, or in RPC mode the text widget
+   * sent again when its lines differ (the whole drawing: the client scrolls;
+   * the status whole too, as the client wraps it). */
+  function refresh(): void {
+    if (tui !== null) return tui.requestRender()
+    if (texted === null || ui === null || request === null || drawing === null) return
+    const lines = plainLines(widgetLines(drawing, request, playback, failure, DEFAULT_WIDTH, Infinity, panX, speed))
+    lines[0] = statusLine(drawing as never, request, frameIndex(drawing as never, playback), playback.isPlaying, speed)
+    const sent = lines.join('\n')
+    if (sent === texted) return
+    texted = sent
+    ui.setWidget(WIDGET, lines)
+  }
+
   async function runPane(req: ViewRequest, width: number): Promise<Drawing | { error: string }> {
     const layout = layoutSetting().choice
     const argv = drawArgv(PANE_PY, req, width, { layout, ...(layout === 'auto' ? { height: bodyRows() } : {}) })
@@ -339,14 +368,14 @@ export default function sigil(pi: Pi): void {
       failure = null
       playback = { ...playback, at: Math.min(playback.at, got.frames.length - 1) }
     }
-    tui?.requestRender()
+    refresh()
     return got
   }
 
   function startWatch(): void {
     if (watchTimer !== null) return
     watchTimer = setInterval(async () => {
-      if (request === null || tui === null) return
+      if (request === null || (tui === null && texted === null)) return
       const st = await stat(request.file).catch(() => undefined)
       if (st === undefined || st.mtimeMs === seenMtime) return
       seenMtime = st.mtimeMs
@@ -361,7 +390,7 @@ export default function sigil(pi: Pi): void {
 
   function setPlayback(next: Playback): void {
     playback = next
-    tui?.requestRender()
+    refresh()
     if (!next.isPlaying) return stopPlay()
     if (playTimer !== null) return
     playTimer = setInterval(() => {
@@ -369,9 +398,16 @@ export default function sigil(pi: Pi): void {
       const last = drawing.frames.length - 1
       const at = Math.min(playback.at + 1, last)
       playback = { at, isPlaying: at < last }
-      tui?.requestRender()
+      refresh()
       if (at >= last) stopPlay()
-    }, PLAY_MS)
+    }, frameMs(speed))
+  }
+
+  /** A speed step faster (+1) or slower (-1); a playing run goes on at it. */
+  function setSpeed(delta: number): void {
+    speed = nextSpeed(speed, delta)
+    stopPlay()
+    setPlayback(playback)
   }
 
   /** The playback a request asks for over the drawing: `frame` (-1: the last),
@@ -395,7 +431,7 @@ export default function sigil(pi: Pi): void {
           drawingFor = drawKey(req, width)
           setTimeout(() => void redraw(req, width), 0)
         }
-        return widgetLines(drawing, request, playback, failure, width, bodyRows(), panX)
+        return widgetLines(drawing, request, playback, failure, width, bodyRows(), panX, speed)
       },
       invalidate() {},
     }
@@ -404,6 +440,11 @@ export default function sigil(pi: Pi): void {
   function openWidget(onUi: Ui): void {
     ui = onUi
     if (tui !== null) return tui.requestRender()
+    if (isTextOnly()) {
+      texted ??= ''
+      refresh()
+      return startWatch()
+    }
     onUi.setWidget(WIDGET, t => {
       tui = t
       return component()
@@ -418,6 +459,7 @@ export default function sigil(pi: Pi): void {
     playback = { ...playback, isPlaying: false }
     ui?.setWidget(WIDGET, undefined)
     tui = null
+    texted = null
   }
 
   /** Shows `asked` in the widget; `isAsked`: the person's /sigil-pane (any width). */
@@ -436,7 +478,7 @@ export default function sigil(pi: Pi): void {
     if ('error' in got) return `sigil: ${got.error}`
     setPlayback(playbackFor(asked, got, isNewRun))
     let where = 'Shown in the sigil widget above the editor (redrawn on every save).'
-    if (tui !== null || isAsked || width >= UNASKED_COLUMNS) openWidget(ctx.ui)
+    if (tui !== null || isAsked || width >= UNASKED_COLUMNS || isTextOnly()) openWidget(ctx.ui)
     else {
       where = `The sigil widget is waiting: a widget the person did not ask for opens from ${UNASKED_COLUMNS} `
         + `columns (this terminal has ${width}). They can open it at any width with /${COMMAND}.`
@@ -449,16 +491,15 @@ export default function sigil(pi: Pi): void {
     return st !== undefined && Date.now() - st.mtimeMs < ALIVE_MS
   }
 
-  /** A split's reply: where, then the summary and the run's end as pane.py
-   * reads them (the split plays from its own keys: space, , and .). */
+  /** A split's reply: where, then the summary and the run where the split
+   * starts it (splitStart) as pane.py reads them. */
   async function about(req: ViewRequest, asked: Asked, where: string): Promise<string> {
-    const steer = asked.frame !== undefined || asked.play !== undefined
-      ? ' Its run starts paused at the first frame: space plays it, , and . step it there.'
-      : ''
     const got = await runPane(req, DEFAULT_WIDTH)
-    if ('error' in got) return `${where}${steer}\nsigil: ${got.error}`
+    if ('error' in got) return `${where}\nsigil: ${got.error}`
+    const start = splitStart(asked)
     const last = got.frames.length - 1
-    return replyText(got as never, last, false, where + steer).replace(/^paused at /m, 'the run ends at ')
+    const at = start.frame < 0 || start.frame > last ? last : start.frame
+    return replyText(got as never, at, start.play && at < last, where)
   }
 
   /** Writes the split's control file, opening the split first when none is up. */
@@ -472,10 +513,11 @@ export default function sigil(pi: Pi): void {
       return `sigil: display is multiplex, but no herdr, tmux or zellij session was found; /${COMMAND} display mod draws in the widget.`
     }
     const layout = layoutSetting().choice
-    const control = JSON.stringify({ argv: viewArgv(req, layout) })
+    const live = viewArgv(req, layout, splitStart(asked))
+    const control = JSON.stringify({ argv: live })
     if (split !== null && split.mux === mux && (await isAlive(split))) {
       await writeFile(split.control, control)
-      return about(req, asked, `Shown in the ${mux} split running view.py live: ${shellQuote(viewArgv(req, layout))}.`)
+      return about(req, asked, `Shown in the ${mux} split running view.py live: ${shellQuote(live)}.`)
     }
     const opened: Split = { mux, control: join(tmpdir(), `sigil-view-${randomUUID()}.json`) }
     await writeFile(opened.control, control)
@@ -495,7 +537,7 @@ export default function sigil(pi: Pi): void {
     }
     split = opened
     return about(req, asked, `Opened a ${mux} split running view.py live (it redraws on every save; `
-      + `q closes it): ${shellQuote(viewArgv(req, layout))}.`)
+      + `q closes it): ${shellQuote(live)}.`)
   }
 
   async function show(ctx: Ctx, input: Record<string, unknown>, isAsked: boolean): Promise<string> {
@@ -556,14 +598,17 @@ export default function sigil(pi: Pi): void {
         const across = Math.max(0, ...(drawing.frames[frameIndex(drawing as never, playback)] ?? [])
           .map(r => r.reduce((n, [t]) => n + [...t].length, 0)))
         panX = panTo(panX, (action === 'right' ? 1 : -1) * Math.floor(width / 2), across, width)
-        tui?.requestRender()
+        refresh()
         return openWidget(ctx.ui)
       }
       if (action !== undefined) {
         if (drawing === null) return ctx.ui.notify(`sigil: nothing shown yet: /${COMMAND} FILE`, 'warning')
-        const step = action === 'next' ? 1 : -1
-        const at = Math.max(0, Math.min(frameIndex(drawing as never, playback) + step, drawing.frames.length - 1))
-        setPlayback({ at, isPlaying: false })
+        if (action === 'slower' || action === 'faster') setSpeed(action === 'faster' ? 1 : -1)
+        else {
+          const step = action === 'next' ? 1 : -1
+          const at = Math.max(0, Math.min(frameIndex(drawing as never, playback) + step, drawing.frames.length - 1))
+          setPlayback({ at, isPlaying: false })
+        }
         if (Object.keys(input).length === 0) return openWidget(ctx.ui)
       }
       if (Object.keys(input).length === 0 && display() === 'mod' && request !== null) return openWidget(ctx.ui)

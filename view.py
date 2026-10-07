@@ -72,6 +72,10 @@ Options:
                      states, what failed, routes taken, ignored events, nodes left
                      waiting, open joins, bounds hit) and a summary line; diff
                      two versions' tables to see what changed. Exit status 0.
+    --frame N|last   Live, with --sim: start the run at frame N (0-based) or its
+                     last frame (past the end: the last), paused unless --play.
+    --play           Live, with --sim: start the run playing (from --frame, else
+                     from the first frame).
     --json           With --sim list / all: the same as JSON. With a scenario: that
                      run as JSON, no drawing — its facts (as --sim all lists them),
                      "steps" (the run in plain words: frame, tick, text) and "log"
@@ -654,6 +658,14 @@ class SimPlayer:
             self.at = 0
         self.due = now + self.interval
         return changed
+
+    def start(self, frame: int | None, play: bool, now: float) -> None:
+        """Where the run starts (--frame / --play): at `frame` (None: the first;
+        -1 or past the end: the last), playing from there when `play` and it is
+        not the last."""
+        self.at = 0 if frame is None else self.last if not 0 <= frame <= self.last else frame
+        self.playing = play and self.at < self.last
+        self.due = now + self.interval
 
     def faster(self, delta: int) -> None:
         """Speed up (+1) / slow down (-1) a step, clamped to SIM_SPEEDS."""
@@ -1561,6 +1573,7 @@ class ViewState:
         self.player = None             # SimPlayer, made on the first sim mode with a graph
         self.sim_error = None          # why the simulator could not run (a footer row)
         self._sim_name = sim           # the scenario that player starts on
+        self.sim_start = None          # (frame | None, play): where it starts (--frame, --play)
         self.follow = True             # w: pan to keep the run's focus in view
         self._followed = None          # what the last follow panned for (see _follow)
         self.show_checks = checks      # c: the checks overlay and its panel
@@ -1648,6 +1661,9 @@ class ViewState:
         except UnknownScenario as exc:  # say so, play `happy`
             self.player = self._sim(SimPlayer, self.graph, None, self.limits)
             self.sim_error = f"sim: {exc}"
+        if self.player is not None and self.sim_start is not None:
+            (frame, play), self.sim_start = self.sim_start, None
+            self.player.start(frame, play, time.monotonic())
 
     def _ensure_checks(self) -> None:
         """Checks on with a graph and no findings yet: run the checker on the
@@ -2188,6 +2204,15 @@ def _width_arg(text: str) -> int:
     return width
 
 
+def _frame_arg(text: str) -> int:
+    """--frame N|last: N ≥ 0, or last (-1)."""
+    if text == "last":
+        return -1
+    if not text.isdigit():
+        raise argparse.ArgumentTypeError(f"expected a frame number >= 0 or last, got {text!r}")
+    return int(text)
+
+
 def _unroll_arg(text: str) -> int:
     """--unroll N|all: N ≥ 1, or all (0: nothing folds)."""
     if text == "all":
@@ -2262,6 +2287,10 @@ def main(argv=None) -> int:
                     help="simulate a pathway: happy, a scenario's name, or a+b (--once: "
                          "the run's final frame, outcome and log; live: start in sim mode); "
                          "list: the scenarios; all: run every one, a table of outcomes")
+    ap.add_argument("--frame", type=_frame_arg, default=None, metavar="N|last",
+                    help="live, with --sim: start the run at frame N (0-based) or its last")
+    ap.add_argument("--play", action="store_true",
+                    help="live, with --sim: start the run playing")
     ap.add_argument("--limit", action="append", default=[], metavar="NAME=N",
                     help="raise one simulator bound for --sim (repeatable; e.g. frames=5000, "
                          "depth=5)")
@@ -2300,6 +2329,9 @@ def main(argv=None) -> int:
     if a.json and a.sim is None and not a.run:
         print("view.py: --json needs --sim (list, all or a scenario) or --run", file=sys.stderr)
         return 2
+    if (a.frame is not None or a.play) and (a.sim is None or a.sim in SIM_BATCH):
+        print("view.py: --frame and --play need --sim SCENARIO", file=sys.stderr)
+        return 2
     view = next((v for v in VIEWS if getattr(a, v)), DEFAULT_VIEW)
     batch = a.sim in SIM_BATCH             # never drawn: the same live or --once
     tty_out = sys.stdout.isatty()
@@ -2328,9 +2360,12 @@ def main(argv=None) -> int:
         except UnknownScenario as exc:     # the message lists the known ones
             print(f"view.py: --sim: {exc}", file=sys.stderr)
             return 2
-    tui(ViewState(a.file, a.depth, a.payloads, not a.no_lint, dialect, a.tree,
-                  not a.no_triggers, not a.compact, a.notes, a.access, a.mods, a.events,
-                  a.sim, a.checks, limits, view, a.unroll, a.layout))
+    state = ViewState(a.file, a.depth, a.payloads, not a.no_lint, dialect, a.tree,
+                      not a.no_triggers, not a.compact, a.notes, a.access, a.mods, a.events,
+                      a.sim, a.checks, limits, view, a.unroll, a.layout)
+    if a.frame is not None or a.play:
+        state.sim_start = (a.frame, a.play)
+    tui(state)
     return 0
 
 
