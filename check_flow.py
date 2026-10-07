@@ -362,54 +362,85 @@ def effect_of(facts: Facts, w) -> Optional[Effect]:
     return facts.effects[key]
 
 
-def _effect_memo(facts: Facts, w, seen: set) -> tuple:
-    """(effect, cut): cut when the walk skipped a wire this query already
-    visited (on the path, a cycle; or explored and found empty), so the effect
-    is partial and is not kept in facts.effects (the answer must not depend on
-    which wire of a cycle was asked first). One visited set per query keeps a
-    cyclic call graph linear: a wire explored once with no effect has nothing
-    new to offer a second path, since all it reaches was explored too."""
-    key = id(w)
-    if key in facts.effects:
-        return facts.effects[key], False
-    if key in seen:
-        return None, True
-    seen.add(key)
-    out, cut = _effect(facts, w, seen)
-    if not cut:
-        facts.effects[key] = out
-    return out, cut
-
-
 def _effect(facts: Facts, w, seen: set) -> tuple:
+    """w's (effect, cut), walking callee bodies depth first on an explicit stack
+    (a straight chain of thousands of calls stays within Python's recursion
+    limit). Each frame is [wire, body, next index, cut, memoise]: the first
+    wire of a body with an effect answers for the callee.
+
+    Cut: the walk skipped a wire this query already visited (on the path, a
+    cycle; or explored and found empty), so the effect is partial and is not
+    kept in facts.effects (the answer must not depend on which wire of a cycle
+    was asked first). One visited set per query keeps a cyclic call graph
+    linear: a wire explored once with no effect has nothing new to offer a
+    second path, since all it reaches was explored too."""
+    stack = []
+    ret = _enter(facts, w, False, stack)
+    while stack:
+        top = stack[-1]
+        if ret is not None:
+            inner, inner_cut = ret
+            ret = None
+            top[3] = top[3] or inner_cut
+            if inner is not None:
+                ret = _leave(facts, stack, Effect(
+                    f"calls {facts.name(top[0].dst)}, which {inner.what}",
+                    inner.guess, inner.store))
+                continue
+        body, i = top[1], top[2]
+        while i < len(body) and (is_route(body[i]) or body[i].kind in ("~>", "=>")):
+            i += 1
+        if i == len(body):
+            ret = _leave(facts, stack, None)
+            continue
+        top[2] = i + 1
+        x, key = body[i], id(body[i])
+        if key in facts.effects:
+            ret = facts.effects[key], False
+        elif key in seen:
+            ret = None, True
+        else:
+            seen.add(key)
+            ret = _enter(facts, x, True, stack)
+    return ret
+
+
+def _enter(facts: Facts, w, memo: bool, stack: list) -> Optional[tuple]:
+    """w's own (effect, cut), kept when memo; or None after pushing the frame
+    for its callee's body, which the walk answers for."""
+    body = None
     kind = facts.kind(w.dst)
     if kind == "store":
-        return store_effect(facts, w), False
-    if is_op_call(w):
-        if verb_of(facts, w).lower() in facts.read_verbs:
-            return None, False
-        return Effect(f"calls {call_name(facts, w)}, which leaves the system"), False
-    if kind == "event":
-        return Effect(f"emits {facts.name(w.dst)}"), False
-    if kind in ("actor", "data", "state") or w.src == w.dst:
-        return None, False
-    body = callee_wires(facts, facts.unit.get(id(w), 0), w.dst)
+        out = store_effect(facts, w)
+    elif is_op_call(w):
+        out = (None if verb_of(facts, w).lower() in facts.read_verbs else
+               Effect(f"calls {call_name(facts, w)}, which leaves the system"))
+    elif kind == "event":
+        out = Effect(f"emits {facts.name(w.dst)}")
+    elif kind in ("actor", "data", "state") or w.src == w.dst:
+        out = None
+    else:
+        body = callee_wires(facts, facts.unit.get(id(w), 0), w.dst)
+        out = None
+        if not body:
+            verb = verb_of(facts, w)
+            if verb and verb.lower() not in facts.read_verbs:
+                out = Effect(f"may change {facts.name(w.dst)}",
+                             f"{facts.name(w.dst)} has no body, and `{verb}` reads as a change")
     if body:
-        cut = False
-        for x in body:
-            if is_route(x) or x.kind in ("~>", "=>"):
-                continue
-            inner, inner_cut = _effect_memo(facts, x, seen)
-            cut = cut or inner_cut
-            if inner is not None:
-                return Effect(f"calls {facts.name(w.dst)}, which {inner.what}",
-                              inner.guess, inner.store), cut
-        return None, cut
-    verb = verb_of(facts, w)
-    if verb and verb.lower() not in facts.read_verbs:
-        return Effect(f"may change {facts.name(w.dst)}",
-                      f"{facts.name(w.dst)} has no body, and `{verb}` reads as a change"), False
-    return None, False
+        stack.append([w, body, 0, False, memo])
+        return None
+    if memo:
+        facts.effects[id(w)] = out
+    return out, False
+
+
+def _leave(facts: Facts, stack: list, out: Optional[Effect]) -> tuple:
+    """Pop the top frame with its answer, kept unless the walk below it was cut."""
+    w, _, _, cut, memo = stack.pop()
+    if memo and not cut:
+        facts.effects[id(w)] = out
+    return out, cut
 
 
 def store_effect(facts: Facts, w) -> Optional[Effect]:

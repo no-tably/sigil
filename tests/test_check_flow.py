@@ -502,6 +502,17 @@ class Facts(unittest.TestCase):
                 order = [calls[first], calls[1 - first]]
                 self.assertTrue(all(cf.effect_of(facts, w) is not None for w in order))
 
+    def test_a_long_call_chain_finds_its_effect_without_deep_recursion(self):
+        n = 3000
+        text = "".join(f"[N{i}] -> [N{i + 1}] : f()\n" for i in range(n))
+        text += f"[N{n}] -> |DB| : insert(x)\n"
+        facts = facts_of(text)
+        w = next(x for x in facts.flows if x.src == "N0_service")
+        eff = cf.effect_of(facts, w)
+        self.assertEqual(eff.store, "DB_store")
+        self.assertTrue(eff.what.startswith("calls `[N1]`, which calls `[N2]`, which "))
+        self.assertIsNotNone(run(text))                 # the whole check runs too
+
     def test_a_read_write_flow_is_a_guessed_write(self):
         facts = facts_of("[F] <-> |Robots| : allowed(${u})\n")
         (w,) = facts.flows
