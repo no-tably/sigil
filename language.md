@@ -780,7 +780,7 @@ row hops over it). A flow to a bare name taps every occurrence; a path flow taps
 the occurrences it matches. An opened `X := { … }` expansion's members hang off dotted
 rails (`├┄┄ [Router]`), apart from a branch's solid `├──`; a run of `\-_` one-of
 siblings is joined by a brace (`⎫ … ⎭`) after their labels. The default graph view
-shows the flows alone.
+and the flow view (`--flow`, a call graph read left to right) show the flows alone.
 
 **Mermaid.** `render.py` draws composition by default:
 
@@ -979,7 +979,7 @@ with its tier. `lint.py FILE --deep` runs lint and the checks together and merge
 two reports into one list sorted by line, with the acknowledged findings last as
 `accepted:` lines; its exit code is the worse of the two. Fix lint errors first: a
 malformed line can explain a finding. `view.py FILE --checks` (live key `c`) marks
-the findings on the drawing in both views.
+the findings on the drawing in every view (graph, flow, tree).
 
 **Three sources of rules.** *Structural* rules read the wiring (call policy, store
 access, failure routes, state machines, cycles, bounds). *Behavioural* rules read the

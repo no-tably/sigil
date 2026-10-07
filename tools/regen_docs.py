@@ -10,6 +10,9 @@ regen_docs.py — regenerate the drawings embedded in the docs from view.py.
   part only — no legend or summary);
 - README.md: the drawing after "`view.py` draws it in the terminal:" is redrawn
   from the README's first ```sigil block (`view.py --once`, summary included);
+- README.md: the drawing after "`--flow` reads the same design left to right" is
+  redrawn from that block too (`view.py --once --flow --no-lint`, the drawing part
+  only — no summary);
 - README.md: the block after the `--sim` command in "Simulation" is the real run of
   that command on site/examples/01-checkout.sigil (published as checkout.sigil):
   the drawing, then the `sim …` summary and log (legend and lint summary left out);
@@ -80,6 +83,20 @@ def readme(text: str) -> tuple[str, int]:
     return text.replace(old.group(0), old.group(0).replace(old.group(1), new)), 1
 
 
+def readme_flow(text: str) -> tuple[str, int]:
+    src = re.search(r"```sigil\n(.*?)```", text, re.S)
+    old = re.search(r"`--flow` reads the same design left to right.*?:\n\n```\n(.*?)```",
+                    text, re.S)
+    if not src or not old:
+        return text, 0
+    lines = run(src.group(1), "--flow", "--no-lint").split("\n")
+    cut = next((i for i, ln in enumerate(lines) if ln.startswith("checkout.sigil:")), len(lines))
+    new = tidy("\n".join(lines[:cut]))
+    if new == old.group(1):
+        return text, 0
+    return text[:old.start(1)] + new + text[old.end(1):], 1
+
+
 def sim_excerpt(out: str) -> str:
     """A `--once --tree --sim` run's drawing and its sim summary + log."""
     lines = out.split("\n")
@@ -115,7 +132,8 @@ def readme_all(text: str) -> tuple[str, int]:
     text, a = readme(text)
     text, b = readme_sim(text)
     text, c = readme_sim_all(text)
-    return text, a + b + c
+    text, d = readme_flow(text)
+    return text, a + b + c + d
 
 
 def main() -> int:

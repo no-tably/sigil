@@ -52,19 +52,22 @@ See "Checks" in [`language.md`](../language.md).
 
 ## `view.py FILE`
 
-A live terminal view of the design that redraws on every save. It has a graph view
-and a tree view (the composition tree as an outline, with every flow as a lane
-beside it).
+A live terminal view of the design that redraws on every save. It has three views:
+the graph view (boxes and edges, top down; the default), the flow view (a call graph
+read left to right: bare glyph labels in columns by call depth, wires bending
+between them) and the tree view (the composition tree as an outline, with every flow
+as a lane beside it).
 
 Options:
 
 - `--once` prints the drawing and a lint summary, then exits (1 on a lint error; see
   [exit codes](#exit-codes)).
-- `--tree` starts in the tree view.
+- `--tree` starts in the tree view, `--flow` in the flow view.
 - `--depth N|all` opens `X := { … }` expansions (in the tree view an expansion's
   members hang off dotted rails, `├┄┄`, apart from a branch's solid `├──`).
-- `--payloads` shows flow payloads: chips on edges in the graph view, a list in the
-  tree view (an error path's chip there led by `✖`). A `"""…"""` block-string shows its
+- `--payloads` shows flow payloads: chips on edges in the graph view, on the wire
+  between two columns in the flow view (`─┆{Cart}┆─▶`; a self-call's on a stub under
+  its subject), a list in the tree view (an error path's chip there led by `✖`). A `"""…"""` block-string shows its
   first line and `…`; its full text is a note (`--notes`).
 - `--mods` shows modifiers (`@timeout 30s ×3`, `^10k drop`, `!`) as chips on edges and
   after node labels.
@@ -72,7 +75,7 @@ Options:
   principal → store edges headed `r`, `w` or `b` (`ƀ` for `@borrow(read)`). Stores get a `1w` or `Nw` writer badge.
 - `--events land|nodes` draws a pass-through event where it lands (each emitter wired
   straight to each destination) or as a node of its own. The tree view defaults to
-  `land`, the graph view to `nodes`.
+  `land`, the graph and flow views to `nodes`.
 - `--notes markers|callouts` shows comments as `#N` tags with a notes list, or as boxes
   in a left margin tied to their rows (tree view). A comment above a glyph-less block
   header (`branch on …`, `loop …`, `parallel …`, a scoped `name {`) tags the block's
@@ -104,7 +107,7 @@ Options:
   100 when stdout is not a terminal).
 - `--dialect NAME` draws with a dialect.
 
-Both views also draw:
+The graph and tree views also draw:
 
 - control blocks. The graph view draws titled frames (`↺ loop …`, `∥ parallel …`,
   `◇ branch on …` with a decision node and arm chips, and `□ scope`). The tree view
@@ -112,11 +115,23 @@ Both views also draw:
 - `&`, `&?` and `/` joins, `--- section ---` dividers, `[[alias]]` nodes, and the
   `#!mode` in the status bar.
 
+The flow view reads like the project page's background graphs. A node's first callee
+sits on its row and the rest below it; wires from one source share a trunk
+(`─┬─▶ ├─▶ ╰─▶`), wires into one target with one kind of head share its last run, and
+a target fed by several kinds of arrow takes their heads stacked (`▶┐` / `✖┘`). A
+wire that only crosses another hops it (`─│─`); a wire back to an earlier column
+runs along a return row under the drawing (`╰──╯`). Strokes, heads, colours, chips,
+notes, triggers, the checks overlay and the simulation are the graph view's.
+`--- section ---` dividers and expansions are parts under titles, as in the graph
+view; control blocks are not framed (a branch's arms are dotted wires labelled
+`‹arm›`), and joins are not drawn as bars.
+
 Live keys:
 
 | Key | Does |
 | --- | --- |
-| `t` | tree / graph |
+| `1` `2` `3` | the view: graph · flow · tree |
+| `t` | the next view (graph → flow → tree → graph) |
 | `x` | sim mode; then space play / pause, `,` `.` step, `[` `]` scenario, `-` `+` speed |
 | `c` | checks overlay |
 | `n` `e` `v` | notes · triggers · events (where they land / as nodes) |

@@ -49,6 +49,17 @@ checkout.sigil: 6 nodes, 5 edges, 0 expansions · #!sketch
 lint: OK
 ```
 
+`--flow` reads the same design left to right, as a call graph (`t` steps through the
+graph, flow and tree views live):
+
+```
+── Checkout ──────────────────────────────────────
+
+(User) ──▶ [API] ─┬─▶ [Payment]
+                  ├─✖ <PaymentFailed>
+                  ╰╌▶ <OrderPlaced> ────▶ |Ledger|
+```
+
 **Try it:** the [project page](https://no-tably.github.io/sigil/) has a
 [playground](https://no-tably.github.io/sigil/#playground) that runs these tools in
 the browser — write a design, switch views, step through a simulation.
@@ -67,7 +78,7 @@ Every flag and key is in [`docs/tools.md`](./docs/tools.md).
 
 | Tool | Does |
 | --- | --- |
-| `view.py FILE` | Live terminal view, redrawn on every save: a graph view and a tree view (`t`), a simulation mode (`x`) and a checks overlay (`c`). `--once` prints one drawing for agents and CI. |
+| `view.py FILE` | Live terminal view, redrawn on every save: a graph view, a flow view (a call graph left to right, `--flow`) and a tree view (`--tree`) — `1` `2` `3` pick one, `t` steps to the next — a simulation mode (`x`) and a checks overlay (`c`). `--once` prints one drawing for agents and CI. |
 | `lint.py FILE` | Validates a document: one `severity:line:rule: message` per issue; exit 0 clean, 1 warnings, 2 errors. `--deep` adds the composition checks. |
 | `check.py FILE` | Composition checks ([RFC 0003](./rfcs/0003-composition-checks.md)): does the design say how its risks are handled — time bounds, idempotency, writers, failure routes, stuck state machines? A finding never forbids a shape: declare the handling, or accept the risk with a reason. |
 | `render.py FILE` | Emits a Mermaid `flowchart TD` for docs (GitHub, Obsidian, mermaid.live). |
@@ -282,7 +293,7 @@ check.py     the checker (SGCnnn) and its rule modules:              │
   check_flow.py · check_state.py · check_trace.py · check_inv.py     ┘
 view.py      the terminal viewer app                                 ┐
 viewkit.py   its drawing kit                                         │ the viewer
-view_graph.py · view_tree.py   the graph and tree views              │
+view_graph.py · view_flow.py · view_tree.py   the three views      │
 themes.py    YAML themes (themes/), shared with the page             ┘
 build.py     packaging (maintainers only)
 site/  the page and playground · tools/  golden drawings, doc regeneration
