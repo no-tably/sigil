@@ -739,13 +739,18 @@ class _Trace:
         return out
 
     def runs(self) -> dict:
-        """{cell: the set of directions (dx, dy) the chain leaves it by}."""
-        out = {cell: set() for cell in self.cells}
-        for (ax, ay), (bx, by) in zip(self.cells, self.cells[1:]):
-            if abs(bx - ax) + abs(by - ay) == 1:
-                out[(ax, ay)].add((bx - ax, by - ay))
-                out[(bx, by)].add((ax - bx, ay - by))
+        """{cell: the directions the chain leaves it by, a bitmask of kit.U R D L}."""
+        cells = self.cells
+        out = dict.fromkeys(cells, 0)
+        for a, b in zip(cells, cells[1:]):
+            bit = _STEP.get((b[0] - a[0], b[1] - a[1]))
+            if bit:
+                out[a] |= bit
+                out[b] |= kit._OPP[bit]
         return out
+
+
+_STEP = {(0, -1): kit.U, (1, 0): kit.R, (0, 1): kit.D, (-1, 0): kit.L}   # a step's direction
 
 
 def _cells(pts) -> list:
@@ -766,18 +771,30 @@ def _nearest_owners(traces: list, lines: dict) -> dict:
     (leave it the same way as the chain whose style it has; a chain merely
     crossing it does not), the one nearest its own head owns it — on a tie the
     earlier chain. Style only: the cell's stroke (its glyph) stays."""
-    seen = {}                                   # cell → [(distance, dirs, style)]
-    for tr in traces:
-        dist = tr.to_head()
+    seen = {}                                   # cell → [(chain index, dirs)]
+    for k, tr in enumerate(traces):
         for cell, dirs in tr.runs().items():
             if cell in lines:
-                seen.setdefault(cell, []).append((dist[cell], dirs, tr.style))
+                got = seen.get(cell)
+                if got is None:
+                    seen[cell] = [(k, dirs)]
+                else:
+                    got.append((k, dirs))
+    dists = {}                                  # chain index → its to_head(), when asked
     out = {}
     for cell, chains in seen.items():
         cur = lines[cell][2]
-        ref = next((dirs for _d, dirs, st in chains if st == cur), chains[0][1])
-        sharing = [(d, st) for d, dirs, st in chains if dirs & ref]
-        _d, st = min(sharing, key=lambda c: c[0])
+        if len(chains) == 1 and chains[0][1]:   # one chain: it owns the cell
+            st = traces[chains[0][0]].style
+        else:
+            ref = next((dirs for k, dirs in chains if traces[k].style == cur), chains[0][1])
+            sharing = []
+            for k, dirs in chains:
+                if dirs & ref:
+                    if k not in dists:
+                        dists[k] = traces[k].to_head()
+                    sharing.append((dists[k][cell], traces[k].style))
+            _d, st = min(sharing, key=lambda c: c[0])
         if st != cur:
             out[cell] = st
     return out
@@ -1324,9 +1341,11 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
         return _stack(main, frames, within)
 
     for part in graph_parts(g, level == 0, drivers, scn.options.access):
-        cv = draw_all(part, None, None)
+        letters = fit is not None and marks is not None and chipped
+        # The natural layout: drawn, or only weighed for letters, when wrapping.
+        cv = draw_all(part, None, None) if wrap is None or letters else None
         lettered = None
-        if fit is not None and marks is not None and cv.w > fit and chipped:
+        if letters and cv.w > fit:
             trial = list(marks)
             marked = draw_all(part, trial, None)
             # Worth it when that fits, or saves at least a fifth of the width.

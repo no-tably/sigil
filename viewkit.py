@@ -384,9 +384,11 @@ def _stroke(kind: str) -> str:
     """The stroke an arrow kind draws with: one per kind, so a drawing reads
     without colour (`->` / `!>` / `<->` share the light stroke and differ in their
     heads). Triggers are heavy-dashed (╍╏), never the dashed ╌╎ of `~>`."""
-    return {"=>": "heavy", "*>": "double", "~>": "dashed", "trigger": "hdash",
-            "?>": "dotted", "]>[": "dotted", "arm": "dotted",
-            "access": "dotted"}.get(_base_kind(kind), "light")
+    return _STROKES.get(_base_kind(kind), "light")
+
+
+_STROKES = {"=>": "heavy", "*>": "double", "~>": "dashed", "trigger": "hdash",
+            "?>": "dotted", "]>[": "dotted", "arm": "dotted", "access": "dotted"}
 
 
 class Probe(tuple):
@@ -427,6 +429,21 @@ def probed_box(rows) -> tuple | None:
     return min(xs), min(ys), max(xs) - min(xs) + 1, max(ys) - min(ys) + 1
 
 
+def _line_cell(line) -> tuple | None:
+    """A Canvas.lines entry [mask, stroke, style] as the (char, style) it draws."""
+    if line is None:
+        return None
+    mask, stroke, style = line
+    ch = _LINE_CHARS.get((stroke, mask))
+    if ch is None:
+        ch = _LINE_CHARS[(stroke, mask)] = _TABLES.get(stroke, _LIGHT).get(
+            mask, _LIGHT.get(mask, "┼"))
+    return ch, style
+
+
+_LINE_CHARS = {}    # (stroke, mask) → its char, as _line_cell finds them
+
+
 class Canvas:
     def __init__(self):
         self.text: dict = {}    # (x, y) → (char, style)
@@ -441,7 +458,8 @@ class Canvas:
     def put(self, x, y, s, style=None):
         for i, ch in enumerate(s):
             self.text[(x + i, y)] = (ch, style)
-            self._grow(x + i, y)
+        if s:
+            self._grow(x + len(s) - 1, y)
 
     def link(self, a, b, kind, style, fixed=frozenset()):
         """Connect adjacent cells a → b with a line of the given arrow kind. A cell
@@ -450,35 +468,62 @@ class Canvas:
         (ax, ay), (bx, by) = a, b
         d = R if bx > ax else L if bx < ax else D if by > ay else U
         stroke = _stroke(kind)
-        for cell, bit in ((a, d), (b, _OPP[d])):
-            cur = self.lines.setdefault(cell, [0, stroke, style])
-            cur[0] |= bit
-            if _STROKE_RANK[stroke] > _STROKE_RANK[cur[1]] and cell not in fixed:
-                cur[1], cur[2] = stroke, style
-            self._grow(*cell)
+        self._join(a, d, stroke, style, fixed)
+        self._join(b, _OPP[d], stroke, style, fixed)
+        self._grow(max(ax, bx), max(ay, by))
+
+    def _join(self, cell, bit, stroke, style, fixed=frozenset()):
+        """link()'s half at one cell: its mask gains bit, its stroke the higher-ranked."""
+        cur = self.lines.get(cell)
+        if cur is None:
+            self.lines[cell] = [bit, stroke, style]
+            return
+        cur[0] |= bit
+        if _STROKE_RANK[stroke] > _STROKE_RANK[cur[1]] and cell not in fixed:
+            cur[1], cur[2] = stroke, style
 
     def stub(self, cell, bit, kind, style):
         """Half a link: a line from `cell` toward one neighbour, not into it."""
         self.lines.setdefault(cell, [0, _stroke(kind), style])[0] |= bit
 
     def path(self, pts, kind, style):
+        """link() along a polyline through pts (inlined: the views' hot loop)."""
+        stroke = _stroke(kind)
+        rank, lines = _STROKE_RANK[stroke], self.lines
         for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
             dx = (x2 > x1) - (x2 < x1)
             dy = (y2 > y1) - (y2 < y1)
+            if not (dx or dy):
+                continue
+            d = R if dx > 0 else L if dx < 0 else D if dy > 0 else U
+            back = _OPP[d]
             x, y = x1, y1
             while (x, y) != (x2, y2):
-                nxt = (x + dx, y + dy)
-                self.link((x, y), nxt, kind, style)
-                x, y = nxt
+                for cell, bit in (((x, y), d), ((x + dx, y + dy), back)):
+                    cur = lines.get(cell)
+                    if cur is None:
+                        lines[cell] = [bit, stroke, style]
+                    else:
+                        cur[0] |= bit
+                        if rank > _STROKE_RANK[cur[1]]:
+                            cur[1], cur[2] = stroke, style
+                x, y = x + dx, y + dy
+            self._grow(max(x1, x2), max(y1, y2))
 
     def run(self, x0, x1, y, kind, style, hops=None, fixed=frozenset()) -> set:
         """A line x0 → x1 along row y that hops every column x where hops(x): it
         stops a cell short on each side (─│─), so it never reads as joined there.
         `fixed` as for link(). Returns the cells it drew into."""
         drawn = set()
+        if x1 <= x0:
+            return drawn
+        stroke, lines = _stroke(kind), self.lines
+        rank = _STROKE_RANK[stroke]
+        hop = [hops(x) for x in range(x0, x1 + 1)] if hops is not None else None
+        right = None                    # the rightmost cell a link reached
         for x in range(x0, x1):
             a, b = (x, y), (x + 1, y)
-            a_hop, b_hop = hops is not None and hops(x), hops is not None and hops(x + 1)
+            a_hop, b_hop = (hop[x - x0], hop[x - x0 + 1]) if hop else (False, False)
             if a_hop and b_hop:
                 continue
             if b_hop:
@@ -487,9 +532,20 @@ class Canvas:
             elif a_hop:
                 self.stub(b, L, kind, style)
                 drawn.add(b)
-            else:
-                self.link(a, b, kind, style, fixed)
-                drawn |= {a, b}
+            else:                       # link(a, b), inlined: _join at each end
+                for cell, bit in ((a, R), (b, L)):
+                    cur = lines.get(cell)
+                    if cur is None:
+                        lines[cell] = [bit, stroke, style]
+                    else:
+                        cur[0] |= bit
+                        if rank > _STROKE_RANK[cur[1]] and cell not in fixed:
+                            cur[1], cur[2] = stroke, style
+                drawn.add(a)
+                drawn.add(b)
+                right = x + 1
+        if right is not None:
+            self._grow(right, y)
         return drawn
 
     def blit(self, other: "Canvas", ox: int, oy: int):
@@ -511,17 +567,41 @@ class Canvas:
 
     def rows(self):
         """Yield each row as a list of (run_text, style) runs."""
-        for y in range(self.h):
+        w, h = self.w, self.h
+        if type(self).cell is not Canvas.cell:      # a subclass's cells: ask for each
+            grid = [{x: self.cell(x, y) for x in range(w)} for y in range(h)]
+        else:                                       # else only the drawn cells, by row
+            grid = [{} for _y in range(h)]
+            for (x, y), line in self.lines.items():
+                if 0 <= x < w and 0 <= y < h:
+                    grid[y][x] = _line_cell(line)
+            for (x, y), v in self.text.items():
+                if 0 <= x < w and 0 <= y < h:
+                    grid[y][x] = v
+        for cells in grid:
             runs = []
-            for x in range(self.w):
-                ch, st = self.cell(x, y)
-                if runs and runs[-1][1] == st:
-                    runs[-1][0] += ch
+            last = None                 # the open run: [chars, style]
+            at = 0                      # the next column to fill
+            for x in sorted(cells) + [w]:
+                if x > at:              # blank cells up to x
+                    if last is not None and last[1] is None:
+                        last[0].append(" " * (x - at))
+                    else:
+                        last = [[" " * (x - at)], None]
+                        runs.append(last)
+                if x == w:
+                    break
+                ch, st = cells[x]
+                if last is not None and last[1] == st:
+                    last[0].append(ch)
                 else:
-                    runs.append([ch, st])
-            if runs:
-                runs[-1][0] = runs[-1][0].rstrip()
-            yield [(t, s) for t, s in runs if t]
+                    last = [[ch], st]
+                    runs.append(last)
+                at = x + 1
+            out = [("".join(t), s) for t, s in runs]
+            if out:
+                out[-1] = (out[-1][0].rstrip(), out[-1][1])
+            yield [(t, s) for t, s in out if t]
 
 
 def _first_fit(cols: list, lo: int, hi: int) -> int:
