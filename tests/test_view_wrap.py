@@ -8,6 +8,7 @@ Covers:
   - tree view: lanes past the gutter columns that fit fold into numbered plugs
     (`●①` on a source row, `◀───①` on a target row), packed in a run per row; a
     token on a folded lane sits on its plugs; a tree that fits is untouched;
+  - --once --layout: pan prints the natural layout, wrap and auto fit;
   - info lines (summary, lint) wrap at the width, ` · ` kept with the word after
     it, in --once and in the live footer.
 
@@ -141,6 +142,27 @@ class TestTreeFolds(unittest.TestCase):
         self.assertEqual([(ln.sy, ln.plug, ln.x) for ln in out[1:]], [([3], "①", 12), ([1], "②", 12)])
         self.assertEqual(vtree._token_row(out[1], 0.2), 3)  # a folded lane: its plugs
         self.assertEqual(vtree._token_row(out[1], 0.8), 0)
+
+
+class TestOnceLayout(unittest.TestCase):
+    def run_once(self, *flags):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "fan.sigil"
+            path.write_text(FAN)
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                view.main([str(path), "--once", "--no-lint", "--graph", "--width", "60", *flags])
+        return buf.getvalue().split("\n\n")[0].splitlines()      # the drawing
+
+    def test_pan_prints_the_natural_layout_wrap_and_auto_fit(self):
+        widest = lambda rows: max(len(r) for r in rows)
+        self.assertGreater(widest(self.run_once("--layout", "pan")), 60)
+        self.assertLessEqual(widest(self.run_once("--layout", "wrap")), 60)
+        self.assertEqual(self.run_once(), self.run_once("--layout", "wrap"))   # auto: wrap
+
+    def test_a_bad_layout_is_refused(self):
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            view.main(["x.sigil", "--layout", "sideways"])
 
 
 class TestInfoLines(unittest.TestCase):

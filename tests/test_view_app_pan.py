@@ -95,11 +95,40 @@ class TestFitToggle(_Doc):
     def test_f_toggles_and_the_bar_says_which(self):
         st = self.state(SMALL)
         self.assertTrue(st.fit)
-        self.assertIn("· fit ·", plain(st.frame(100, 30))[0])
+        self.assertIn("· auto→wrap ·", plain(st.frame(100, 30))[0])
         self.assertTrue(st.key("f"))
         self.assertFalse(st.fit)
+        self.assertEqual(st.layout, "pan")
         self.assertIn("· pan ·", plain(st.frame(100, 30))[0])
-        self.assertIn("f fit", "".join(t for t, _ in view.keys_legend(st)))
+        st.key("f")
+        self.assertIn("· wrap ·", plain(st.frame(100, 30))[0])
+        self.assertIn("o layout:wrap", "".join(t for t, _ in view.keys_legend(st)))
+
+    def test_o_cycles_the_layout(self):
+        st = self.state(SMALL)
+        seen = [st.layout]
+        for _ in view.LAYOUTS:
+            self.assertTrue(st.key("o"))
+            seen.append(st.layout)
+        self.assertEqual(seen, ["auto", "wrap", "pan", "auto"])
+        legend = view.keys_legend(st)
+        at = next(i for i, (t, _) in enumerate(legend) if t == "o")
+        self.assertEqual(legend[at + 1][0].strip(), "layout:auto")
+        self.assertFalse(legend[at + 1][1][2])        # the default: not bright
+        st.key("o")
+        self.assertTrue(view.keys_legend(st)[at + 1][1][2])
+
+    def test_auto_picks_by_the_overflow(self):
+        self.assertEqual(view.pick_layout(80, 500, 100, 40), "wrap")    # it fits across
+        self.assertEqual(view.pick_layout(200, 20, 100, 40), "wrap")    # wide, short
+        self.assertEqual(view.pick_layout(120, 400, 100, 40), "pan")    # tall, a bit wide
+        self.assertEqual(view.pick_layout(200, 80, 100, 40), "wrap")    # as much across as down
+        st = self.state(WIDE, payloads=True)
+        st.frame(40, 60)                                  # wide and short: wrapped
+        self.assertEqual(st.placing, "wrap")
+        st.frame(40, 3)                                   # a sliver of a window: tall overflow
+        self.assertEqual(st.placing, "pan")
+        self.assertIn("auto→pan", plain(st.frame(40, 3))[0])
 
     def test_natural_layout_is_not_rearranged(self):
         st = self.state(WIDE, payloads=True)

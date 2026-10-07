@@ -223,7 +223,7 @@ class TestSimMode(_Doc):
         self.assertEqual(st.player.at, 0)
 
     def test_fitted_frames_compose_only_the_fitted_drawing(self):
-        st = self.state(sim="happy")
+        st = self.state(sim="happy", layout="wrap")
         calls = []
         compose = st._compose
         st._compose = lambda width: calls.append(width) or compose(width)
@@ -233,6 +233,22 @@ class TestSimMode(_Doc):
         st.key("f")
         st.frame(100, 40)
         self.assertEqual(calls, [100, None])
+
+    def test_auto_decides_once_while_a_run_plays(self):
+        st = self.state(sim="happy")                  # auto
+        calls = []
+        compose = st._compose
+        st._compose = lambda width: calls.append(width) or compose(width)
+        st.frame(30, 40)
+        first = list(calls)
+        self.assertIn(None, first)                    # the natural drawing, to decide
+        for _ in range(3):
+            st.key(".")
+            st.frame(30, 40)
+        self.assertEqual(calls[len(first):].count(None), 0 if st.placing == "wrap" else 3)
+        st.key("]")                                   # another run: decided afresh
+        st.frame(30, 40)
+        self.assertIn(None, calls[len(first) + 3:])
 
     def test_start_on_a_scenario(self):
         st = self.state(ORDERS, sim="Payments:fails")

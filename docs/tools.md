@@ -123,6 +123,15 @@ Options:
 - `--no-lint` skips lint.
 - `--theme NAME` picks a colour theme (see [themes](#themespy-namepath)); `--color
   auto|always|never` decides when to colour.
+- `--layout auto|wrap|pan` says how a drawing wider than the window is shown. `wrap`
+  fits it to the width and lets it grow down; `pan` keeps its natural layout and
+  pans across (arrows, mouse drag; with `--once`, the natural drawing, its lines
+  under it still wrapped); `auto`, the default, picks whichever overflows less:
+  wrap when the drawing is wider than the window in proportion to its height, pan
+  when it is already much taller than the window and only a little too wide. A
+  printout grows down freely, so `--once` wraps under `auto`. Live, `o` cycles
+  the three and `f` flips between wrap and pan; the status bar says what is shown
+  (`wrap`, `pan`, `auto→wrap`), and a run plays without switching layout.
 - `--width N` fits a `--once` drawing to N columns (default: the terminal's width, or
   100 when stdout is not a terminal). Every view wraps to it and grows down: the
   graph view's layers wrap onto the rows below, the tree view's lanes fold, the flow
@@ -149,7 +158,7 @@ notes, triggers, the checks overlay and the simulation are the graph view's.
 view; control blocks are not framed (a branch's arms are dotted wires labelled
 `‹arm›`), and joins are not drawn as bars.
 
-When the flow view is wider than its width (the window with `f` fit on, `--width`,
+When the flow view is wider than its width (the window with the wrap layout, `--width`,
 a pane), it wraps like text, a step at a time and only while it still doesn't fit:
 chips become marker letters with a key (`┆a┆`); then what is written on a wire, and a
 label's notes and modifiers, hang under the node that sends it, the wire keeping its
@@ -238,7 +247,8 @@ Live keys:
 | `u` | the run view: instances shown before folding, 3 → 8 → all |
 | `p` `m` `a` | payloads · modifiers · access |
 | `d` `s` `l` | depth · spacing · lint |
-| `f` | fit to the window / natural layout with free pan |
+| `o` | layout: auto → wrap → pan (the status bar says what is shown) |
+| `f` | flip between wrap and pan (sets `o`'s layout) |
 | arrows, `h` `j` `k` `L` | pan; mouse drag pans, the wheel scrolls (shift+wheel across) |
 | `z` `g` | centre · home |
 | `r` `q` | reload · quit |
@@ -271,7 +281,11 @@ outcome, and the scenario names. It never returns the drawing:
 `/sigil-pane` takes the same fields as words, in any order: `FILE`, a view name,
 `depth N|all`, `sim SCENARIO`, `frame N|last`, `play` and `payloads`. With no
 words it reopens the pane. `/sigil-pane display [mod|multiplex|auto]` says or sets
-where it draws (see [the viewer plugin contract](#the-viewer-plugin-contract)).
+where it draws, and `/sigil-pane layout [auto|wrap|pan]` how a drawing wider than
+the pane fits (see [the viewer plugin contract](#the-viewer-plugin-contract)).
+`layout` is the plugin option of that name, a `/config` row as `display` is; in a
+split it is view.py's `--layout`. Panned, a drawing wider than the pane shows its
+`h` and `l` keys (`◀` `▶`), which move it half a pane across.
 
 The plugin option `display` picks where the viewer draws. `/sigil-pane display
 VALUE` writes it, as `/config sigil.display=VALUE` does; the module reloads with
@@ -316,13 +330,15 @@ Claude Code, with these differences:
   any width.
 - The widget takes no keys, since it never has focus. `/sigil-pane` takes the tool's
   words (`FILE`, a view name, `depth N|all`, `sim SCENARIO`, `frame N|last`,
-  `play`, `payloads`) plus `pause`, `back`, `next` and `close`. With no words it
+  `play`, `payloads`) plus `pause`, `back`, `next` and `close`, and `left` and
+  `right`, which pan a panned drawing half a widget across. With no words it
   reopens the widget.
 - `multiplex` opens the same split, running `pane.py follow`.
-- pi has no plugin settings, so `/sigil-pane display VALUE` saves the display to
-  the shared settings file (`~/.config/sigil/viewer.json`). For one session,
-  `pi --sigil-display auto|mod|multiplex` or the `SIGIL_DISPLAY` environment
-  variable wins over the file; with none of them set it's `auto`.
+- pi has no plugin settings, so `/sigil-pane display VALUE` and `/sigil-pane layout
+  VALUE` save to the shared settings file (`~/.config/sigil/viewer.json`). For one
+  session, `pi --sigil-display auto|mod|multiplex` or the `SIGIL_DISPLAY`
+  environment variable wins over the file (`--sigil-layout`, `SIGIL_LAYOUT` for the
+  layout); with none of them set it's `auto`.
 - In print and json modes (`-p`, `--mode json`) there's no UI. The `mod` reply
   says so and points to `view.py --once`. In RPC mode the widget isn't drawn:
   pi sends RPC clients only plain-text widgets, and this one is a component.
@@ -339,18 +355,26 @@ finds the same command and the same words.
   what `auto` resolves to in this session. **`/sigil-pane display VALUE`** sets it
   and replies the same way. Any other value is an error that names the three.
   `display` is never read as a file name.
+- **`/sigil-pane layout`** and **`/sigil-pane layout VALUE`** do the same for the
+  layout: `wrap` fits a drawing wider than the viewer to its width and lets it
+  grow down, `pan` keeps the natural layout and pans across (the viewer's own keys
+  or words), `auto` picks whichever overflows less (view.py's `pick_layout`, given
+  the viewer's columns and rows). The reply says what the drawing shown was laid
+  out as under `auto`. `layout` is never read as a file name either. A split
+  passes it to view.py as `--layout`.
 - **The values**: `mod` draws inside the agent's own UI (a pane, a widget),
   `multiplex` opens a split to the right running `view.py` live (through
   `pane.py follow`), and `auto` picks `multiplex` when `HERDR_ENV`, `TMUX` or
   `ZELLIJ` is set, and `mod` otherwise. `resolveDisplay` in
   `plugin/claude/hooks/logic.ts` is the rule; a plugin in TypeScript imports it.
 - **Where it's kept**: in the host's own settings when it has them (Claude
-  Code: the plugin's `userConfig` field `display`, a `/config` row). A host
-  without them uses the shared file `$XDG_CONFIG_HOME/sigil/viewer.json`
-  (`~/.config/sigil/viewer.json` when that's unset), holding
-  `{"display": "mod"}`. It's read on each use, and writing it keeps any other
-  keys. A flag or environment variable the host offers for one session
-  (`--sigil-display`, `SIGIL_DISPLAY`) wins over the file, in that order.
+  Code: the plugin's `userConfig` fields `display` and `layout`, `/config`
+  rows). A host without them uses the shared file
+  `$XDG_CONFIG_HOME/sigil/viewer.json` (`~/.config/sigil/viewer.json` when that's
+  unset), holding `{"display": "mod", "layout": "wrap"}`. It's read on each use,
+  and writing it keeps any other keys. A flag or environment variable the host
+  offers for one session (`--sigil-display`, `SIGIL_DISPLAY`; `--sigil-layout`,
+  `SIGIL_LAYOUT`) wins over the file, in that order.
 - **The reply** (`displayReport` in `logic.ts`), one line:
 
   ```
@@ -359,7 +383,13 @@ finds the same command and the same words.
   ```
 
   After a change, a second line says where the next view draws, or which
-  setting still wins in this session. An error starts with `sigil:`.
+  setting still wins in this session. An error starts with `sigil:`. The layout
+  reply (`layoutReport`) is the same shape:
+
+  ```
+  layout: auto → pan (the drawing shown) · from /config sigil.layout
+  layout: wrap · from SIGIL_LAYOUT
+  ```
 
 ## OpenCode
 

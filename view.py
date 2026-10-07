@@ -47,6 +47,12 @@ Options:
                      boxes in a left margin tied to their rows).
     --width N        --once: the columns to fit (default: the terminal's width,
                      else 100). See "Fitting" below.
+    --layout MODE    auto | wrap | pan: how a drawing wider than the window is
+                     shown. wrap fits it to the width and lets it grow down; pan
+                     keeps its natural layout and pans across; auto (the default)
+                     picks whichever overflows less — wrap when the drawing is
+                     wider than the window in proportion to its height, else pan.
+                     --once prints scroll freely down, so auto wraps there.
     --mods           Show modifiers as compact chips: an edge's (`@timeout 30s ×3`,
                      `!`, `?`) after its payload on its chip, a node's (`@sla …`,
                      `^10k drop`, `@loc …`) after its label. Off by default.
@@ -87,7 +93,8 @@ Keys (live view):
     n  notes: off → #N markers + list → margin callouts (tree view); in the run
        view its own: run notes → the design's notes on each lane's node → off
     u  the run view: instances shown before folding, 3 → 8 → all
-    f  fit to the window (rearranged, centred) / the natural layout, free to pan
+    o  layout: auto → wrap → pan (the status bar says what is shown: wrap, pan,
+       or auto→wrap / auto→pan)   f  flip between wrap and pan
     c  checks: the composition checks overlay (check.py) and the findings panel
     arrows / h j k L pan   pgup / pgdn / space page   g home   z  re-centre   q  quit
     mouse: drag to pan; wheel scrolls (shift+wheel or a sideways wheel: across)
@@ -103,11 +110,13 @@ Zero dependencies: python3 standard library only. The graph comes from
 render.parse_document (the same parse render.py turns into Mermaid), laid out
 top-down in layers (cycle breaking, longest-path layering, barycenter ordering,
 block-merged x placement, one track per fan-out) and drawn with box-drawing
-characters. The live view is a plain alternate-screen terminal loop. Fitted
-(f, the default) it shows the drawing rearranged to the pane's width, centred while
-it fits and scrolled when it doesn't; natural (f again) it shows the drawing as
---once without --width would and pans freely in x and y — keys, mouse drag, the
-wheel — clamped so part of it always stays on screen. The status bar says which.
+characters. The live view is a plain alternate-screen terminal loop. Wrapped
+(--layout wrap, or auto's pick) it shows the drawing rearranged to the pane's
+width, centred while it fits and scrolled down when it is taller; panned (pan) it
+shows the drawing as --once without --width would and pans freely in x and y —
+keys, mouse drag, the wheel — clamped so part of it always stays on screen. auto
+(the default) decides per drawing and pane size (pick_layout) and keeps its choice
+while a run plays. The status bar says which.
 
 Fitting: a drawing wider than the window (the live pane, or --width) is
 rearranged, never squashed — boxes, labels and the outline keep their shapes —
@@ -325,6 +334,23 @@ def events_by_view(events: str | None) -> dict:
     return {v: events or d for v, d in DEFAULT_EVENTS.items()}
 
 
+# How a drawing wider than its window is shown (--layout, key o): wrap — fitted to
+# the width, growing down; pan — the natural layout, panned in x and y; auto —
+# whichever overflows less (pick_layout). The first is the default.
+LAYOUTS = ("auto", "wrap", "pan")
+
+
+def pick_layout(width: int, height: int, cols: int, rows: int) -> str:
+    """auto's choice for a natural drawing width × height in a cols × rows
+    window: wrap when it fits across or overflows more across than down (its
+    width/height ratio wider than the window's), else pan — a drawing already
+    much taller than the window keeps its layout and pans the little it is too
+    wide rather than growing taller still."""
+    if width <= cols or width * rows >= height * cols:
+        return "wrap"
+    return "pan"
+
+
 ONCE_WIDTH = 100                                # --once width when stdout isn't a tty
 LEGEND_WIDTH = 100                              # --once legend wrap width
 
@@ -345,7 +371,7 @@ def wrap_legend(row, cols: int):
 
 
 KEY_LEGEND = (("views", "view"), ("t", "next"), ("x", "sim"), ("c", "checks"),
-              ("n", "notes"), ("u", "unroll"), ("e", "triggers"), ("v", "events"), ("s", "spacing"), ("f", "fit"),
+              ("n", "notes"), ("u", "unroll"), ("e", "triggers"), ("v", "events"), ("s", "spacing"), ("o", "layout"),
               ("d", "depth"), ("p", "payloads"), ("m", "mods"), ("a", "access"),
               ("l", "lint"), ("z", "centre"), ("g", "home"), ("r", "reload"), ("q", "quit"))
 
@@ -385,7 +411,7 @@ def keys_legend(state):
     on = {"x": state.sim_on, "c": state.show_checks,
           "e": state.show_triggers, "s": state.spaced,
           "p": state.payloads, "l": state.show_lint, "n": state.notes != "off",
-          "m": state.show_mods, "a": state.show_access, "f": state.fit}
+          "m": state.show_mods, "a": state.show_access}
     row = [("keys   ", dim)]
     run = state.view == "run"
     for key, word in KEY_LEGEND:
@@ -407,6 +433,9 @@ def keys_legend(state):
         elif key == "d":
             word = f"depth:{'all' if state.depth >= kit.ALL_DEPTH else state.depth}"
             bright = state.depth > 0
+        elif key == "o":
+            word = f"layout:{state.layout}"
+            bright = state.layout != LAYOUTS[0]
         row += [(key, kit.KEY_STYLE),
                 (f" {word}  ", (kit.GREY["light"], None, bright) if bright else mid)]
     return row
@@ -1315,13 +1344,17 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
          triggers: bool = True, spaced: bool = True, notes: str = "off",
          width: int | None = None, access: bool = False, mods: bool = False,
          events: str | None = None, sim: str | None = None, checks: bool = False,
-         limits=None, view: str | None = None, unroll: int | None = None) -> int:
+         limits=None, view: str | None = None, unroll: int | None = None,
+         layout: str = LAYOUTS[0]) -> int:
     """Print the drawing once, in `view` (a name in VIEWS; None: start_view —
     the tree view when `tree`, else DEFAULT_VIEW). The run view draws `sim`'s run as a
     timeline, or the happy run when no scenario is given (`unroll`: the
     instances it shows before folding; None: sim.RUN_SHOW, 0: all). `width`: the columns to fit it to (None: its
     natural width); the legend wraps at the narrower of that and LEGEND_WIDTH.
     `events`: "land" | "nodes" (None: the view's default, DEFAULT_EVENTS).
+    `layout` (LAYOUTS): pan draws the drawing at its natural width whatever
+    `width` (the legend and the lines under it still wrap at it); wrap and auto
+    fit it — a printout grows down freely, so auto always wraps here.
     `sim`: a scenario name — the run's final frame is drawn over the view and its
     legend, outcome and log printed after the summary (raises UnknownScenario
     for an unknown one). `checks`: the checks overlay over the drawing, its
@@ -1352,7 +1385,8 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
     if overlay is not None:
         marks = overlay.run_marks() if run else overlay.marks(options)
     rows, _w = compose_view(g, view, depth=depth, payloads=payloads, notes=notes,
-                            triggers=triggers, spaced=spaced, width=width, access=access,
+                            triggers=triggers, spaced=spaced,
+                            width=None if layout == "pan" else width, access=access,
                             mods=mods, events=events, trace=shown,
                             tick=player.at if player else 0, checks=marks, limits=limits,
                             unroll=unroll)
@@ -1459,9 +1493,11 @@ class ViewState:
                  triggers: bool = True, spaced: bool = True, notes: str = "off",
                  access: bool = False, mods: bool = False, events: str | None = None,
                  sim: str | None = None, checks: bool = False, limits=None,
-                 view: str | None = None, unroll: int | None = None):
-        """`view`: the view to start in (a name in VIEWS; None: start_view — the
-        tree view when `tree`, else DEFAULT_VIEW). `unroll`: the run view's instances shown
+                 view: str | None = None, unroll: int | None = None, layout: str = LAYOUTS[0]):
+        """`layout`: how a drawing wider than the window is shown, a name in
+        LAYOUTS (key o; f flips between wrap and pan). `view`: the view to start
+        in (a name in VIEWS; None: start_view — the tree view when `tree`, else
+        DEFAULT_VIEW). `unroll`: the run view's instances shown
         before folding (None: sim.RUN_SHOW; 0: all; key u). `events`: the events mode every view starts
         in (None: each view's default, DEFAULT_EVENTS); each view then keeps its
         own (key v). `sim`: a
@@ -1491,7 +1527,10 @@ class ViewState:
         self.diags = []
         self.updated = ""
         self.title = ""
-        self.fit = True                # f: fitted to the window, else natural + free pan
+        self.layout = layout           # o: auto | wrap | pan (LAYOUTS)
+        self.placing = "wrap"          # what the last frame drew: wrap (fitted) | pan (natural)
+        self._auto = None              # ((cols, rows), placing): auto's choice, kept while
+                                       # only the sim frame changes
         self.sx = self.sy = 0          # the origin: drawing cell at the viewport's top-left
         self._place = "home"           # a pending "home" / "centre", resolved by frame()
         self._drag = None              # (x, y, sx, sy) where a mouse drag started
@@ -1507,6 +1546,16 @@ class ViewState:
         self.show_checks = checks      # c: the checks overlay and its panel
         self.checks = None             # ChecksOverlay of the current text (made while on)
         self.check_error = None        # why the checker could not run (a footer row)
+
+    @property
+    def fit(self) -> bool:
+        """Whether the last frame drew the drawing fitted (wrap) rather than
+        natural (pan); setting it sets the layout to wrap or pan."""
+        return self.placing == "wrap"
+
+    @fit.setter
+    def fit(self, on: bool) -> None:
+        self.layout = self.placing = "wrap" if on else "pan"
 
     @property
     def tree(self) -> bool:
@@ -1613,13 +1662,28 @@ class ViewState:
             return None
         return self.player.shown(self._scene_options())
 
-    def _recompose(self):
+    def _recompose(self, frame: bool = False):
         """Something drawn changed: drop the composed drawings (frame() composes
-        the one it shows, natural or fitted, when it needs it)."""
+        the one it shows, natural or fitted, when it needs it). `frame`: only the
+        sim frame moved on — auto keeps its choice (a run plays without
+        switching layout, and without composing the natural drawing each frame)."""
         self._ensure_player()
         self._ensure_checks()
         self._fit = None
         self._natural = None
+        if not frame:
+            self._auto = None
+
+    def placing_for(self, cols: int, rows: int) -> str:
+        """wrap | pan: the layout a cols × rows viewport shows — the preference,
+        or auto's choice (pick_layout on the natural drawing), made once per
+        size and drawing."""
+        if self.layout != "auto":
+            return self.layout
+        if self._auto is None or self._auto[0] != (cols, rows):
+            body, w = self.natural()
+            self._auto = ((cols, rows), pick_layout(w, len(body), cols, rows))
+        return self._auto[1]
 
     def natural(self):
         """(rows, width): the drawing at its natural width; cached until the view
@@ -1731,8 +1795,11 @@ class ViewState:
             self.sy -= page
         elif k in ("pgdn", " "):
             self.sy += page
-        elif k == "f":                 # keeps the origin; frame() re-clamps it
-            self.fit = not self.fit
+        elif k == "o":                 # keeps the origin; frame() re-clamps it
+            self.layout = LAYOUTS[(LAYOUTS.index(self.layout) + 1) % len(LAYOUTS)]
+            self.placing = self.placing if self.layout == "auto" else self.layout
+        elif k == "f":                 # wrap ↔ pan from what is shown (sets o's preference)
+            self.layout = self.placing = "pan" if self.placing == "wrap" else "wrap"
         elif k in ("home", "g"):
             self._place = "home"
         elif k == "z":
@@ -1760,7 +1827,7 @@ class ViewState:
             p.faster(-1 if k == "-" else 1)
             changed = False
         if changed:
-            self._recompose()
+            self._recompose(frame=k not in ("[", "]"))
         return True
 
     def tick(self, now: float) -> bool:
@@ -1768,7 +1835,7 @@ class ViewState:
         True when the view changed."""
         if not self.sim_on or self.player is None or not self.player.advance(now):
             return False
-        self._recompose()
+        self._recompose(frame=True)
         return True
 
     def wait(self, now: float) -> float | None:
@@ -1875,8 +1942,8 @@ class ViewState:
         left = [(f" {self.path.name} ", kit.BAR_NAME_STYLE)]
         if self.mode:
             left.append((f"{self.mode} ", kit.MODE_STYLE))
-        placing = "fit" if self.fit else "pan"     # before the title: never clipped off
-        left.append((f"· {self.view} · {placing} ·", kit.BAR_STYLE))
+        placing = self.placing if self.layout != "auto" else f"auto→{self.placing}"
+        left.append((f"· {self.view} · {placing} ·", kit.BAR_STYLE))   # before the title
         if self.sim_on and self.player is not None:   # before the title: never clipped off
             left.append((f" {self.player.status()} ·", kit.BAR_NAME_STYLE))
         if self.title:
@@ -1894,7 +1961,7 @@ class ViewState:
         origin is the reader's to pan. Returns True when it moved the origin."""
         if not (self.sim_on and self.follow and self.player is not None):
             return False
-        key = (self.player.index, self.player.at, self.view, self.fit, cols, vh, self.depth,
+        key = (self.player.index, self.player.at, self.view, self.placing, cols, vh, self.depth,
                self.unroll)
         if key == self._followed:
             return False
@@ -1902,7 +1969,8 @@ class ViewState:
         try:
             box = sim_focus(self.graph, self.view, depth=self.depth, payloads=self.payloads,
                             notes=self.notes, triggers=self.show_triggers, spaced=self.spaced,
-                            width=cols if self.fit else None, access=self.show_access,
+                            width=cols if self.placing == "wrap" else None,
+                            access=self.show_access,
                             mods=self.show_mods, events=self.events_mode,
                             trace=self.sim_trace(), tick=self.player.at,
                             limits=self.limits, unroll=self.unroll, run_notes=self.run_notes)
@@ -1918,23 +1986,26 @@ class ViewState:
 
     def frame(self, cols: int, rows: int):
         """Exactly `rows` rows of styled runs for a cols×rows terminal: the status bar,
-        the drawing, the footer. Fitted (self.fit): the drawing rearranged to fit
-        `cols` when it is wider (see fitted()), centred while it fits, scrolled when
-        it still doesn't. Natural: the drawing as composed, panned freely (see
-        pan_bounds). Resolves a pending home / centre and clamps the origin."""
+        the drawing, the footer, laid out as placing_for says. Wrap: the drawing
+        rearranged to fit `cols` when it is wider (see fitted()), centred while it
+        fits, scrolled down when it is taller. Pan: the drawing as composed,
+        panned freely (see pan_bounds). Resolves a pending home / centre and
+        clamps the origin."""
         footer = self._footer_rows(cols)
         vh = self._vh = max(rows - 1 - len(footer), 1)
-        body, W = self.fitted(cols) if self.fit else self.natural()
+        fit = (self.placing_for(cols, vh) == "wrap") if self.graph is not None else True
+        self.placing = "wrap" if fit else "pan"
+        body, W = self.fitted(cols) if fit else self.natural()
         H = len(body)
         if self.graph is None and not self.error:
             body = [[("waiting for " + str(self.path), (kit.GREY["mid"], None, False))]]
             W, H = kit.row_len(body[0]), 1
-        self.sx = place(W, cols, self.sx, self.fit, self._place)
-        self.sy = place(H, vh, self.sy, self.fit, self._place)
+        self.sx = place(W, cols, self.sx, fit, self._place)
+        self.sy = place(H, vh, self.sy, fit, self._place)
         self._place = None
         if self.graph is not None and self._follow(cols, vh):
-            self.sx = place(W, cols, self.sx, self.fit, None)
-            self.sy = place(H, vh, self.sy, self.fit, None)
+            self.sx = place(W, cols, self.sx, fit, None)
+            self.sy = place(H, vh, self.sy, fit, None)
         return ([self._bar(cols)] + viewport(body, self.sx, self.sy, cols, vh) + footer)[:rows]
 
 
@@ -2160,6 +2231,10 @@ def main(argv=None) -> int:
     ap.add_argument("--unroll", type=_unroll_arg, default=None, metavar="N|all",
                     help=f"the run view: instances of one node shown before the rest fold "
                          f"(default {RUN_UNROLL[0]}; all: none fold)")
+    ap.add_argument("--layout", choices=LAYOUTS, default=LAYOUTS[0],
+                    help="a drawing wider than the window: wrap (fit the width, grow "
+                         "down), pan (keep the natural layout, pan) or auto (default: "
+                         "whichever overflows less; --once: wrap)")
     ap.add_argument("--width", type=_width_arg, default=None, metavar="N",
                     help="--once: fit the drawing to N columns (default: the terminal's "
                          f"width, or {ONCE_WIDTH} when stdout is not a terminal)")
@@ -2229,13 +2304,13 @@ def main(argv=None) -> int:
         try:
             return once(a.file, a.depth, a.payloads, not a.no_lint, dialect, colour, a.tree,
                         not a.no_triggers, not a.compact, a.notes, width, a.access, a.mods,
-                        a.events, a.sim, a.checks, limits, view, a.unroll)
+                        a.events, a.sim, a.checks, limits, view, a.unroll, a.layout)
         except UnknownScenario as exc:     # the message lists the known ones
             print(f"view.py: --sim: {exc}", file=sys.stderr)
             return 2
     tui(ViewState(a.file, a.depth, a.payloads, not a.no_lint, dialect, a.tree,
                   not a.no_triggers, not a.compact, a.notes, a.access, a.mods, a.events,
-                  a.sim, a.checks, limits, view, a.unroll))
+                  a.sim, a.checks, limits, view, a.unroll, a.layout))
     return 0
 
 
