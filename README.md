@@ -2,16 +2,12 @@
 
 <p align="center"><img src="assets/banner.svg" alt="Sigil — a coin with a knotwork ampersand, and the wordmark [S]{I}&lt;G&gt;(I)|L|" width="880"></p>
 
-A system's design usually lives in prose and in people's heads. Coding agents and
-teammates lose its shape between conversations, and its gaps — a failure nobody
-handles, a store with two writers — turn up only once the code is written.
+A notation for system designs, written with your coding agent.
 
-Sigil is a small notation for writing the design down, in a file you and your agent
-edit together. Components, data, events, actors and stores are **glyphs**; the
-flows between them are **arrows**; constraints are **modifiers**. Nothing in it
-runs. Its tools lint a design, check it for risks it leaves undeclared, draw it in
-the terminal and walk its paths; the plugin teaches your coding agent the notation
-and gives it those tools.
+Sigil describes how a system is wired: its components, data, events, actors and
+stores, and the calls, events and failures between them, in a few lines of text. Its
+tools lint a design, flag the risks it leaves unhandled, draw it in the terminal and
+step through its paths. The plugin teaches your coding agent to read and write it.
 
 A URL shortener ([`shortener.sigil`](https://no-tably.github.io/sigil/examples/shortener.sigil)):
 
@@ -20,27 +16,25 @@ A URL shortener ([`shortener.sigil`](https://no-tably.github.io/sigil/examples/s
 
 --- URL shortener ---
 (User) -> [Shortener] : shorten({Url}) => {Code}
-# accepts: race — a code is written once, then only read
 [Shortener] -> |Links| : save({Code}, {Url})
 (Visitor) -> [Redirect] : follow({Code})
 [Redirect] -> |Links| : lookup({Code}) => {Url}
-       !> (Visitor) : <NotFound>
-[Redirect] -> (Visitor) : redirect({Url})
-[Redirect] ~> <Clicked> -> [Stats]
+           !> (Visitor) : <NotFound>
+           -> (Visitor) : redirect({Url})
+           ~> <Clicked> -> [Stats]
 ```
 
 Line by line:
 
-- `(User)` is an actor outside the system; it calls (`->`) the `[Shortener]`
-  component with `{Url}` data and gets (`=>`) a `{Code}` back.
-- The `# accepts:` comment answers a question `check.py` asks — `|Links|` is written
-  by one component and read by another — by accepting the risk, with its reason.
-- The shortener saves the pair in the `|Links|` store.
-- A `(Visitor)` follows a code; `[Redirect]` looks it up and gets the `{Url}`.
-- `!>` is the failure path, and a line starting with an arrow continues the one
-  above: a missing code sends the visitor `<NotFound>`.
-- Otherwise the visitor is redirected, and `~>` sends a `<Clicked>` event to
-  `[Stats]` without waiting.
+- `(User) -> [Shortener] : shorten({Url}) => {Code}`: a user sends a URL, gets a code.
+- `[Shortener] -> |Links| : save({Code}, {Url})`: the pair is stored.
+- `(Visitor) -> [Redirect] : follow({Code})`: a visitor follows a code.
+- `[Redirect] -> |Links| : lookup({Code}) => {Url}`: it's looked up.
+- `!> (Visitor) : <NotFound>`: missing: not found.
+- `-> (Visitor) : redirect({Url})`: found: redirected.
+- `~> <Clicked> -> [Stats]`: each click, async, to stats.
+
+A line that starts with an arrow continues from the subject above.
 
 `view.py` draws it in the terminal:
 

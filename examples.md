@@ -17,13 +17,12 @@ async flow.
 
 --- URL shortener ---
 (User) -> [Shortener] : shorten({Url}) => {Code}
-# accepts: race — a code is written once, then only read
 [Shortener] -> |Links| : save({Code}, {Url})
 (Visitor) -> [Redirect] : follow({Code})
 [Redirect] -> |Links| : lookup({Code}) => {Url}
-       !> (Visitor) : <NotFound>
-[Redirect] -> (Visitor) : redirect({Url})
-[Redirect] ~> <Clicked> -> [Stats]
+           !> (Visitor) : <NotFound>
+           -> (Visitor) : redirect({Url})
+           ~> <Clicked> -> [Stats]
 ```
 
 ```text
@@ -37,21 +36,15 @@ async flow.
 ```
 
 **Line by line:**
-- `(User) -> [Shortener] : shorten({Url}) => {Code}` — a user, outside the system,
-  calls the shortener with a URL and gets a code back.
-- `# accepts: race — …` — `check.py` notices that one component writes `|Links|`
-  while another reads it, with nothing ordering them. A code is written once and
-  only read after, so this line accepts the risk, with its reason, rather than
-  changing the design.
-- `[Shortener] -> |Links| : save({Code}, {Url})` — the shortener stores the pair.
-- `(Visitor) -> [Redirect] : follow({Code})` — a visitor follows a short link.
-- `[Redirect] -> |Links| : lookup({Code}) => {Url}` — the code is looked up; the
-  store returns the URL.
-- `!> (Visitor) : <NotFound>` — a line starting with an arrow continues the one
-  above: when the lookup fails (no such code), the visitor gets `<NotFound>`.
-- `[Redirect] -> (Visitor) : redirect({Url})` — otherwise the visitor is redirected.
-- `[Redirect] ~> <Clicked> -> [Stats]` — and, without waiting for it, each click is
-  an event that reaches the stats.
+- `(User) -> [Shortener] : shorten({Url}) => {Code}`: a user sends a URL, gets a code.
+- `[Shortener] -> |Links| : save({Code}, {Url})`: the pair is stored.
+- `(Visitor) -> [Redirect] : follow({Code})`: a visitor follows a code.
+- `[Redirect] -> |Links| : lookup({Code}) => {Url}`: it's looked up.
+- `!> (Visitor) : <NotFound>`: missing: not found.
+- `-> (Visitor) : redirect({Url})`: found: redirected.
+- `~> <Clicked> -> [Stats]`: each click, async, to stats.
+
+A line that starts with an arrow continues from the subject above.
 
 `view.py shortener.sigil --sim all` runs both paths: `happy`, and
 `Redirect.lookup:fails` — the lookup fails, the run ends on the `!>` route to the

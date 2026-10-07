@@ -77,6 +77,8 @@ store's races.
   noted — hint (catalog §12); the URL shortener states no load
 - examples.md · capacity-mismatch · info · `(Visitor) -> [Redirect] : follow({Code})`
   noted — hint (catalog §12); the URL shortener states no load
+- examples.md · race · warn · `[Shortener] -> |Links| : save({Code}, {Url})`
+  accepted — a code is written once, then only read; the first example is `#!sketch`, where this finding is hidden, so it carries no `# accepts:` line
 - examples.md · capacity-mismatch · info · `(User) -> [Web]  : {creds}`
   noted — hint (catalog §12)
 - examples.md · orphan-event · warn · `!> <Unauthorized>`

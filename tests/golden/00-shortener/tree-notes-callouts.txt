@@ -1,10 +1,10 @@
-                                ── URL shortener ──────────────
-                                (User) ───────────────●
-╭ accepts: race — a code   ╮ #> [Shortener] ◀─────────┴─●
-│ is written once, then    │    |Links| ◀───────────────┴─────┐
-╰ only read                ╯    (Visitor) ◀───────────●───┬─┐ │
-                                [Redirect] ◀──────────┴─›─✖─●─●
-                                [Stats] <Clicked> ◀─────┘
+── URL shortener ──────────────
+(User) ───────────────●
+[Shortener] ◀─────────┴─●
+|Links| ◀───────────────┴─────┐
+(Visitor) ◀───────────●───┬─┐ │
+[Redirect] ◀──────────┴─›─✖─●─●
+[Stats] <Clicked> ◀─────┘
 
 tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
        (N) weight  

@@ -2,10 +2,9 @@
 
 --- URL shortener ---
 (User) -> [Shortener] : shorten({Url}) => {Code}
-# accepts: race — a code is written once, then only read
 [Shortener] -> |Links| : save({Code}, {Url})
 (Visitor) -> [Redirect] : follow({Code})
 [Redirect] -> |Links| : lookup({Code}) => {Url}
-       !> (Visitor) : <NotFound>
-[Redirect] -> (Visitor) : redirect({Url})
-[Redirect] ~> <Clicked> -> [Stats]
+           !> (Visitor) : <NotFound>
+           -> (Visitor) : redirect({Url})
+           ~> <Clicked> -> [Stats]
