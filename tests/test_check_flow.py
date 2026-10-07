@@ -262,7 +262,7 @@ class Tiers(unittest.TestCase):
         message carries an empty code span."""
         texts = {p.name: p.read_text(encoding="utf-8")
                  for p in sorted(_FIXTURES.glob("*.sigil"))}
-        texts["examples.md:916"] = block_at(_DIR / "examples.md", 916)
+        texts["examples.md:971"] = block_at(_DIR / "examples.md", 971)
         for name, text in texts.items():
             for mode in ("sketch", "spec", "craft"):
                 with self.subTest(source=name, mode=mode):
@@ -341,9 +341,9 @@ def on(report, rid: str) -> list:
 
 class Corpus(unittest.TestCase):
     def test_examples_md_external_reaches_are_bounded(self):
-        """examples.md:497-498 now state `@timeout` and `@fallback` (the catalog's
+        """examples.md:552-553 now state `@timeout` and `@fallback` (the catalog's
         former corpus hits for SGC101 and SGC201)."""
-        block = block_at(_DIR / "examples.md", 497)
+        block = block_at(_DIR / "examples.md", 552)
         rep = ck.check(block, mode="spec", registry=registry())
         self.assertIn("op db.insert(${out.score})  @timeout(2s)", block)
         self.assertEqual(on(rep, "SGC101"), [])
@@ -382,8 +382,8 @@ class Corpus(unittest.TestCase):
 
     def test_language_examples_give_no_binding_finding(self):
         """Examples 3 and 4 (the catalog §12 calibration rows this module owns)."""
-        for line, expected in ((47, {"SGC111", "SGC121", "SGC122", "SGC163", "SGC165"}),
-                               (113, {"SGC161", "SGC165"})):
+        for line, expected in ((102, {"SGC111", "SGC121", "SGC122", "SGC163", "SGC165"}),
+                               (168, {"SGC161", "SGC165"})):
             with self.subTest(example_at=line):
                 rep = ck.check(block_at(_DIR / "examples.md", line), mode="spec",
                                registry=registry())

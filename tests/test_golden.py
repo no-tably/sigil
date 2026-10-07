@@ -61,6 +61,20 @@ class TestKit(unittest.TestCase):
         self.assertEqual([i.name for i in got], ["examples-01-agent-memory", "examples-02"])
         self.assertEqual(got[1].text, "[C] -> [D]\n")
 
+    def test_examples_inputs_skip_blocks_already_drawn(self):
+        md = "```\n[A] -> [B]\n```\n```\n[C] -> [D]\n```\n"
+        got = golden.examples_inputs(md, drawn=frozenset({"[A] -> [B]\n"}))
+        self.assertEqual([(i.name, i.text) for i in got], [("examples-01", "[C] -> [D]\n")])
+
+    def test_site_example_repeated_in_examples_md_is_drawn_once(self):
+        # examples.md opens with the site's first example; Example A stays examples-01
+        inputs = {i.name: i.text for i in golden.collect_inputs(_DIR)}
+        md = (_DIR / "examples.md").read_text(encoding="utf-8")
+        self.assertIn("```\n" + inputs["00-shortener"] + "```", md)
+        self.assertIn("(User) -> [Web]", inputs["examples-01"])
+        self.assertNotIn(inputs["00-shortener"],
+                         [t for n, t in inputs.items() if n.startswith("examples-")])
+
     def test_compare_sorts_missing_changed_stale(self):
         drift = golden.compare({"a/x.txt": "1", "b/y.txt": "2"},
                                {"a/x.txt": "1!", "c/z.txt": "3"})

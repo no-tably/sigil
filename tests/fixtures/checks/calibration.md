@@ -73,6 +73,10 @@ store's races.
   noted — hint: an unrecognised @inv is listed as taken on trust, never failed (catalog SGC301)
 
 ## examples.md
+- examples.md · capacity-mismatch · info · `(User) -> [Shortener] : shorten({Url}) => {Code}`
+  noted — hint (catalog §12); the URL shortener states no load
+- examples.md · capacity-mismatch · info · `(Visitor) -> [Redirect] : follow({Code})`
+  noted — hint (catalog §12); the URL shortener states no load
 - examples.md · capacity-mismatch · info · `(User) -> [Web]  : {creds}`
   noted — hint (catalog §12)
 - examples.md · orphan-event · warn · `!> <Unauthorized>`

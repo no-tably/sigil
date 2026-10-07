@@ -2,50 +2,73 @@
 
 <p align="center"><img src="assets/banner.svg" alt="Sigil — a coin with a knotwork ampersand, and the wordmark [S]{I}&lt;G&gt;(I)|L|" width="880"></p>
 
-Sigil is a compact, non-executable notation for system designs. Components,
-data, events, actors and stores are **glyphs**; the flows between them are
-**arrows**; constraints are **modifiers**. A whole architecture fits on one
-screen, reads aloud, and expands unambiguously back into prose.
+A system's design usually lives in prose and in people's heads. Coding agents and
+teammates lose its shape between conversations, and its gaps — a failure nobody
+handles, a store with two writers — turn up only once the code is written.
+
+Sigil is a small notation for writing the design down, in a file you and your agent
+edit together. Components, data, events, actors and stores are **glyphs**; the
+flows between them are **arrows**; constraints are **modifiers**. Nothing in it
+runs. Its tools lint a design, check it for risks it leaves undeclared, draw it in
+the terminal and walk its paths; the plugin teaches your coding agent the notation
+and gives it those tools.
+
+A URL shortener ([`shortener.sigil`](https://no-tably.github.io/sigil/examples/shortener.sigil)):
 
 ```sigil
 #!sketch
 
---- Checkout ---
-(User) -> [API] : {Cart}
-[API] -> [Payment] : charge ×3 @timeout(2s)
-       !> <PaymentFailed>
-[API] ~> <OrderPlaced> -> |Ledger|
+--- URL shortener ---
+(User) -> [Shortener] : shorten({Url}) => {Code}
+# accepts: race — a code is written once, then only read
+[Shortener] -> |Links| : save({Code}, {Url})
+(Visitor) -> [Redirect] : follow({Code})
+[Redirect] -> |Links| : lookup({Code}) => {Url}
+       !> (Visitor) : <NotFound>
+[Redirect] -> (Visitor) : redirect({Url})
+[Redirect] ~> <Clicked> -> [Stats]
 ```
 
-`(User)` is an actor outside the system, `[API]` a component, `{Cart}` data,
-`<OrderPlaced>` an event, `|Ledger|` a store. `->` is a call, `~>` is async,
-`!>` is the failure path, and a line starting with an arrow continues the
-previous subject. `view.py` draws it in the terminal:
+Line by line:
+
+- `(User)` is an actor outside the system; it calls (`->`) the `[Shortener]`
+  component with `{Url}` data and gets (`=>`) a `{Code}` back.
+- The `# accepts:` comment answers a question `check.py` asks — `|Links|` is written
+  by one component and read by another — by accepting the risk, with its reason.
+- The shortener saves the pair in the `|Links|` store.
+- A `(Visitor)` follows a code; `[Redirect]` looks it up and gets the `{Url}`.
+- `!>` is the failure path, and a line starting with an arrow continues the one
+  above: a missing code sends the visitor `<NotFound>`.
+- Otherwise the visitor is redirected, and `~>` sends a `<Clicked>` event to
+  `[Stats]` without waiting.
+
+`view.py` draws it in the terminal:
 
 ```
-── Checkout ───────────────────────────────────────────
+── URL shortener ──────────────────
 
-                    ╭────────╮
-                    │ (User) │
-                    ╰────────╯
-                         │
-                         ▼
-                     ┌───────┐
-                     │ [API] │
-                     └───────┘
-                         │
-      ┌──────────────────┼───────────────────┐
-      ▼                  ▼                   ✖
-┌───────────┐   ┌───────────────┐   ┌─────────────────┐
-│ [Payment] │   │ <OrderPlaced> │   │ <PaymentFailed> │
-└───────────┘   └───────────────┘   └─────────────────┘
-                        │
-                        ▼
-                  ┌──────────┐
-                  │ |Ledger| │
-                  └──────────┘
+  ╭────────╮       ╭───────────╮
+  │ (User) │       │ (Visitor) │
+  ╰────────╯       ╰───────────╯
+       │                    ▲ ✖
+       │                    │ │
+       ▼                    │ ▼
+┌─────────────┐   ┌────────────┐
+│ [Shortener] │   │ [Redirect] │
+└─────────────┘   └────────────┘
+         │               │
+         │       ┌───────┤
+         ▼       ▼       ▼
+        ┌─────────┐   ┌───────────┐
+        │ |Links| │   │ <Clicked> │
+        └─────────┘   └───────────┘
+                           │
+                           ▼
+                      ┌─────────┐
+                      │ [Stats] │
+                      └─────────┘
 
-checkout.sigil: 6 nodes, 5 edges, 0 expansions · #!sketch
+shortener.sigil: 7 nodes, 8 edges, 0 expansions · #!sketch
 lint: OK
 ```
 
@@ -53,11 +76,27 @@ lint: OK
 graph, flow and tree views live):
 
 ```
-── Checkout ──────────────────────────────────────
+── URL shortener ─────────────────────────────────────────
 
-(User) ──▶ [API] ─┬─▶ [Payment]
-                  ├─✖ <PaymentFailed>
-                  ╰╌▶ <OrderPlaced> ────▶ |Ledger|
+      (User) ─────▶ [Shortener] ─┬─▶ |Links|
+╭───✖┐(Visitor) ──▶ [Redirect] ──┼╌▶ <Clicked> ──▶ [Stats]
+│ ╭─▶┘                           │
+│ ╰──────────────────────────────┤
+╰────────────────────────────────╯
+```
+
+`--sim all` runs both of its paths — the happy one, and a lookup that fails:
+
+```sh
+view.py shortener.sigil --once --sim all
+```
+
+```
+happy                    ok       47 frames  every default: the happy path
+Redirect.lookup:fails    failed   32 frames  lookup fails 1×, no fallback
+  failed: [Redirect] -> |Links| · (Visitor) -> [Redirect]
+  routes: [Redirect] !> (Visitor)
+2 scenarios: 1 ok, 1 failed, 0 cut
 ```
 
 **Try it:** the [project page](https://no-tably.github.io/sigil/) has a

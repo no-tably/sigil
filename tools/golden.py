@@ -9,7 +9,9 @@ golden.py — golden outputs: every input drawn every way, kept under tests/gold
 Inputs: `site/examples/*.sigil`, the FIXTURES under `tests/fixtures/`, and every Sigil
 block of examples.md (each fenced block that isn't a ```text drawing), named
 `examples-NN[-slug]` in document order (the slug from the block's first
-`--- name ---` header).
+`--- name ---` header). A block that repeats a site example word for word (the
+URL shortener opening examples.md) is drawn once, under the site example's name,
+and takes no number.
 
 Each input gets a directory `tests/golden/<input>/` with one file per variant:
 
@@ -113,11 +115,13 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 
-def examples_inputs(markdown: str) -> list[Input]:
+def examples_inputs(markdown: str, drawn: frozenset[str] = frozenset()) -> list[Input]:
     """The Sigil blocks of a Markdown document (fenced blocks other than ```text
-    drawings), named `examples-NN[-slug]` in order."""
+    drawings), named `examples-NN[-slug]` in order. Blocks whose text is in `drawn`
+    (already an input) are left out and not counted."""
     out = []
-    blocks = [m.group(2) for m in _FENCE.finditer(markdown) if m.group(1) != "text"]
+    blocks = [m.group(2) for m in _FENCE.finditer(markdown)
+              if m.group(1) != "text" and m.group(2) not in drawn]
     for k, block in enumerate(blocks, 1):
         header = _HEADER.search(block)
         slug = _slug(header.group(1)) if header else ""
@@ -130,7 +134,8 @@ def collect_inputs(root: Path) -> list[Input]:
     files = sorted((root / "site" / "examples").glob("*.sigil"))
     files += [root / "tests" / "fixtures" / name for name in FIXTURES]
     inputs = [Input(p.stem, p.read_text(encoding="utf-8")) for p in files]
-    inputs += examples_inputs((root / "examples.md").read_text(encoding="utf-8"))
+    inputs += examples_inputs((root / "examples.md").read_text(encoding="utf-8"),
+                              drawn=frozenset(i.text for i in inputs))
     names = [i.name for i in inputs]
     clash = sorted({n for n in names if names.count(n) > 1})
     if clash:
