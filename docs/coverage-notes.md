@@ -101,9 +101,13 @@ tagging its frame / header row (a detached document header listed as `¶`). The 
 legend lists the stream / role boxes; the tree legend each new mark when it is drawn.
 
 Still open: the tree's hole rows (6), the graph's `×N` (79, composition is tree-only),
-inline trailing comments (86). A mutable stream `~*` keeps `~`'s heavy box in the graph
-(no glyph set is both heavy and shadowed); its label's `~*` and the tree's ` ≋` still
-say stream.
+inline trailing comments (86).
+
+Follow-up (view_graph.py): a mutable stream `~*` keeps its stream shape. No box set is
+both heavy and shadowed, so its heavy `~` box carries the tree's ` ≋` after the label
+(`┃ ~*<Raw> ≋ ┃`, before any #N tags); a plain stream keeps its shadow, unmarked. The
+graph legend reads `┒┃┛ ≋ stream`. The flow view draws no boxes: its labels' `~*` / `*`
+leads say it.
 
 Follow-up (render.py): every `@borrow` line keeps its access edge. A borrowed store that
 is a node nowhere in the document (`[Helper] @borrow(read) |Feed2|`, `|Feed2|` in no
@@ -126,7 +130,7 @@ every fixture and site example.
 | 8 | wildcard `_` (branch arm) | `_ => <Rejected>` | DRAWN | DRAWN | graph: an arm chip `┆ _ ┆` on the `◇ {Request}.kind` → `<Rejected>` arm; tree: `<Rejected> ‹_›` on its row inside the branch bracket | done (view.py) | FIXED: arm `_` in `Block.arms` / `arm_nodes`; no phantom edge |
 | 9 | generics `<…>` | `[Cache<K,V>]`, `{List<T>}`, `<Msg<T>>` | DRAWN | DRAWN | phantom **event** boxes `│ <K,V> │` and `│ <T> │`; `[Cache]`, `{List}`, `<Msg>` never appear; `[Api] <-> [Cache<K,V>]` draws as `[Api] ↔ <K,V>`. Lint says OK | parse `<…>` as part of the glyph; draw `[Cache‹K,V›]` in the owner's box shape | FIXED: one glyph, name `Cache<K,V>`, `params` ("K","V"), `base_name`; Mermaid escapes `<>` |
 | 10 | mutability `~` | `~{Session}`, `~\|Counter\|` | DRAWN | DRAWN | heavy border `┏━━━━━━━━━━━━┓ ~\|Counter\|`; tree keeps `~` in the label | — | — |
-| 11 | stream prefix `*` | `*<Raw>`, `*{Rows}`, `*\|AuditLog\|` | DRAWN | DRAWN | graph: a shadowed box — light top/left, heavy right side and bottom (`┌────────┒ │ *<Raw> ┃ ┕━━━━━━━━┛`), apart from `~`'s all-heavy `┏━┓` (a mutable stream `~*` keeps the heavy box, its label says `~*`); graph legend `┒┃┛ stream`; tree: ` ≋` after the label, also where the event lands (`[Parse] *<Raw> ≋`), `≋ stream` in the legend when drawn | done (view.py) | — |
+| 11 | stream prefix `*` | `*<Raw>`, `*{Rows}`, `*\|AuditLog\|` | DRAWN | DRAWN | graph: a shadowed box — light top/left, heavy right side and bottom (`┌────────┒ │ *<Raw> ┃ ┕━━━━━━━━┛`), apart from `~`'s all-heavy `┏━┓` (a mutable stream `~*` keeps the heavy box and adds ` ≋` after its label: `┃ ~*<Raw> ≋ ┃`; flow view: the label's `*`); graph legend `┒┃┛ ≋ stream`; tree: ` ≋` after the label, also where the event lands (`[Parse] *<Raw> ≋`), `≋ stream` in the legend when drawn | done (view.py) | — |
 | 12 | stream bound `^N@policy` | `*<Raw>^10k@drop`, `*<Enriched>^5@latest`, `*{Rows}^100@err` | DRAWN | DRAWN | with `m`: `*<Raw> ^10k drop`, `*<Parsed> ^10k`, `*<Enriched> ^5 latest`, `*{Rows} ^100 err` after the label (both views); nothing without `m` | done (view.py) | KEPT: node mod ("^", "10k@drop") |
 | 13 | `->` | `(Customer) -> [Api]` | DRAWN | DRAWN | light `│─`; tree `●─ … ◀` | — | — |
 | 14 | `→` | `[Api] → [Auth]` | DRAWN | DRAWN | same as `->` | — | — |
