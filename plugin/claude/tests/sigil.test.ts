@@ -117,7 +117,7 @@ describe('mod display', () => {
     expect(await desk.find({ type: 'Box', props: { height: 40 } })).toBeDefined()   // docked: fills, info at the bottom
   })
 
-  test('a run in the pane carries its narration line, not the trail in notation', { options: { display: 'mod' } }, async ($, on) => {
+  test('a run in the pane carries its trail and narration line, as the live view does', { options: { display: 'mod' } }, async ($, on) => {
     world(on, { isPlaced: true })
     await $.session.start(START)
     await $.tool.call({ tool: 'mcp__sigil__view', file: 'shop.sigil', view: 'flow', scenario: 'happy' })
@@ -125,7 +125,7 @@ describe('mod display', () => {
       scroll: { offset: 0, bodyRows: 40 }, view: {} }
     const pane = await $.ui.mount({ plugin: 'sigil', surface: 'desktop', component: 'Pane', props, requestId: 'sigil' })
     expect(await pane.find({ type: 'Text', text: '› [API] returns to (Shopper)' })).toBeDefined()
-    expect(await pane.find({ type: 'Text', text: /^trail/ })).toBeUndefined()   // the colours show what was taken
+    expect(await pane.find({ type: 'Text', text: 'trail  (Shopper) -> [API]' })).toBeDefined()
   })
 })
 
