@@ -172,6 +172,53 @@ class TestRunFacts(unittest.TestCase):
         self.assertEqual(acts[hop["act"]]["node"], "Combat_service")
 
 
+CHECKOUT = _DIR / "site" / "examples" / "01-checkout.sigil"
+
+
+class TestLandings(unittest.TestCase):
+    """Each hop's id, its `land` event (how it ended) and a reply's callee."""
+
+    def test_every_hop_lands_once(self):
+        for path in (ARENA, EXECUTIONS, CHECKOUT):
+            tr = run(canon(path))
+            ids = [e["id"] for e in events(tr, "hop")]
+            self.assertEqual(ids, list(range(1, len(ids) + 1)))
+            landed = [e["hop"] for e in events(tr, "land")]
+            self.assertEqual(sorted(landed), ids)
+
+    def test_attempts_failing_on_arrival(self):
+        tr = run(canon(CHECKOUT), "API.charge:fails")
+        pay = [e for e in events(tr, "hop") if e["wire"][1] == "Payments_service"]
+        self.assertEqual([e["attempt"] for e in pay], [(k, 4) for k in range(1, 5)])
+        how = {e["hop"]: e for e in events(tr, "land")}
+        self.assertEqual([how[e["id"]]["how"] for e in pay], ["failed"] * 4)
+        self.assertEqual([how[e["id"]]["t"] - e["t"] for e in pay], [4] * 4)
+
+    def test_an_entered_hop_names_its_activation(self):
+        tr = run(canon(CHECKOUT))
+        how = {e["hop"]: e["how"] for e in events(tr, "land")}
+        for e in events(tr, "enter"):
+            if e["hop"] is not None:
+                self.assertEqual(how[e["hop"]], "entered")
+
+    def test_a_reply_names_its_callee(self):
+        tr = run(canon(EXECUTIONS))
+        acts = {e["act"]: e for e in events(tr, "enter")}
+        back = [e for e in events(tr, "hop") if e["back"]]
+        self.assertTrue(back)
+        builder = next(e for e in back if e["wire"][1] == "Builder_service")
+        self.assertEqual(acts[builder["callee"]]["level"], 1)   # the outermost level replies
+        self.assertEqual(builder["carries"], "{Doc}")
+        how = {e["hop"]: e["how"] for e in events(tr, "land")}
+        self.assertTrue(all(how[e["id"]] == "returned" for e in back))
+
+    def test_reached_opaque_and_self(self):
+        tr = run(canon(EXECUTIONS))
+        how = {(e["node"], e["how"]) for e in events(tr, "land")}
+        self.assertIn(("Web_actor", "opaque"), how)
+        self.assertIn(("Scheduler_service", "self"), how)
+
+
 if __name__ == "__main__":
     unittest.main()
 

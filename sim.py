@@ -141,11 +141,24 @@ Trace(scenario, frames, outcome, end, scene)
                           task's stack, itself included: Frame.depth's count),
                           insts (the instance keys it stands for, its lanes; ()
                           outside the composition tree), wire (the ident that
-                          started it; None for an entry or an expansion's entry)
+                          started it; None for an entry or an expansion's entry),
+                          hop (the id of the hop that landed it there; None)
               leave       act, how (ok | failed | cancelled)
-              hop         act (the one it sets out from), wire, back (bool), lanes
-                          (the instance keys it reaches going out into a
-                          composition node; None otherwise)
+              hop         id (run-wide hop number, from 1), act (the one it sets
+                          out from), wire, back (bool), lanes (the instance keys
+                          it reaches going out into a composition node; None
+                          otherwise), attempt ((k, of) | None), carries; a reply
+                          (back) also callee (the act it leaves from: the one
+                          that just ran; None for a fallback or no callee)
+              land        hop (its id), node (where it ended: the wire's far end,
+                          a reply's near one), how (entered | reached: an actor,
+                          no work | opaque: a hole or a host's side | base: the
+                          depth limit | none: no instance | visits: the visit
+                          limit | arrived: nothing ran there (a gate, a
+                          trigger) | failed: an attempt failing on arrival |
+                          cancelled: on the way, or a race's loser on arrival |
+                          returned | fallback | self: a self-call's pulse).
+                          A hop still in flight when the run ends has none
               spawn       node, inst (the new key), parent (its parent instance's
                           key), wire
               ignored     event, label, owner, state
@@ -801,6 +814,8 @@ class _Flight:
     attempt: Optional[tuple]
     start: int = 0
     act: Optional[int] = None
+    id: int = 0                # run-wide hop number (the `hop` event's id)
+    land: Optional[dict] = None    # its `land` event, once it has one
 
 
 @dataclass
@@ -830,6 +845,7 @@ class _Task:
     episode: int = 0                              # the episode it was forked in
     guard: object = None                          # the failure guard it ended with
     origin: Optional[_Act] = None                 # its parent's activation at the fork
+    popped: Optional[int] = None                  # the act that left its stack last
 
 
 _BUSY = {"active": 5, "waiting": 4, "failed": 3, "visited": 2, "opaque": 1, "cancelled": 0}
@@ -856,6 +872,7 @@ class _Run:
         self.inst_parent = {i.key: i.parent for i in self.insts}
         self.wires = {w.ident: w for w in prog.scene.wires}
         self.acts = 0                  # activations numbered so far (the run's `act`)
+        self.hop_n = 0                 # hops numbered so far (the `hop` event's id)
         self.loops, self.blocks, self.held = {}, Counter(), Counter()
         self.loops_most: dict = {}     # (owner, block index) → the most iterations it ran
         self.visits, self.activations = Counter(), 0
@@ -998,6 +1015,8 @@ class _Run:
         fl = task.flight
         if fl is not None and fl.start <= self.t <= fl.start + fl.dur:
             self.ghosts.append(self._token(task, fl, "cancelled"))
+            if fl.land is None:
+                self._landed(task, fl, "cancelled")
         for act in task.stack:
             self.status[act.node] = "cancelled"
             self._event("leave", task, act=act.id, how="cancelled")
@@ -1103,19 +1122,46 @@ class _Run:
         return self.prog.wire_unit.get(id(w), 0)
 
     def _hop(self, task: _Task, w, *, dur: Optional[int] = None, back: bool = False,
-             state: str = "moving", carries=None, reach: int = 1, attempt=None):
+             state: str = "moving", carries=None, reach: int = 1, attempt=None,
+             lands: Optional[str] = None):
         """Move a token along w; returns its flight at the arrival tick. A `hop`
-        event names the activation it sets out from and, going out into a
-        composition node, the instances it reaches (its lanes)."""
+        event (numbered run-wide: its id) names the activation it sets out from,
+        going out into a composition node the instances it reaches (its lanes),
+        the attempt and what it carries; a reply also names the callee it leaves
+        (the activation that just left the task's stack). On arrival a `land`
+        event says how it ended: `lands`, else "returned" / "fallback" for a
+        reply, else "arrived" until _land or _push say more."""
         sender = self._sender(task)
+        self.hop_n += 1
         fl = _Flight(w.ident, back, dur or self.limits.hop, state, carries, reach, attempt,
-                     act=sender.id if sender is not None else None)
+                     act=sender.id if sender is not None else None, id=self.hop_n)
         lanes = None if back else self._lanes(w, sender)
-        self._event("hop", task, act=fl.act, wire=w.ident, back=back, lanes=lanes)
+        extra = {"callee": task.popped if state != "fallback" else None} if back else {}
+        self._event("hop", task, id=fl.id, act=fl.act, wire=w.ident, back=back, lanes=lanes,
+                    attempt=attempt, carries=carries, **extra)
         yield ("hop", fl)
+        how = lands or (("fallback" if state == "fallback" else "returned") if back
+                        else "arrived")
+        self._landed(task, fl, how)
         if not back and state != "failed":
             self.taken.add(w.ident)
         return fl
+
+    def _landed(self, task: _Task, fl: _Flight, how: str) -> None:
+        """The `land` event of a flight: where it ended (the wire's far end, a
+        reply's near one) and how — entered | reached | opaque | base | none |
+        visits | arrived (refined by _land / _push) | failed | cancelled |
+        returned | fallback | self."""
+        w = self.wires.get(fl.wire)
+        node = (w.src if fl.back else w.dst) if w is not None else None
+        self._event("land", task, hop=fl.id, node=node, how=how)
+        fl.land = self.events[-1]
+
+    def _arrival(self, task: _Task, how: str) -> None:
+        """Say how the flight that has just landed (the task's) ended at its node."""
+        fl = task.flight
+        if fl is not None and fl.land is not None and fl.land["t"] == self.t:
+            fl.land["how"] = how
 
     def _push(self, task: _Task, ui: int, nid: str, cause) -> _Act:
         """A new activation of nid on the task (cause: the wire ident that
@@ -1133,15 +1179,20 @@ class _Run:
         self.acts += 1
         level = 1 + sum(1 for a in task.stack if a.node == nid)
         act = _Act(nid, ui, cause, self.acts, self._act_lanes(nid, cause, caller), level)
+        fl, hop = task.flight, None
+        if (cause is not None and fl is not None and fl.wire == cause and fl.land is not None
+                and fl.land["t"] == self.t and not fl.back):
+            fl.land["how"], hop = "entered", fl.id
         task.stack.append(act)
         self.status[nid] = "active"
         self._event("enter", task, act=act.id, caller=caller.id if caller is not None else None,
-                    node=nid, unit=ui, level=level, insts=act.insts, wire=cause)
+                    node=nid, unit=ui, level=level, insts=act.insts, wire=cause, hop=hop)
         return act
 
     def _pop(self, task: _Task, act: _Act, status: str) -> None:
         if task.stack and task.stack[-1] is act:
             task.stack.pop()
+        task.popped = act.id
         self.status[act.node] = status
         self._event("leave", task, act=act.id, how="failed" if status == "failed" else "ok")
 
@@ -1427,20 +1478,24 @@ class _Run:
         Limits.depth is the base case)."""
         dst = w.dst
         sn = self.prog.scene.nodes.get(dst)
+        task.popped = None              # a reply names the callee only when one ran
         if w.kind == "=>":
             self._spawn(task, w)
         self._access(task, w, "done")
         if self._reach_of(w, task) == 0:
             self._log(f"no instance of {self._name(dst)}")
+            self._arrival(task, "none")
             yield ("turn",)
             return
         if sn is not None and (sn.node.is_hole or sn.external
                                or (w.call is not None and w.call.external)):
             self.status[dst] = "opaque"
+            self._arrival(task, "opaque")
             yield ("turn",)
             return
         if sn is not None and sn.node.kind == "actor":
             self.status[dst] = "visited"
+            self._arrival(task, "reached")
             yield ("turn",)
             return
         if not task.stack:              # a task's root: what an async cycle repeats
@@ -1448,11 +1503,13 @@ class _Run:
             if self.visits[dst] > self.limits.visits:
                 self._event("limit", task, name="visits", node=dst)
                 self._log(f"visit limit: {self._name(dst)}")
+                self._arrival(task, "visits")
                 yield ("turn",)
                 return
         alias = _alias_of(self.prog, w)
         if (self._depth_capped(task, dst, w.ident)
                 or (alias and self._depth_capped(task, alias[1], w.ident))):
+            self._arrival(task, "base")
             yield ("turn",)
             return
         yield from self._activate(task, self._ui(w), dst, w.ident, arm, alias)
@@ -1473,7 +1530,7 @@ class _Run:
         for k in range(1, a + 1):
             self._log(f"{self._wire_text(w)} attempt {k}/{a}")
             fl = yield from self._hop(task, w, dur=dur, state="moving", carries=carried(w),
-                                      attempt=(k, a))
+                                      attempt=(k, a), lands="failed")
             fl.state = "failed"
             self.status[w.dst] = "failed"
             self._access(task, w, "unknown")
@@ -1544,7 +1601,7 @@ class _Run:
             return
         self._log(f"{self._name(w.src)} {scene_mod.call_text(call) if call else '↺'}")
         task.open.append(w.ident)
-        yield from self._hop(task, w, dur=1, carries=carried(w))
+        yield from self._hop(task, w, dur=1, carries=carried(w), lands="self")
         if target is not None:
             ui = alias[0] if alias else self._ui(w)
             try:
@@ -1607,7 +1664,7 @@ class _Run:
         """A race member that loses (a `&?` member, a `parallel @any` member's head
         wire): its token hops and is cancelled when the winner arrives; nothing of
         it runs."""
-        fl = yield from self._hop(task, w, carries=carried(w))
+        fl = yield from self._hop(task, w, carries=carried(w), lands="cancelled")
         fl.state = "cancelled"
         self.status[w.dst] = "cancelled"
         self._log(f"race lost: {self._wire_text(w)}")
