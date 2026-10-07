@@ -571,6 +571,16 @@ table.ref td:last-child { color: var(--muted); }
 .pg-story { border-top: 1px solid var(--hairline); color: var(--muted); }
 .pg-story .pg-dim { color: var(--dim); }
 .pg-story .pg-now { color: var(--strong); font-weight: 700; }
+/* read out, not shown: the run's narration line for a screen reader (#pg-say) */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .pg-status {
   display: flex;
   flex-wrap: wrap;

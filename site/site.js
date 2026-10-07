@@ -931,6 +931,26 @@
     return rows.join("\n");
   }
 
+  // The run's narration for a screen reader: #pg-say, a polite live region,
+  // says the latest line at most once every SAY_GAP ms (a run at 32/s would
+  // flood it otherwise); the line a run stops on is always said, late if need be.
+  const SAY_GAP = 1500;
+  function liveSayer(el, gap = SAY_GAP) {
+    let last = -Infinity, timer = null, want = "";
+    const flush = () => {
+      timer = null;
+      last = Date.now();
+      if (el.textContent !== want) el.textContent = want;
+    };
+    return (text) => {
+      want = text;
+      if (timer) return;
+      const wait = last + gap - Date.now();
+      if (wait <= 0) flush();
+      else timer = setTimeout(flush, wait);
+    };
+  }
+
   const b64url = {
     encode(text) {
       let bin = "";
@@ -966,7 +986,7 @@
       go: $("#pg-go"), msg: $("#pg-msg"), app: $("#pg-app"), example: $("#pg-example"),
       views: [...document.querySelectorAll("#pg-views button[data-view]")], share: $("#pg-share"),
       src: $("#pg-src"), hl: $("#pg-hl"), draw: $("#pg-draw"), legend: $("#pg-legend"),
-      story: $("#pg-story"),
+      story: $("#pg-story"), say: $("#pg-say"),
       scenario: $("#pg-scenario"), back: $("#pg-back"), play: $("#pg-play"), fwd: $("#pg-fwd"),
       scrub: $("#pg-scrub"), tick: $("#pg-tick"), speed: $("#pg-speed"), lint: $("#pg-lint"),
       count: $("#pg-count"), diags: $("#pg-diags"), log: $("#pg-log"), check: $("#pg-check"),
@@ -976,6 +996,8 @@
       speed: speedIndex(store.get(SPEED_KEY)),
       timer: null, typing: null, styles: 0, api: null, booting: false,
       checkTimer: null, checked: "", checkPaused: false };
+
+    const sayLive = liveSayer(el.say);
 
     el.speed.innerHTML = SIM_SPEEDS.map((fps, i) =>
       `<option value="${i}">${speedLabel(fps)}</option>`).join("");
@@ -1187,6 +1209,7 @@
       el.tick.textContent = "";
       el.log.hidden = true;
       el.story.hidden = true;
+      sayLive("");
       root.classList.remove("running");
       [el.back, el.play, el.fwd, el.scrub].forEach((b) => { b.disabled = true; });
       el.draw.setAttribute("aria-keyshortcuts", VIEW_KEYS);
@@ -1211,6 +1234,7 @@
       el.tick.textContent = `t${r.tick}/${r.ticks}` + (r.outcome ? ` · ${r.outcome}` : "");
       el.story.hidden = false;
       el.story.innerHTML = storyHtml(r, rowsHtml);
+      sayLive((r.say || "") + (r.outcome ? ` — ${r.outcome}` : ""));
       el.log.hidden = false;
       el.log.textContent = r.log.join("\n");
       el.log.scrollTop = el.log.scrollHeight;

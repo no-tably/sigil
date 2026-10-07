@@ -17,8 +17,9 @@ Covers:
     is complete (playground.py runs from py/ alone, in a fresh interpreter), what
     it draws is what view.py draws, and its findings on every bundled example
     are what check.py finds at k = 1;
-  - with node available: the findings panel's list items (findingsHtml) and the
-    run section's narration (runSayHtml).
+  - with node available: the findings panel's list items (findingsHtml), the
+    run section's narration (runSayHtml) and the playground's throttled live
+    narration (liveSayer).
 
 Run:  python3 -m unittest discover tests
 """
@@ -394,6 +395,15 @@ class TestBanner(unittest.TestCase):
 class TestPageMarkup(unittest.TestCase):
     """index.html and site.js read as text: no browser, no node."""
 
+    def test_playground_speed_control_markup(self):
+        page = (SITE / "index.html").read_text(encoding="utf-8")
+        self.assertRegex(page, r'<select id="pg-speed" aria-label="[^"]+"')
+        for btn in ("pg-back", "pg-play", "pg-fwd"):
+            self.assertIn(f'id="{btn}"', page)
+        js = (SITE / "site.js").read_text()
+        self.assertIn('speed: $("#pg-speed")', js)
+        self.assertNotIn("localStorage.setItem(SPEED_KEY", js)   # through the try/catch store
+
     def test_view_strip_has_a_section_per_view(self):
         page = (SITE / "index.html").read_text(encoding="utf-8")
         view = _load("sigil_view_strip", _DIR / "view.py")
@@ -402,6 +412,14 @@ class TestPageMarkup(unittest.TestCase):
                          [(v, v) for v in view.VIEWS])
         self.assertIn('<p class="say">', strip)                 # the run's narration
         self.assertIn('<a href="#views">views</a>', page)
+
+    def test_playground_narration_is_a_polite_live_region(self):
+        page = (SITE / "index.html").read_text(encoding="utf-8")
+        self.assertRegex(page, r'<p class="sr-only" id="pg-say" aria-live="polite"')
+        self.assertNotRegex(page, r'id="pg-story"[^>]*aria-live')   # redrawn every frame: not live
+        js = (SITE / "site.js").read_text()
+        self.assertIn("const sayLive = liveSayer(el.say)", js)
+
 
 NODE = shutil.which("node")
 
@@ -516,6 +534,21 @@ class TestSiteJs(unittest.TestCase):
         self.assertEqual(out[1], '<span class="run-name">not found</span> [B] fails'
                                  ' — <b>failed</b>')
 
+    def test_live_narration_is_throttled(self):
+        # the first line at once, then at most one a gap; the line a run stops on
+        # is said, late
+        code = _js_section("  const SAY_GAP", "  const b64url")
+        out = json.loads(self._run(code + """
+const el = { textContent: "" }, said = [];
+const say = liveSayer({ get textContent() { return el.textContent; },
+                        set textContent(v) { el.textContent = v; said.push(v); } }, 60);
+say("one"); say("two"); say("three");
+const now = el.textContent;
+setTimeout(() => { say("three"); process.stdout.write(JSON.stringify({ now, said })); }, 150);
+"""))
+        self.assertEqual(out["now"], "one")
+        self.assertEqual(out["said"], ["one", "three"])
+
     def test_playground_view_picker_offers_every_view(self):
         page = (SITE / "index.html").read_text(encoding="utf-8")
         view = _load("sigil_view_names", _DIR / "view.py")
@@ -539,14 +572,6 @@ class TestSiteJs(unittest.TestCase):
         self.assertEqual(out["labels"], ["¼/s", "½/s", "1/s", "2/s", "4/s", "8/s", "16/s", "32/s"])
         self.assertEqual(out["picks"], [3, 0, 7, 3, 3, 3, 3, 3])
 
-    def test_playground_speed_control_markup(self):
-        page = (SITE / "index.html").read_text(encoding="utf-8")
-        self.assertRegex(page, r'<select id="pg-speed" aria-label="[^"]+"')
-        for btn in ("pg-back", "pg-play", "pg-fwd"):
-            self.assertIn(f'id="{btn}"', page)
-        js = (SITE / "site.js").read_text()
-        self.assertIn('speed: $("#pg-speed")', js)
-        self.assertNotIn("localStorage.setItem(SPEED_KEY", js)   # through the try/catch store
 
 if __name__ == "__main__":
     unittest.main()
