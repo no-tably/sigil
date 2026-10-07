@@ -609,7 +609,18 @@ class Facts:
         return {k: list(dict.fromkeys(v)) for k, v in out.items()}
 
     def wires_within(self, members: frozenset, pick) -> list:
-        return [w for w in self.flows if w.src in members and w.dst in members and pick(w)]
+        """The flows from a member to a member that pick keeps, in flow order."""
+        by_src = self._flows_by_src
+        found = sorted(k for n in members for k in by_src.get(n, ()))
+        return [w for w in (self.flows[k] for k in found) if w.dst in members and pick(w)]
+
+    @cached_property
+    def _flows_by_src(self) -> dict:
+        """{source node: [its flows' indices in self.flows]}."""
+        out = {}
+        for k, w in enumerate(self.flows):
+            out.setdefault(w.src, []).append(k)
+        return out
 
     def blocks_of(self, w) -> list:
         """The Blocks enclosing a wire, innermost first."""

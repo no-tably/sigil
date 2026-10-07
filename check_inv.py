@@ -246,8 +246,9 @@ class Facts:
         for g, _o, _l in self.doc.graphs:
             lines = node_lines(g, notes=False)
             for nid, n in g.nodes.items():
-                glyph = glyph_pattern(n.name, self.delims(n.kind))
-                for arg in mods_of(n.mods):
+                args = mods_of(n.mods)
+                glyph = glyph_pattern(n.name, self.delims(n.kind)) if args else None
+                for arg in args:
                     line = locate(self.code, arg, glyph, lines.get(nid, 0))
                     self._add(found, "node", self.label(nid), arg, line,
                               expansion_ids(g, nid, walk))

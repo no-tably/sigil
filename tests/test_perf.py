@@ -9,7 +9,9 @@ Covers:
   - view_graph's shared-cell colour rule (_nearest_owners, direction bitmasks,
     distances only where chains share a cell) against the set-based rule;
   - sim.failure_analysis (a worklist now, not every activation checked every
-    round): a long chain still runs each activation a bounded number of times.
+    round): a long chain still runs each activation a bounded number of times;
+  - check_state's Facts.wires_within (flows indexed by source) against the plain
+    filter over every flow, in flow order.
 
 Run:  python3 -m unittest discover tests
 """
@@ -34,6 +36,8 @@ def _load(name: str, fname: str):
 
 view = _load("sigil_view_perf", "view.py")
 kit, vgraph, sim = view.kit, view.vgraph, view.simulator
+ck = _load("sigil_check_perf", "check.py")
+cs = _load("sigil_check_state_perf", "check_state.py")
 
 KINDS = ["->", "=>", "*>", "~>", "?>", "trigger", "access:r"]
 STYLES = [None, (1, None, False), (2, None, True), kit.Probe((1, None, False))]
@@ -202,6 +206,21 @@ class FailureAnalysisWorklist(unittest.TestCase):
         self.assertGreater(len(set(runs)), n)
         self.assertLessEqual(len(runs), 3 * len(set(runs)))
         self.assertTrue(flow.arriving)
+
+
+class IndexedLookups(unittest.TestCase):
+    def test_wires_within_matches_the_plain_filter(self):
+        doc = ck.Doc("--- loop ---\n[A] -> [B] : go\n[B] -> [C] : go\n[C] -> [A] : go\n"
+                     "[B] -> [A] : back\n[C] -> [D] : out\n[D] -> [D] : again\n",
+                     "sketch", 1, frozenset())
+        f = cs.Facts(doc)
+        ids = {w.src for w in f.flows} | {w.dst for w in f.flows}
+        for members in [frozenset(ids), frozenset(sorted(ids)[:2]), frozenset(sorted(ids)[-1:])]:
+            for pick in (f.sync_wire, lambda w: True):
+                self.assertEqual(f.wires_within(members, pick),
+                                 [w for w in f.flows if w.src in members
+                                  and w.dst in members and pick(w)])
+        self.assertTrue(f.wires_within(frozenset(ids), lambda w: True))
 
 
 if __name__ == "__main__":
