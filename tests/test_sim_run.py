@@ -1,10 +1,12 @@
-"""Tests for the run facts of sim.py — what the run view (view.py --run) unrolls.
+"""Tests for the run facts of sim.py — what the run view (view.py --run) draws.
 
 Covers:
   1. instances(): keys, ordinals and composition order, the potential ones;
   2. lanes: which instances a hop reaches from its sender;
-  3. the run's structured facts: enter / leave / hop / spawn events, a depth
-     limit's act and level, Token.act.
+  3. the run's structured facts: enter / leave / hop / land / spawn events, a
+     depth limit's act and level, Token.act;
+  4. timeline(): lane order and nesting, work and waits, moves and marks,
+     episodes, folds.
 
 Run:  python3 -m unittest discover tests
 """
@@ -219,155 +221,148 @@ class TestLandings(unittest.TestCase):
         self.assertIn(("Scheduler_service", "self"), how)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 # ---------------------------------------------------------------------------
-# The run graph: unroll / unroll_static / run_frame / folds
+# The timeline: lanes, spans, moves, marks, folds
 # ---------------------------------------------------------------------------
 
-def keys(rg, role: str | None = None) -> list:
-    return [k for k, n in rg.nodes.items() if role is None or n.role == role]
+def timeline(path, name: str = "happy", limits=None, **kw):
+    sc = canon(path)
+    limits = limits or sim.Limits()
+    return sim.timeline(run(sc, name, limits=limits), limits=limits, **kw)
 
 
-class TestUnrollStatic(unittest.TestCase):
-    def setUp(self):
-        self.rg = sim.unroll_static(canon(ARENA))
-
-    def test_every_instance_and_the_potential_ones(self):
-        ks = keys(self.rg)
-        self.assertIn("Transform_data·4", ks)
-        self.assertTrue(self.rg.nodes["Shard_service·2"].potential)
-        self.assertFalse(self.rg.nodes["Bullet_service·1"].potential)
-        self.assertIsNone(self.rg.trace)
-
-    def test_labels_show_instances_only_where_they_vary(self):
-        n = self.rg.nodes
-        self.assertEqual(n["Bullet_service·2"].inst, 2)
-        self.assertEqual(n["Shard_service·1"].inst, 1)       # optional: always numbered
-        self.assertIsNone(n["Health_data·1"].inst)           # one, static: bare
-        self.assertIsNone(n["Ship_service·1"].inst)
-
-    def test_own_edges_carry_the_tree_marks(self):
-        own = {(e.src, e.dst): e.mark for e in self.rg.edges.values() if e.role == "own"}
-        self.assertEqual(own[("Ship_service·1", "Bullet_service·2")], "*")
-        self.assertEqual(own[("Bullet_service·2", "Damage_data·2")], "&")
-        self.assertEqual(own[("Asteroid_service·1", "Shard_service·1")], "?")
-
-    def test_lanes(self):
-        into = lambda src: sorted(e.dst for e in self.rg.edges.values() if e.src == src)
-        self.assertEqual(into("Homing_service"), ["Transform_data·2", "Transform_data·3"])
-        self.assertEqual(len(into("Physics_service")), 4)
-
-    def test_recursion_unrolls_to_the_depth_then_the_base(self):
-        rg = sim.unroll_static(canon(EXECUTIONS))
-        chain = [k for k in keys(rg) if k.startswith("Builder_service")]
-        self.assertEqual(chain, ["Builder_service", "Builder_service↻2", "Builder_service↻3",
-                                 "Builder_service↻3┤"])
-        self.assertEqual(len(keys(rg, "base")), 3)            # Doc.walk, Builder, follow()
-        self.assertEqual(sim.unroll_static(canon(EXECUTIONS), sim.Limits(depth=2))
-                         .nodes["Builder_service↻2┤"].role, "base")
+def names(tl) -> list:
+    out = []
+    for ln in tl.lanes:
+        base = ln.node.rsplit("_", 1)[0]
+        if ln.fold:
+            base += "…"
+        elif ln.levels:
+            base += f"↻{ln.levels[0]}‥{ln.levels[1]}"
+        elif ln.level > 1:
+            base += f"↻{ln.level}"
+        elif ln.inst is not None:
+            base += f"·{ln.inst[1]}"
+        out.append(base)
+    return out
 
 
-class TestUnroll(unittest.TestCase):
-    def setUp(self):
-        self.sc = canon(ARENA)
-        self.tr = run(self.sc)
-        self.rg = sim.unroll(self.tr)
+class TestTimelineLanes(unittest.TestCase):
+    def test_first_acted_order_sender_before_receiver(self):
+        tl = timeline(CHECKOUT, "API.charge:fails")
+        self.assertEqual(names(tl), ["Shopper", "API", "Payments", "PaymentFailed"])
+        born = [ln.born for ln in tl.lanes]
+        self.assertEqual(born, sorted(born))
 
-    def test_only_what_ran_or_was_set_up(self):
-        ks = keys(self.rg)
-        self.assertIn("Shard_service·1", ks)
-        self.assertNotIn("Shard_service·2", ks)
-        self.assertIn("Ship_service·1", ks)
+    def test_expansions_and_levels_sit_under_their_lane(self):
+        tl = timeline(EXECUTIONS)
+        got = names(tl)
+        k = got.index("Parser")
+        self.assertEqual(got[k:k + 5], ["Parser", "Lexer", "Builder", "Builder↻2", "Builder↻3"])
+        lanes = {names(tl)[i]: ln for i, ln in enumerate(tl.lanes)}
+        self.assertEqual(lanes["Lexer"].parent, lanes["Parser"].key)
+        self.assertEqual(lanes["Builder↻3"].parent, lanes["Builder"].key)
 
-    def test_a_spawned_instance_is_pending_while_its_hop_flies(self):
-        n = self.rg.nodes["Shard_service·1"]
-        self.assertLess(n.born, n.spawned)
-        self.assertNotIn("Shard_service·1", sim.run_frame(self.rg, n.born - 1).nodes)
-        self.assertTrue(sim.run_frame(self.rg, n.born).nodes["Shard_service·1"][2])
-        self.assertFalse(sim.run_frame(self.rg, n.spawned).nodes["Shard_service·1"][2])
+    def test_instances_together_in_ordinal_order(self):
+        got = names(timeline(ARENA))
+        self.assertEqual(got[:5], ["Physics", "Transform·1", "Transform·2", "Transform·3",
+                                   "Transform·4"])
+        tl = timeline(ARENA)
+        owners = [short(ln.owner) for ln in tl.lanes if ln.node == "Transform_data"]
+        self.assertEqual(owners, ["Ship·1", "Bullet·1", "Bullet·2", "Asteroid·1"])
 
-    def test_tokens_one_per_lane(self):
-        e = next(e for e in self.rg.edges.values() if e.src == "Homing_service")
-        fr = sim.run_frame(self.rg, e.born)
-        on = sorted(k[1] for k, _at, _d, _s in fr.tokens)
-        self.assertEqual(on, ["Transform_data·2", "Transform_data·3"])
-
-    def test_edges_appear_with_their_first_hop(self):
-        e = self.rg.edges[("Combat_service", "Health_data·1", "->")]
-        self.assertNotIn(e.key, sim.run_frame(self.rg, e.born - 1).edges)
-        self.assertIn(e.key, sim.run_frame(self.rg, e.born).edges)
-
-    def test_the_run_is_within_what_could_exist(self):
-        for path in sorted((_DIR / "site" / "examples").glob("*.sigil")) + [EXECUTIONS]:
-            sc = canon(path)
-            static = sim.unroll_static(sc, show=None)
-            for sc_ in sim.scenarios(sc)[:6]:
-                ran = sim.unroll(sim.simulate(sc, sc_), show=None)
-                extra = set(ran.nodes) - set(static.nodes)
-                self.assertFalse(extra, f"{path.name} {sc_.name}: {sorted(extra)}")
-
-    def test_counts_and_statuses(self):
-        rg = sim.unroll(run(canon(EXECUTIONS)))
-        last = sim.run_frame(rg, len(rg.trace.frames) - 1)
-        self.assertEqual(last.nodes["Parser_service"][1], 3)
-        self.assertEqual(last.nodes["Builder_service↻3┤"][1], 3)
-        self.assertEqual(len(keys(rg, "base")), 2)
-        self.assertTrue(all(st == "visited" for st, _c, _p in last.nodes.values()))
-
-    def test_a_failure_stays_marked(self):
-        sc = canon(EXECUTIONS)
-        rg = sim.unroll(run(sc, "Fetcher.http.get:fails"))
-        last = sim.run_frame(rg, len(rg.trace.frames) - 1)
-        self.assertEqual(last.nodes["Fetcher_service"][0], "failed")
-        web = rg.edges[("Fetcher_service", "Web_actor", "->")]
-        self.assertEqual(web.hops[0][2], "failed")
-
-    def test_waiting_while_a_callee_runs(self):
-        rg = sim.unroll(run(canon(EXECUTIONS)))
-        e = rg.edges[("Builder_service↻2", "Builder_service↻3", "->")]
-        fr = sim.run_frame(rg, e.born)
-        self.assertEqual(fr.nodes["Builder_service"][0], "waiting")
-        self.assertEqual(fr.nodes["Builder_service↻2"][0], "active")
+    def test_a_spawned_lane_is_born_as_its_spawn_hop_sets_out(self):
+        tl = timeline(ARENA)
+        shard = next(ln for ln in tl.lanes if ln.node == "Shard_service")
+        spawn = next(m for m in tl.moves if m.kind == "=>")
+        self.assertEqual(shard.born, spawn.start)
+        self.assertEqual(shard.spawned, spawn.end)
+        self.assertEqual(shard.spawner, "Spawner_service")
+        self.assertEqual(short(shard.owner), "Asteroid·1")
 
 
-class TestFolds(unittest.TestCase):
-    def test_instances_fold_with_their_subtrees(self):
-        L = sim.Limits(spawn=6)
-        rg = sim.unroll(run(canon(ARENA), limits=L), limits=L)
-        fold = rg.nodes["Bullet_service·3‥6"]
-        self.assertEqual((fold.role, fold.more), ("fold", 4))
-        self.assertEqual(rg.nodes["Transform_data…Bullet_service·3‥6"].more, 4)
-        self.assertEqual(rg.folds["instances"], 12)
-        self.assertNotIn("Bullet_service·4", rg.nodes)
-        none = sim.unroll(run(canon(ARENA), limits=L), limits=L, show=None)
-        self.assertIn("Bullet_service·4", none.nodes)
+class TestTimelineFacts(unittest.TestCase):
+    def test_work_and_waits(self):
+        tl = timeline(CHECKOUT, "API.charge:fails")
+        api = next(s for s in tl.spans if s.node == "API_service")
+        work = [t for t in range(api.enter, api.leave)
+                if not any(a <= t < b for a, b in api.waits)]
+        self.assertEqual(work, [4, 5, 10, 15, 20, 25])     # arrival, then each send
+        self.assertEqual(api.how, "failed")
+
+    def test_retries_fail_on_arrival_and_never_run(self):
+        tl = timeline(CHECKOUT, "API.charge:fails")
+        pay = [m for m in tl.moves if m.dst[0][0] == "Payments_service"]
+        self.assertEqual([(m.start, m.end, m.how) for m in pay],
+                         [(5, 9, "failed"), (10, 14, "failed"), (15, 19, "failed"),
+                          (20, 24, "failed")])
+        self.assertFalse([s for s in tl.spans if s.node == "Payments_service"])
+        route = next(m for m in tl.moves if m.kind == "!>")
+        self.assertEqual((route.start, route.end, route.how), (25, 29, "entered"))
+
+    def test_a_reply_leaves_the_outermost_level(self):
+        tl = timeline(EXECUTIONS)
+        back = [m for m in tl.moves if m.back and m.wire[1] == "Builder_service"]
+        self.assertEqual(len(back), 3)
+        self.assertTrue(all(m.src == (("Builder_service", None, 1),) for m in back))
+        self.assertTrue(all(m.how == "returned" for m in back))
+
+    def test_base_case_once_per_recursion(self):
+        tl = timeline(EXECUTIONS)
+        base = [m for m in tl.marks if m.what == "base" and m.lane[0] == "Builder_service"]
+        self.assertEqual(len(base), 3)
+        self.assertTrue(all(m.lane[2] == 3 for m in base))
+
+    def test_self_calls_and_host_ops_are_marks(self):
+        tl = timeline(EXECUTIONS)
+        what = {(m.lane[0], m.what) for m in tl.marks}
+        self.assertIn(("Scheduler_service", "self"), what)
+        self.assertIn(("Notifier_service", "host"), what)
+        self.assertFalse([m for m in tl.moves if m.how == "self"])
+        web = next(m for m in tl.moves if m.dst[0][0] == "Web_actor")
+        self.assertEqual(web.how, "opaque")
+
+    def test_episodes(self):
+        tl = timeline(EXECUTIONS)
+        self.assertEqual([(k, t) for k, t, _n in tl.episodes], [(1, 0), (2, 78), (3, 160)])
+        self.assertEqual(tl.last, 162)
+
+
+class TestTimelineFolds(unittest.TestCase):
+    def test_instances_fold_by_owner_kind(self):
+        limits = sim.limits_from(["spawn=6"])
+        tl = timeline(ARENA, limits=limits)
+        got = names(tl)
+        self.assertIn("Transform…", got)
+        bullets = [ln for ln in tl.lanes if ln.node == "Transform_data"
+                   and (ln.fold or (ln.owner and ln.owner[0] == "Bullet_service"))]
+        self.assertEqual(len(bullets), 3)             # ·2, ·3 and the fold
+        fold = bullets[-1]
+        self.assertEqual(len(fold.fold), 4)
+        self.assertEqual(tl.folded["instances"], 8)   # the Transforms and the Damages
+        unfolded = timeline(ARENA, limits=limits, show=None)
+        self.assertEqual(sum(1 for ln in unfolded.lanes if ln.node == "Transform_data"), 8)
 
     def test_a_troubled_instance_stays(self):
-        L = sim.Limits(spawn=6)
+        limits = sim.limits_from(["spawn=6"])
+        tl = timeline(ARENA, limits=limits, show=None)
         prog = sim.program(canon(ARENA))
-        u = sim._Unrolled(prog, sim.instances(prog, L), L)
-        for i in sim.instances(prog, L):
-            u.node(i.node, i.key, 1)
-        remap, _folds = sim._fold(u, 3, frozenset({"Bullet_service·5"}))
-        self.assertNotIn("Bullet_service·5", remap)
-        self.assertEqual(remap["Bullet_service·4"], "Bullet_service·3‥6")
+        lanes = list(tl.lanes)
+        sick = next(ln for ln in lanes if ln.node == "Transform_data" and ln.inst
+                    and ln.inst[1] == 6)
+        spans = list(tl.spans) + [sim.Span(sick.key, 999, 1, sick.node, 1, 2, "failed", (),
+                                           None, None, 1)]
+        folded = {"show": 3, "instances": 0, "levels": 0}
+        out, *_rest = sim._fold_lanes(lanes, spans, list(tl.moves), list(tl.marks),
+                                      {ln.key: (ln.born, 0) for ln in lanes}, prog, 3, folded)
+        self.assertIn(sick.key, [ln.key for ln in out])
 
-    def test_levels_fold_and_keep_the_base(self):
-        L = sim.Limits(depth=8)
-        rg = sim.unroll_static(canon(EXECUTIONS), L)
-        chain = [k for k in keys(rg) if k.startswith("Builder_service")]
-        self.assertEqual(chain, ["Builder_service", "Builder_service↻2", "Builder_service↻3‥7",
-                                 "Builder_service↻8", "Builder_service↻8┤"])
-        self.assertEqual(rg.nodes["Builder_service↻3‥7"].span, (3, 7))
-        edges = {(e.src, e.dst) for e in rg.edges.values()}
-        self.assertIn(("Builder_service↻2", "Builder_service↻3‥7"), edges)
-        self.assertIn(("Builder_service↻3‥7", "Builder_service↻8"), edges)
+    def test_levels_fold_and_keep_the_deepest(self):
+        limits = sim.limits_from(["depth=6"])
+        got = names(timeline(EXECUTIONS, limits=limits))
+        k = got.index("Builder")
+        self.assertEqual(got[k:k + 4], ["Builder", "Builder↻2", "Builder↻3‥5", "Builder↻6"])
 
-    def test_counts_for_the_footer(self):
-        L = sim.Limits(depth=8)
-        c = sim.run_counts(sim.unroll(run(canon(EXECUTIONS), limits=L), limits=L))
-        self.assertEqual((c["deepest"], c["spawned"], c["show"]), (8, 0, 3))
-        self.assertGreater(c["levels"], 0)
+
+if __name__ == "__main__":
+    unittest.main()

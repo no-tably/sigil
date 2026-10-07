@@ -188,32 +188,25 @@ lanes): from a sender standing for instances I, for each i in I the target's
 instances under i when there are any, else every instance the wire selects (a
 `[A]/` path, Limits.spawns); from a sender standing for none, every one.
 
-THE RUN GRAPH (pure, no drawing; what the run view draws)
+THE TIMELINE (pure, no drawing; what the run view draws)
 
-  unroll(trace, limits, show)   the structure that exists only when run: a
-                  RunNode per (design node, instance, recursion level) — an
-                  instance per composition instance, `↻k` levels of a sync
-                  recursion as a chain ending in a base stub (where the
-                  simulator stopped it) — and a RunEdge per way a hop took
-                  between them (lane by lane), own edges (parent instance →
-                  child, the tree's relation mark), base edges. Async cycles,
-                  loop iterations, repeats and episodes reuse their nodes (a
-                  count). Each node and edge is born at the frame it first
-                  exists in. Run node keys: `Bullet_service·2`,
-                  `Builder_service↻2`, `…┤` a base stub, `Bullet_service·3‥6`
-                  and `Transform_data…Bullet_service·3‥6` folds of instances,
-                  `Builder_service↻3‥7` a fold of levels
-  unroll_static(scene, limits, show)   what could exist up to the limits:
-                  every instance (a `\\-?` entry's potential ones too), every
-                  flow, trigger and arm wire lane by lane, each recursive
-                  self-call unrolled to Limits.depth; no hops
-  run_frame(rg, i)  what exists at frame i: nodes (status, count, pending),
-                  edges (hops arrived), tokens on run edges (one per lane)
-  folds (show, RUN_SHOW 3): a (node, parent instance) group of more than show
+  timeline(trace, limits, show)   the run as lanes over ticks: a Lane per
+                  participant it touched (every node an activation entered or a
+                  hop set out to), one per composition instance and recursion
+                  level, born at the tick it first acts or a hop sets out to it
+                  and ordered by birth (an expansion's lanes under its node, a
+                  recursion's `↻k` levels under its lane, one node's instances
+                  together); a Span per activation and lane ([enter, leave),
+                  its waits: the rest is work); a Move per hop (start, end and
+                  how, from the land events; a reply leaves its callee's lanes);
+                  a Mark per self-call pulse, host op and base case. A frame is
+                  the timeline clipped at its tick: there is no per-frame
+                  structure. Lane keys (node, ordinal | None, level).
+  folds (show, RUN_SHOW 3): a (node, owner's node) group of more than show
                   instances keeps its first show − 1 and every one that failed
-                  or was cancelled, the rest one `[…×k more]` (subtrees with
-                  it); a chain deeper than show + 1 keeps its first show − 1
-                  levels and its deepest; past RUN_NODES nodes, show 1
+                  or was cancelled, the rest one lane (ordinal `…<owner>`, its
+                  levels with it); a lane deeper than show + 1 keeps ↻2 …
+                  ↻(show − 1) and its deepest, the middle one lane (`lo‥hi`)
 
 NARRATION (pure, over a Trace and the scene it names)
 
@@ -2926,582 +2919,414 @@ def _met_after_deviation(events: list, cids: set) -> set:
 
 
 # ---------------------------------------------------------------------------
-# The run graph — the structure that exists only when the design runs: an
-# instance per composition instance, a level per recursion depth (sync
-# recursion unrolled into a chain, ending in a base stub), every hop between
-# them. Read from a trace's events (unroll) or from the design up to the
-# limits (unroll_static); pure, no drawing. The run view (view_flow.compose_run)
-# draws it with the flow view's layout.
+# The timeline — what the run view draws: one run as lanes over ticks (a lane
+# per participant, composition instance and recursion level), each activation
+# a span on its lanes, each hop a move between them, a self-call's pulse, a
+# host op and a base case a mark. Read from a trace's events in one pass;
+# pure, no drawing (view_run.py draws it).
 # ---------------------------------------------------------------------------
 
-RUN_SHOW = 3                   # instances per (node, parent) and levels per chain before folding
-RUN_NODES = 400                # past this many run nodes, everything folds at show 1
+RUN_SHOW = 3                   # instances per (node, owner's node) and levels per lane before folding
+FOLD = "…"                     # a fold's ordinal in a lane key: (node, "…" + owner's node, level)
 
 
-class RunNode(NamedTuple):
-    key: str                   # `Bullet_service·2`, `Builder_service↻2`, `…┤` (base), folds
-    node: str                  # the design node id (a base stub: its caller's)
-    inst: Optional[int]        # the instance ordinal, when the label shows it (`·k`)
-    level: int                 # the recursion level (1: bare; `↻k` k ≥ 2)
-    role: str = "node"         # "node" | "base" | "fold"
-    born: Optional[int] = None     # the frame it appears in (None: the no-run view)
-    potential: bool = False    # the no-run view: could exist, not at setup (◌)
-    spawned: Optional[int] = None  # a run: the frame its instance comes to exist
-    more: int = 0              # a fold of instances: how many it stands for
-    span: tuple = ()           # a fold of levels: (lowest, highest)
+class Lane(NamedTuple):
+    """One row of the timeline. key (node id, instance ordinal | None, level):
+    ordinal None outside the composition tree, a fold's FOLD + its owner's node;
+    level 1, or a recursion's depth k (a `↻k` sub-row), or a fold of levels'
+    `lo‥hi`."""
+    key: tuple
+    node: str
+    inst: Optional[tuple]      # its instance key (None: outside the tree, or a fold)
+    level: int                 # 1, or the recursion depth k (a fold of levels: its lowest)
+    parent: Optional[tuple]    # the lane it sits under: the node an expansion reads
+                               # closer, a recursion's level-1 lane; None: top level
+    born: int                  # the tick it first acts or a hop sets out to it
+    owner: Optional[tuple]     # its instance's composition parent (an instance key)
+    spawned: Optional[int]     # the tick its instance was spawned (None: set up)
+    spawner: Optional[str]     # the node whose `=>` spawned it
+    fold: tuple = ()           # a fold of instances: the instance keys it stands for
+    levels: tuple = ()         # a fold of levels: (lowest, highest)
 
 
-class RunEdge(NamedTuple):
-    key: tuple                 # (src key, dst key, kind)
-    src: str
-    dst: str
-    kind: str                  # the arrow as written; "own" | "base" for those roles
-    role: str                  # "flow" | "own" | "base"
-    wire: Optional[tuple]      # the design wire's ident (own: None)
-    mark: str = ""             # own: the composition relation (scene.rel_mark)
-    hops: tuple = ()           # ((start frame, end frame, outcome), …)
-    born: Optional[int] = None
+class Span(NamedTuple):
+    """One activation on one lane: [enter, leave) ticks; waits ((from, to), …)
+    the ticks of it spent waiting (to exclusive) — on a call it made, a deeper
+    activation of its task, the members it awaits — the rest is work."""
+    lane: tuple
+    act: int
+    task: int
+    node: str
+    enter: int
+    leave: Optional[int]       # None: still running when the run ended
+    how: str                   # ok | failed | cancelled | "" (still running)
+    waits: tuple
+    caller: Optional[int]
+    wire: Optional[tuple]
+    episode: int
 
 
-class RunGraph(NamedTuple):
-    nodes: dict                # key → RunNode, in drawing order
-    edges: dict                # key → RunEdge
-    folds: dict                # {"show", "instances", "levels"}: what folding left out
-    limits: Limits
-    trace: Optional[Trace]     # None: the no-run view
-    timeline: object = None    # what run_frame reads (acts, hops, arrivals)
+class Move(NamedTuple):
+    """One hop between lanes: set out at `start`, ended at `end` (the land
+    event's tick; None: in flight when the run ended) as `how` (the land
+    event's: entered, reached, opaque, failed, cancelled, returned, fallback,
+    arrived, none, visits). src: the lanes it leaves (a reply: its callee's, a
+    fallback: the call target's); dst: the lanes it arrives on (a reply: its
+    caller's)."""
+    id: int
+    task: int
+    act: Optional[int]
+    wire: tuple
+    kind: str
+    back: bool
+    start: int
+    end: Optional[int]
+    how: str
+    src: tuple
+    dst: tuple
+    attempt: Optional[tuple]
+    carries: Optional[str]
 
 
-class RunFrame(NamedTuple):
-    nodes: dict                # key → (status, count, pending): the nodes drawn by now
-    edges: dict                # key → hops arrived: the edges drawn by now
-    tokens: tuple              # ((edge key, at, dir, state), …)
+class Mark(NamedTuple):
+    """A one-tick event on a lane: self (a self-call's pulse, ↺), host (a host
+    op it calls, ⇱), base (where the depth limit stopped a recursion, ┤)."""
+    lane: tuple
+    t: int
+    what: str
+    wire: Optional[tuple] = None
+    carries: Optional[str] = None  # a pulse's call (`plan({Seed})`, `mail.send(…)`)
 
 
-def _run_key(nid: str, inst: Optional[tuple], level: int) -> str:
-    return nid + (f"·{inst[1]}" if inst is not None else "") + (f"↻{level}" if level > 1 else "")
+class Timeline(NamedTuple):
+    lanes: tuple               # Lane, in drawing order
+    spans: tuple               # Span, by enter
+    moves: tuple               # Move, by id
+    marks: tuple               # Mark, by tick
+    episodes: tuple            # ((k, start tick, entry node id), …)
+    last: int                  # the run's last tick
+    folded: dict               # {"show", "instances", "levels"}: what folding left out
 
 
-class _Unrolled:
-    """A run graph being built: run nodes and edges as dicts, then folded."""
-
-    def __init__(self, prog: Program, insts, limits: Limits):
-        self.prog, self.limits = prog, limits
-        self.insts = {i.key: i for i in insts}
-        self.parents = {i.key: i.parent for i in insts}
-        self.nodes: dict = {}          # key → dict
-        self.edges: dict = {}          # key → dict
-        self.order = {nid: k for k, nid in enumerate(prog.scene.nodes)}
-
-    def node(self, nid: str, inst: Optional[tuple], level: int, born=None, **kw) -> str:
-        key = _run_key(nid, inst, level)
-        n = self.nodes.get(key)
-        if n is None:
-            n = self.nodes[key] = dict(node=nid, inst=inst, level=level, role="node",
-                                       born=born, potential=False, spawned=None)
-        elif born is not None and (n["born"] is None or born < n["born"]):
-            n["born"] = born
-        n.update(kw)
-        return key
-
-    def base(self, src: str, born=None) -> str:
-        key = src + "┤"
-        if key not in self.nodes:
-            s = self.nodes[src]
-            self.nodes[key] = dict(node=s["node"], inst=s["inst"], level=s["level"],
-                                   role="base", born=born, potential=False, spawned=None)
-        elif born is not None:
-            self.nodes[key]["born"] = min(self.nodes[key]["born"], born)
-        return key
-
-    def edge(self, src: str, dst: str, kind: str, role: str, wire=None, mark: str = "",
-             hop=None, born=None) -> tuple:
-        key = (src, dst, "own:" + mark if role == "own" else kind)
-        e = self.edges.get(key)
-        if e is None:
-            e = self.edges[key] = dict(src=src, dst=dst, kind=kind, role=role, wire=wire,
-                                       mark=mark, hops=[], born=born)
-        elif born is not None and (e["born"] is None or born < e["born"]):
-            e["born"] = born
-        if hop is not None:
-            e["hops"].append(hop)
-        return key
-
-    def keys_of(self, nid: str, born=None) -> list:
-        """[(key, instance key)]: nid's level-1 run nodes — one per instance, or
-        the bare node."""
-        mine = [i.key for i in self.insts.values() if i.node == nid]
-        if not mine:
-            return [(self.node(nid, None, 1, born), None)]
-        return [(_run_key(nid, k, 1), k) for k in mine]
-
-    def pairs(self, srcs: list, dsts: list) -> list:
-        """[(src key, dst key)]: each source lane to the destinations under its
-        instance, else to every destination; a node into itself lane by lane."""
-        out = []
-        for s, si in srcs:
-            if si is None:
-                out += [(s, d) for d, _di in dsts]
-                continue
-            same = [d for d, di in dsts if di == si]
-            under = _beneath(self.parents, [di for _d, di in dsts if di is not None], si)
-            mine = same or [d for d, di in dsts if di in under]
-            out += [(s, d) for d in (mine or [d for d, _di in dsts])]
-        return list(dict.fromkeys(out))
-
-    def own_edges(self, born_of=None) -> None:
-        """An own edge from each parent instance to each child instance (born
-        with the child)."""
-        for i in self.insts.values():
-            if i.parent is None or i.parent not in self.insts:
-                continue
-            t = self.prog.tree[i.entry][2]
-            child = _run_key(i.node, i.key, 1)
-            if child not in self.nodes:
-                continue
-            self.edge(_run_key(self.insts[i.parent].node, i.parent, 1), child, "own", "own",
-                      mark=scene_mod.rel_mark(t), born=self.nodes[child]["born"])
-
-    def shows_inst(self) -> set:
-        """The design nodes whose instances are labelled `·k`: a dynamic,
-        optional or ×N entry, or two instances or more."""
-        n = Counter(i.node for i in self.insts.values())
-        out = {nid for nid, k in n.items() if k > 1}
-        for ui, _k, t in self.prog.tree:
-            node = self.prog.units[ui].graph.nodes.get(t.node)
-            if t.spawn or t.rel in ("$", "?") or any(m == "×" for m, _a in
-                                                      (node.mods if node else [])):
-                out.add(t.node)
-        return out
-
-    def done(self, show: int, trace, timeline, troubled=frozenset()) -> RunGraph:
-        """The run graph, folded (show), its nodes in drawing order."""
-        if show is not None:
-            remap, folds = _fold(self, show, troubled)
-            if len({remap.get(k, k) for k in self.nodes}) > RUN_NODES and show > 1:
-                remap, folds = _fold(self, 1, troubled)
-        else:
-            remap, folds = {}, {"show": None, "instances": 0, "levels": 0}
-        labelled = self.shows_inst()
-        nodes = {}
-        for key in sorted(self.nodes, key=self._rank):
-            n = self.nodes[key]
-            fold = remap.get(key, key)
-            if fold in nodes:
-                f = nodes[fold]
-                nodes[fold] = f._replace(born=_least(f.born, n["born"]),
-                                         potential=f.potential and n["potential"],
-                                         spawned=_least(f.spawned, n["spawned"]))
-                continue
-            kind = folds["nodes"].get(fold) if fold != key else None
-            nodes[fold] = RunNode(
-                fold, n["node"], n["inst"][1] if n["inst"] and n["node"] in labelled
-                and not kind else None, n["level"], "fold" if kind else n["role"], n["born"],
-                n["potential"], n["spawned"], kind[0] if kind else 0, kind[1] if kind else ())
-        edges = {}
-        for key, e in self.edges.items():
-            src, dst = remap.get(e["src"], e["src"]), remap.get(e["dst"], e["dst"])
-            if src == dst and e["src"] != e["dst"]:
-                continue                        # inside one fold
-            k = (src, dst, key[2])
-            hops = tuple(e["hops"])
-            if k in edges:
-                old = edges[k]
-                edges[k] = old._replace(hops=tuple(sorted(old.hops + hops)),
-                                        born=_least(old.born, e["born"]))
-            else:
-                edges[k] = RunEdge(k, src, dst, e["kind"], e["role"], e["wire"], e["mark"],
-                                   hops, e["born"])
-        tl = timeline.remapped(remap) if timeline is not None else None
-        return RunGraph(nodes, edges, {k: v for k, v in folds.items() if k != "nodes"},
-                        self.limits, trace, tl)
-
-    def _rank(self, key: str) -> tuple:
-        n = self.nodes[key]
-        inst = n["inst"][1] if n["inst"] else 0
-        return (self.order.get(n["node"], len(self.order)), inst, n["level"],
-                n["role"] == "base")
-
-
-def _least(a, b):
-    return b if a is None else a if b is None else min(a, b)
-
-
-def _fold(u: _Unrolled, show: int, troubled) -> tuple:
-    """({run key: its fold's key}, folds): in each (node, parent instance) group
-    of more than `show` instances, all but the first show − 1 and every one
-    that failed or was cancelled fold into one `[…×k more]`, their subtrees
-    with them; a recursion chain deeper than show + 1 keeps its first show − 1
-    levels and its deepest, the rest one `[… ↻a‥↻b]`. folds["nodes"]: {fold
-    key: (instances, (lowest, highest) level)}."""
-    keep_n = max(show - 1, 1)
-    remap, made = {}, {}
-    groups = {}
-    for key, n in u.nodes.items():
-        if n["role"] == "node" and n["inst"] is not None and n["level"] == 1:
-            groups.setdefault((n["node"], u.parents.get(n["inst"])), []).append(key)
-    folded = {}                                 # instance key → its fold's key
-    for (nid, _parent), keys in groups.items():
-        if len(keys) <= show:
-            continue
-        keys.sort(key=lambda k: u.nodes[k]["inst"][1])
-        rest = [k for k in keys[keep_n:] if k not in troubled]
-        if len(rest) < 2:
-            continue
-        lo, hi = u.nodes[rest[0]]["inst"][1], u.nodes[rest[-1]]["inst"][1]
-        fold = f"{nid}·{lo}‥{hi}"
-        made[fold] = (len(rest), ())
-        for k in rest:
-            folded[u.nodes[k]["inst"]] = fold
-    insts_out = len(folded)
-    under = {}                                  # (node, fold) → [instance keys]
-    for key, n in u.nodes.items():
-        inst = n["inst"]
-        if inst is None:
-            continue
-        if inst in folded:
-            remap[key] = folded[inst]
-            continue
-        top = next((folded[a] for a in _ancestors(u.parents, inst) if a in folded), None)
-        if top is not None:
-            fold = f"{n['node']}…{top}"
-            remap[key] = fold
-            under.setdefault(fold, set()).add(inst)
-    for fold, insts in under.items():
-        made[fold] = (len(insts), ())
-        insts_out += len(insts)
-    levels_out = 0
-    chains = {}
-    for key, n in u.nodes.items():
-        if n["role"] == "node" and key not in remap:
-            chains.setdefault((n["node"], n["inst"]), {})[n["level"]] = key
-    for (nid, inst), lv in chains.items():
-        deep = max(lv)
-        if deep <= show + 1:
-            continue
-        lo, hi = keep_n + 1, deep - 1
-        fold = _run_key(nid, inst, 1) + f"↻{lo}‥{hi}"
-        made[fold] = (0, (lo, hi))
-        for level, key in lv.items():
-            if lo <= level <= hi:
-                remap[key] = fold
-                levels_out += 1
-    return remap, {"show": show, "instances": insts_out, "levels": levels_out, "nodes": made}
-
-
-def _ancestors(parents: dict, key):
-    seen = 0
-    cur = parents.get(key)
-    while cur is not None and seen <= len(parents):
-        yield cur
-        cur, seen = parents.get(cur), seen + 1
-
-
-def unroll_static(sc, limits: Limits = Limits(), *, show: Optional[int] = RUN_SHOW) -> RunGraph:
-    """What could exist when the design of Scene `sc` runs, up to `limits`: every
-    instance at setup and Limits.spawn per parent of each `\\\\-?` entry (potential,
-    ◌), an own edge from each parent instance to each child, every flow, trigger
-    and arm wire between the instances it reaches (lane by lane), and each
-    recursive self-call unrolled to Limits.depth levels and its base stub. No
-    hops. `show`: the folding (None: none)."""
-    prog = _program_of(sc.graph)
-    insts = instances(prog, limits, potential=True)
-    u = _Unrolled(prog, insts, limits)
-    for i in insts:
-        u.node(i.node, i.key, 1, potential=not i.setup)
-    u.own_edges()
-    for w in prog.scene.wires:
-        if w.role not in ("flow", "trigger", "arm"):
-            continue
-        srcs = u.keys_of(w.src)
-        if w.src == w.dst:
-            if w.call is not None and w.call.recursive:
-                for key, inst in srcs:
-                    prev = key
-                    for level in range(2, limits.depth + 1):
-                        nxt = u.node(w.src, inst, level)
-                        u.edge(prev, nxt, w.kind, "flow", w.ident)
-                        prev = nxt
-                    u.edge(prev, u.base(prev), "base", "base", w.ident)
-            continue
-        if w.dst in prog.tree_nodes:
-            dsts = [(_run_key(w.dst, k, 1), k) for k in _select(prog, insts, w, limits)]
-        else:
-            dsts = u.keys_of(w.dst)
-        for s, d in u.pairs(srcs, dsts):
-            u.edge(s, d, w.kind, "flow", w.ident)
-    return u.done(show, None, None)
-
-
-class _Timeline(NamedTuple):
-    """What run_frame reads of a run: acts {act: (run keys, task, enter, leave,
-    how)}; waits {task: [(from, to)]} (awaiting members); hops [(task, wire,
-    start, end, edge keys)] with by_wire {(task, wire): [(start, hop index)]};
-    arrivals {run key: [frame]} (hops ending at a node no act enters) and
-    spawned {run key: frame}; ticks: each frame's tick."""
-    acts: dict
-    waits: dict
-    hops: list
-    by_wire: dict
-    arrivals: dict
-    ticks: tuple
-
-    def remapped(self, remap: dict) -> "_Timeline":
-        r = lambda keys: tuple(dict.fromkeys(remap.get(k, k) for k in keys))
-        re = lambda keys: tuple(dict.fromkeys((remap.get(a, a), remap.get(b, b), c)
-                                              for a, b, c in keys))
-        acts = {a: (r(v[0]),) + v[1:] for a, v in self.acts.items()}
-        hops = [h[:4] + (re(h[4]),) for h in self.hops]
-        arrivals = {}
-        for k, frames in self.arrivals.items():
-            arrivals.setdefault(remap.get(k, k), []).extend(frames)
-        return self._replace(acts=acts, hops=hops, arrivals=arrivals)
-
-
-def unroll(trace: Trace, *, limits: Limits = Limits(), show: Optional[int] = RUN_SHOW) -> RunGraph:
-    """The run graph of a trace on the canonical scene (simulate's): a run node
-    per (design node, instance, recursion level) its activations entered, the
-    setup instances and the spawned ones, an edge per hop's way between them
-    (lane by lane: a hop standing for several instances fans out, and work done
-    for several converges on a single target), own edges, and a base stub where
-    the simulator stopped a recursion. Each node and edge is born at the frame
-    it first exists in (run_frame draws what exists by a frame). `limits`: the
-    run's (its setup instances). `show`: the folding (None: none). Pure."""
+def timeline(trace: Trace, *, limits: Limits = Limits(),
+             show: Optional[int] = RUN_SHOW) -> Timeline:
+    """The run of `trace` (on the canonical scene, simulate's) as a timeline:
+    a lane per participant it touched — every node an activation entered or a
+    hop set out to (a failed attempt's target, a race's loser, an actor, a
+    host's side too) — one per composition instance (`{Transform·2}`) and per
+    recursion level (`↻k`). Lanes are born at the tick they first act or a hop
+    sets out towards them and ordered by birth (in one tick the sender before
+    the receiver), an expansion's lanes under the node it reads closer, a
+    recursion's levels under its lane, the instances of one node together in
+    ordinal order. Each activation is a Span per lane it stands for, each hop
+    a Move, each self-call pulse, host op and base case a Mark. `limits`: the
+    run's (its setup instances). `show` (None: no folding): a group of more
+    than `show` instances of one node under one kind of owner keeps its first
+    show − 1 and every one that failed or was cancelled, the rest one lane
+    (FOLD); levels past show + 1 keep ↻2 … ↻(show − 1) and the deepest, the
+    middle one lane (lo‥hi). Pure."""
     prog = _program_of(trace.scene.graph)
-    frames = trace.frames
-    ix = {f.tick: i for i, f in enumerate(frames)}
-    last = len(frames) - 1
-    at = lambda t: ix.get(t, min(last, max(0, t)))
     events = trace.end.get("events", ())
-    setup = instances(prog, limits)
-    spawned = []
-    for ev in events:
-        if ev["kind"] == "spawn":
-            entry = next(k for k, (_u, _kk, t) in enumerate(prog.tree)
-                         if t.node == ev["node"] and (t.spawn or t.rel in ("$", "?")))
-            t = prog.tree[entry][2]
-            spawned.append((Instance(ev["inst"], ev["node"], ev["inst"][1], ev["parent"], t.rel,
-                                     t.spawn, True, entry), at(ev["t"])))
-    u = _Unrolled(prog, list(setup) + [i for i, _f in spawned], limits)
-    for i in setup:
-        u.node(i.node, i.key, 1, born=0)
-    for i, f in spawned:
-        u.node(i.node, i.key, 1, spawned=f)
-    acts, waits, troubled = {}, {}, set()
-    hops, by_wire, arrivals = [], {}, {}
-    open_hop = {}                               # task → the hop whose landing is pending
     wires = {w.ident: w for w in prog.scene.wires}
-    forward = {}                                # (act, wire) → the edge keys of its last hop out
+    setup = {i.key: i for i in instances(prog, limits)}
+    owner_of = {k: i.parent for k, i in setup.items()}
+    exp_owner = {exp: node for (_ui, node), exp in prog.expansions.items()}
+    last = trace.frames[-1].tick if trace.frames else 0
+    acts, lanes, spawns = {}, {}, {}
+    hops, lands, enters_by_hop = {}, {}, {}
+    marks, awaits, episodes = [], {}, []
+    seq, hop_seq = [0], {}
 
-    def act_keys(a):
-        return acts[a][0] if a in acts else None
+    def keys_of(nid: str, insts, level: int) -> tuple:
+        return tuple((nid, k[1], level) for k in insts) if insts else ((nid, None, level),)
 
-    def lane_keys(nid, insts, level, born):
-        if insts:
-            return [(u.node(nid, k, level, born), k) for k in insts]
-        return [(u.node(nid, None, level, born), None)]
+    def parent_of(key: tuple, unit: Optional[int], chain: Optional[int]) -> Optional[tuple]:
+        nid, ordinal, level = key
+        if level > 1:
+            return (nid, ordinal, 1)
+        owner = exp_owner.get(unit)
+        a = chain
+        while owner is not None and a is not None:
+            info = acts.get(a)
+            if info is None:
+                break
+            if info["node"] == owner:
+                return info["lanes"][0] if info["level"] == 1 else (owner, info["lanes"][0][1], 1)
+            a = info["caller"]
+        return None
 
-    def src_of(h):
-        a = h["act"]
-        if a in acts:
-            return [(k, u.nodes[k]["inst"]) for k in acts[a][0]]
-        w = wires.get(h["wire"])
-        return [(u.node(w.src if w else "?", None, 1, h["start"]), None)]
-
-    def settle(h, dsts):
-        """Edges for hop h into dsts [(key, inst)] (None: each source's base stub)."""
-        w = wires.get(h["wire"])
-        if dsts is None:
-            keys = [u.edge(s, u.base(s, h["start"]), "base", "base", h["wire"], born=h["start"])
-                    for s, _i in src_of(h)]
-        else:
-            keys = [u.edge(s, d, w.kind if w else "->", "flow", h["wire"], born=h["start"])
-                    for s, d in u.pairs(src_of(h), dsts)]
-        h["edges"] = keys
-        forward[(h["act"], h["wire"])] = keys
-
-    def unresolved(h):
-        w = wires.get(h["wire"])
-        if w is None:
-            h["edges"] = []
-            return
-        if w.src == w.dst:
-            srcs = src_of(h)
-            settle(h, srcs)
-            return
-        dsts = lane_keys(w.dst, h["lanes"] or (), 1, h["start"])
-        settle(h, dsts)
-        for k in h["edges"]:
-            arrivals.setdefault(k[1], []).append(h)
+    def born(key: tuple, t: int, unit=None, chain=None) -> None:
+        seq[0] += 1
+        if key not in lanes:
+            if key[2] > 1:
+                born((key[0], key[1], 1), t)
+            lanes[key] = {"born": (t, seq[0]), "parent": parent_of(key, unit, chain)}
 
     for ev in events:
-        kind, task = ev["kind"], ev["task"]
-        if kind == "hop":
-            prev = open_hop.pop(task, None)
-            if prev is not None:
-                unresolved(prev)
-            h = dict(task=task, act=ev["act"], wire=ev["wire"], start=at(ev["t"]),
-                     lanes=ev["lanes"], back=ev["back"], edges=[])
-            hops.append(h)
-            if ev["back"]:
-                h["edges"] = list(forward.get((ev["act"], ev["wire"]), ()))
-            else:
-                open_hop[task] = h
-        elif kind == "enter":
-            f = at(ev["t"])
-            keys = lane_keys(ev["node"], ev["insts"], ev["level"], f)
-            acts[ev["act"]] = ([k for k, _i in keys], task, f, None, None)
-            h = open_hop.get(task)
-            if h is not None and h["wire"] == ev["wire"] and h["act"] == ev["caller"]:
-                open_hop.pop(task)
-                settle(h, keys)
+        kind, t = ev["kind"], ev["t"]
+        if kind == "enter":
+            ks = keys_of(ev["node"], ev["insts"], ev["level"])
+            acts[ev["act"]] = {"node": ev["node"], "task": ev["task"], "enter": t, "leave": None,
+                               "how": "", "lanes": ks, "caller": ev["caller"],
+                               "wire": ev["wire"], "level": ev["level"],
+                               "episode": ev["episode"]}
+            for k in ks:
+                born(k, t, ev["unit"], ev["caller"])
+            if ev.get("hop") is not None:
+                enters_by_hop[ev["hop"]] = ev["act"]
         elif kind == "leave":
             a = acts.get(ev["act"])
-            if a is not None:
-                acts[ev["act"]] = a[:3] + (at(ev["t"]), ev["how"])
-                if ev["how"] != "ok":
-                    troubled.update(a[0])
+            if a is not None and a["leave"] is None:
+                a["leave"], a["how"] = t, ev["how"]
+        elif kind == "hop":
+            hops[ev["id"]] = ev
+            seq[0] += 1
+            hop_seq[ev["id"]] = seq[0]
+            w = wires.get(ev["wire"])
+            if w is not None and not ev["back"] and w.src != w.dst:
+                ks = keys_of(w.dst, ev["lanes"], 1)
+                if ev["lanes"] != ():       # a spawn's lane is born with its instance's act
+                    for k in ks:
+                        born(k, t, prog.wire_unit.get(id(w)), ev["act"])
+        elif kind == "land":
+            lands[ev["hop"]] = ev
+        elif kind == "spawn":
+            spawns[ev["inst"]] = (t, ev["wire"][0], ev["parent"])
+            owner_of[ev["inst"]] = ev["parent"]
         elif kind == "limit" and ev.get("name") == "depth" and ev.get("act") in acts:
-            f = at(ev["t"])
-            h = open_hop.get(task)
-            if h is not None and h["wire"] == ev.get("wire") and h["act"] == ev["act"]:
-                open_hop.pop(task)              # a hop that landed on the base case
-                settle(h, None)
-            else:                               # a self-call refused before its hop
-                for src in acts[ev["act"]][0]:
-                    u.edge(src, u.base(src, f), "base", "base", ev.get("wire"),
-                           hop=(f, f, ""), born=f)
+            marks += [Mark(k, t, "base", ev.get("wire")) for k in acts[ev["act"]]["lanes"]]
         elif kind == "await":
-            waits.setdefault(task, []).append([at(ev["t"]), None])
-        elif kind == "resume" and waits.get(task):
-            waits[task][-1][1] = at(ev["t"])
-    for h in open_hop.values():
-        unresolved(h)
-    ends = _hop_ends(frames, hops)
-    for h, (end, outcome) in zip(hops, ends):
-        if h["back"]:
+            awaits.setdefault(ev["task"], []).append([t, None])
+        elif kind == "resume" and awaits.get(ev["task"]):
+            awaits[ev["task"]][-1][1] = t
+        elif kind == "fork" and ev["why"] == "entry":
+            episodes.append((ev["episode"], t, ev["node"]))
+
+    moves, last_out = [], {}
+    for hid, ev in sorted(hops.items()):
+        w = wires.get(ev["wire"])
+        land = lands.get(hid)
+        how = land["how"] if land is not None else ""
+        end = land["t"] if land is not None else None
+        sender = acts.get(ev["act"])
+        src = sender["lanes"] if sender is not None else ()
+        if how == "self":
+            what = "host" if w is not None and w.call is not None and w.call.external else "self"
+            marks += [Mark(k, ev["t"], what, ev["wire"], ev.get("carries")) for k in src]
             continue
-        for k in h["edges"]:
-            u.edges[k]["hops"].append((h["start"], end, outcome))
-            u.nodes[k[1]]["born"] = _least(u.nodes[k[1]]["born"], h["start"])
-    for k, hs in list(arrivals.items()):
-        arrivals[k] = sorted(ends[hops.index(h)][0] for h in hs)
-    u.own_edges()
-    for key, n in u.nodes.items():              # never reached, never set up: not drawn
-        if n["born"] is None and n["spawned"] is not None:
-            n["born"] = n["spawned"]
-    tl = _Timeline(acts, {t: [tuple(x) for x in v] for t, v in waits.items()},
-                   [(h["task"], h["wire"], h["start"], ends[k][0], tuple(h["edges"]))
-                    for k, h in enumerate(hops)], {}, arrivals,
-                   tuple(f.tick for f in frames))
-    for k, h in enumerate(hops):
-        tl.by_wire.setdefault((h["task"], h["wire"]), []).append((h["start"], k))
-    return u.done(show, trace, tl, frozenset(troubled))
-
-
-def _hop_ends(frames, hops: list) -> list:
-    """[(end frame, outcome)] per hop: the last frame its token is on the wire
-    and how it ended there ("failed": an attempt failing on arrival;
-    "cancelled"; "" arrived), from the frames' tokens."""
-    by = {}
-    for k, h in enumerate(hops):
-        by.setdefault((h["task"], h["wire"]), []).append((h["start"], k))
-    out = [[h["start"], "", None] for h in hops]
-    for i, f in enumerate(frames):
-        for tok in f.tokens:
-            starts = by.get((tok.task, tok.wire))
-            if not starts:
-                continue
-            k = next((k for s, k in reversed(starts) if s <= i), None)
-            if k is None:
-                continue
-            o = out[k]
-            o[0] = max(o[0], i)
-            if o[2] is None:
-                o[2] = tok.state
-            if tok.state == "cancelled":
-                o[1] = "cancelled"
-            elif tok.state == "failed" and o[2] == "moving" and tok.dir == "out":
-                o[1] = "failed"
-    return [(o[0], o[1]) for o in out]
-
-
-_STATUS_RANK = {"active": 5, "waiting": 4, "failed": 3, "visited": 2, "cancelled": 1}
-
-
-def run_frame(rg: RunGraph, i: int) -> RunFrame:
-    """What of a run graph exists at frame i of its run, and how: each node
-    born by then — its status (active | waiting | visited | failed | cancelled
-    | None: not reached yet), its count (activations entered, hops arrived, a
-    base stub's times) and pending (a spawned instance whose spawn hop is still
-    in flight: ◌) — each edge born by then with its hops arrived, and the
-    frame's tokens on the run edges (one per lane). The no-run view (rg.trace
-    None): every node and edge, no status, no tokens."""
-    if rg.trace is None:
-        return RunFrame({k: (None, 0, n.potential) for k, n in rg.nodes.items()},
-                        {k: 0 for k in rg.edges}, ())
-    tl = rg.timeline
-    status, count = {}, Counter()
-    open_by_task = {}
-    for a, (keys, task, enter, leave, how) in tl.acts.items():
-        if enter > i:
-            continue
-        for k in keys:
-            count[k] += 1
-        if leave is None or leave > i:
-            open_by_task.setdefault(task, []).append((a, keys))
+        if how == "base" or w is None:
+            continue                     # the depth limit's mark says it (limit event)
+        if ev["back"]:
+            callee = acts.get(ev.get("callee"))
+            dst = src
+            src = (callee["lanes"] if callee is not None
+                   else last_out.get((ev["task"], ev["wire"]), ()))
+        elif hid in enters_by_hop:
+            dst = acts[enters_by_hop[hid]]["lanes"]
         else:
-            st = {"failed": "failed", "cancelled": "cancelled"}.get(how, "visited")
-            for k in keys:
-                if _STATUS_RANK[st] > _STATUS_RANK.get(status.get(k), 0):
-                    status[k] = st
-    for task, opened in open_by_task.items():
-        top = max(a for a, _k in opened)
-        waiting = any(s <= i and (e is None or e > i) for s, e in tl.waits.get(task, ()))
-        for a, keys in opened:
-            st = "active" if a == top and not waiting else "waiting"
-            for k in keys:
-                if _STATUS_RANK[st] > _STATUS_RANK.get(status.get(k), 0):
-                    status[k] = st
-    for k, ends in tl.arrivals.items():
-        n = sum(1 for e in ends if e <= i)
-        if n and k not in status:
-            status[k] = "visited"
-        if n and not count[k]:
-            count[k] = n
-    nodes = {}
-    for k, n in rg.nodes.items():
-        if n.born is None or n.born > i:
+            dst = keys_of(w.dst, ev["lanes"], 1)
+            for k in dst:
+                born(k, ev["t"], prog.wire_unit.get(id(w)), ev["act"])
+        if not ev["back"]:
+            last_out[(ev["task"], ev["wire"])] = dst
+            for k in dst:                # a lane is born as a hop sets out to it
+                if k in lanes:
+                    lanes[k]["born"] = min(lanes[k]["born"], (ev["t"], hop_seq[hid] + 0.5))
+        if not src or not dst:
             continue
-        pending = n.spawned is not None and n.spawned > i
-        if n.role == "base":
-            c = sum(1 for e in rg.edges.values() if e.dst == k
-                    for s, _e, _o in e.hops if s <= i)
-            nodes[k] = ("visited", c, False)
+        moves.append(Move(hid, ev["task"], ev["act"], ev["wire"], w.kind, ev["back"], ev["t"],
+                          end, how, src, dst, ev.get("attempt"), ev.get("carries")))
+
+    spans = _spans(acts, moves, awaits, last)
+    lane_rows = []
+    for key, info in lanes.items():
+        nid, ordinal, level = key
+        inst = (nid, ordinal) if ordinal is not None else None
+        sp = spawns.get(inst)
+        lane_rows.append(Lane(key, nid, inst, level, info["parent"], info["born"][0],
+                              owner_of.get(inst) if inst else None,
+                              sp[0] if sp else None, sp[1] if sp else None))
+    born_at = {k: v["born"] for k, v in lanes.items()}
+    folded = {"show": show, "instances": 0, "levels": 0}
+    if show is not None:
+        lane_rows, spans, moves, marks, born_at = _fold_lanes(
+            lane_rows, spans, moves, marks, born_at, prog, show, folded)
+    return Timeline(_lane_order(lane_rows, born_at), tuple(sorted(spans, key=lambda s: (s.enter, s.act))),
+                    tuple(moves), tuple(sorted(marks, key=lambda m: m.t)), tuple(episodes), last,
+                    folded)
+
+
+def _spans(acts: dict, moves: list, awaits: dict, last: int) -> list:
+    """A Span per activation and lane, its waits worked out task by task: an
+    activation waits while it is not the top of its task's stack, while a hop
+    of its task it sent is out (the send tick is work; a reply's whole flight
+    is waiting; the arrival tick of a hop that entered its callee is the
+    callee's) and while its task awaits members (the await tick is work, the
+    resume tick too)."""
+    busy = {}
+    for m in moves:
+        end = m.end if m.end is not None else last
+        lo = m.start if m.back else m.start + 1
+        hi = end if m.how == "entered" else end + 1
+        busy.setdefault(m.task, set()).update(range(lo, hi))
+    for task, spans in awaits.items():
+        for a, r in spans:
+            busy.setdefault(task, set()).update(range(a + 1, (r if r is not None else last + 1)))
+    by_task = {}
+    for act, a in acts.items():
+        by_task.setdefault(a["task"], []).append(act)
+    waiting = {}
+    for task, ids in by_task.items():
+        enters, leaves = {}, {}
+        for act in ids:
+            a = acts[act]
+            enters.setdefault(a["enter"], []).append(act)
+            stop = a["leave"] if a["leave"] is not None else last + 1
+            leaves.setdefault(max(stop, a["enter"] + 1), []).append(act)
+        lo = min(acts[x]["enter"] for x in ids)
+        hi = max(leaves)
+        stack, mine = [], busy.get(task, set())
+        for t in range(lo, hi):
+            for act in leaves.get(t, ()):
+                if act in stack:
+                    stack.remove(act)
+            stack += sorted(enters.get(t, ()))
+            for k, act in enumerate(stack):
+                if k < len(stack) - 1 or t in mine:
+                    waiting.setdefault(act, []).append(t)
+    out = []
+    for act, a in acts.items():
+        ws = _ranges(waiting.get(act, ()))
+        for k in a["lanes"]:
+            out.append(Span(k, act, a["task"], a["node"], a["enter"], a["leave"], a["how"], ws,
+                            a["caller"], a["wire"], a["episode"]))
+    return out
+
+
+def _ranges(ticks) -> tuple:
+    """Sorted ticks as ((from, to), …) runs, to exclusive."""
+    out = []
+    for t in sorted(ticks):
+        if out and out[-1][1] == t:
+            out[-1][1] = t + 1
         else:
-            nodes[k] = (status.get(k), count.get(k, 0), pending)
-    edges = {k: sum(1 for _s, end, _o in e.hops if end <= i)
-             for k, e in rg.edges.items() if e.born is not None and e.born <= i}
-    tokens = []
-    for tok in rg.trace.frames[i].tokens:
-        starts = tl.by_wire.get((tok.task, tok.wire))
-        h = next((k for s, k in reversed(starts or ()) if s <= i), None)
-        if h is None:
+            out.append([t, t + 1])
+    return tuple((a, b) for a, b in out)
+
+
+def _fold_lanes(lanes: list, spans: list, moves: list, marks: list, born_at: dict, prog,
+                show: int, folded: dict) -> tuple:
+    """The lanes folded (timeline's `show`), and the spans, moves and marks
+    moved onto the folds: instances by (node, owner's node), then each lane's
+    levels."""
+    keep_n = max(show - 1, 1)
+    troubled = {s.lane for s in spans if s.how in ("failed", "cancelled")}
+    troubled |= {k for m in moves if m.how in ("failed", "cancelled") for k in m.dst}
+    owner_node = lambda ln: ln.owner[0] if ln.owner else None
+    groups = {}
+    for ln in lanes:
+        if ln.inst is not None and ln.level == 1:
+            groups.setdefault((ln.node, owner_node(ln)), []).append(ln)
+    remap, made = {}, {}
+    for (nid, onode), group in groups.items():
+        if len(group) <= show:
             continue
-        for key in tl.hops[h][4]:
-            if key in edges:
-                tokens.append((key, tok.at, tok.dir, tok.state))
-    return RunFrame(nodes, edges, tuple(tokens))
+        group.sort(key=lambda ln: ln.inst[1])
+        rest = [ln for ln in group[keep_n:] if ln.key not in troubled]
+        if len(rest) < 2:
+            continue
+        tag = FOLD + (onode or "")
+        for ln in rest:
+            remap[ln.key] = (nid, tag, 1)
+        made[(nid, tag, 1)] = rest
+        folded["instances"] += len(rest)
+    for ln in lanes:                    # a folded instance's levels go with it
+        if ln.level > 1 and (ln.node, ln.key[1], 1) in remap:
+            remap[ln.key] = (ln.node, remap[(ln.node, ln.key[1], 1)][1], ln.level)
+    deep = {}
+    for ln in lanes:
+        base = remap.get((ln.node, ln.key[1], 1), (ln.node, ln.key[1], 1))
+        deep[base] = max(deep.get(base, 1), ln.level)
+    for ln in lanes:
+        base = remap.get((ln.node, ln.key[1], 1), (ln.node, ln.key[1], 1))
+        top = deep[base]
+        if top > show + 1 and show <= ln.level < top:
+            remap[ln.key] = (base[0], base[1], f"{show}‥{top - 1}")
+            folded["levels"] += 1
+    if not remap:
+        return lanes, spans, moves, marks, born_at
+    r = lambda k: remap.get(k, k)
+    out, seen = {}, {}
+    for ln in lanes:
+        key = r(ln.key)
+        parent = r(ln.parent) if ln.parent is not None else None
+        b = born_at[ln.key]
+        if key in out:
+            out[key] = out[key]._replace(born=min(out[key].born, ln.born))
+            seen[key] = min(seen[key], b)
+            continue
+        seen[key] = b
+        if key == ln.key:
+            out[key] = ln._replace(parent=parent)
+        elif isinstance(key[2], str):               # a fold of levels
+            lo, hi = (int(x) for x in key[2].split("‥"))
+            out[key] = ln._replace(key=key, level=lo, parent=parent, levels=(lo, hi))
+        else:                                       # a fold of instances (or its levels)
+            insts = tuple(g.inst for g in made.get(key, ()))
+            out[key] = ln._replace(key=key, inst=None, parent=parent, fold=insts)
+    spans = list({(r(s.lane), s.act): s._replace(lane=r(s.lane)) for s in spans}.values())
+    moves = [m._replace(src=tuple(dict.fromkeys(map(r, m.src))),
+                        dst=tuple(dict.fromkeys(map(r, m.dst)))) for m in moves]
+    marks = list(dict.fromkeys(m._replace(lane=r(m.lane)) for m in marks))
+    return list(out.values()), spans, moves, marks, seen
 
 
-def run_counts(rg: RunGraph) -> dict:
-    """What the run view's footer says of a run graph: {"nodes", "spawned",
-    "deepest", "instances", "levels", "show"}."""
-    deepest = max((n.level for n in rg.nodes.values() if n.role == "node"), default=1)
-    deepest = max([deepest] + [n.span[1] for n in rg.nodes.values() if n.span])
-    spawned = sum(1 for n in rg.nodes.values() if n.spawned is not None)
-    return {"nodes": sum(1 for n in rg.nodes.values() if n.role != "base"),
-            "spawned": spawned, "deepest": deepest, **rg.folds}
+def _lane_order(lanes: list, born_at: dict) -> tuple:
+    """The lanes in drawing order: by birth, each lane's recursion levels
+    right under it (by depth), then its other children (an expansion's lanes)
+    the same way; the instances of one node among siblings together, in
+    ordinal order, where the first of them was born."""
+    kids, roots = {}, []
+    by_key = {ln.key: ln for ln in lanes}
+    for ln in lanes:
+        if ln.parent is not None and ln.parent in by_key and ln.parent != ln.key:
+            kids.setdefault(ln.parent, []).append(ln)
+        else:
+            roots.append(ln)
+
+    def ordinal(ln):
+        return ln.inst[1] if ln.inst is not None else (1 << 30 if ln.fold else 0)
+
+    def order(group: list) -> list:
+        group = sorted(group, key=lambda ln: born_at[ln.key])
+        out, done = [], set()
+        for ln in group:
+            if ln.node in done:
+                continue
+            done.add(ln.node)
+            same = [x for x in group if x.node == ln.node]
+            out += sorted(same, key=lambda x: (x.level, ordinal(x), born_at[x.key]))
+        return out
+
+    out, seen = [], set()
+
+    def walk(group: list) -> None:
+        for ln in order(group):
+            if ln.key in seen:
+                continue
+            seen.add(ln.key)
+            out.append(ln)
+            mine = kids.get(ln.key, [])
+            levels = sorted((x for x in mine if x.node == ln.node and x.level > 1),
+                            key=lambda x: x.level)
+            for x in levels:
+                seen.add(x.key)
+                out.append(x)
+            walk([x for x in mine if x not in levels])
+
+    walk(roots)
+    out += [ln for ln in lanes if ln.key not in seen]
+    return tuple(out)
 
 
 # ---------------------------------------------------------------------------
