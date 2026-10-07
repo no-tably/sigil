@@ -5,6 +5,8 @@ Covers:
     node only moves down), the edges passing a layer take its room, each row
     and the frames of control blocks keep inside the width; a layout that fits
     is untouched; a box wider than the width leaves a hint;
+  - part titles (graph and flow): cut to the width, a nested expansion's
+    oldest ancestors first, so a title never widens the drawing;
   - tree view: lanes past the gutter columns that fit fold into numbered plugs
     (`●①` on a source row, `◀───①` on a target row), packed in a run per row; a
     token on a folded lane sits on its plugs; a tree that fits is untouched;
@@ -121,6 +123,30 @@ class TestGraphWraps(unittest.TestCase):
         out = buf.getvalue()
         self.assertIn("▼ [Bullet]/", out)
         self.assertNotRegex(out, r"[▼▲◀▶] \S[^│\n]*?\S ▼")
+
+
+class TestTitlesFit(unittest.TestCase):
+    SHOP = _DIR / "site" / "examples" / "02-shop.sigil"
+
+    def test_fit_title_cuts_the_oldest_ancestors_then_the_end(self):
+        name = "[Shop] := { … }  ›  [Payments] := { … }  ›  [Risk] := { … }"
+        self.assertEqual(kit.fit_title(name, 80), name)
+        self.assertEqual(kit.fit_title(name, 45), "…  ›  [Payments] := { … }  ›  [Risk] := { … }")
+        self.assertEqual(kit.fit_title(name, 34), "…  ›  [Risk] := { … }")
+        self.assertEqual(kit.fit_title("[AVeryLongExpansionName] := { … }", 12), "[AVeryLongE…")
+        rule = kit.fit_title(kit.Rule("L2 · Payments and more"), 8)
+        self.assertIsInstance(rule, kit.Rule)
+
+    def test_a_deep_title_never_widens_the_drawing(self):
+        # the shop at every depth: `[Shop] := { … }  ›  [Payments] := { … }  ›  [Risk] := { … }`
+        # once widened the rules to 65 and centred every part inside them
+        g = parse(self.SHOP.read_text())
+        for compose in (lambda: vgraph.compose(g, kit.ALL_DEPTH, False, width=40),
+                        lambda: view.vflow.compose_flow(g, kit.ALL_DEPTH, False, width=40)):
+            rows = text_rows(compose()[0])
+            self.assertLessEqual(max(len(r) for r in rows), 40, "\n".join(rows))
+            self.assertFalse(any("wide," in r for r in rows))
+            self.assertIn("── …  ›  [Risk] := { … } ──", "\n".join(rows))
 
 
 class TestTreeFolds(unittest.TestCase):

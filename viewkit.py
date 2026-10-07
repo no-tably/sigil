@@ -1053,6 +1053,24 @@ class RuleRow(list):
     once that is known (stretch_rules), so every title looks the same."""
 
 
+TITLE_STEP = "  ›  "             # between an expansion's title and its parent's
+
+
+def fit_title(name: str, room: int) -> str:
+    """A part title cut to `room` columns (a str subclass, Rule, kept): a nested
+    expansion's oldest ancestors first, as `…  ›  [Risk] := { … }`, then the
+    end, `[VeryLong…`. Untouched when it fits."""
+    if room < 1 or len(name) <= room:
+        return name
+    steps, out = name.split(TITLE_STEP), name
+    while len(steps) > 1 and len(out) > room:
+        steps = steps[1:]
+        out = "…" + TITLE_STEP + TITLE_STEP.join(steps)
+    if len(out) > room:
+        out = out[:max(room - 1, 0)] + "…"
+    return type(name)(out) if isinstance(name, Rule) else out
+
+
 def section_rule(name: str, width: int = 0) -> list:
     """`── L2 · Payments ──`, the rule run out to `width` columns: the rails in
     ui.section, the name as code (a glyph in it keeps its colours). Every title —

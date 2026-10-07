@@ -1328,7 +1328,7 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
             if zoom and zoom != _level:         # the zoom level it is written at
                 sub_title = f"{zoom} · {sub_title}"
             if title and not isinstance(title, kit.Rule):
-                sub_title = f"{title}  ›  {sub_title}"
+                sub_title = f"{title}{kit.TITLE_STEP}{sub_title}"
             if getattr(sub, "role", "") == "state":
                 sub = scene.with_trigger_sources(scn, sub, nid)
             yield from sections(sub, depth, sub_title, level + 1, tags, payloads, scn,
@@ -1802,7 +1802,7 @@ def _compose(g, depth, payloads, notes, triggers, width, access, mods, events,
         tags[at] = tags.get(at, []) + runs
     parts = list(sections(g, depth, tags=tags, payloads=payloads, scn=scn, mods=mods, sim=look,
                           checks=checks))
-    rows, drawing_w = _section_rows(parts)
+    rows, drawing_w = _section_rows(parts, width)
     natural = rows + ([[], kit.section_rule("notes"), []] + kit.note_rows(idx) if idx else [])
     natural_w = max([drawing_w] + [kit.row_len(r) for r in natural])
     if width is None or natural_w <= width:
@@ -1813,13 +1813,13 @@ def _compose(g, depth, payloads, notes, triggers, width, access, mods, events,
     if chipped and drawing_w > width:                               # (a)
         parts = list(sections(g, depth, tags=tags, payloads=payloads, scn=scn,
                               fit=width, marks=marks, mods=mods, sim=look, checks=checks))
-        rows, drawing_w = _section_rows(parts)
+        rows, drawing_w = _section_rows(parts, width)
     if drawing_w > width:                                           # (b)
         marks = []
         parts = list(sections(g, depth, tags=tags, payloads=payloads, scn=scn,
                               fit=width if chipped else None, marks=marks if chipped else None,
                               mods=mods, sim=look, checks=checks, wrap=width))
-        rows, drawing_w = _section_rows(parts)
+        rows, drawing_w = _section_rows(parts, width)
     listed = sorted(e for entries in idx.values() for e in entries)
     block = [([(kit.note_label(num), kit.NOTE_STYLE[kind])], [(text, kind)])
              for num, text, kind, _e in listed if kind == "block"]
@@ -1932,10 +1932,13 @@ def _node_mods(g) -> dict:
     return out
 
 
-def _section_rows(parts):
+def _section_rows(parts, fit: int | None = None):
     """The sections' canvases as rows, each centred within the widest, under
     their titles; and that width. A Rule title (a `--- section ---`) is a
-    divider across the drawing: `── L2 · Payments ─────`."""
+    divider across the drawing: `── L2 · Payments ─────`. fit: a title is cut
+    to it (kit.fit_title), so a title never widens a drawing past it."""
+    if fit is not None:
+        parts = [(kit.fit_title(t, fit - 6) if t else t, sg, cv) for t, sg, cv in parts]
     width = max([cv.w for _, _, cv in parts] + [len(t) + 6 for t, _, _ in parts if t] + [0])
     rows = []
     for title, _sg, cv in parts:

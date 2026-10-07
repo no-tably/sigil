@@ -145,7 +145,7 @@ def flow_parts(scn, depth: int) -> list:
         title = f"{kit.node_label(scn.nodes[u.owner].node)} {what}"
         parent = scn.nodes[u.owner].unit
         if parent is not None and parent in titles:
-            title = f"{titles[parent]}  ›  {title}"
+            title = f"{titles[parent]}{kit.TITLE_STEP}{title}"
         titles[u.owner] = title
         parts.append(_Part(title, u.owner, u.graph, nodes, strokes, blocks=blocks))
     return parts
@@ -1645,7 +1645,7 @@ def _part_rows(scn, depth, payloads, mods, notes, look, checks, marks, hang: boo
         return vgraph._stack(d.cv if d is not None else _Canvas(), frames, fit, _Canvas)
 
     parts = [(part.title, None, framed(part, tree, width)) for part, tree in drawn]
-    rows, w = vgraph._section_rows(parts) if parts else ([], 0)
+    rows, w = vgraph._section_rows(parts, width) if parts else ([], 0)
     return rows, w, max([0] + [cv.w for _t, _n, cv in parts]), over
 
 
