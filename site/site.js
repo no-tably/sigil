@@ -774,9 +774,19 @@
 
   const PYODIDE = "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/";
   const SHARE = "play=";
-  const SIM_FPS = 8;
   const CHECK_WAIT = 450;          // ms of quiet typing before a check (a draw waits 180)
   const CHECK_BUDGET = 1500;       // ms a check may take before checking waits for the button
+
+  // Run speeds in frames a second: the terminal viewer's - / + steps. A run starts
+  // at a readable 2/s; a viewer's own choice is remembered (index into the steps).
+  const SIM_SPEEDS = [0.25, 0.5, 1, 2, 4, 8, 16, 32];
+  const SIM_SPEED = 3;
+  const SPEED_KEY = "sigil-pg-speed";
+  const speedLabel = (fps) => `${{ 0.25: "¼", 0.5: "½" }[fps] ?? fps}/s`;
+  function speedIndex(saved) {
+    const i = saved ? Number(saved) : NaN;
+    return Number.isInteger(i) && i >= 0 && i < SIM_SPEEDS.length ? i : SIM_SPEED;
+  }
 
   // The findings panel's list items: check.py's findings, then the acknowledged
   // ones (dimmed, with their reason). data-line is the line a click selects.
@@ -825,13 +835,18 @@
       tree: $("#pg-tree"), graph: $("#pg-graph"), share: $("#pg-share"),
       src: $("#pg-src"), hl: $("#pg-hl"), draw: $("#pg-draw"), legend: $("#pg-legend"),
       scenario: $("#pg-scenario"), back: $("#pg-back"), play: $("#pg-play"), fwd: $("#pg-fwd"),
-      scrub: $("#pg-scrub"), tick: $("#pg-tick"), lint: $("#pg-lint"), count: $("#pg-count"),
-      diags: $("#pg-diags"), log: $("#pg-log"), check: $("#pg-check"),
+      scrub: $("#pg-scrub"), tick: $("#pg-tick"), speed: $("#pg-speed"), lint: $("#pg-lint"),
+      count: $("#pg-count"), diags: $("#pg-diags"), log: $("#pg-log"), check: $("#pg-check"),
       findings: $("#pg-findings"), mode: $("#pg-mode"), recheck: $("#pg-recheck"),
     };
     const st = { view: "tree", scenario: "", frame: 0, last: 0, playing: false,
+      speed: speedIndex(store.get(SPEED_KEY)),
       timer: null, typing: null, styles: 0, api: null, booting: false,
       checkTimer: null, checked: "", checkPaused: false };
+
+    el.speed.innerHTML = SIM_SPEEDS.map((fps, i) =>
+      `<option value="${i}">${speedLabel(fps)}</option>`).join("");
+    el.speed.value = String(st.speed);
 
     el.example.innerHTML = examples.map((e, i) =>
       `<option value="${i}">${esc(e.file)}</option>`).join("");
@@ -1040,6 +1055,7 @@
       el.log.hidden = true;
       root.classList.remove("running");
       [el.back, el.play, el.fwd, el.scrub].forEach((b) => { b.disabled = true; });
+      el.draw.removeAttribute("aria-keyshortcuts");
     }
 
     function frame(k) {
@@ -1052,6 +1068,7 @@
       showDrawing(r);
       root.classList.add("running");
       [el.back, el.play, el.fwd, el.scrub].forEach((b) => { b.disabled = false; });
+      el.draw.setAttribute("aria-keyshortcuts", "Space , . - +");
       st.frame = r.frame;
       st.last = r.last;
       el.scrub.max = String(r.last);
@@ -1068,15 +1085,30 @@
       st.timer = null;
       st.playing = false;
       el.play.textContent = "play";
-      el.play.title = "Play";
+      el.play.title = "Play (space)";
     }
     function play() {
       if (!st.scenario) return;
       if (st.frame >= st.last) frame(0);
       st.playing = true;
       el.play.textContent = "pause";
-      el.play.title = "Pause";
-      st.timer = setInterval(() => frame(st.frame + 1), 1000 / SIM_FPS);
+      el.play.title = "Pause (space)";
+      arm();
+    }
+    function arm() {
+      clearInterval(st.timer);
+      st.timer = setInterval(() => frame(st.frame + 1), 1000 / SIM_SPEEDS[st.speed]);
+    }
+    function step(delta) {
+      if (!st.scenario) return;
+      stop();
+      frame(Math.max(0, Math.min(st.last, st.frame + delta)));
+    }
+    function setSpeed(i) {
+      st.speed = Math.max(0, Math.min(i, SIM_SPEEDS.length - 1));
+      el.speed.value = String(st.speed);
+      store.set(SPEED_KEY, String(st.speed));
+      if (st.playing) arm();                       // keep playing, at the new pace
     }
 
     function setView(v) {
@@ -1131,8 +1163,19 @@
       else refresh();
     });
     el.play.addEventListener("click", () => (st.playing ? stop() : play()));
-    el.back.addEventListener("click", () => { stop(); frame(Math.max(0, st.frame - 1)); });
-    el.fwd.addEventListener("click", () => { stop(); frame(Math.min(st.last, st.frame + 1)); });
+    el.back.addEventListener("click", () => step(-1));
+    el.fwd.addEventListener("click", () => step(1));
+    el.speed.addEventListener("change", () => setSpeed(Number(el.speed.value)));
+    // the drawing takes the terminal viewer's run keys while a scenario is on
+    el.draw.addEventListener("keydown", (e) => {
+      if (!st.scenario || e.ctrlKey || e.metaKey || e.altKey) return;
+      const act = { " ": () => (st.playing ? stop() : play()), ",": () => step(-1),
+        ".": () => step(1), "-": () => setSpeed(st.speed - 1), "+": () => setSpeed(st.speed + 1),
+        "=": () => setSpeed(st.speed + 1) }[e.key];
+      if (!act) return;
+      e.preventDefault();
+      act();
+    });
     el.scrub.addEventListener("input", () => { stop(); frame(Number(el.scrub.value)); });
     el.share.addEventListener("click", async () => {
       const url = `${location.origin}${location.pathname}#${SHARE}${b64url.encode(el.src.value)}`;
@@ -1142,6 +1185,8 @@
       el.share.textContent = ok ? "link copied" : "link in the address bar";
       setTimeout(() => { el.share.textContent = "share"; }, 1800);
     });
+    // a run plays only when asked; reduced motion switched on mid-run pauses it
+    motionListeners.push((reduce) => { if (reduce && st.playing) stop(); });
     let resizeTimer = null;
     addEventListener("resize", () => {
       if (!st.api) return;

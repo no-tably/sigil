@@ -188,10 +188,11 @@
       <div class="pg-sim">
         <label>simulate <select id="pg-scenario" aria-label="Scenario"></select></label>
         <div class="pg-transport" role="group" aria-label="Run">
-          <button type="button" id="pg-back" title="Step back" aria-label="Step back">‹</button>
-          <button type="button" id="pg-play" title="Play">play</button>
-          <button type="button" id="pg-fwd" title="Step forward" aria-label="Step forward">›</button>
+          <button type="button" id="pg-back" title="Step back (,)" aria-label="Step back">‹</button>
+          <button type="button" id="pg-play" title="Play (space)">play</button>
+          <button type="button" id="pg-fwd" title="Step forward (.)" aria-label="Step forward">›</button>
         </div>
+        <label class="pg-speed" title="Frames a second (- +)">speed <select id="pg-speed" aria-label="Playback speed, frames a second"></select></label>
         <input type="range" id="pg-scrub" min="0" max="0" value="0" aria-label="Frame">
         <span class="pg-tick" id="pg-tick"></span>
       </div>

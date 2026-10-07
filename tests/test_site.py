@@ -412,6 +412,29 @@ class TestSiteJs(unittest.TestCase):
         self.assertIn('<li class="accepted"><button type="button" data-line="4">accepted:4:SGC101'
                       '</button> call-without-timeout: an upsert</li>', out)
 
+    def test_playground_speed_steps(self):
+        # the terminal viewer's - / + steps, a readable start, a remembered choice
+        code = _js_section("  // Run speeds in frames a second", "  // The findings panel's")
+        out = json.loads(self._run(code + "\nprocess.stdout.write(JSON.stringify({"
+                                   " speeds: SIM_SPEEDS, start: SIM_SPEEDS[SIM_SPEED],"
+                                   " labels: SIM_SPEEDS.map(speedLabel),"
+                                   " picks: [null, '0', '7', '8', '-1', '2.5', 'fast', ''].map(speedIndex) }));"))
+        view = _load("sigil_view_speeds", _DIR / "view.py")
+        self.assertLessEqual(set(view.SIM_SPEEDS), set(out["speeds"]))
+        self.assertEqual(out["speeds"], sorted(out["speeds"]))
+        self.assertEqual(out["start"], 2)
+        self.assertEqual(out["labels"], ["¼/s", "½/s", "1/s", "2/s", "4/s", "8/s", "16/s", "32/s"])
+        self.assertEqual(out["picks"], [3, 0, 7, 3, 3, 3, 3, 3])
+
+    def test_playground_speed_control_markup(self):
+        page = (SITE / "index.html").read_text(encoding="utf-8")
+        self.assertRegex(page, r'<select id="pg-speed" aria-label="[^"]+"')
+        for btn in ("pg-back", "pg-play", "pg-fwd"):
+            self.assertIn(f'id="{btn}"', page)
+        js = (SITE / "site.js").read_text()
+        self.assertIn('speed: $("#pg-speed")', js)
+        self.assertNotIn("localStorage.setItem(SPEED_KEY", js)   # through the try/catch store
+
 
 if __name__ == "__main__":
     unittest.main()
