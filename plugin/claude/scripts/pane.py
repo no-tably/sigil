@@ -53,7 +53,7 @@ MAX_FRAMES = 400            # a longer run is sampled evenly, its last frame kep
 LINT_LINES = 5              # diagnostics carried into the reply
 FOLLOW_POLL_S = 0.3         # how often follow looks at CONTROL
 ALIVE_S = 1.0               # how often follow touches CONTROL.alive
-_SPEED_RE = re.compile(r" (?:▶|❚❚) \d+/s")   # the live view's play mark and speed
+_SPEED_RE = re.compile(r" (?:▶|❚❚) \S+ frames?/s")   # the live view's play mark and speed
 
 
 def _load(name: str, path: Path):
@@ -98,18 +98,11 @@ def packed(rows, styles, frames) -> list:
 
 
 def compose(view, g, name: str, **kw):
-    """(rows, width) of `g` in view `name`. The flow view is drawn by a view.py
-    that has one (compose_view(view="flow") or compose_flow); an older one
-    raises LookupError naming what is missing."""
-    if name != "flow":
-        return view.compose_view(g, name == "tree", **kw)
-    fn = getattr(view, "compose_flow", None)
-    if fn is not None:
-        return fn(g, **kw)
-    try:
-        return view.compose_view(g, False, view="flow", **kw)
-    except TypeError:
-        raise LookupError("this view.py has no flow view") from None
+    """(rows, width) of `g` in view `name` (a name in VIEWS); a view.py too old to
+    know it raises LookupError naming what is missing."""
+    if name not in getattr(view, "VIEWS", ("graph", "tree")):
+        raise LookupError(f"this view.py has no {name} view")
+    return view.compose_view(g, name, **kw)
 
 
 def sampled(last: int, cap: int = MAX_FRAMES) -> list[int]:

@@ -3,8 +3,9 @@
 Covers:
   - pane.py draw: what it draws is what view.py draws (every cell one column,
     the styles as hex colours, never theme role names), a run's frames and
-    status, the tree legend, errors as {"error"} for a missing file, an
-    unknown scenario and a view.py without the flow view;
+    status, the tree legend, the flow view and a run in it, errors as
+    {"error"} for a missing file and an unknown scenario, a view.py without
+    the flow view named;
   - pane.py follow: runs view.py as its control file says, keeps waiting past
     a view.py that fails, and removes its files when view.py ends on its own;
   - build.py: the claude tree carries the mod (manifest fields, hooks module,
@@ -24,6 +25,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import types
 import unicodedata
 import unittest
 from pathlib import Path
@@ -110,8 +112,25 @@ class DrawTest(unittest.TestCase):
         self.assertIn("error", run_pane("draw", str(ROOT / "nope.sigil")))
         bad = run_pane("draw", str(SHOP), "--scenario", "no-such-run")
         self.assertTrue(bad["error"].startswith("scenario:"), bad)
-        flow = run_pane("draw", str(SHOP), "--view", "flow")
-        self.assertTrue("frames" in flow or "no flow view" in flow.get("error", ""), flow)
+
+    def test_draws_the_flow_view_and_runs_in_it(self):
+        out = run_pane("draw", str(SHOP), "--view", "flow")
+        g = view.render.parse_document(SHOP.read_text(encoding="utf-8"))
+        rows, _w = view.compose_view(g, "flow", depth=1, payloads=False, notes="off",
+                                     triggers=True, spaced=True, width=None, access=False,
+                                     mods=False, events=view.DEFAULT_EVENTS["flow"])
+        want = [ln.rstrip() for ln in text_of(rows)]
+        while want and not want[-1]:
+            want.pop()
+        self.assertEqual([ln.rstrip() for ln in text_of(out["frames"][0])], want)
+        run = run_pane("draw", str(SHOP), "--view", "flow", "--scenario", "happy")
+        self.assertEqual(run["view"], "flow")
+        self.assertEqual(len(run["frames"]), len(run["status"]))
+
+    def test_a_view_py_without_the_flow_view_is_named(self):
+        old = types.SimpleNamespace(VIEWS=("graph", "tree"))
+        with self.assertRaisesRegex(LookupError, "no flow view"):
+            pane.compose(old, None, "flow")
 
 
 class FollowTest(unittest.TestCase):
