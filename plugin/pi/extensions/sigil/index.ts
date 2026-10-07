@@ -1,0 +1,410 @@
+// The Sigil viewer inside pi: a `sigil_view` tool the agent calls and a
+// /sigil command, drawing a document in a widget above the editor (pane.py's
+// theme-coloured rows as truecolour text, redrawn on every save, a simulated
+// run stepped or played) or, in a multiplexer, in a split running view.py
+// live. The display rule, the requests and the split commands are the Claude
+// Code mod's (logic.ts, copied beside this file by build.py). Nothing here
+// imports pi itself, so it loads in any pi that has extensions; the
+// repository's plugin/pi/README.md has the layout.
+
+import { randomUUID } from 'node:crypto'
+import { stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+import {
+  DEFAULT_WIDTH, UNASKED_COLUMNS, VIEWS,
+  detectMux, drawArgv, frameIndex, herdrPaneOf, parseCommandArgs, parseDrawing,
+  parseRequest, replyText, resolveDisplay, shellQuote, splitArgv, statusLine, viewArgv,
+} from './logic.ts'
+import type { Asked, Display } from './logic.ts'
+
+// The shapes this file uses (types/index.d.ts in plugin/claude has them all).
+type ViewRequest = { file: string; view: 'graph' | 'tree' | 'flow'; depth: number; scenario?: string; payloads?: boolean }
+type PackedRow = [string, number][]
+type Style = [string | null, string | null, boolean]
+type Drawing = {
+  file: string; view: string; width: number | null; styles: Style[]; frames: PackedRow[][]
+  legend: PackedRow[]; summary: string; lint: string[]; scenarios: string[]
+  status?: string[]; log?: string[]; outcome?: string
+}
+type Playback = { at: number; isPlaying: boolean }
+type Split = { mux: 'herdr' | 'tmux' | 'zellij'; control: string; pane?: string }
+
+// The part of pi's extension API this uses, as its docs describe it.
+type ExecResult = { stdout: string; stderr: string; code: number }
+type Component = { render(width: number): string[]; invalidate(): void }
+type Tui = { requestRender(): void }
+type Ui = {
+  setWidget(key: string, content: undefined | ((tui: Tui, theme: unknown) => Component)): void
+  notify(message: string, level?: 'info' | 'warning' | 'error'): void
+}
+type Ctx = { cwd: string; hasUI: boolean; ui: Ui }
+type ToolResult = { content: { type: 'text'; text: string }[]; details: Record<string, unknown> }
+type Pi = {
+  registerTool(tool: {
+    name: string; label: string; description: string; promptSnippet?: string
+    parameters: Record<string, unknown>
+    execute(id: string, params: Record<string, unknown>, signal: unknown, onUpdate: unknown, ctx: Ctx): Promise<ToolResult>
+  }): void
+  registerCommand(name: string, options: { description: string; handler(args: string, ctx: Ctx): Promise<void> }): void
+  registerFlag(name: string, options: { description: string; type: 'string'; default: string }): void
+  getFlag(name: string): unknown
+  exec(command: string, args: string[], options?: { timeout?: number }): Promise<ExecResult>
+  on(event: string, handler: (event: unknown, ctx: Ctx) => unknown): void
+}
+
+export const TOOL = 'sigil_view'
+export const COMMAND = 'sigil' // pi names skills /skill:NAME, so /sigil is free
+export const WIDGET = 'sigil'
+export const FLAG = 'sigil-display'
+const WATCH_MS = 1000 // how often the shown file is looked at
+const PLAY_MS = 125 // a played run's frame time: 8 frames a second, view.py's start
+const ALIVE_MS = 3000 // a split whose follow loop touched its file this recently is up
+const CHROME_ROWS = 14 // the editor, footer and some conversation the widget leaves room for
+const MIN_BODY_ROWS = 10
+const HINT = `/${COMMAND} graph|tree|flow · depth N|all · sim NAME · play · pause · back · next · close`
+
+const HERE = dirname(fileURLToPath(import.meta.url))
+const PANE_PY = join(HERE, '..', '..', 'skills', 'sigil', 'scripts', 'pane.py')
+
+const TOOL_DESCRIPTION = [
+  'Show a Sigil design to the person in a live viewer in their terminal:',
+  'the graph, tree or flow view, redrawn on every save of the file. With',
+  'scenario, the simulated run of that pathway (view.py --sim names: happy, or',
+  'one from the scenarios list the reply gives), shown at frame (0-based, or',
+  '"last") or played (play: true). Fields left out keep their last value.',
+  'The reply says where it is shown, the summary, lint, and the run at that',
+  'frame; it does not return the drawing (view.py --once prints that as text).',
+].join(' ')
+
+// Plain JSON Schema (pi validates with ajv, coercing types): depth and frame
+// are strings so a number or "all" / "last" both pass, without a union.
+const TOOL_SCHEMA = {
+  type: 'object',
+  properties: {
+    file: { type: 'string', description: 'The .sigil file (relative to the working directory, or absolute).' },
+    view: { type: 'string', enum: [...VIEWS], description: 'Which view (default graph).' },
+    depth: { type: 'string', description: 'Expansion depth: a whole number, or "all" (default 1).' },
+    scenario: { type: 'string', description: 'A scenario to simulate; "" ends the run.' },
+    frame: { type: 'string', description: 'The run frame to show: a 0-based number, or "last" (default: the last).' },
+    play: { type: 'boolean', description: 'Play the run from the frame shown (true) or pause it (false).' },
+    payloads: { type: 'boolean', description: 'Show flow payloads.' },
+  },
+}
+
+/** `#rrggbb` as an SGR colour (38 foreground, 48 background), or null. */
+export function sgrColour(hex: string | null, base: 38 | 48): string | null {
+  const m = hex === null ? null : /^#([0-9a-f]{6})$/i.exec(hex)
+  if (m === null || m[1] === undefined) return null
+  const n = parseInt(m[1], 16)
+  return `${base};2;${(n >> 16) & 255};${(n >> 8) & 255};${n & 255}`
+}
+
+/** A packed row as one terminal line, at most `width` cells (pane.py makes
+ * every character one cell), each run in its style's colours. */
+export function ansiRow(row: PackedRow, styles: readonly Style[], width: number): string {
+  let out = ''
+  let left = width
+  for (const [text, id] of row) {
+    if (left <= 0) break
+    const cut = [...text].slice(0, left).join('')
+    left -= [...cut].length
+    const [fg, bg, bold] = styles[id] ?? [null, null, false]
+    const codes = [bold ? '1' : null, sgrColour(fg, 38), sgrColour(bg, 48)].filter(c => c !== null)
+    out += codes.length > 0 ? `\x1b[${codes.join(';')}m${cut}\x1b[0m` : cut
+  }
+  return out
+}
+
+/** Plain text cut to `width` cells, in an SGR style (dim 2, bold 1, red 31). */
+export function styled(text: string, width: number, sgr?: string): string {
+  const cut = [...text].slice(0, width).join('')
+  return sgr === undefined ? cut : `\x1b[${sgr}m${cut}\x1b[0m`
+}
+
+/** The widget's lines: the status, the frame (cut to `bodyRows`, saying how
+ * many rows are left out), the run's log line, the legend, summary, lint and
+ * the command hint. */
+export function widgetLines(drawing: Drawing, request: ViewRequest, playback: Playback,
+                            error: string | null, width: number, bodyRows: number): string[] {
+  const at = frameIndex(drawing as never, playback)
+  const rows = drawing.frames[at] ?? []
+  const lines = [styled(statusLine(drawing as never, request, at, playback.isPlaying), width, '1')]
+  if (error !== null) lines.push(styled(`✖ ${error}`, width, '31'))
+  const shown = rows.length > bodyRows ? rows.slice(0, Math.max(1, bodyRows - 1)) : rows
+  for (const row of shown) lines.push(ansiRow(row, drawing.styles, width))
+  if (shown.length < rows.length) {
+    lines.push(styled(`… ${rows.length - shown.length} more rows: view.py ${drawing.file} draws the whole of it`, width, '2'))
+  }
+  if (drawing.status !== undefined) lines.push(styled(drawing.log?.[at] || ' ', width, '2'))
+  if (shown.length === rows.length) for (const row of drawing.legend) lines.push(ansiRow(row, drawing.styles, width))
+  lines.push(styled(drawing.summary, width, '2'))
+  for (const line of drawing.lint) lines.push(styled(line, width, '2'))
+  lines.push(styled(HINT, width, '2'))
+  return lines
+}
+
+/** /sigil's own words over the tool's: `close`, `pause`, `back`, `next`. */
+export function commandWords(args: string): { action?: 'close' | 'back' | 'next'; input: Record<string, unknown> } {
+  const words = args.trim().split(/\s+/).filter(w => w !== '')
+  const own = words.find(w => w === 'close' || w === 'back' || w === 'next') as 'close' | 'back' | 'next' | undefined
+  const rest = words.filter(w => !['close', 'back', 'next', 'pause'].includes(w))
+  const input = parseCommandArgs(rest.join(' '))
+  if (words.includes('pause')) input.play = false
+  return own === undefined ? { input } : { action: own, input }
+}
+
+export default function sigil(pi: Pi): void {
+  let request: ViewRequest | null = null
+  let drawing: Drawing | null = null
+  let failure: string | null = null
+  let playback: Playback = { at: 0, isPlaying: false }
+  let split: Split | null = null
+  let tui: Tui | null = null // set while the widget is shown
+  let ui: Ui | null = null
+  let watchTimer: ReturnType<typeof setInterval> | null = null
+  let playTimer: ReturnType<typeof setInterval> | null = null
+  let seenMtime = 0
+  let drawingFor = '' // the request + width a redraw is under way for
+
+  const columns = () => process.stdout.columns || DEFAULT_WIDTH
+  const bodyRows = () => Math.max(MIN_BODY_ROWS, (process.stdout.rows || 40) - CHROME_ROWS)
+  const env = () => ({ herdr: process.env.HERDR_ENV, tmux: process.env.TMUX, zellij: process.env.ZELLIJ })
+  const display = (): Display => resolveDisplay(pi.getFlag(FLAG) ?? process.env.SIGIL_DISPLAY, env())
+
+  /** The file as an absolute path, or why it cannot be shown. */
+  async function located(cwd: string, file: string): Promise<string | { error: string }> {
+    const path = file.replace(/^@/, '') // some models prefix paths with @
+    const full = isAbsolute(path) ? path : resolve(cwd, path)
+    const st = await stat(full).catch(() => undefined)
+    if (st === undefined) return { error: `${file}: no such file` }
+    if (!st.isFile()) return { error: `${file}: not a file` }
+    seenMtime = st.mtimeMs
+    return full
+  }
+
+  async function runPane(req: ViewRequest, width: number): Promise<Drawing | { error: string }> {
+    const argv = drawArgv(PANE_PY, req, width)
+    const ran = await pi.exec(argv[0] ?? 'python3', argv.slice(1), { timeout: 60000 })
+      .catch((err: unknown) => ({ code: 1, stdout: '', stderr: String(err) }))
+    if (ran.code !== 0) return { error: ran.stderr.trim().split('\n').pop() || 'pane.py failed' }
+    return parseDrawing(ran.stdout) as Drawing | { error: string }
+  }
+
+  /** Runs pane.py for the request at `width` and stores what it drew. */
+  async function redraw(req: ViewRequest, width: number): Promise<Drawing | { error: string }> {
+    const key = JSON.stringify([req, width])
+    drawingFor = key
+    const got = await runPane(req, width)
+    if (drawingFor === key) drawingFor = ''
+    if ('error' in got) failure = got.error
+    else {
+      got.width = width
+      drawing = got
+      failure = null
+      playback = { ...playback, at: Math.min(playback.at, got.frames.length - 1) }
+    }
+    tui?.requestRender()
+    return got
+  }
+
+  function startWatch(): void {
+    if (watchTimer !== null) return
+    watchTimer = setInterval(async () => {
+      if (request === null || tui === null) return
+      const st = await stat(request.file).catch(() => undefined)
+      if (st === undefined || st.mtimeMs === seenMtime) return
+      seenMtime = st.mtimeMs
+      await redraw(request, drawing?.width ?? columns())
+    }, WATCH_MS)
+  }
+
+  function stopPlay(): void {
+    if (playTimer !== null) clearInterval(playTimer)
+    playTimer = null
+  }
+
+  function setPlayback(next: Playback): void {
+    playback = next
+    tui?.requestRender()
+    if (!next.isPlaying) return stopPlay()
+    if (playTimer !== null) return
+    playTimer = setInterval(() => {
+      if (drawing === null || !playback.isPlaying) return stopPlay()
+      const last = drawing.frames.length - 1
+      const at = Math.min(playback.at + 1, last)
+      playback = { at, isPlaying: at < last }
+      tui?.requestRender()
+      if (at >= last) stopPlay()
+    }, PLAY_MS)
+  }
+
+  /** The playback a request asks for over the drawing: `frame` (-1: the last),
+   * else the last frame of a new run, else where it stood; `play` from there. */
+  function playbackFor(asked: Asked, shown: Drawing, isNewRun: boolean): Playback {
+    const last = shown.frames.length - 1
+    let at = asked.frame === undefined ? (isNewRun ? (asked.play ? 0 : last) : playback.at) : asked.frame
+    if (at < 0 || at > last) at = last
+    const isPlaying = asked.play ?? (isNewRun ? false : playback.isPlaying)
+    return { at: isPlaying && at >= last && asked.frame === undefined ? 0 : at, isPlaying: isPlaying && last > 0 }
+  }
+
+  function component(): Component {
+    return {
+      render(width: number): string[] {
+        if (request === null || drawing === null) {
+          return [styled(failure ?? `No Sigil file shown yet: /${COMMAND} FILE, or ask the agent to show one.`, width, '2')]
+        }
+        if (drawing.width !== width && drawingFor !== JSON.stringify([request, width])) {
+          const req = request
+          drawingFor = JSON.stringify([req, width])
+          setTimeout(() => void redraw(req, width), 0)
+        }
+        return widgetLines(drawing, request, playback, failure, width, bodyRows())
+      },
+      invalidate() {},
+    }
+  }
+
+  function openWidget(onUi: Ui): void {
+    ui = onUi
+    if (tui !== null) return tui.requestRender()
+    onUi.setWidget(WIDGET, t => {
+      tui = t
+      return component()
+    })
+    startWatch()
+  }
+
+  function closeWidget(): void {
+    stopPlay()
+    if (watchTimer !== null) clearInterval(watchTimer)
+    watchTimer = null
+    playback = { ...playback, isPlaying: false }
+    ui?.setWidget(WIDGET, undefined)
+    tui = null
+  }
+
+  /** Shows `asked` in the widget; `isAsked`: the person's /sigil (any width). */
+  async function showInWidget(ctx: Ctx, asked: Asked, isAsked: boolean): Promise<string> {
+    if (!ctx.hasUI) {
+      return 'sigil: this pi session has no terminal UI (print or json mode); view.py --once prints the drawing.'
+    }
+    const path = await located(ctx.cwd, asked.request.file)
+    if (typeof path !== 'string') return `sigil: ${path.error}`
+    const req = { ...asked.request, file: path }
+    const isNewRun = req.scenario !== request?.scenario || req.file !== request?.file
+    request = req
+    const width = columns()
+    const got = await redraw(req, width)
+    if ('error' in got) return `sigil: ${got.error}`
+    setPlayback(playbackFor(asked, got, isNewRun))
+    let where = 'Shown in the sigil widget above the editor (redrawn on every save).'
+    if (tui !== null || isAsked || width >= UNASKED_COLUMNS) openWidget(ctx.ui)
+    else {
+      where = `The sigil widget is waiting: a widget the person did not ask for opens from ${UNASKED_COLUMNS} `
+        + `columns (this terminal has ${width}). They can open it at any width with /${COMMAND}.`
+    }
+    return replyText(got as never, frameIndex(got as never, playback), playback.isPlaying, where)
+  }
+
+  async function isAlive(held: Split): Promise<boolean> {
+    const st = await stat(`${held.control}.alive`).catch(() => undefined)
+    return st !== undefined && Date.now() - st.mtimeMs < ALIVE_MS
+  }
+
+  /** A split's reply: where, then the summary and the run's end as pane.py
+   * reads them (the split plays from its own keys: space, , and .). */
+  async function about(req: ViewRequest, asked: Asked, where: string): Promise<string> {
+    const steer = asked.frame !== undefined || asked.play !== undefined
+      ? ' Its run starts paused at the first frame: space plays it, , and . step it there.'
+      : ''
+    const got = await runPane(req, DEFAULT_WIDTH)
+    if ('error' in got) return `${where}${steer}\nsigil: ${got.error}`
+    const last = got.frames.length - 1
+    return replyText(got as never, last, false, where + steer).replace(/^paused at /m, 'the run ends at ')
+  }
+
+  /** Writes the split's control file, opening the split first when none is up. */
+  async function showInSplit(ctx: Ctx, asked: Asked): Promise<string> {
+    const path = await located(ctx.cwd, asked.request.file)
+    if (typeof path !== 'string') return `sigil: ${path.error}`
+    const req = { ...asked.request, file: path }
+    request = req
+    const mux = detectMux(env())
+    if (mux === null) {
+      return `sigil: display is multiplex, but no herdr, tmux or zellij session was found; start pi with --${FLAG} mod.`
+    }
+    const control = JSON.stringify({ argv: viewArgv(req) })
+    if (split !== null && split.mux === mux && (await isAlive(split))) {
+      await writeFile(split.control, control)
+      return about(req, asked, `Shown in the ${mux} split running view.py live: ${shellQuote(viewArgv(req))}.`)
+    }
+    const opened: Split = { mux, control: join(tmpdir(), `sigil-view-${randomUUID()}.json`) }
+    await writeFile(opened.control, control)
+    const follow = ['python3', PANE_PY, 'follow', opened.control]
+    const argv = splitArgv(mux, follow, mux === 'herdr' ? process.env.HERDR_PANE_ID : undefined)
+    const ran = await pi.exec(argv[0] ?? mux, argv.slice(1), { timeout: 30000 })
+    if (ran.code !== 0) return `sigil: could not open a ${mux} split: ${ran.stderr.trim()}`
+    if (mux === 'herdr') {
+      const pane = herdrPaneOf(ran.stdout)
+      if (pane === undefined) return 'sigil: herdr split gave no pane id'
+      opened.pane = pane
+      await pi.exec('herdr', ['pane', 'run', pane, shellQuote(follow)], { timeout: 30000 })
+    } else if (mux === 'tmux') {
+      opened.pane = ran.stdout.trim()
+    }
+    split = opened
+    return about(req, asked, `Opened a ${mux} split running view.py live (it redraws on every save; `
+      + `q closes it): ${shellQuote(viewArgv(req))}.`)
+  }
+
+  async function show(ctx: Ctx, input: Record<string, unknown>, isAsked: boolean): Promise<string> {
+    const asked = parseRequest(input, request as never)
+    if ('error' in asked) return `sigil: ${asked.error}`
+    return display() === 'multiplex' ? showInSplit(ctx, asked) : showInWidget(ctx, asked, isAsked)
+  }
+
+  pi.registerFlag(FLAG, {
+    description: 'Where the sigil viewer draws: mod (a widget above the editor), multiplex '
+      + '(a herdr / tmux / zellij split running view.py live) or auto (multiplex inside a multiplexer, else mod).',
+    type: 'string',
+    default: 'auto',
+  })
+
+  pi.registerTool({
+    name: TOOL,
+    label: 'Sigil view',
+    description: TOOL_DESCRIPTION,
+    promptSnippet: 'Show a Sigil design (and a simulated run of it) to the person in a live viewer',
+    parameters: TOOL_SCHEMA,
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const text = await show(ctx, params, false)
+        .catch((err: unknown) => `sigil: the viewer failed (${String(err)}); view.py --once still prints the drawing.`)
+      return { content: [{ type: 'text', text }], details: {} }
+    },
+  })
+
+  pi.registerCommand(COMMAND, {
+    description: 'Show a Sigil file in the viewer widget (any width), step or play its run, or close it',
+    async handler(args, ctx) {
+      const { action, input } = commandWords(args)
+      if (action === 'close') return closeWidget()
+      if (action !== undefined) {
+        if (drawing === null) return ctx.ui.notify(`sigil: nothing shown yet: /${COMMAND} FILE`, 'warning')
+        const step = action === 'next' ? 1 : -1
+        const at = Math.max(0, Math.min(frameIndex(drawing as never, playback) + step, drawing.frames.length - 1))
+        setPlayback({ at, isPlaying: false })
+        if (Object.keys(input).length === 0) return openWidget(ctx.ui)
+      }
+      if (Object.keys(input).length === 0 && display() === 'mod' && request !== null) return openWidget(ctx.ui)
+      const text = await show(ctx, input, true)
+      const first = text.split('\n')[0] ?? ''
+      ctx.ui.notify(first, first.startsWith('sigil:') ? 'error' : 'info')
+    },
+  })
+
+  pi.on('session_shutdown', () => closeWidget())
+}

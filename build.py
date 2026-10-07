@@ -16,6 +16,9 @@ Canonical sources (edit these, never dist/):
                                hooks/ and types/ (copied), scripts/pane.py and
                                site/frames.py (into the skill's scripts/); its
                                tests/ and tsconfig.json stay here
+    plugin/pi/                 the pi viewer extension: extensions/sigil/index.ts,
+                               with the mod's hooks/logic.ts beside it and pane.py
+                               and frames.py in the skill's scripts/
     lint.py render.py view.py  copied into skills/sigil/scripts/ (required)
     viewkit.py view_graph.py   view.py's drawing modules, the scene layer and
     view_tree.py view_flow.py  the simulation engine, copied alongside (required)
@@ -35,7 +38,8 @@ Outputs (under --out, default ./dist):
     codex/                     Agent Plugins 1.0 plugin (root plugin.json);
                                commands become skills that opt out of implicit use
     codex-marketplace/         .agents/plugins/marketplace.json -> ./plugins/sigil
-    pi/                        pi package (package.json "pi" key, prompts/)
+    pi/                        pi package (package.json "pi" key, prompts/), with
+                               the viewer extension (extensions/sigil/)
     opencode/                  config tree + install.sh (skills/, commands/)
     sigil-<tree>-<version>.zip and .tar.gz   both archives for every tree above,
                                e.g. sigil-claude-marketplace-<version>.zip
@@ -98,6 +102,13 @@ MOD = ROOT / "plugin" / "claude"
 MOD_KEYS = ("types", "userConfig")
 MOD_DIRS = ("hooks", "types")
 MOD_SCRIPTS = {"pane.py": MOD / "scripts" / "pane.py", "frames.py": ROOT / "site" / "frames.py"}
+# The pi viewer extension (plugin/pi): its published files and their sources. It
+# shares the Claude Code mod's pure half, and imports nothing but node: builtins
+# and these files, so it loads in any pi with extensions.
+PI_EXT = "extensions/sigil/index.ts"
+PI_FILES = {PI_EXT: ROOT / "plugin" / "pi" / "extensions" / "sigil" / "index.ts",
+            "extensions/sigil/logic.ts": MOD / "hooks" / "logic.ts"}
+PI_IMPORT_RE = re.compile(r"^\s*(?:import|export)\b[^'\"]*?\bfrom\s+['\"]([^'\"]+)['\"]", re.M)
 # Where each target records its version (opencode has no manifest).
 VERSION_FILES = {"claude": ".claude-plugin/plugin.json", "codex": "plugin.json",
                  "pi": "package.json"}
@@ -360,19 +371,30 @@ def build_pi(out: Path, meta: dict) -> list[Path]:
         "description": meta["description"],
         "author": meta["author"]["name"],
         "keywords": sorted(set(meta.get("keywords", [])) | {"pi-package"}),
-        "files": ["skills", "prompts", "README.md"],
-        "pi": {"skills": ["./skills"], "prompts": ["./prompts/*.md"]},
+        "type": "module",
+        "files": ["extensions", "skills", "prompts", "README.md"],
+        "pi": {"extensions": [f"./{PI_EXT}"], "skills": ["./skills"],
+               "prompts": ["./prompts/*.md"]},
     }
     for k in ("homepage", "repository"):
         if is_url(meta.get(k)):
             pkg[k] = meta[k]
     write_json(root / "package.json", pkg)
     stage_skill(root / "skills" / SKILL)
+    for rel, src in PI_FILES.items():
+        write(root / rel, src.read_text(encoding="utf-8"))
+    for name, src in MOD_SCRIPTS.items():
+        write(root / "skills" / SKILL / "scripts" / name, src.read_text(encoding="utf-8"),
+              executable=True)
     write_commands(root / "prompts", PORTABLE_SCRIPTS, note=True)
     prompts = ", ".join(f"`/{name}`" for name, _, _ in load_commands())
     write(root / "README.md", f"# {meta['name']} (pi package)\n\n{meta['description']}\n\n"
           "Install: `pi install ./` from this directory (add `-l` for project-local).\n"
-          f"Provides the `{SKILL}` skill and the prompts {prompts}.\n")
+          f"Provides the `{SKILL}` skill, the prompts {prompts}, and a viewer: the\n"
+          "agent's `sigil_view` tool and the `/sigil` command show a design live, in a\n"
+          "widget above the editor or in a herdr / tmux / zellij split. `--sigil-display\n"
+          "auto|mod|multiplex` (or `SIGIL_DISPLAY`) picks which; auto takes the split\n"
+          "inside a multiplexer.\n")
     return [root]
 
 
@@ -723,7 +745,32 @@ def check_pi(out: Path, errs: list[str]) -> None:
             errs.append(f"{root}/package.json: missing {k}")
     check_sigil_skill(root / "skills" / SKILL, errs)
     check_commands(root / "prompts", errs, f"{PORTABLE_SCRIPTS}/", note=True)
+    check_pi_extension(root, pi if isinstance(pi, dict) else {}, errs)
     check_tree_text(root, errs)
+
+
+def check_pi_extension(root: Path, pi: dict[str, Any], errs: list[str]) -> None:
+    """The viewer extension: the manifest names it, it and logic.ts are there, they
+    import only node: builtins and each other, pane.py and frames.py sit beside the
+    skill's tools, and no test shipped."""
+    if pi.get("extensions") != [f"./{PI_EXT}"]:
+        errs.append(f"{root}/package.json: pi.extensions must be ['./{PI_EXT}']")
+    for rel in PI_FILES:
+        p = root / rel
+        if not p.is_file():
+            errs.append(f"{p}: missing")
+            continue
+        for spec in PI_IMPORT_RE.findall(p.read_text(encoding="utf-8")):
+            local = spec.startswith("./") and (p.parent / spec).is_file()
+            if not (spec.startswith("node:") or local or spec == "../types"):
+                errs.append(f"{p}: imports {spec!r} (only node: builtins and its own files)")
+    for name in MOD_SCRIPTS:
+        p = root / "skills" / SKILL / "scripts" / name
+        if not p.is_file():
+            errs.append(f"{p}: missing")
+    for p in _entries(root / "extensions") if (root / "extensions").is_dir() else []:
+        if p.name.endswith((".test.ts", ".test.mjs")):
+            errs.append(f"{p}: an extension test shipped")
 
 
 def check_opencode(out: Path, errs: list[str]) -> None:
