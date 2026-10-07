@@ -366,7 +366,9 @@ LEGEND_WIDTH = 100                              # --once legend wrap width
 
 def wrap_legend(row, cols: int):
     """Wrap a legend row (a label run, then (marker, word) run pairs) to `cols`,
-    breaking only between entries; continuation lines are indented under the label."""
+    breaking between entries; continuation lines are indented under the label. An
+    entry wider than a line on its own breaks between its words, the rest under
+    its first word."""
     label, items = row[0], [row[i:i + 2] for i in range(1, len(row), 2)]
     indent = (" " * len(label[0]), None)
     out, cur = [], [label]
@@ -374,6 +376,18 @@ def wrap_legend(row, cols: int):
         if kit.row_len(cur) + kit.row_len(item) > cols and len(cur) > 1:
             out.append(cur)
             cur = [indent]
+        if kit.row_len(cur) + kit.row_len(item) > cols and len(item) == 2:
+            (mark, mstyle), (word, wstyle) = item
+            pad = " " * (len(word) - len(word.lstrip()))
+            lead = kit.row_len(cur) + len(mark) + len(pad)
+            parts = textwrap.wrap(word.lstrip(), max(cols - lead, 8), break_long_words=False)
+            if len(parts) > 1:
+                cur = cur + [(mark, mstyle), (pad + parts[0], wstyle)]
+                for part in parts[1:]:
+                    out.append(cur)
+                    cur = [(" " * lead, None), (part, wstyle)]
+                cur.append(("  ", wstyle))    # the gap an entry's word ends with
+                continue
         cur = cur + item
     out.append(cur)
     return [_rstrip_row(r) for r in out]

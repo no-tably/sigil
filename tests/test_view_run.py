@@ -401,6 +401,17 @@ class TestApp(unittest.TestCase):
         for r in view.wrap_legend(vrun.run_legend(), 60):
             self.assertEqual(r[-1][0], r[-1][0].rstrip())
 
+    def test_a_legend_entry_wider_than_the_width_breaks_between_its_words(self):
+        rows = view.wrap_legend(view.sim_legend(), 40)
+        text = ["".join(t for t, _ in r) for r in rows]
+        self.assertTrue(all(len(ln) <= 40 for ln in text), text)
+        words = " ".join(ln.strip() for ln in text).split()
+        self.assertEqual(words[-7:], ["◉", "State", "its", "owner's,", "machine", "not", "drawn"])
+        cont = text[-1]                  # the entry's last word, under its first one
+        self.assertEqual(len(cont) - len(cont.lstrip()), text[-2].index("its"))
+        self.assertEqual(view.wrap_legend(view.sim_legend(), 400),
+                         [view._rstrip_row(view.sim_legend())])    # fits: unchanged
+
 
 if __name__ == "__main__":
     unittest.main()
