@@ -549,6 +549,11 @@ class TestQualifiedPaths(unittest.TestCase):
     def test_legend_lists_the_path_mark(self):
         self.assertIn("[A]/ in path", "".join(t for t, _ in view.graph_legend()))
 
+    def test_graph_legend_lists_the_stream_and_role_boxes(self):
+        legend = "".join(t for t, _ in view.graph_legend())
+        self.assertIn("┒┃┛ stream", legend)
+        self.assertIn("╖║╜ role", legend)
+
 
 class TestCoverageFixture(unittest.TestCase):
     def test_every_toggle_draws_the_fixture(self):

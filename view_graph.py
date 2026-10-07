@@ -1815,11 +1815,13 @@ def graph_legend(triggers: bool = True, payloads: bool = False, access: bool = F
     then the trigger edge, an event drawn where it lands (events "land": the
     event-coloured edge emitter → destination, its name beside the head),
     structure marks (block frames, joins, branch arms, a qualified path's
-    `[A]/` beside its head), the call marks (a box's self-call ↺, recursion ↻,
+    `[A]/` beside its head), the box shapes the tree marks apart (a stream's
+    shadow ┒┃┛, a generic role's stack ╖║╜), the call marks (a box's self-call ↺, recursion ↻,
     host-provided op ⇱), the permission edges,
     payload chips (with a call's `↩` return) and modifier chips when they are
     shown."""
     dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
+    box = (kit.GREY["light"], None, False)
     row = [("arrows ", dim)]
     for kind, word in kit.ARROW_LEGEND:
         colour = kit.EDGE_COLOR.get(kind, kit.EDGE_DEFAULT)
@@ -1837,7 +1839,8 @@ def graph_legend(triggers: bool = True, payloads: bool = False, access: bool = F
             ("┄‹arm›┄", (kit.EDGE_COLOR["arm"], None, False)), (" branch arm  ", mid),
             ("━┷━ &", kit.LABEL_STYLE), (" join: all  ", mid), ("&?", kit.LABEL_STYLE),
             (" race  ", mid), ("/", kit.LABEL_STYLE), (" one of  ", mid),
-            ("▼ [A]/", kit.LABEL_STYLE), (" in path  ", mid)]
+            ("▼ [A]/", kit.LABEL_STYLE), (" in path  ", mid),
+            ("┒┃┛", box), (" stream  ", mid), ("╖║╜", box), (" role  ", mid)]
     op = kit.SYNTAX["operator"]
     row += [("↺", op), (" self-call  ", mid), ("↻", op), (" recursion  ", mid),
             ("⇱", op), (" host op  ", mid)]

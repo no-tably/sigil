@@ -85,8 +85,25 @@ triggers), so a construct reads the same in the graph and the tree. Re-graded fr
 - **Simulation** (`x`, `--sim`): not a drawing grade — see "Simulation over this
   fixture" below.
 
-Still open after the scene-sim campaign: block-comment anchoring (85) — now drawn (the
-block frame / header row is tagged; a detached document header is listed as `¶`).
+Still open after the scene-sim campaign: stream / role shapes (11, 83), `@borrow(read)`'s
+narrowing (28), block-comment anchoring (85), which of two chips on one tree row is the
+error path without colour (49), the block-string's content (45), expansion vs contains in
+the tree (51), the `\-_` group (76), path chips in the graph (81).
+
+## Status after the viewer coverage gaps pass (2026-10-07)
+
+Rows 11 28 45 49 51 76 81 83 85 are now drawn in both views (row 76's graph half stays
+LOST by design, as row 69): a stream's shadowed box / tree ` ≋`, a role's stacked box and
+`‹N›`, `ƀ` for `@borrow(read)`, a block-string's first line with its full text as a note,
+`✖` leading an error path's tree chip, dotted `├┄┄` rails for `:=` internals, a `⎫ ⎭`
+brace over one-of siblings, `[A]/` beside a qualified path's head, and a block comment
+tagging its frame / header row (a detached document header listed as `¶`). The graph
+legend lists the stream / role boxes; the tree legend each new mark when it is drawn.
+
+Still open: the tree's hole rows (6), the graph's `×N` (79, composition is tree-only),
+inline trailing comments (86). A mutable stream `~*` keeps `~`'s heavy box in the graph
+(no glyph set is both heavy and shadowed); its label's `~*` and the tree's ` ≋` still
+say stream.
 
 ## Construct table
 
@@ -102,7 +119,7 @@ block frame / header row is tagged; a detached document header is listed as `¶`
 | 8 | wildcard `_` (branch arm) | `_ => <Rejected>` | DRAWN | DRAWN | graph: an arm chip `┆ _ ┆` on the `◇ {Request}.kind` → `<Rejected>` arm; tree: `<Rejected> ‹_›` on its row inside the branch bracket | done (view.py) | FIXED: arm `_` in `Block.arms` / `arm_nodes`; no phantom edge |
 | 9 | generics `<…>` | `[Cache<K,V>]`, `{List<T>}`, `<Msg<T>>` | DRAWN | DRAWN | phantom **event** boxes `│ <K,V> │` and `│ <T> │`; `[Cache]`, `{List}`, `<Msg>` never appear; `[Api] <-> [Cache<K,V>]` draws as `[Api] ↔ <K,V>`. Lint says OK | parse `<…>` as part of the glyph; draw `[Cache‹K,V›]` in the owner's box shape | FIXED: one glyph, name `Cache<K,V>`, `params` ("K","V"), `base_name`; Mermaid escapes `<>` |
 | 10 | mutability `~` | `~{Session}`, `~\|Counter\|` | DRAWN | DRAWN | heavy border `┏━━━━━━━━━━━━┓ ~\|Counter\|`; tree keeps `~` in the label | — | — |
-| 11 | stream prefix `*` | `*<Raw>`, `*{Rows}`, `*\|AuditLog\|` | DRAWN | DRAWN | graph: a shadowed box — light top/left, heavy right side and bottom (`┌────────┒ │ *<Raw> ┃ ┕━━━━━━━━┛`), apart from `~`'s all-heavy `┏━┓`; tree: ` ≋` after the label, also where the event lands (`[Parse] *<Raw> ≋`), `≋ stream` in the legend when drawn | done (view.py) | — |
+| 11 | stream prefix `*` | `*<Raw>`, `*{Rows}`, `*\|AuditLog\|` | DRAWN | DRAWN | graph: a shadowed box — light top/left, heavy right side and bottom (`┌────────┒ │ *<Raw> ┃ ┕━━━━━━━━┛`), apart from `~`'s all-heavy `┏━┓` (a mutable stream `~*` keeps the heavy box, its label says `~*`); graph legend `┒┃┛ stream`; tree: ` ≋` after the label, also where the event lands (`[Parse] *<Raw> ≋`), `≋ stream` in the legend when drawn | done (view.py) | — |
 | 12 | stream bound `^N@policy` | `*<Raw>^10k@drop`, `*<Enriched>^5@latest`, `*{Rows}^100@err` | DRAWN | DRAWN | with `m`: `*<Raw> ^10k drop`, `*<Parsed> ^10k`, `*<Enriched> ^5 latest`, `*{Rows} ^100 err` after the label (both views); nothing without `m` | done (view.py) | KEPT: node mod ("^", "10k@drop") |
 | 13 | `->` | `(Customer) -> [Api]` | DRAWN | DRAWN | light `│─`; tree `●─ … ◀` | — | — |
 | 14 | `→` | `[Api] → [Auth]` | DRAWN | DRAWN | same as `->` | — | — |
@@ -174,7 +191,7 @@ block frame / header row is tagged; a detached document header is listed as `¶`
 | 80 | inline branch | `[Log] \-& {Scrollable}` | LOST | DRAWN | tree `[Log]` / `└─& {Scrollable}` | — | — |
 | 81 | qualified path `[A]/{B}` | `[Homing] -> [Bullet]/{Transform}` | DRAWN | DRAWN | graph: still one `{Transform}` box, but Homing's edge carries the path's prefix beside its head (`▼ [Bullet]/`, `[Ship]/[Bullet]/` for a deeper path; a name with no box of its own shows bare, `Ship/`), Physics' edge none; legend `▼ [A]/ in path`. Tree: `[Physics]` taps both `{Transform}` rows, `[Homing]` only `│  ├─& {Transform} ◀──┼─┐` under `[Bullet]` | done (view.py) | — |
 | 82 | permission `@read(…)` / `@write(…)` | `*\|AuditLog\| @read(Auditor) @write(Api, Worker)`, `\|Directives\| @read(Worker) @write(Boss)` | DRAWN | DRAWN | with `a`: dotted access edges principal → store headed `r` / `w` (graph), lanes whose source is marked `r` / `w` (tree); stores badged `\|Directives\| 1w`, `*\|AuditLog\| 2w` (one writer owns it vs shared) | done (view.py) | KEPT: `Graph.access` read/write, principals resolved to node ids |
-| 83 | generic role | `[Worker<N>]` (`@read(Worker)`) | DRAWN | DRAWN | a generic glyph an `@read`/`@write` list names is a role (Node.is_role): its generics in ‹ › (`[Worker‹N›]`, both views) and, in the graph, a stacked box with a double right side (`┌─────────────╖ │ [Worker‹N›] ║ └─────────────╜`); the tree row `[Worker‹N›]`, `[R‹N›] role: N members` in its legend. `[Cache<K,V>]` (no principal) stays a plain box | done (view.py) | FIXED: `[Worker<N>]` one node; `@read(Worker)` resolves by `base_name` when no exact `[Worker]`; `Node.is_role` marks the role (also when an exact `[Worker]` takes the edge) |
+| 83 | generic role | `[Worker<N>]` (`@read(Worker)`) | DRAWN | DRAWN | a generic glyph an `@read`/`@write` list names is a role (Node.is_role): its generics in ‹ › (`[Worker‹N›]`, both views) and, in the graph, a stacked box with a double right side (`┌─────────────╖ │ [Worker‹N›] ║ └─────────────╜`); the tree row `[Worker‹N›]`, `[R‹N›] role: N members` in its legend (`╖║╜ role` in the graph's). `[Cache<K,V>]` (no principal) stays a plain box | done (view.py) | FIXED: `[Worker<N>]` one node; `@read(Worker)` resolves by `base_name` when no exact `[Worker]`; `Node.is_role` marks the role (also when an exact `[Worker]` takes the edge) |
 | 84 | block comment above | `# order lifecycle, driven by events` / `state {Order}` | DRAWN | DRAWN | `{Order} ¶10`; callout `╭ ¶10 order lifecycle, ╮ ──── {Order} ¶10` | — | — |
 | 85 | block comment above a glyph-less statement | `# route by request kind` / `branch on …`; header comment above `retry :=` | DRAWN | DRAWN | the comment tags the block, not its first arm: graph `╭╌ ◇ branch on {Request}.kind #14 ╌╮` (the `[Reader]` box untagged), tree `┌─ ◇ branch on {Request}.kind #14` (a callout's `#>` leader points at that header row); the same for `loop` / `parallel` / a scoped `name {`, and a comment trailing such a header (no body on its line) trails the header row. A header comment that comes before the first statement but is detached from it (a blank line, a section, the end) is the document's own note, listed first as `¶ …` and tagged on nothing (tree callouts list it under the drawing). The fixture's header sits directly above `retry :=`, so it stays on `[[retry]]` | done (view.py) | FIXED: `Note.block` (index into `Graph.blocks`) for a comment above a glyph-less header; `Note.node` None for a block or document note; `[H] @owns \|R\| {` keeps its owner |
 | 86 | inline trailing comment | `=> ~{Session}?  # optional result`, `\-& {Transform}  # inline note on a branch` | WEAK | WEAK | `#12` correctly on the branch row; but `#4 optional result` is placed on `~{Session}` and `#3`/`#6` on the line subject — they follow the parser's subject, so a continuation's note sits on the wrong node | fixed by #21; otherwise fine | — |
