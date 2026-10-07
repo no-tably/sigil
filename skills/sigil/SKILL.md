@@ -63,13 +63,40 @@ All scripts are Python 3 standard library only. Write the document to a file
 | Run every pathway | `python3 scripts/view.py FILE --sim all [--json]` | no drawing: per scenario `NAME outcome N frames label`, then indented facts — `states:` each machine's end state, `failed:` what failed (`↩ fallback`, `critical`), `routes:` failure routes taken, `ignored:` events a state had no transition for, `waiting:` nodes left blocked, `open:` joins left open, `bounds:` a base case, visit limit, spawn cap, loop at the cap or cut — then `N scenarios: a ok, b failed, c cut`; always exit 0. `--sim list`: the scenario names and labels |
 | Walk one pathway | `python3 scripts/view.py FILE --once --tree --sim SCENARIO` | the run's last frame over the drawing (`✕` failed, `◉` a machine's state, wires taken vs never taken), then `sim NAME (label): ok\|failed\|cut · N frames` and the run in plain words, one `tNNN …` line per step (`[API] calls [Payments] with charge(total) — attempt 2 of 4`, `[API] routes the failure to <PaymentFailed>`); exit 2 for an unknown scenario, listing the known ones. `--sim SCENARIO --json` (no drawing): the run's facts, `steps` [{frame, tick, text}] and the raw `log` |
 | Mark the findings | `python3 scripts/view.py FILE --once --checks [--tree]` | the check findings marked on the drawing, a checks legend, then each finding's question after lint |
-| Show it to the user (Claude Code) | the plugin's `view` tool (`mcp__sigil__view`): `file`, `view` graph\|tree\|flow, `depth`, `scenario`, `frame` N\|last, `play` | a live viewer the user watches (a pane, or a herdr / tmux / zellij split) that redraws on every save; the reply gives the summary, lint and the run's step at that frame, never the drawing. If it says the pane is waiting, tell the user `/sigil-pane` opens it |
+| Show it to the user | the plugin's viewer tool — Claude Code: `view` (`mcp__sigil__view`); pi: `sigil_view` — with `file`, `view` graph\|tree\|flow, `depth`, `scenario`, `frame` N\|last, `play` | a live viewer the user watches (a pane or widget, or a herdr / tmux / zellij split) that redraws on every save; the reply gives the summary, lint and the run's step at that frame, never the drawing. See **Showing the user** |
 | Mermaid diagram | `python3 scripts/render.py FILE [--depth N\|all] [--composition subgraphs\|edges\|none]` | `flowchart TD` source; present it in a fenced `mermaid` block. Composition trees draw as subgraphs by default |
 
 `--depth 0` shows the top level only, `1` (default) opens direct `:=` expansions,
 `all` opens everything — keep `all` for small documents. If a dialect is in use
 (see "Dialects" in `references/language.md`), pass `--dialect NAME` or set
 `SIGIL_DIALECT`; plain Sigil needs neither.
+
+### Showing the user
+
+The user should see the design while you work on it together. There are three
+ways to show it. Pick by where you are running:
+
+- **The viewer tool**, in Claude Code (`view`) and pi (`sigil_view`). Use it if
+  you have it. Call it once on the file when the design work starts. Call it
+  again when you want the user to look at something particular, such as a run
+  (`scenario`, then `frame` or `play`). The viewer redraws on every save, so
+  don't call it after each edit. It draws in a pane (Claude Code) or a widget
+  above the editor (pi). Inside herdr, tmux or zellij it opens a split running
+  the live view instead. If the reply says the viewer is waiting (the terminal
+  is narrower than 144 columns), tell the user they can open it with
+  `/sigil-pane` in Claude Code or `/sigil` in pi. If it says there is no UI, or
+  the tool fails, use `--once`.
+- **A multiplexer split**, everywhere else (Codex, OpenCode), or when the user
+  prefers it. Ask the user to run `python3 scripts/view.py FILE` in a split or a
+  second terminal. If you can open the split yourself, do: `tmux split-window -h
+  'python3 scripts/view.py FILE'`, or `zellij run --direction right -- python3
+  scripts/view.py FILE`. In herdr, run `herdr pane split`, then `herdr pane run`
+  on the new pane. It redraws on every save, and its keys are in the table above.
+- **`--once`**, for you, or when the drawing belongs in your reply. It prints one
+  drawing as text. Read it yourself to check the shape, or paste it into a code
+  block when the user asked to see it here, or can't run a live view. It is also
+  the way to see a run's frame yourself: the viewer tool never returns the
+  drawing.
 
 ## Operations
 
@@ -128,11 +155,11 @@ document after every substantive change; offer a tighten pass every few turns;
 propose promotion to `#!sketch` / `#!spec` once holes are resolved. Do not
 produce a finished-looking spec prematurely or drop into algorithm internals.
 
-Keep the craft document in a file and rewrite that file after every change: a user
-running `python3 scripts/view.py FILE` in a side pane sees the graph redraw live. In
-Claude Code, call the plugin's `view` tool on the file once at the start, and again to
-show the user a run you are discussing (`scenario`, `frame`). Use `--once` output only
-when the drawing itself belongs in your reply.
+Keep the craft document in a file and rewrite that file after every change: the
+user's live view (see **Showing the user**) redraws on every save. Show it with the
+viewer tool once at the start, if you have one; otherwise ask the user to open
+`python3 scripts/view.py FILE` in a split. Use `--once` output only when the drawing
+itself belongs in your reply.
 After each substantive change, test-drive it before replying:
 1. `python3 scripts/lint.py FILE --deep` — lint plus the composition checks (see
    **check**); put the findings' questions to the user alongside your next step.

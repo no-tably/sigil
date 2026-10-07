@@ -194,6 +194,47 @@ The plugin option `display` picks where the viewer draws:
 - `auto`, the default, picks `multiplex` when `HERDR_ENV`, `TMUX` or `ZELLIJ` is
   set, and `mod` otherwise.
 
+## The pi viewer
+
+The pi package's extension (`plugin/pi`) does the same job in pi. The agent gets a
+`sigil_view` tool and the person gets a `/sigil` command. Both work as they do in
+Claude Code, with these differences:
+
+- The tool takes the same fields. `depth` and `frame` are strings: `"2"`, `"all"`,
+  `"last"`. A number passes too, since pi converts it.
+- `mod` draws in a widget above the editor, in the theme's colours as truecolour
+  text. A tall drawing is cut to fit the terminal, and the last row says how
+  many rows were left out. A widget opened without being asked needs 144 columns.
+  Below that, the reply says it's waiting and names `/sigil`, which opens it at
+  any width.
+- The widget takes no keys, since it never has focus. `/sigil` takes the tool's
+  words (`FILE`, a view name, `depth N|all`, `sim SCENARIO`, `frame N|last`,
+  `play`, `payloads`) plus `pause`, `back`, `next` and `close`. With no words it
+  reopens the widget.
+- `multiplex` opens the same split, running `pane.py follow`.
+- Choose the display with `pi --sigil-display auto|mod|multiplex`, or with the
+  `SIGIL_DISPLAY` environment variable. Both default to `auto`.
+- In print and json modes (`-p`, `--mode json`) there's no UI. The `mod` reply
+  says so and points to `view.py --once`. In RPC mode the widget isn't drawn:
+  pi sends RPC clients only plain-text widgets, and this one is a component.
+
+## OpenCode
+
+OpenCode gets the skill and commands but no viewer plugin. To show a design live
+there, run `view.py FILE` in a herdr, tmux or zellij split; the agent reads
+`view.py --once`. Checked on 2026-10-07:
+
+- OpenCode's published plugin docs (opencode.ai/docs/plugins) cover server
+  plugins only: hooks, events and custom tools. Nothing there draws in the TUI.
+- The repository does have TUI plugins: slots, routes and dialogs, through
+  `@opencode-ai/plugin/tui`, configured in `tui.json`. The only description is
+  a spec inside the repository (`packages/opencode/specs/tui-plugins.md`). The
+  published docs don't mention them.
+- A viewer would need two modules. A server plugin would hold the agent's tool,
+  and a TUI plugin, in Solid JSX on OpenTUI, would draw. The spec doesn't allow
+  one module to be both. The two would talk through files, and none of that can
+  be checked without OpenCode installed.
+
 ## `render.py FILE|-`
 
 Emits a Mermaid `flowchart TD` for docs (GitHub, Obsidian, mermaid.live, …).

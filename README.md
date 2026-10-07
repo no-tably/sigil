@@ -184,6 +184,13 @@ pi install ./sigil-pi-<version>        # add -l to install for this project only
 
 Provides the `sigil` skill and the `/sigil-view` and `/sigil-lint` prompts.
 
+The pi package also carries a viewer extension, which works like the Claude Code
+mod. The agent gets a `sigil_view` tool, and you get a `/sigil` command. With
+`mod` display it draws in a widget above the editor, and a widget you didn't ask
+for needs 144 columns. With `multiplex` it opens a herdr, tmux or zellij split.
+`auto` picks between them the same way. Choose with `pi --sigil-display
+auto|mod|multiplex`, or set `SIGIL_DISPLAY`.
+
 ### OpenCode
 
 ```sh
@@ -194,6 +201,10 @@ unzip sigil-opencode-<version>.zip
 
 Provides the `sigil` skill and the `/sigil-view` and `/sigil-lint` commands.
 (OpenCode also discovers skills in `~/.claude/skills` and `.agents/skills`.)
+
+OpenCode gets no viewer plugin. To watch a design live, run `view.py FILE` in a
+herdr, tmux or zellij split; the agent reads `view.py --once`.
+[`docs/tools.md`](./docs/tools.md#opencode) says why.
 
 ## Simulation
 
@@ -375,6 +386,8 @@ Canonical packaging sources — edit these, never `dist/`:
 - `plugin/claude/` — the Claude Code viewer mod: `hooks/` (the TypeScript hooks
   module), `types/`, `scripts/pane.py` (its Python half) and its own `tests/`
   (`claude plugin test plugin/claude`). See [`plugin/claude/README.md`](plugin/claude/README.md).
+- `plugin/pi/` — the pi viewer extension: `extensions/sigil/index.ts`, which shares
+  the mod's `hooks/logic.ts`. See [`plugin/pi/README.md`](plugin/pi/README.md).
 
 `build.py` copies `lint.py`, `render.py`, the viewer (`view.py` with `viewkit.py`,
 `view_graph.py`, `view_tree.py`, `scene.py` and `sim.py`), the checker (`check.py` with `check_flow.py`,
