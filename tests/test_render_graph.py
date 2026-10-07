@@ -223,7 +223,9 @@ class TestNotes(unittest.TestCase):
         self.assertEqual(by["Router_service"], "routes traffic across zones")
 
     def test_title_detached_by_blank_line(self):
-        self.assertFalse(any("title" in n.text for n in self.g.notes))
+        # A header comment that precedes no statement is the document's own note.
+        title = [n for n in self.g.notes if "title" in n.text]
+        self.assertEqual([(n.node, n.block, n.line) for n in title], [(None, None, 2)])
 
     def test_trailing_comment_on_branch_and_flow(self):
         by = {n.node: n.text for n in self.g.notes}

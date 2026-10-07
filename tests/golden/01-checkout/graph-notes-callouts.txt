@@ -23,6 +23,7 @@
 
 ── notes ──────────────────────────────────────────────────────────────
 
+¶ a checkout, one flow at a time
 #1 guests and signed-in shoppers share one path
 #2 retried, idempotent
 #3 fan-out: each consumer keeps its own pace

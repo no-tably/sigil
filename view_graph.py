@@ -1034,10 +1034,10 @@ def graph_parts(g, top: bool = True, drivers: dict | None = None,
     return parts
 
 
-def _frame_content(g, bi: int, eb: dict, draw) -> "kit.Canvas":
+def _frame_content(g, bi: int, eb: dict, draw, tags: dict | None = None) -> "kit.Canvas":
     """What a block's frame holds: its own flows laid out (a branch: a ◇ decision
     node with each arm's label chip on the way to the arm's entry), then its
-    nested blocks' frames."""
+    nested blocks' frames (titled _frame_title)."""
     b = g.blocks[bi]
     kids = [ci for ci, c in enumerate(g.blocks) if c.parent == bi]
     nested = set()
@@ -1066,9 +1066,15 @@ def _frame_content(g, bi: int, eb: dict, draw) -> "kit.Canvas":
                       kit.render.Edge(src=cid, dst=ids[0], kind="arm")]
     sub = replace(g, nodes=nodes, edges=edges, blocks=[], access=[])
     own_cv = draw(sub) if nodes else kit.Canvas()
-    frames = [_framed(_frame_content(g, ci, eb, draw), kit.block_title_runs(g.blocks[ci]))
+    frames = [_framed(_frame_content(g, ci, eb, draw, tags), _frame_title(g.blocks[ci], tags))
               for ci in kids]
     return _stack(own_cv, frames)
+
+
+def _frame_title(b, tags: dict | None) -> list:
+    """A block frame's title runs, then its tags (the #N of a comment above the
+    block's header, kit.block_note_key) — the frame is what the comment is about."""
+    return kit.block_title_runs(b) + (tags or {}).get(kit.block_note_key(b), [])
 
 
 def _framed(content: "kit.Canvas", title_runs: list) -> "kit.Canvas":
@@ -1163,7 +1169,7 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
             return layout(gc, show, collapsed, tags, styles,
                           _self_calls(sub, calls, payloads, mods, chip_marks), sim, borders)
         main = draw(part.graph) if part.graph.nodes else kit.Canvas()
-        frames = [_framed(_frame_content(g, bi, eb, draw), kit.block_title_runs(g.blocks[bi]))
+        frames = [_framed(_frame_content(g, bi, eb, draw, tags), _frame_title(g.blocks[bi], tags))
                   for bi in part.blocks]
         return _stack(main, frames)
 
@@ -1691,7 +1697,7 @@ def _compose(g, depth, payloads, notes, triggers, width, access, mods, events,
                               fit=width, marks=marks, mods=mods, sim=look, checks=checks))
         rows, _w = _section_rows(parts)
     listed = sorted(e for entries in idx.values() for e in entries)
-    block = [([(f"#{num}", kit.NOTE_STYLE[kind])], [(text, kind)])
+    block = [([(kit.note_label(num), kit.NOTE_STYLE[kind])], [(text, kind)])
              for num, text, kind, _e in listed if kind == "block"]
     side = ([(kit._chip_marker(letter), [(text, "code")]) for letter, text in marks]
             + [([(f"#{num}", kit.NOTE_STYLE[kind])], [(text, kind)])
@@ -1711,7 +1717,8 @@ def _tags(scn, notes: bool, mods: bool) -> dict:
     badges (the Scene's, with the access option); `↩` on the `=>` edge a
     self-call returns along (Wire.returns_of), a landed event's name, a
     qualified path's prefix (`[Bullet]/`, _path_tags), then the #N of the
-    inline notes about its edge's line."""
+    inline notes about its edge's line. A control block's notes tag its
+    frame's title (key kit.block_note_key); the document's are only listed."""
     tags = {nid: [(" ⇱", kit.SYNTAX["operator"])] for nid, sn in scn.nodes.items()
             if sn.external}
     note_runs = {}
@@ -1719,6 +1726,9 @@ def _tags(scn, notes: bool, mods: bool) -> dict:
         for nid, sn in scn.nodes.items():
             if kit.node_notes(sn.notes):
                 tags[nid] = tags.get(nid, []) + kit.note_tag_runs(kit.node_notes(sn.notes))
+        for key, entries in scn.notes.items():       # a block's: on its frame's title
+            if key.startswith(kit.BLOCK_NOTE) and kit.node_notes(entries):
+                tags[key] = kit.note_tag_runs(kit.node_notes(entries))
         for key, notes_ in scene.wire_notes(scn).items():
             if isinstance(key, tuple):               # an inline note rides its flow's edge
                 note_runs[key] = [(" ".join(f"#{num}" for num, _t in notes_),

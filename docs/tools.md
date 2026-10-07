@@ -74,7 +74,11 @@ Options:
   straight to each destination) or as a node of its own. The tree view defaults to
   `land`, the graph view to `nodes`.
 - `--notes markers|callouts` shows comments as `#N` tags with a notes list, or as boxes
-  in a left margin tied to their rows (tree view).
+  in a left margin tied to their rows (tree view). A comment above a glyph-less block
+  header (`branch on …`, `loop …`, `parallel …`, a scoped `name {`) tags the block's
+  frame title or header row. A header comment that comes before the first statement
+  but isn't directly above it is the document's own note. It is listed first as `¶`
+  and tagged on nothing.
 - `--sim SCENARIO` runs one pathway of the design and draws its last frame, then the
   outcome and the run's log (see [Simulation](../README.md#simulation)). `--sim list`
   prints the scenarios, one per line with its label. `--sim all` runs every scenario

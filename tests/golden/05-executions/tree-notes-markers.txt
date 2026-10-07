@@ -10,6 +10,7 @@
 
 ── notes ──
 
+¶ calls: who runs what, what comes back, what leaves the system
 #1 the scheduler plans on its own, then waits for the crawl
 #2 each fetch leaves the system: host-provided, and it may fail
 #3 links are followed recursively, one call per link

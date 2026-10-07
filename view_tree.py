@@ -74,6 +74,7 @@ class Banner(NamedTuple):
     block's header (`┌─ ↺ loop @while |Q|.nonempty`)."""
     kind: str                                   # "section" | "block"
     runs: list
+    key: Optional[str] = None                   # a block's note key (kit.block_note_key)
 
 
 def _tree_rows(g, depth: int, level: int = 0, base: int = 0, rows=None):
@@ -289,7 +290,7 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     # left. Inline notes are about their line: they trail it on the right, after
     # the payload the line carries — as in the source.
     blocks = {nid: [e for e in es if e[2] == "block"] for nid, es in idx.items()}
-    blocks = {nid: es for nid, es in blocks.items() if es}
+    blocks = {nid: es for nid, es in blocks.items() if es and nid != kit.DOC_NOTE}
     chipped = payloads or mods
     chip_lists = scene.chip_lists(scn, payloads, mods) if chipped else {}
     self_chips = _self_call_chips(calls, payloads, mods, frame) if chipped else {}
@@ -439,7 +440,8 @@ def _tree_banners(rows, g):
             intro = [first[(id(G), m)] for m in members if est.get(m, 0) >= b.lines[0]]
             at, prio = (min(intro), 2) if intro else (max(ys) + 1, 0)
             span = b.lines[1] - b.lines[0]
-            pending.append((at, (prio, -span), Banner("block", kit.block_title_runs(b)), ys))
+            pending.append((at, (prio, -span), Banner("block", kit.block_title_runs(b),
+                                                              kit.block_note_key(b)), ys))
     if not pending:
         return rows, []
     pending.sort(key=lambda p: (p[0], p[1]))
@@ -597,7 +599,14 @@ def _draw_outline(cv: kit.Canvas, rows, idx: dict, show_tags: bool = True, x0: i
                             if isinstance(rows[j], TreeRow)), "")
                 x = x0 + (len(nxt) + 2 if nxt else 0) + slot
                 bridges.append((y, x))
-            out.ends.append(kit._put_runs(cv, x, y, row.runs))
+            x = kit._put_runs(cv, x, y, row.runs)
+            if row.key is not None:             # the header's row: its notes' anchor
+                out.by_id.setdefault(row.key, []).append(y)
+            if row.key in idx and row.key not in out.tagged:    # a comment above the block
+                if show_tags:
+                    x = kit._put_runs(cv, x, y, kit.note_tag_runs(idx[row.key]))
+                out.tagged[row.key] = y
+            out.ends.append(x)
             continue
         n, rel = row.node, row.rel
         stack = stack[:row.depth] + [n.name]
@@ -1257,7 +1266,8 @@ def _draw_right_margin(cv: kit.Canvas, lanes, out: _Outline, chips: dict,
 def _extras(g, idx: dict, notes: str, payloads: bool, drawn: frozenset = frozenset(),
             note_width: int = kit.NOTE_WIDTH):
     """The lists under the tree: payloads not drawn as chips (when shown), then
-    notes (markers mode, wrapped at note_width)."""
+    notes (markers mode, wrapped at note_width; in callouts mode the document's
+    own notes, which no row could call out)."""
     extra = []
     pl = [f"  {kit.edge_text(sub, e)} : {e.payload}" for sub in kit._walk(g) for e in sub.edges
           if e.payload and (e.src, e.dst, e.kind) not in drawn] if payloads else []
@@ -1265,6 +1275,9 @@ def _extras(g, idx: dict, notes: str, payloads: bool, drawn: frozenset = frozens
         extra += [[], kit.section_rule("payloads"), []] + [[(p, kit.PAYLOAD_STYLE)] for p in pl]
     if notes == "markers" and idx:
         extra += [[], kit.section_rule("notes"), []] + kit.note_rows(idx, note_width)
+    elif notes == "callouts" and kit.DOC_NOTE in idx:  # about no row: listed instead
+        extra += [[], kit.section_rule("notes"), []] + kit.note_rows(
+            {kit.DOC_NOTE: idx[kit.DOC_NOTE]}, note_width)
     return extra
 
 

@@ -665,6 +665,78 @@ class NestedExpansions(unittest.TestCase):
                          [(3, "unclosed"), (4, "unclosed")])
 
 
+class CommentAnchors(unittest.TestCase):
+    """Graph.notes for comments a glyph does not own: one above a glyph-less block
+    header is about the block (Note.block), a document header that precedes no
+    statement is about the document (node and block None)."""
+
+    def notes(self, text):
+        return [(n.node, n.block, n.kind, n.text) for n in parse(text).notes]
+
+    def test_above_a_branch_is_the_blocks_not_the_first_arms(self):
+        g = parse("[A] -> [B]\n# route by kind\nbranch on {Req}.kind {\n"
+                  "  read => [Reader] -> |DB|\n}\n")
+        self.assertEqual([(n.node, n.block, n.line) for n in g.notes], [(None, 0, 2)])
+        self.assertEqual(g.blocks[0].kind, "branch")
+
+    def test_each_glyphless_header_kind(self):
+        for head in ("loop @times 3 {", "parallel @all {", "checkout {"):
+            with self.subTest(head=head):
+                self.assertEqual(self.notes(f"[Z] -> [Y]\n# why\n{head}\n  [A] -> [B]\n}}\n"),
+                                 [(None, 0, "block", "why")])
+
+    def test_nested_block_gets_its_own_index(self):
+        doc = "[Z] -> [Y]\nloop @times 2 {\n  # inner\n  parallel @all {\n    [A] -> [B]\n  }\n}\n"
+        self.assertEqual(self.notes(doc), [(None, 1, "block", "inner")])
+
+    def test_trailing_comment_on_a_header_without_a_body_statement(self):
+        self.assertEqual(self.notes("[Z] -> [Y]\nloop @times 3 {   # bounded\n  [A] -> [B]\n}\n"),
+                         [(None, 0, "inline", "bounded")])
+        # A statement sharing the header's line takes its trailing comment.
+        self.assertEqual(self.notes("[Z] -> [Y]\nloop @times 3 { [A] -> [B] }  # once\n"),
+                         [("A_service", None, "inline", "once")])
+
+    def test_owns_header_stays_on_its_owner(self):
+        self.assertEqual(self.notes("[Z] -> [Y]\n# pooled\n[H] @owns |C| {\n  [H] -> |C|\n}\n"),
+                         [("H_service", None, "block", "pooled")])
+
+    def test_document_header_before_any_statement(self):
+        doc = "#!sketch\n# Title\n# more\n\n# about A\n[A] -> [B]\n"
+        self.assertEqual(self.notes(doc), [(None, None, "block", "Title more"),
+                                           ("A_service", None, "block", "about A")])
+        self.assertEqual(parse(doc).notes[0].line, 2)
+
+    def test_header_before_a_section_or_at_the_end(self):
+        self.assertEqual(self.notes("# Title\n--- L1: One ---\n[A] -> [B]\n"),
+                         [(None, None, "block", "Title")])
+        self.assertEqual(self.notes("# only prose\n"), [(None, None, "block", "only prose")])
+
+    def test_header_directly_above_a_statement_is_that_statements(self):
+        self.assertEqual(self.notes("# Title\nretry := @after(exp)\n"),
+                         [("retry_alias", None, "block", "Title")])
+
+    def test_detached_comment_after_a_statement_is_still_dropped(self):
+        self.assertEqual(self.notes("[A] -> [B]\n# stray\n\n--- L1: One ---\n# x\n\n[C] -> [D]\n"), [])
+
+    def test_expansion_bodies_have_no_document_note(self):
+        g = parse("[A] := {\n  # loose\n\n  [B] -> [C]\n}\n")
+        self.assertEqual(g.notes, [])
+        self.assertEqual(g.expansions["A_service"].notes, [])
+
+    def test_fixture(self):
+        g = parse(FIXTURE.read_text())
+        route = [n for n in g.notes if n.text == "route by request kind"]
+        self.assertEqual([(n.node, g.blocks[n.block].kind) for n in route], [(None, "branch")])
+        self.assertFalse(any(n.node == "Reader_service" for n in g.notes))
+
+    def test_lint_and_check_unchanged_by_anchoring(self):
+        lint = _load("sigil_lint_model", "lint.py")
+        doc = "#!sketch\n# Title\n\n# why\nbranch on {R}.k {\n  a => [A] -> [B]\n}\n"
+        bare = "#!sketch\n\n\n\nbranch on {R}.k {\n  a => [A] -> [B]\n}\n"
+        self.assertEqual([(d.line, d.code) for d in lint.lint(doc).diagnostics],
+                         [(d.line, d.code) for d in lint.lint(bare).diagnostics])
+
+
 class ModelDocumented(unittest.TestCase):
     def test_docstring_names_every_graph_field(self):
         src = (_DIR / "render.py").read_text(encoding="utf-8")

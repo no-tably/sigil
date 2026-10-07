@@ -868,25 +868,57 @@ def block_title_runs(b) -> list:
 # Notes are tagged #N either way; colour tells a block comment (own lines above
 # a statement, ui.note_block) from an inline one (trailing it, ui.note_inline).
 
+# The note-index key of the document's own notes (a header comment that precedes
+# no statement): listed with the notes, tagged on nothing. Node ids never hold
+# `@`, so neither this nor a block_note_key (BLOCK_NOTE…) can meet one.
+DOC_NOTE = "@document"
+BLOCK_NOTE = "@block:"
+
+
+def block_note_key(b) -> str:
+    """The note-index key of a control block's notes (a comment above its
+    glyph-less header): its frame title (graph) or header row (tree) is tagged."""
+    return f"{BLOCK_NOTE}{b.lines[0]}-{b.lines[1]}"
+
+
+def note_key(g, n) -> str:
+    """Where note n (of graph g) is indexed: its node id, its block's key, or
+    DOC_NOTE."""
+    if n.node is not None:
+        return n.node
+    bi = getattr(n, "block", None)
+    return block_note_key(g.blocks[bi]) if bi is not None else DOC_NOTE
+
 
 def note_index(g) -> dict:
     """{node id: [(number, text, kind, edges), …]}, numbered in document order (top
     level first, then expansions). A node's block comments (about the component)
     merge into one note; each inline comment (about its line) stays its own note
-    and keeps the (src, dst, kind) of the flows that line drew."""
+    and keeps the (src, dst, kind) of the flows that line drew. A control block's
+    notes are keyed block_note_key; the document's are keyed DOC_NOTE (note_key)
+    and merge into one note numbered 0, so the numbers tags show stay 1, 2, …"""
     out, num = {}, 0
     for cur in _walk(g):
         for n in _notes_and_blocks(cur):
             kind = getattr(n, "kind", "block")
-            entries = out.setdefault(n.node, [])
+            entries = out.setdefault(note_key(cur, n), [])
             block = next((i for i, e in enumerate(entries) if e[2] == "block"), None)
             if kind == "block" and block is not None:
                 b = entries[block]
                 entries[block] = (b[0], f"{b[1]} · {n.text}", "block", ())
                 continue
-            num += 1
-            entries.append((num, n.text, kind, tuple(getattr(n, "edges", ()) or ())))
+            key = note_key(cur, n)
+            if key != DOC_NOTE:
+                num += 1
+            entries.append((num if key != DOC_NOTE else 0, n.text, kind,
+                            tuple(getattr(n, "edges", ()) or ())))
     return out
+
+
+def note_label(num: int) -> str:
+    """A note's label in the lists: `#N`, or `¶` for the document's own note
+    (number 0, tagged on nothing, listed first)."""
+    return f"#{num}" if num else "¶"
 
 
 def _notes_and_blocks(g) -> list:
@@ -941,10 +973,11 @@ def note_tag_runs(entries) -> list:
 
 
 def note_rows(idx: dict, width: int = NOTE_WIDTH):
-    """The notes list: `#N text`, wrapped under its tag, in its kind's colour."""
+    """The notes list: `#N text` (`¶ text` for the document's), wrapped under its
+    tag, in its kind's colour."""
     rows = []
     for num, text, kind, _edges in sorted(e for entries in idx.values() for e in entries):
-        tag = f"#{num} "
+        tag = f"{note_label(num)} "
         wrapped = [w for part in text.split("\n")
                    for w in textwrap.wrap(part, max(width - len(tag), 20)) or [""]]
         for k, ln in enumerate(wrapped):

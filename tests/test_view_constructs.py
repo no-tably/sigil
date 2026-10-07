@@ -23,6 +23,9 @@ Covers (each in the graph view and the tree + wires view):
      solid ├──; a brace (⎫ ⎪ ⎭) joining a run of `\\-_` one-of siblings.
  12. graph: a flow into a qualified path `[Bullet]/{Transform}` carries the
      path's prefix `[Bullet]/` beside its head; a bare flow to the name none.
+ 13. a comment above a glyph-less block header tags the block (graph frame
+     title, tree header row), not its first arm; a document header comment
+     that precedes no statement is listed as the document's note `¶`.
 
 Run:  python3 -m unittest discover tests
 """
@@ -557,6 +560,56 @@ class TestCoverageFixture(unittest.TestCase):
             self.assertTrue(rows)
             if "width" in kw:
                 self.assertLessEqual(w, max(kw["width"], w))
+
+
+class TestBlockAndDocumentNotes(unittest.TestCase):
+    DOC = ("#!sketch\n# Router: the document header\n\n# route by kind\n"
+           "branch on {Req}.kind {\n  read  => [Reader] -> |DB|\n  write => [Writer] -> |DB|\n}\n"
+           "# entry\n[Api] -> [Reader]\n")
+
+    def test_note_index_keys(self):
+        idx = view.kit.note_index(render.parse_document(self.DOC))
+        b = render.parse_document(self.DOC).blocks[0]
+        self.assertEqual(idx[view.kit.DOC_NOTE], [(0, "Router: the document header", "block", ())])
+        self.assertEqual(idx[view.kit.block_note_key(b)], [(1, "route by kind", "block", ())])
+        self.assertEqual(idx["Api_service"][0][:2], (2, "entry"))   # numbering skips ¶
+        self.assertNotIn("Reader_service", idx)
+
+    def test_graph_tags_the_frame_title(self):
+        out = graph(self.DOC, notes="markers")
+        self.assertIn("╭╌ ◇ branch on {Req}.kind #1 ╌", out)
+        self.assertIn("│ [Reader] │", out)                  # the arm's glyph is untagged
+        self.assertIn("│ [Api] #2 │", out)
+        self.assertIn("¶ Router: the document header", out)
+        self.assertIn("#1 route by kind", out)
+        self.assertNotIn("#0", out)
+
+    def test_graph_callouts_panel_lists_the_document_note(self):
+        out = graph(self.DOC, notes="callouts", width=40)
+        self.assertIn("¶", out)
+        self.assertIn("#1", out)
+
+    def test_tree_tags_the_block_header_row(self):
+        out = tree(self.DOC, notes="markers")
+        self.assertIn("◇ branch on {Req}.kind #1", out)
+        self.assertNotIn("[Reader] #", out)
+        self.assertIn("¶ Router: the document header", out)
+
+    def test_tree_callouts_point_at_the_header_and_list_the_document(self):
+        out = tree(self.DOC, notes="callouts")
+        self.assertIn("#> ┌─ ◇ branch on {Req}.kind", line_with(out, "route by kind"))
+        self.assertIn("¶ Router: the document header", out)
+
+    def test_a_header_comment_on_a_loop_frame(self):
+        doc = "[A] -> [B]\nloop @times 3 {   # bounded\n  [A] -> [C]\n}\n"
+        self.assertIn("↺ loop @times 3 #1", graph(doc, notes="markers"))
+        # An inline comment trails its line: the header row's right margin.
+        self.assertRegex(line_with(tree(doc, notes="markers"), "↺ loop"), r"↺ loop @times 3 ┄.*#1$")
+        self.assertIn("# bounded", line_with(tree(doc, notes="callouts"), "↺ loop"))
+
+    def test_no_notes_mode_tags_nothing(self):
+        self.assertNotIn("#1", graph(self.DOC))
+        self.assertNotIn("¶", tree(self.DOC))
 
 
 if __name__ == "__main__":

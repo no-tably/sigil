@@ -85,7 +85,8 @@ triggers), so a construct reads the same in the graph and the tree. Re-graded fr
 - **Simulation** (`x`, `--sim`): not a drawing grade — see "Simulation over this
   fixture" below.
 
-Still open: block-comment anchoring (85).
+Still open after the scene-sim campaign: block-comment anchoring (85) — now drawn (the
+block frame / header row is tagged; a detached document header is listed as `¶`).
 
 ## Construct table
 
@@ -175,7 +176,7 @@ Still open: block-comment anchoring (85).
 | 82 | permission `@read(…)` / `@write(…)` | `*\|AuditLog\| @read(Auditor) @write(Api, Worker)`, `\|Directives\| @read(Worker) @write(Boss)` | DRAWN | DRAWN | with `a`: dotted access edges principal → store headed `r` / `w` (graph), lanes whose source is marked `r` / `w` (tree); stores badged `\|Directives\| 1w`, `*\|AuditLog\| 2w` (one writer owns it vs shared) | done (view.py) | KEPT: `Graph.access` read/write, principals resolved to node ids |
 | 83 | generic role | `[Worker<N>]` (`@read(Worker)`) | DRAWN | DRAWN | a generic glyph an `@read`/`@write` list names is a role (Node.is_role): its generics in ‹ › (`[Worker‹N›]`, both views) and, in the graph, a stacked box with a double right side (`┌─────────────╖ │ [Worker‹N›] ║ └─────────────╜`); the tree row `[Worker‹N›]`, `[R‹N›] role: N members` in its legend. `[Cache<K,V>]` (no principal) stays a plain box | done (view.py) | FIXED: `[Worker<N>]` one node; `@read(Worker)` resolves by `base_name` when no exact `[Worker]`; `Node.is_role` marks the role (also when an exact `[Worker]` takes the edge) |
 | 84 | block comment above | `# order lifecycle, driven by events` / `state {Order}` | DRAWN | DRAWN | `{Order} ¶10`; callout `╭ ¶10 order lifecycle, ╮ ──── {Order} ¶10` | — | — |
-| 85 | block comment above a glyph-less statement | `# route by request kind` / `branch on …`; header comment above `retry :=` | WEAK | WEAK | anchors to the first arm's glyph `[Reader] ¶11`; the doc header comment (above the alias) is dropped; `¶1` lands on the phantom `<K,V>` | anchor to the block frame (#63–66) or a document-level note | the comment above `retry :=` now lands on the `retry` alias node |
+| 85 | block comment above a glyph-less statement | `# route by request kind` / `branch on …`; header comment above `retry :=` | DRAWN | DRAWN | the comment tags the block, not its first arm: graph `╭╌ ◇ branch on {Request}.kind #14 ╌╮` (the `[Reader]` box untagged), tree `┌─ ◇ branch on {Request}.kind #14` (a callout's `#>` leader points at that header row); the same for `loop` / `parallel` / a scoped `name {`, and a comment trailing such a header (no body on its line) trails the header row. A header comment that comes before the first statement but is detached from it (a blank line, a section, the end) is the document's own note, listed first as `¶ …` and tagged on nothing (tree callouts list it under the drawing). The fixture's header sits directly above `retry :=`, so it stays on `[[retry]]` | done (view.py) | FIXED: `Note.block` (index into `Graph.blocks`) for a comment above a glyph-less header; `Note.node` None for a block or document note; `[H] @owns \|R\| {` keeps its owner |
 | 86 | inline trailing comment | `=> ~{Session}?  # optional result`, `\-& {Transform}  # inline note on a branch` | WEAK | WEAK | `#12` correctly on the branch row; but `#4 optional result` is placed on `~{Session}` and `#3`/`#6` on the line subject — they follow the parser's subject, so a continuation's note sits on the wrong node | fixed by #21; otherwise fine | — |
 
 ### Counts
@@ -185,13 +186,15 @@ as DRAWN when the toggle draws them clearly, as payload chips always have.
 
 | | Graph | Tree | Total |
 |---|---|---|---|
-| DRAWN | 68 | 77 | 145 |
-| WEAK | 7 | 9 | 16 |
+| DRAWN | 73 | 84 | 157 |
+| WEAK | 2 | 2 | 4 |
 | LOST | 11 | 0 | 11 |
 | WRONG | 0 | 0 | 0 |
 
 (Composition rows #69–80 are LOST in the graph on purpose — language.md: "The default
-graph view shows the flows alone." — all 11 graph LOST.) Before the scene-sim campaign
+graph view shows the flows alone." — all 11 graph LOST.) Counted from the table after
+the viewer coverage gaps pass (rows 11 28 45 49 51 76 81 83 85); before it (after the
+scene-sim campaign) DRAWN 68/77, WEAK 7/9, LOST 11/0. Before the scene-sim campaign
 (graph/tree): DRAWN 64/74, WEAK 10/12, LOST 12/0; before the view.py drawing pass (after
 the render.py model fixes): DRAWN 31/42, WEAK 18/19, LOST 37/25; before those: DRAWN
 27/38, WEAK 13/15, LOST 38/26, WRONG 8/7.

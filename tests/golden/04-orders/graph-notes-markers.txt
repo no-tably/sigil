@@ -1,4 +1,4 @@
-── orders ──────────────────────────────────────────
+── orders ─────────────────────────────────────────────────────────
 
       ╭───────────╮   ┌────────────┐
       │ (Shopper) │   │ [Payments] │
@@ -30,7 +30,7 @@
                   │ {Order} #2 ▾ │
                   └──────────────┘
 
-── {Order} state machine ───────────────────────────
+── {Order} state machine ──────────────────────────────────────────
 
 ┌────────┐   ╭───╮   ┌──────────┐   ┌────────────┐
 │ <Paid> │   │ ● │   │ <Placed> │   │ <Declined> │
@@ -48,7 +48,7 @@
           │ Settled │   │ Cancelled │
           ╰─────────╯   ╰───────────╯
 
-── [Checkout] state machine ────────────────────────
+── [Checkout] state machine ───────────────────────────────────────
 
     ┌──────────┐   ┌────────┐   ┌────────────┐
     │ <Placed> │   │ <Paid> │   │ <Declined> │
@@ -66,8 +66,9 @@
                     │ Busy │
                     ╰──────╯
 
-── notes ───────────────────────────────────────────
+── notes ──────────────────────────────────────────────────────────
 
+¶ events drive state: an order's lifecycle and the checkout's modes
 #1 card refused or timed out
 #2 an order settles or is cancelled, never both
 #3 the checkout is busy while a payment is in flight

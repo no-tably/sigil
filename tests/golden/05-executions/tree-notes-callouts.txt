@@ -11,6 +11,10 @@
 │ recursively, one call    │
 ╰ per link                 ╯
 
+── notes ──
+
+¶ calls: who runs what, what comes back, what leaves the system
+
 tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
        (N) weight  
 wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  

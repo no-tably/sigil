@@ -17,6 +17,10 @@
                                                                      ║ ║
                               |Ledger| <OrderPlaced> ◀═══════════════╩═╝┄# the ledger is append-only
 
+── notes ──
+
+¶ a shop, three levels deep
+
 tree   ─ contains  ┄ := internals  & has  * spawns  ? when  $ from data  @ attached  ! alerts  
        = gathers  _ one of  (N) weight  
 wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  

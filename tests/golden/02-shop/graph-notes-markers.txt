@@ -61,6 +61,7 @@
 
 ── notes ─────────────────────────────────────────────────────────
 
+¶ a shop, three levels deep
 #1 anonymous or signed-in; the edge does TLS, auth and rate limits
 #2 the ledger is append-only
 #3 3 retries, idempotent key

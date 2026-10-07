@@ -30,19 +30,19 @@
 ╰─────────╯   └───────────────┘   └──────────┘   └──────────────┘
 
 ┌─────────────────┐ ┌─────────────────┐
-│ [Notifier] #8 ⇱ │ │ [[follow]] #6 ▾ │
+│ [Notifier] #9 ⇱ │ │ [[follow]] #6 ▾ │
 └─────────────────┘ └─────────────────┘
 
-╭╌ ↺ loop @each page of {Site}.pages ╌╮
-╎          ┌──────────────┐           ╎
-╎          │ [Indexer] #7 │           ╎
-╎          └──────────────┘           ╎
-╎                  │                  ╎
-╎                  ▼                  ╎
-╎          ┌───────────────┐          ╎
-╎          │ [Parser] #5 ▾ │          ╎
-╎          └───────────────┘          ╎
-╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+╭╌ ↺ loop @each page of {Site}.pages #8 ╌╮
+╎           ┌──────────────┐             ╎
+╎           │ [Indexer] #7 │             ╎
+╎           └──────────────┘             ╎
+╎                   │                    ╎
+╎                   ▼                    ╎
+╎           ┌───────────────┐            ╎
+╎           │ [Parser] #5 ▾ │            ╎
+╎           └───────────────┘            ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
 
 ── [[follow]] := { … } ─────────────────────────────────────────────────────
 
@@ -52,17 +52,20 @@
 
 ── L2 · [Parser] := { … } ──────────────────────────────────────────────────
 
-                            ┌─────────┐
-                            │ [Lexer] │
-                            └─────────┘
-                                 │
-                                 ▼
-                        ┌────────────────┐
-                        │ [Builder] #9 ↻ │
-                        └────────────────┘
+                           ┌─────────┐
+                           │ [Lexer] │
+                           └─────────┘
+                                │
+                                ▼
+                       ┌─────────────────┐
+                       │ [Builder] #10 ↻ │
+                       └─────────────────┘
 
 ── notes ───────────────────────────────────────────────────────────────────
 
+¶ executions — every call-like construct in one realistic design: a site
+  crawler. Design note: .claude/campaigns/scene-sim/executions.md (one row
+  per construct, E1–E12).
 #1 E1 a call carrying an internal op-call: the scheduler asks, the target
    runs start()
 #2 E2 an op-call as the TARGET: the scheduler runs plan() itself and gets
@@ -78,9 +81,10 @@
 #6 E10 recursion through an alias: follow() calls itself on every outgoing
    link
 #7 E11 several calls into one target: reserve, then write; on failure
-   release · a call repeated once per page
-#8 E12 an external op as the target: the notifier reaches the host, far side
+   release
+#8 a call repeated once per page
+#9 E12 an external op as the target: the notifier reaches the host, far side
    unnamed
-#9 the builder recurses into nested blocks
+#10 the builder recurses into nested blocks
 
 executions.sigil: 16 nodes, 18 edges, 2 expansions · #!spec

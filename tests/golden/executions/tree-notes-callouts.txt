@@ -1,37 +1,46 @@
                                              ── L1 · crawl ─────────────────────────────────────────
-╭ E1 a call carrying an        ╮ ──────#>    (Operator) ─────────────────────────●
-│ internal op-call: the        │  ┌────#>    [Scheduler] ↺ ◀─────────────────────┴━◆───────────●
-╰ scheduler asks, the target…  ╯  │          {Plan} ◀━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛           │
-                                  │ ┌──#>    [Crawler] ↺ ◀───────────────────────────────●─○─●─┤
-                                  │ │ ┌#>    [Fetcher] ◀─────────────────────────●─✖─▶───┤ ╎ │ │
-╭ E2 an op-call as the TARGET: ╮ ─┘ │ │      (Web) ⇱ ◀───────────────────────────┘ │ │   │ ╎ │ │
-│ the scheduler runs plan()    │    │ │      <FetchFailed> ◀───────────────────────┘ │   │ ╎ │ │
-╰ itself and gets {Plan} back… ╯    │ │      |Robots| ◀──────────────────────────────┘   │ ╎ │ │
-                                    │ │      [Metrics] ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│╌┤ │ │
-╭ E4 a self-call bounded as a  ╮ ───┘ │                                                  │ ╎ │ │
-│ whole: every attempt of      │  ┌───│#> ┌─ [Parser] ◀──────────────────────────────●─┬─│─╎─┤ │
-╰ throttle() fits in 2s · E5…  ╯  │   │   │  ├┄┄ [Lexer] ────────────────────────●   │ │ │ ╎ │ │
-                                  │   │   │  └┄┄ [Builder] ↻ ◀───────────────────┘┄┄┄│┄│┄│┄╎┄│┄│┄┆a┆
-╭ E6 an external op: the far   ╮ ─│───┘   │                                          │ │ │ ╎ │ │
-│ side is host-provided and    │  │       │  [Doc.walk] ↻ ◀──────────────────────────┘ │ │ ╎ │ │
-╰ opaque; it may fail · E7 a…  ╯  │ ┌──#> ├─ [Indexer] ──────────────────────────●─✖───● │ ╎ │ │
-                                  │ │     └─ ↺ loop @each page of {Site}.pages   │ │     │ ╎ │ │
-╭ E9 recursion through a       ╮ ─┘ │        |Index| ◀───────────────────────────┴─┘     │ ╎ │ │
-│ method-style glyph: one call │    │        {Site}                                      │ ╎ │ │
-╰ per child, depth unstated    ╯  ┌─│──#>    [Notifier] ⇱                                │ ╎ │ │
-                                  │ │                                                    │ ╎ │ │
-                                  │ │ ┌#>    [[follow]]                                  │ ╎ │ │
-╭ E11 several calls into one   ╮ ─│─┘ │      └┄┄ [Crawler] ↻ ◀───────────────────────────●─○─●─┘
-│ target: reserve, then write; │  │   │
-╰ on failure release · a call… ╯  │   │
-                                  │   │
-╭ E12 an external op as the    ╮ ─┘   │
-│ target: the notifier reaches │      │
-╰ the host, far side unnamed   ╯      │
+╭ E1 a call carrying an      ╮ ────────#>    (Operator) ─────────────────────────●
+│ internal op-call: the      │  ┌──────#>    [Scheduler] ↺ ◀─────────────────────┴━◆───────────●
+╰ scheduler asks, the targe… ╯  │            {Plan} ◀━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛           │
+                                │ ┌────#>    [Crawler] ↺ ◀───────────────────────────────●─○─●─┤
+                                │ │ ┌──#>    [Fetcher] ◀─────────────────────────●─✖─▶───┤ ╎ │ │
+╭ E2 an op-call as the       ╮ ─┘ │ │        (Web) ⇱ ◀───────────────────────────┘ │ │   │ ╎ │ │
+│ TARGET: the scheduler runs │    │ │        <FetchFailed> ◀───────────────────────┘ │   │ ╎ │ │
+╰ plan() itself and gets…    ╯    │ │        |Robots| ◀──────────────────────────────┘   │ ╎ │ │
+                                  │ │        [Metrics] ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│╌┤ │ │
+╭ E4 a self-call bounded as  ╮ ───┘ │                                                    │ ╎ │ │
+│ a whole: every attempt of  │  ┌───│──#> ┌─ [Parser] ◀──────────────────────────────●─┬─│─╎─┤ │
+╰ throttle() fits in 2s · E… ╯  │   │     │  ├┄┄ [Lexer] ────────────────────────●   │ │ │ ╎ │ │
+                                │   │     │  └┄┄ [Builder] ↻ ◀───────────────────┘┄┄┄│┄│┄│┄╎┄│┄│┄┆a┆
+╭ E6 an external op: the far ╮ ─│───┘     │                                          │ │ │ ╎ │ │
+│ side is host-provided and  │  │         │  [Doc.walk] ↻ ◀──────────────────────────┘ │ │ ╎ │ │
+╰ opaque; it may fail · E7 … ╯  │ ┌────#> ├─ [Indexer] ──────────────────────────●─✖───● │ ╎ │ │
+                                │ │ ┌──#> └─ ↺ loop @each page of {Site}.pages   │ │     │ ╎ │ │
+╭ E9 recursion through a     ╮ ─┘ │ │        |Index| ◀───────────────────────────┴─┘     │ ╎ │ │
+│ method-style glyph: one    │    │ │        {Site}                                      │ ╎ │ │
+╰ call per child, depth…     ╯  ┌─│─│──#>    [Notifier] ⇱                                │ ╎ │ │
+                                │ │ │                                                    │ ╎ │ │
+                                │ │ │ ┌#>    [[follow]]                                  │ ╎ │ │
+╭ E11 several calls into one ╮ ─│─┘ │ │      └┄┄ [Crawler] ↻ ◀───────────────────────────●─○─●─┘
+│ target: reserve, then      │  │   │ │
+╰ write; on failure release  ╯  │   │ │
+                                │   │ │
+╭ a call repeated once per   ╮ ─│───┘ │
+╰ page                       ╯  │     │
+                                │     │
+╭ E12 an external op as the  ╮ ─┘     │
+│ target: the notifier       │        │
+╰ reaches the host, far sid… ╯        │
                                       │
-╭ E10 recursion through an     ╮ ─────┘
-│ alias: follow() calls itself │                              ┆a┆ # the builder recurses into nested
-╰ on every outgoing link       ╯                                  blocks
+╭ E10 recursion through an   ╮ ───────┘
+│ alias: follow() calls      │                                ┆a┆ # the builder recurses into nested
+╰ itself on every outgoing…  ╯                                    blocks
+
+── notes ──
+
+¶ executions — every call-like construct in one realistic design: a site
+  crawler. Design note: .claude/campaigns/scene-sim/executions.md (one row
+  per construct, E1–E12).
 
 tree   ─ contains  ┄ := internals  & has  * spawns  ? when  $ from data  @ attached  ! alerts  
        = gathers  _ one of  (N) weight  

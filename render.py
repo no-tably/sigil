@@ -223,7 +223,11 @@ _PAYLOAD_TAIL_RE = re.compile(r"(?:\s*×\s*\w+|\s+x(?:\d+|N)\b|(?<=[\s>])\^\w+|\
 #               `state {` with no owner glyph), "not-a-transition" (a `state`
 #               body line that is no transition). A graph lists its own and its
 #               expansions' lines, so the document's graph lists them all.
-#   notes       [Note]: `#` comments attached to the node they describe.
+#   notes       [Note]: `#` comments attached to the node they describe — or to
+#               the control block whose glyph-less header they sit above
+#               (`branch on …`, `loop …`, `parallel …`, a scoped `name {`), or,
+#               for a comment block detached from every statement before the
+#               first one (a document header), to the document itself.
 #   role        what this graph is when it hangs off a node: "expansion"|"state".
 #
 # Modifiers (Node.mods / Edge.mods / Block.modifiers) are (name, arg) pairs in
@@ -351,7 +355,9 @@ class Trigger:
 
 @dataclass
 class Note:
-    node: str                 # node id the comment belongs to
+    # node id the comment belongs to; None when it is about a control block
+    # (`block`) or, with no block either, about the whole document.
+    node: Optional[str]
     text: str
     line: int                 # 1-based line of the (first) comment line
     # "block": own-line `#` comments directly above the statement (merged) —
@@ -361,6 +367,11 @@ class Note:
     # (empty for a line that only places a node, e.g. a branch).
     kind: str = "block"
     edges: tuple = ()
+    # Index into its graph's blocks when the comment is about that block: own
+    # lines above a glyph-less block header, or trailing a header with no body
+    # on its line. The header places no node of its own, so a first arm's or
+    # member's glyph would be the wrong home.
+    block: Optional[int] = None
 
 
 @dataclass
@@ -1365,6 +1376,9 @@ class _DocParser:
         self.comments: dict = {}
         self.marker = _comment_marker(dialect)
         self.above: list = []
+        # No statement, declaration or section read yet: comments detached
+        # above here are the document's header (top level only).
+        self.seen = False
         # The lines being read (block-strings folded): the text of a dropped line.
         self.lines: list = []
 
@@ -1403,6 +1417,7 @@ class _DocParser:
         self._drop_unclosed(n)
         while self.frames:                  # a block left open at the end of the text
             self._close_block(n - 1)
+        self._detach()
         return self.finish()
 
     def _stream(self, lines: list):
@@ -1548,7 +1563,7 @@ class _DocParser:
                 self.above.append((c[0], self.ln(k)))
                 return
             if not line:                    # a blank line detaches waiting comments
-                self.above.clear()
+                self._detach()
         if self._on_declaration(k, raw_lead, line) or self._on_section(k, line):
             return
         if line.startswith("#!") or not line:
@@ -1663,7 +1678,29 @@ class _DocParser:
             line = raw_lead
         return line.count("{") - line.count("}")
 
+    def _detach(self):
+        """The waiting comments precede no statement: before the document's first
+        one (top level) they are its header — a document note — else dropped."""
+        if self.above and self.top and not self.seen:
+            self.graph.notes.append(Note(None, " ".join(t for t, _ln in self.above),
+                                         self.above[0][1], "block"))
+        self.above.clear()
+
+    def attach_block(self, bi: int, k: int, body: str):
+        """A glyph-less block header (graph.blocks[bi]) read at line index k: the
+        comments above are about the block, and so is a trailing one when no
+        body statement shares the header's line (that statement takes it)."""
+        self.seen = True
+        if self.above:
+            self.graph.notes.append(Note(None, " ".join(t for t, _ln in self.above),
+                                         self.above[0][1], "block", block=bi))
+        trailing = self.comments.get(k)
+        if trailing and not trailing[1] and not body.strip():
+            self.graph.notes.append(Note(None, trailing[0], self.ln(k), "inline", block=bi))
+        self.above.clear()
+
     def attach(self, node_id, k: int, edges: tuple = ()):
+        self.seen = True
         if node_id and self.above:
             self.graph.notes.append(Note(node_id, " ".join(t for t, _ln in self.above),
                                          self.above[0][1], "block"))
@@ -1738,6 +1775,7 @@ class _DocParser:
                 depth = txt.count("{") - txt.count("}")
                 self.decl = [(opener, on_raw), depth, k] if depth > 0 else None
                 self.last_src = None
+                self.seen = True
                 return True
         return False
 
@@ -1745,7 +1783,8 @@ class _DocParser:
         sec = SECTION_RE.match(line)
         if not sec:
             return False
-        self.above.clear()
+        self._detach()
+        self.seen = True
         if sec.group(1):
             self.layer = sec.group(1)
         if self.layer not in self.graph.layers:
@@ -1904,6 +1943,8 @@ class _DocParser:
         self.last_src = None
         self.after_block = None
         body = text[om.start() + 1:]
+        if kind != "owns":                  # the owns header attached to its owner
+            self.attach_block(len(self.graph.blocks) - 1, k, body)
         if body.strip():                    # statements after the header's `{`
             self._statement(k, body, offset + om.start() + 1)
         return True

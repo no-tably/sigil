@@ -18,6 +18,7 @@
 
 ── notes ──
 
+¶ an entity-component system: trees for entities, flows for systems
 #1 the player: components it has, bullets it spawns
 #2 one per shot
 #3 only after a hit
