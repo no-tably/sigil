@@ -644,6 +644,14 @@ class Calibration(unittest.TestCase):
                          "a finding on the spec's examples changed: review it and update "
                          "tests/fixtures/checks/calibration.md")
 
+    def test_examples_are_cited_by_name_not_line(self):
+        text = _CALIBRATION.read_text(encoding="utf-8")
+        self.assertEqual(re.findall(r"(?:examples|language)\.md(?::| lines? )\d+", text), [])
+        headings = set(re.findall(r"^## Example (\w+):", (_DIR / "examples.md").read_text(),
+                                  re.M))
+        for name in re.findall(r"examples\.md Example (\w+)", text):
+            self.assertIn(name, headings)
+
     def test_every_entry_has_its_disposition(self):
         for entry in calibration_entries():
             fname, rule, sev, text, disp, _reason = entry

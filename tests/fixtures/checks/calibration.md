@@ -25,8 +25,11 @@ Retuned rules (recorded for the catalog): SGC153 counts a flow on the condition'
 store whose verb is no read verb as changing it (`pop => {Job}` drains `|Q|`;
 language.md Example 5 is no longer asked); SGC172 looks only at component-to-
 component wires (a data glyph inside an alias body is no dependency). The catalog's
-SGC135 evidence (examples.md:750–751) does not hold: nothing in that block writes
-`|Primary|`, so the rule is quiet there.
+SGC135 evidence (examples.md Example O, `|Primary| ~> |Replica|`) does not hold:
+nothing in that block writes `|Primary|`, so the rule is quiet there.
+
+Examples are cited by name (examples.md Example N), never by line: the lines move
+whenever examples.md grows.
 
 The gate covers language.md's "Worked examples" section only, as catalog §12 says;
 the reference fragments elsewhere in language.md are not designs (`[Worker] -> run()
@@ -146,11 +149,11 @@ store's races.
 - examples.md · capacity-mismatch · info · `(Shopper)  -> [Checkout] -> {Order}`
   noted — hint (catalog §12)
 - examples.md · ordering-unstated · warn · `+     -<Placed>->    Open`
-  accepted — the runs show `<Paid>` reaching `{Order}` / `[Checkout]` before `<Placed>` from two independent arrivals; `@inv ordered(order_id)` would state the order (catalog SGC205 evidence: site 04 lines 7–8, examples.md lines 655–669)
+  accepted — the runs show `<Paid>` reaching `{Order}` / `[Checkout]` before `<Placed>` from two independent arrivals; `@inv ordered(order_id)` would state the order (catalog SGC205 evidence: site 04 lines 7–8, examples.md Example N)
 - examples.md · wait-without-timeout · warn · `Open  -<Paid>->      Settled`
-  accepted — the checkout sketch waits on the shopper's payment with no expiry; an `@after(t)` transition would state one (catalog evidence site 04, examples.md:655–669)
+  accepted — the checkout sketch waits on the shopper's payment with no expiry; an `@after(t)` transition would state one (catalog evidence site 04, examples.md Example N)
 - examples.md · ordering-unstated · warn · `Idle  -<Placed>->    Busy`
-  accepted — the runs show `<Paid>` reaching `{Order}` / `[Checkout]` before `<Placed>` from two independent arrivals; `@inv ordered(order_id)` would state the order (catalog SGC205 evidence: site 04 lines 7–8, examples.md lines 655–669)
+  accepted — the runs show `<Paid>` reaching `{Order}` / `[Checkout]` before `<Placed>` from two independent arrivals; `@inv ordered(order_id)` would state the order (catalog SGC205 evidence: site 04 lines 7–8, examples.md Example N)
 - examples.md · capacity-mismatch · info · `(User)       -> [Router] : {Query}`
   noted — hint (catalog §12)
 - examples.md · optional-callee · info · `[Search]     -> [ShardQuery] => {Hits}`
