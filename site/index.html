@@ -239,6 +239,15 @@
       The quickest way to read who calls whom.</p>
       <pre class="snippet cmd">view.py design.sigil --flow</pre>
     </article>
+    <article class="card">
+      <h3>run view</h3>
+      <p>One simulated run as a timeline: a lane per participant, instance and recursion
+      level, time left to right. A bar while each one works or waits, every call at the
+      tick it was sent, retries as repeated segments, spawned instances forking off their
+      spawner — what did happen, where the other views draw what can. Without a scenario,
+      the happy run.</p>
+      <pre class="snippet cmd">view.py design.sigil --run --sim happy</pre>
+    </article>
   </div>
   <div class="cards two">
     <article class="card">
@@ -260,8 +269,8 @@
       <pre class="snippet cmd">view.py site/examples/05-executions.sigil --payloads</pre>
     </article>
   </div>
-  <p class="keys"><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> graph / tree / flow <kbd>t</kbd> next view <kbd>x</kbd> simulate <kbd>d</kbd> depth
-  <kbd>n</kbd> notes <kbd>e</kbd> triggers <kbd>v</kbd> events <kbd>s</kbd> spacing
+  <p class="keys"><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd> graph / tree / flow / run <kbd>t</kbd> next view <kbd>x</kbd> simulate <kbd>d</kbd> depth
+  <kbd>u</kbd> unroll <kbd>n</kbd> notes <kbd>e</kbd> triggers <kbd>v</kbd> events <kbd>s</kbd> spacing
   <kbd>p</kbd> payloads <kbd>m</kbd> modifiers <kbd>a</kbd> access <kbd>f</kbd> fit
   <kbd>l</kbd> lint <kbd>q</kbd> quit · drag to pan · <code>--once</code> prints a frame
   for agents and CI · <code>--theme</code> picks the same YAML themes as this page.</p>

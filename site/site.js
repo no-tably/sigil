@@ -1141,7 +1141,7 @@
       if (st.playing) arm();                       // keep playing, at the new pace
     }
 
-    // the views in the terminal viewer's order: 1 2 3 pick one, t the next
+    // the views in the terminal viewer's order: 1 2 3 4 pick one, t the next
     function setView(v) {
       st.view = v;
       el.views.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === v)));
@@ -1201,7 +1201,7 @@
     el.fwd.addEventListener("click", () => step(1));
     el.speed.addEventListener("change", () => setSpeed(Number(el.speed.value)));
     // the drawing takes the terminal viewer's run keys while a scenario is on
-    // the drawing takes the viewer's view keys (1 2 3, t) at any time
+    // the drawing takes the viewer's view keys (1 2 3 4, t) at any time
     el.draw.addEventListener("keydown", (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const v = /^[1-9t]$/.test(e.key) ? viewKey(e.key) : undefined;
