@@ -32,6 +32,16 @@ def _load_build():
 build = _load_build()
 
 
+class VersionTest(unittest.TestCase):
+    def test_the_plugin_version_is_no_older_than_the_last_release(self):
+        """main once built 0.3.2 while CHANGELOG.md (and the v0.3.3 tag) said 0.3.3."""
+        meta = json.loads((ROOT / "plugin" / "meta.json").read_text())["version"]
+        released = re.findall(r"^## (\d+)\.(\d+)\.(\d+) — \d{4}-\d\d-\d\d",
+                              (ROOT / "CHANGELOG.md").read_text(), re.M)
+        newest = max(tuple(int(x) for x in v) for v in released)
+        self.assertGreaterEqual(tuple(int(x) for x in meta.split(".")), newest, meta)
+
+
 class ModuleListTest(unittest.TestCase):
     def test_every_top_level_module_ships(self):
         """build.TOOLS is the one list the plugin and the playground ship: a new
