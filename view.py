@@ -4,7 +4,7 @@ view.py — Live terminal view of a Sigil document's graph.
 
 Usage:
     view.py <file.sigil>                 # live view: redraws on every save
-    view.py <file.sigil> --once          # print the graph + lint once, exit
+    view.py <file.sigil> --once          # print the drawing + lint once, exit
     view.py <file.sigil> --once --depth all --payloads --color always
 
 Options:
@@ -26,6 +26,7 @@ Options:
                      event named beside the edge's head). nodes: as a row / box of
                      its own (a hub). Default: tree land, graph and flow nodes;
                      given, it sets every view.
+    --graph          Graph: boxes and edges, laid out top-down in layers.
     --tree           Tree + wires: the composition tree (`\\-` branches and `:=`
                      expansions) as an outline, every flow as a lane in a gutter —
                      ● marks a lane's source, ◀ each target; a row's run hops a lane
@@ -33,8 +34,8 @@ Options:
     --flow           Flow: a call graph read left to right — bare glyph labels (no
                      boxes) in columns by call depth, a node's first callee on its
                      row and the rest below, wires bending between the columns
-                     (─┬─▶ ├─▶ ╰─▶), each flow's chip on its wire. Graph (no flag)
-                     stays the default; --tree, --flow and --run pick one of the others.
+                     (─┬─▶ ├─▶ ╰─▶), each flow's chip on its wire. The default view;
+                     --graph, --tree and --run pick one of the others.
     --run            Run: one simulated run as a timeline — a lane per participant,
                      composition instance and recursion level, time (ticks) left to
                      right; --sim's run, else the happy one (the title says so).
@@ -281,9 +282,10 @@ dialects = (kit._load("sigil_dialects", "dialects.py") if (_HERE / "dialects.py"
 
 NOTE_MODES = ("off", "markers", "callouts")
 EVENT_MODES = scene.EVENTS                       # --events / v: "land" | "nodes"
-# The views, in the order `t` steps through them and keys 1, 2, 3 … select them;
-# the first is the default. A new view goes at the end (its key the next digit).
+# The views, in the order `t` steps through them and keys 1, 2, 3 … select them.
+# A new view goes at the end (its key the next digit).
 VIEWS = ("graph", "tree", "flow", "run")
+DEFAULT_VIEW = "flow"                           # the view the viewer starts in
 DEFAULT_EVENTS = {"graph": "nodes", "tree": "land", "flow": "nodes",
                   "run": "nodes"}               # each view's own (the run view draws a trace)
 RUN_NOTES = vrun.RUN_NOTES                      # n in the run view: run → design → off
@@ -300,6 +302,12 @@ def view_name(view) -> str:
     if view not in VIEWS:
         raise ValueError(f"view must be one of {', '.join(VIEWS)}, not {view!r}")
     return view
+
+
+def start_view(view: str | None, tree: bool = False) -> str:
+    """The view to start in: `view` (a name in VIEWS) when given, else the tree
+    view for the old tree flag, else DEFAULT_VIEW."""
+    return view_name(view) if view else "tree" if tree else DEFAULT_VIEW
 
 
 def view_keys() -> str:
@@ -382,7 +390,7 @@ def keys_legend(state):
             continue                           # u: the run view's own; the rest: not its
         if key == "views":                     # 1 2 3 …: one key per view
             key, word = view_keys(), f"view:{state.view}"
-            bright = state.view != VIEWS[0]
+            bright = state.view != DEFAULT_VIEW
         elif key == "n":
             word = f"notes:{state.run_notes if run else state.notes}"
             bright = (state.run_notes != "off") if run else bright
@@ -1291,8 +1299,8 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
          width: int | None = None, access: bool = False, mods: bool = False,
          events: str | None = None, sim: str | None = None, checks: bool = False,
          limits=None, view: str | None = None, unroll: int | None = None) -> int:
-    """Print the drawing once, in `view` (a name in VIEWS; None: the tree view
-    when `tree`, else the graph view). The run view draws `sim`'s run as a
+    """Print the drawing once, in `view` (a name in VIEWS; None: start_view —
+    the tree view when `tree`, else DEFAULT_VIEW). The run view draws `sim`'s run as a
     timeline, or the happy run when no scenario is given (`unroll`: the
     instances it shows before folding; None: sim.RUN_SHOW, 0: all). `width`: the columns to fit it to (None: its
     natural width); the legend wraps at the narrower of that and LEGEND_WIDTH.
@@ -1306,7 +1314,7 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
     kit.use_dialect(dialect)
     text = path.read_text()
     g = kit._call(kit.render.parse_document, text, dialect)
-    view = view_name(view or tree)
+    view = start_view(view, tree)
     tree = view == "tree"
     events = events or DEFAULT_EVENTS[view]
     options = scene.SceneOptions(events, triggers, access, depth)
@@ -1435,8 +1443,8 @@ class ViewState:
                  access: bool = False, mods: bool = False, events: str | None = None,
                  sim: str | None = None, checks: bool = False, limits=None,
                  view: str | None = None, unroll: int | None = None):
-        """`view`: the view to start in (a name in VIEWS; None: the tree view when
-        `tree`, else the graph view). `unroll`: the run view's instances shown
+        """`view`: the view to start in (a name in VIEWS; None: start_view — the
+        tree view when `tree`, else DEFAULT_VIEW). `unroll`: the run view's instances shown
         before folding (None: sim.RUN_SHOW; 0: all; key u). `events`: the events mode every view starts
         in (None: each view's default, DEFAULT_EVENTS); each view then keeps its
         own (key v). `sim`: a
@@ -1447,7 +1455,7 @@ class ViewState:
         self.show_access = access
         self.show_mods = mods
         self.mode = ""
-        self.view = view_name(view or tree)
+        self.view = start_view(view, tree)
         self.events = events_by_view(events)   # {view: "land" | "nodes"}
         self.notes = notes
         self.run_notes = run_notes_of(notes)   # the run view's own (n there): RUN_NOTES
@@ -2115,6 +2123,8 @@ def main(argv=None) -> int:
                          "to each destination); nodes: as a row / box of its own "
                          "(default: tree land, graph and flow nodes)")
     views = ap.add_mutually_exclusive_group()
+    views.add_argument("--graph", action="store_true",
+                       help="graph: boxes and edges laid out top-down in layers")
     views.add_argument("--tree", action="store_true",
                        help="tree + wires: the composition tree as an outline, flows as lanes")
     views.add_argument("--flow", action="store_true",
@@ -2172,7 +2182,7 @@ def main(argv=None) -> int:
     if a.json and a.sim is None and not a.run:
         print("view.py: --json needs --sim (list, all or a scenario) or --run", file=sys.stderr)
         return 2
-    view = "tree" if a.tree else "flow" if a.flow else "run" if a.run else VIEWS[0]
+    view = next((v for v in VIEWS if getattr(a, v)), DEFAULT_VIEW)
     batch = a.sim in SIM_BATCH             # never drawn: the same live or --once
     tty_out = sys.stdout.isatty()
     once_out = a.once or not tty_out or not sys.stdin.isatty()

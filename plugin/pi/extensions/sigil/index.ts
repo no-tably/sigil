@@ -94,7 +94,7 @@ const TOOL_SCHEMA = {
   type: 'object',
   properties: {
     file: { type: 'string', description: 'The .sigil file (relative to the working directory, or absolute).' },
-    view: { type: 'string', enum: [...VIEWS], description: 'Which view (default graph).' },
+    view: { type: 'string', enum: [...VIEWS], description: 'Which view (default flow).' },
     depth: { type: 'string', description: 'Expansion depth: a whole number, or "all" (default 1).' },
     scenario: { type: 'string', description: 'A scenario to simulate; "" ends the run.' },
     frame: { type: 'string', description: 'The run frame to show: a 0-based number, or "last" (default: the last).' },

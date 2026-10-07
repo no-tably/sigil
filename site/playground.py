@@ -53,7 +53,7 @@ _player: dict = {}          # the run being shown: {"key": (text, scenario), "pl
 
 
 def _opts(req: dict) -> dict:
-    name = view.view_name(req.get("view") or "tree")
+    name = view.view_name(req.get("view") or view.DEFAULT_VIEW)
     tree = name == "tree"
     events = req.get("events") or view.DEFAULT_EVENTS[name]
     width = req.get("width")

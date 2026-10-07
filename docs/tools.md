@@ -53,9 +53,9 @@ See "Checks" in [`language.md`](../language.md).
 ## `view.py FILE`
 
 A live terminal view of the design that redraws on every save. It has four views:
-the graph view (boxes and edges, top down; the default), the flow view (a call graph
-read left to right: bare glyph labels in columns by call depth, wires bending
-between them), the tree view (the composition tree as an outline, with every flow
+the flow view (a call graph read left to right: bare glyph labels in columns by
+call depth, wires bending between them; the default), the graph view (boxes and
+edges, top down), the tree view (the composition tree as an outline, with every flow
 as a lane beside it) and the run view (one simulated run as a timeline: a lane per
 participant, instance and recursion level, time left to right). The first three
 draw the design, what can happen; the run view draws what did happen in one run.
@@ -74,8 +74,8 @@ Options:
 
 - `--once` prints the drawing and a lint summary, then exits (1 on a lint error; see
   [exit codes](#exit-codes)).
-- `--tree` starts in the tree view, `--flow` in the flow view, `--run` in the run
-  view (`--sim`'s run, else the happy one; `--unroll N|all` sets how many instances
+- The view starts in the flow view; `--graph` starts in the graph view, `--tree`
+  in the tree view, `--run` in the run view (`--sim`'s run, else the happy one; `--unroll N|all` sets how many instances
   of one node it shows before the rest fold, 3 by default).
 - `--depth N|all` opens `X := { … }` expansions (in the tree view an expansion's
   members hang off dotted rails, `├┄┄`, apart from a branch's solid `├──`).
@@ -237,8 +237,8 @@ redrawn on every save.
 The tool's input:
 
 - `file` — the `.sigil` file.
-- `view` — `graph`, `tree`, `flow` or `run` (one run as a timeline: the
-  scenario's, else the happy one).
+- `view` — `flow` (the default), `graph`, `tree` or `run` (one run as a
+  timeline: the scenario's, else the happy one).
 - `depth` — a number, or `"all"`.
 - `scenario` — a scenario to simulate, as `--sim` names it. `""` ends the run.
 - `frame` — the frame of the run to show: a 0-based number, or `"last"`. A new

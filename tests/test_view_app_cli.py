@@ -61,7 +61,7 @@ class TestKeys(_TempDoc):
     def setUp(self):
         super().setUp()
         self.path.write_text("".join(f"[N{i}] -> [N{i + 1}]\n" for i in range(30)))
-        self.st = view.ViewState(self.path, do_lint=False)
+        self.st = view.ViewState(self.path, do_lint=False, view="graph")
         self.st.reload(force=True)
 
     def test_recentre_then_scroll_in_one_read(self):

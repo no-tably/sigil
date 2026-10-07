@@ -372,16 +372,38 @@ class TestApp(unittest.TestCase):
         with self.assertRaises(ValueError):
             view.view_name("boxes")
 
+    def test_flow_is_the_default_view(self):
+        self.assertEqual(view.DEFAULT_VIEW, "flow")
+        self.assertEqual(view.start_view(None), "flow")
+        self.assertEqual(view.start_view(None, tree=True), "tree")
+        self.assertEqual(view.start_view("graph", tree=True), "graph")
+        st = self.state()
+        self.assertEqual(st.view, "flow")
+        text = "\n".join(plain(st.frame(200, 40)))
+        self.assertIn("· flow ·", text)
+        # the keys row brightens a view other than the default, as any toggle
+        on = lambda st: next(r for r in view.keys_legend(st) if r[0].startswith(" view:"))[1][2]
+        self.assertFalse(on(st))
+        st.key("1")
+        self.assertTrue(on(st))
+
+    def test_cli_starts_in_flow_and_graph_picks_the_graph(self):
+        for flags, want in (((), "─▶ [API]"), (("--graph",), "┌──")):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                view.main([str(self.path), "--once", "--no-lint", "--width", "200", *flags])
+            self.assertIn(want, buf.getvalue(), flags)
+
     def test_t_steps_through_the_views_digits_select(self):
         st = self.state()
         seen = [st.view]
         for _ in view.VIEWS:
             st.key("t")
             seen.append(st.view)
-        self.assertEqual(seen, ["graph", "tree", "flow", "run", "graph"])
-        self.assertTrue(st.key("3"))
-        self.assertEqual(st.view, "flow")
-        self.assertFalse(st.key("3"))                  # already there
+        self.assertEqual(seen, ["flow", "run", "graph", "tree", "flow"])
+        self.assertTrue(st.key("1"))
+        self.assertEqual(st.view, "graph")
+        self.assertFalse(st.key("1"))                  # already there
         self.assertTrue(st.key("2"))
         self.assertTrue(st.tree)
         self.assertFalse(st.key(str(len(view.VIEWS) + 1)))

@@ -857,7 +857,7 @@
       count: $("#pg-count"), diags: $("#pg-diags"), log: $("#pg-log"), check: $("#pg-check"),
       findings: $("#pg-findings"), mode: $("#pg-mode"), recheck: $("#pg-recheck"),
     };
-    const st = { view: "tree", scenario: "", frame: 0, last: 0, beats: [], playing: false,
+    const st = { view: "flow", scenario: "", frame: 0, last: 0, beats: [], playing: false,
       speed: speedIndex(store.get(SPEED_KEY)),
       timer: null, typing: null, styles: 0, api: null, booting: false,
       checkTimer: null, checked: "", checkPaused: false };

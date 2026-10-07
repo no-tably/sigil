@@ -128,7 +128,7 @@ def lint_summary(diags) -> str:
     return f"lint: {errors} error{'s' * (errors != 1)}, {warns} warning{'s' * (warns != 1)}"
 
 
-def draw(path: Path, view_name: str = "graph", depth: int = 1, width: int | None = None,
+def draw(path: Path, view_name: str = "flow", depth: int = 1, width: int | None = None,
          scenario: str | None = None, payloads: bool = False, theme: str | None = None) -> dict:
     """The JSON object `pane.py draw` prints (see the module docstring)."""
     view = _load("sigil_view", _TOOLS / "view.py")
@@ -286,7 +286,7 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("draw", help="a document's drawing as JSON for the mod's pane")
     d.add_argument("file", type=Path)
-    d.add_argument("--view", choices=VIEWS, default="graph")
+    d.add_argument("--view", choices=VIEWS, default="flow")
     d.add_argument("--depth", type=_depth, default=1)
     d.add_argument("--width", type=int, default=None)
     d.add_argument("--scenario", default=None)

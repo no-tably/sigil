@@ -33,6 +33,7 @@ class _Doc(unittest.TestCase):
 
     def state(self, text, **kw):
         self.path.write_text(text)
+        kw.setdefault("view", "graph")                 # panning is checked on the graph view
         st = view.ViewState(self.path, do_lint=False, **kw)
         st.reload(force=True)
         return st

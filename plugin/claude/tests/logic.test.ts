@@ -58,6 +58,7 @@ describe('requests', () => {
   test('another file drops the run; bad values are named', () => {
     const shown = { file: 'a.sigil', view: 'graph' as const, depth: 1, scenario: 'happy' }
     expect(parseRequest({ file: 'b.sigil' }, shown)).toEqual({ request: { file: 'b.sigil', view: 'graph', depth: 1 } })
+    expect(parseRequest({ file: 'a.sigil' }, null)).toEqual({ request: { file: 'a.sigil', view: 'flow', depth: 1 } })
     expect(parseRequest({ file: 'a.sigil', view: 'side' }, null)).toEqual({ error: 'view must be one of graph, tree, flow, run' })
     expect(parseRequest({ file: 'a.sigil', depth: -1 }, null)).toEqual({ error: 'depth must be a whole number or "all"' })
   })
@@ -69,10 +70,10 @@ describe('requests', () => {
 })
 
 describe('commands', () => {
-  test("view.py's live flags, flow passed through", () => {
-    expect(viewArgv({ file: '/d/a.sigil', view: 'flow', depth: 99, scenario: 'happy' }))
-      .toEqual(['/d/a.sigil', '--depth', 'all', '--flow', '--sim', 'happy'])
-    expect(viewArgv({ file: '/d/a.sigil', view: 'graph', depth: 0 })).toEqual(['/d/a.sigil', '--depth', '0'])
+  test("view.py's live flags, a view other than flow (the default) passed through", () => {
+    expect(viewArgv({ file: '/d/a.sigil', view: 'graph', depth: 99, scenario: 'happy' }))
+      .toEqual(['/d/a.sigil', '--depth', 'all', '--graph', '--sim', 'happy'])
+    expect(viewArgv({ file: '/d/a.sigil', view: 'flow', depth: 0 })).toEqual(['/d/a.sigil', '--depth', '0'])
   })
   test('a split per multiplexer', () => {
     const follow = ['python3', '/p/pane.py', 'follow', '/tmp/c.json']

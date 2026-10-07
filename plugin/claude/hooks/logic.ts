@@ -7,6 +7,7 @@ export const PANE = 'sigil'
 export const TOOL = 'view'
 export const COMMAND = 'sigil-pane' // /sigil is the skill's own
 export const VIEWS: readonly ViewName[] = ['graph', 'tree', 'flow', 'run']
+export const DEFAULT_VIEW: ViewName = 'flow' // view.py's DEFAULT_VIEW: the view it starts in
 export const ALL_DEPTH = 99
 export const UNASKED_COLUMNS = 144 // the engine's floor for a pane opened unasked
 export const DEFAULT_WIDTH = 100 // the width drawn for before the pane has measured
@@ -90,7 +91,7 @@ function depthOf(value: unknown): number | undefined {
 export function parseRequest(input: Record<string, unknown>, previous: ViewRequest | null): Asked | { error: string } {
   const file = typeof input.file === 'string' && input.file !== '' ? input.file : previous?.file
   if (file === undefined) return { error: 'name the Sigil file to show (file)' }
-  const view = input.view ?? previous?.view ?? 'graph'
+  const view = input.view ?? previous?.view ?? DEFAULT_VIEW
   if (!VIEWS.includes(view as ViewName)) return { error: `view must be one of ${VIEWS.join(', ')}` }
   const depth = input.depth === undefined ? (previous?.depth ?? 1) : depthOf(input.depth)
   if (depth === undefined) return { error: 'depth must be a whole number or "all"' }
@@ -145,7 +146,7 @@ export function drawArgv(script: string, request: ViewRequest, width: number): s
 /** view.py's own flags for the live view the split runs. */
 export function viewArgv(request: ViewRequest): string[] {
   const argv = [request.file, '--depth', request.depth >= ALL_DEPTH ? 'all' : String(request.depth)]
-  if (request.view !== 'graph') argv.push(`--${request.view}`)
+  if (request.view !== DEFAULT_VIEW) argv.push(`--${request.view}`)
   if (request.scenario) argv.push('--sim', request.scenario)
   if (request.payloads) argv.push('--payloads')
   return argv

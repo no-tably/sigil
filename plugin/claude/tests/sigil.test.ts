@@ -110,12 +110,12 @@ describe('mod display', () => {
     const term = await $.ui.mount({ plugin: 'sigil', surface: 'terminal', component: 'Pane', props, requestId: 'sigil' })
     const raster = await term.find({ type: 'Raster' })
     expect(raster?.props.columns).toBe(5)
-    expect(await term.find({ type: 'Text', text: /shop\.sigil · graph · depth 1/ })).toBeDefined()
+    expect(await term.find({ type: 'Text', text: /shop\.sigil · flow · depth 1/ })).toBeDefined()   // flow: the default
     const desk = await $.ui.mount({ plugin: 'sigil', surface: 'desktop', component: 'Pane', props, requestId: 'sigil' })
     expect(await desk.find({ type: 'Text', text: '[API]' })).toBeDefined()
     expect(await desk.find({ key: 'view' })).toBeDefined()
-    expect(await desk.find({ key: 'view-graph' })).toMatchObject({ props: { label: '[graph]', hotkey: '1' } })
-    expect(await desk.find({ key: 'view-flow' })).toMatchObject({ props: { label: 'flow', hotkey: '3' } })
+    expect(await desk.find({ key: 'view-graph' })).toMatchObject({ props: { label: 'graph', hotkey: '1' } })
+    expect(await desk.find({ key: 'view-flow' })).toMatchObject({ props: { label: '[flow]', hotkey: '3' } })
     expect(await desk.find({ key: 'view-run' })).toMatchObject({ props: { label: 'run', hotkey: '4' } })
     expect(await desk.find({ type: 'Box', props: { height: 40 } })).toBeDefined()   // docked: fills, info at the bottom
   })
@@ -136,14 +136,14 @@ describe('multiplex display', () => {
   test('unset inside tmux: a split runs view.py live, nothing opens in Claude Code', async ($, on) => {
     const seen = world(on, { isPlaced: true, env: { TMUX: '/tmp/tmux-1/default,1,0', TMPDIR: '/t' } })
     await $.session.start(START)
-    const { result } = await $.tool.call({ tool: 'mcp__sigil__view', file: 'shop.sigil', view: 'flow', depth: 'all' })
+    const { result } = await $.tool.call({ tool: 'mcp__sigil__view', file: 'shop.sigil', view: 'tree', depth: 'all' })
     expect(String(result)).toContain('tmux split')
     expect(String(result)).toContain('lint: OK')
     expect(seen.opens).toBe(0)
     const split = seen.runs.find(argv => argv[0] === 'tmux')
     expect(split?.slice(0, 8)).toEqual(['tmux', 'split-window', '-h', '-d', '-P', '-F', '#{pane_id}', '--'])
     expect(split?.slice(10, 11)).toEqual(['follow'])
-    expect(JSON.parse(seen.writes[0]?.text ?? '{}')).toEqual({ argv: [FILE, '--depth', 'all', '--flow'] })
+    expect(JSON.parse(seen.writes[0]?.text ?? '{}')).toEqual({ argv: [FILE, '--depth', 'all', '--tree'] })
     expect(seen.writes[0]?.path.startsWith('/t/sigil-view-')).toBe(true)
   })
 

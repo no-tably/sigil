@@ -36,7 +36,24 @@ Line by line:
 
 A line that starts with an arrow continues from the subject above.
 
-`view.py` draws it in the terminal:
+`view.py` draws it in the terminal, as a call graph read left to right (the flow
+view, its default):
+
+```
+── URL shortener ─────────────────────────────────────────
+
+      (User) ─────▶ [Shortener] ─┬─▶ |Links|
+╭───✖┐(Visitor) ──▶ [Redirect] ──┼╌▶ <Clicked> ──▶ [Stats]
+│ ╭─▶┘                           │
+│ ╰──────────────────────────────┤
+╰────────────────────────────────╯
+
+shortener.sigil: 7 nodes, 8 edges, 0 expansions · #!sketch
+lint: OK
+```
+
+`--graph` draws the same design as boxes and edges, top down (`t` steps through
+the graph, tree, flow and run views live):
 
 ```
 ── URL shortener ──────────────────
@@ -61,22 +78,6 @@ A line that starts with an arrow continues from the subject above.
                       ┌─────────┐
                       │ [Stats] │
                       └─────────┘
-
-shortener.sigil: 7 nodes, 8 edges, 0 expansions · #!sketch
-lint: OK
-```
-
-`--flow` reads the same design left to right, as a call graph (`t` steps through the
-graph, tree, flow and run views live):
-
-```
-── URL shortener ─────────────────────────────────────────
-
-      (User) ─────▶ [Shortener] ─┬─▶ |Links|
-╭───✖┐(Visitor) ──▶ [Redirect] ──┼╌▶ <Clicked> ──▶ [Stats]
-│ ╭─▶┘                           │
-│ ╰──────────────────────────────┤
-╰────────────────────────────────╯
 ```
 
 `--sim all` runs both of its paths — the happy one, and a lookup that fails:
@@ -111,7 +112,7 @@ Every flag and key is in [`docs/tools.md`](./docs/tools.md).
 
 | Tool | Does |
 | --- | --- |
-| `view.py FILE` | Live terminal view, redrawn on every save: a graph view, a tree view (`--tree`), a flow view (a call graph left to right, `--flow`) and a run view (one simulated run as a timeline, `--run`) — `1` `2` `3` `4` pick one, `t` steps to the next — a simulation mode (`x`) and a checks overlay (`c`). `--once` prints one drawing for agents and CI. |
+| `view.py FILE` | Live terminal view, redrawn on every save: a flow view (a call graph left to right, the default), a graph view (`--graph`), a tree view (`--tree`) and a run view (one simulated run as a timeline, `--run`) — `1` `2` `3` `4` pick one, `t` steps to the next — a simulation mode (`x`) and a checks overlay (`c`). `--once` prints one drawing for agents and CI. |
 | `lint.py FILE` | Validates a document: one `severity:line:rule: message` per issue; exit 0 clean, 1 warnings, 2 errors. `--deep` adds the composition checks. |
 | `check.py FILE` | Composition checks ([RFC 0003](./rfcs/0003-composition-checks.md)): does the design say how its risks are handled — time bounds, idempotency, writers, failure routes, stuck state machines? A finding never forbids a shape: declare the handling, or accept the risk with a reason. |
 | `render.py FILE` | Emits a Mermaid `flowchart TD` for docs (GitHub, Obsidian, mermaid.live). |

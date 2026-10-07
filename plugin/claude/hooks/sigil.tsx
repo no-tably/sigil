@@ -50,7 +50,7 @@ const TOOL_SCHEMA = {
   type: 'object',
   properties: {
     file: { type: 'string', description: 'The .sigil file (relative to the working directory, or absolute).' },
-    view: { type: 'string', enum: ['graph', 'tree', 'flow', 'run'], description: 'Which view (default graph).' },
+    view: { type: 'string', enum: ['graph', 'tree', 'flow', 'run'], description: 'Which view (default flow).' },
     depth: { oneOf: [{ type: 'integer', minimum: 0 }, { const: 'all' }], description: 'Expansion depth (default 1).' },
     scenario: { type: 'string', description: 'A scenario to simulate; "" ends the run.' },
     frame: { oneOf: [{ type: 'integer', minimum: 0 }, { const: 'last' }], description: 'The run frame to show (default: the last).' },

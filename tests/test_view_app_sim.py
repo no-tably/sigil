@@ -161,6 +161,7 @@ class _Doc(unittest.TestCase):
 
     def state(self, src: Path = CHECKOUT, **kw):
         self.path.write_text(src.read_text())
+        kw.setdefault("view", "graph")                 # sim mode is checked on the graph view
         st = view.ViewState(self.path, do_lint=False, **kw)
         st.reload(force=True)
         return st

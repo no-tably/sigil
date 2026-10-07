@@ -141,7 +141,7 @@ class TestOnce(unittest.TestCase):
         return status, buf.getvalue()
 
     def test_once_ok(self):
-        status, out = self._run("#!spec\n[A] -> [B] : {Req}\n", "--payloads")
+        status, out = self._run("#!spec\n[A] -> [B] : {Req}\n", "--payloads", "--graph")
         self.assertEqual(status, 0)
         self.assertIn("┆ {Req} ┆", out)                     # a chip on the edge
         self.assertIn("lint: OK", out)
@@ -237,7 +237,7 @@ class TestLiveView(unittest.TestCase):
 
     def test_boxes_colour_coded_by_kind(self):
         self.path.write_text("(User) -> [API] -> |DB|\n")
-        st = view.ViewState(self.path, do_lint=False)
+        st = view.ViewState(self.path, do_lint=False, view="graph")
         st.reload(force=True)
         styles = {}                     # run text → style, for the label runs
         for row in st.frame(100, 30)[1:]:
@@ -276,7 +276,7 @@ class TestLiveView(unittest.TestCase):
     def test_once_colour_emits_truecolor(self):
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            view.once(self.path, 1, False, False, colour=True)
+            view.once(self.path, 1, False, False, colour=True, view="graph")
         self.assertIn("\x1b[38;2;", buf.getvalue())
         self.assertIn("48;2;", buf.getvalue())
 

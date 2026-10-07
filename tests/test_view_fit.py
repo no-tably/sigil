@@ -319,7 +319,8 @@ class TestLiveFit(unittest.TestCase):
 
     def test_graph_view_frame(self):
         self.path.write_text(WIDE_CHIPS)
-        st = view.ViewState(self.path, payloads=True, notes="markers", do_lint=False)
+        st = view.ViewState(self.path, payloads=True, notes="markers", do_lint=False,
+                            view="graph")
         st.reload(force=True)
         frame = st.frame(60, 50)
         self.assertEqual(len(frame), 50)

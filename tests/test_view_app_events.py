@@ -36,6 +36,7 @@ class TestEventsToggle(unittest.TestCase):
         self.tmp.cleanup()
 
     def state(self, **kw):
+        kw.setdefault("view", "graph")                 # these steps start in the graph view
         st = view.ViewState(self.path, do_lint=False, **kw)
         st.reload(force=True)
         return st
@@ -45,7 +46,7 @@ class TestEventsToggle(unittest.TestCase):
         self.assertEqual(st.events, {"tree": "land", "graph": "nodes", "flow": "nodes",
                                      "run": "nodes"})
         self.assertEqual(st.events_mode, "nodes")
-        self.assertEqual(self.state(tree=True).events_mode, "land")
+        self.assertEqual(self.state(view="tree").events_mode, "land")
         self.assertEqual(self.state(view="flow").events_mode, "nodes")
 
     def test_flag_sets_both_views(self):

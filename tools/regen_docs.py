@@ -8,12 +8,12 @@ regen_docs.py — regenerate the drawings embedded in the docs from view.py.
 - examples.md: each ```text block (a `--tree` drawing) is redrawn from the Sigil
   block just above it (`view.py --once --tree --no-lint --width 200`, the drawing
   part only — no legend or summary);
-- README.md: the drawing after "`view.py` draws it in the terminal:" is redrawn
-  from the README's first ```sigil block (`view.py --once`, summary included; the
-  file is named shortener.sigil, the example it shows);
-- README.md: the drawing after "`--flow` reads the same design left to right" is
-  redrawn from that block too (`view.py --once --flow --no-lint`, the drawing part
-  only — no summary);
+- README.md: the drawing after "`view.py` draws it in the terminal" is redrawn
+  from the README's first ```sigil block (`view.py --once`: the flow view, summary
+  included; the file is named shortener.sigil, the example it shows);
+- README.md: the drawing after "`--graph` draws the same design" is redrawn from
+  that block too (`view.py --once --graph --no-lint`, the drawing part only — no
+  summary);
 - README.md: the block after the `--sim` command in "Simulation" is the real run of
   that command on site/examples/01-checkout.sigil (published as checkout.sigil):
   the drawing, then the `sim …` summary and log (legend and lint summary left out);
@@ -80,7 +80,7 @@ def examples(text: str) -> tuple[str, int]:
 
 def readme(text: str) -> tuple[str, int]:
     src = re.search(r"```sigil\n(.*?)```", text, re.S)
-    old = re.search(r"`view.py` draws it in the terminal:\n\n```\n(.*?)```", text, re.S)
+    old = re.search(r"`view.py` draws it in the terminal.*?:\n\n```\n(.*?)```", text, re.S)
     if not src or not old:
         return text, 0
     new = tidy(run(src.group(1), name="shortener.sigil"))
@@ -89,13 +89,12 @@ def readme(text: str) -> tuple[str, int]:
     return text.replace(old.group(0), old.group(0).replace(old.group(1), new)), 1
 
 
-def readme_flow(text: str) -> tuple[str, int]:
+def readme_graph(text: str) -> tuple[str, int]:
     src = re.search(r"```sigil\n(.*?)```", text, re.S)
-    old = re.search(r"`--flow` reads the same design left to right.*?:\n\n```\n(.*?)```",
-                    text, re.S)
+    old = re.search(r"`--graph` draws the same design.*?:\n\n```\n(.*?)```", text, re.S)
     if not src or not old:
         return text, 0
-    lines = run(src.group(1), "--flow", "--no-lint", name="shortener.sigil").split("\n")
+    lines = run(src.group(1), "--graph", "--no-lint", name="shortener.sigil").split("\n")
     cut = next((i for i, ln in enumerate(lines) if ln.startswith("shortener.sigil:")),
                len(lines))
     new = tidy("\n".join(lines[:cut]))
@@ -156,7 +155,7 @@ def readme_all(text: str) -> tuple[str, int]:
     text, a = readme(text)
     text, b = readme_sim(text)
     text, c = readme_sim_all(text)
-    text, d = readme_flow(text)
+    text, d = readme_graph(text)
     text, e = readme_run(text)
     return text, a + b + c + d + e
 
