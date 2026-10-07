@@ -1,14 +1,14 @@
 [MCP.r]
-├── [Surface]
-├── [Hydrator]
-└── [Materializer]
+├┄┄ [Surface]
+├┄┄ [Hydrator]
+└┄┄ [Materializer]
 
 [MCP.w]
-├── [Surface]
-└── [Validator]
+├┄┄ [Surface]
+└┄┄ [Validator]
 
-tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
-       (N) weight  
+tree   ─ contains  ┄ := internals  & has  * spawns  ? when  $ from data  @ attached  ! alerts  
+       = gathers  _ one of  (N) weight  
 wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
        ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  
        ┄┆{…}┆ payload, on its target row

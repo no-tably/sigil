@@ -3,15 +3,15 @@
 [Edge] ◀────────────┴─●
                       │
 [Core] ◀──────────────┴───●
-├── [LB] ───────────●     │
-├── [App] ◀─────────┴─▶─● │
-├── [Cache] ◀─────────┘ │ │
-└── [Data] ▸ ◀──────────┼─┤
+├┄┄ [LB] ───────────●     │
+├┄┄ [App] ◀─────────┴─▶─● │
+├┄┄ [Cache] ◀─────────┘ │ │
+└┄┄ [Data] ▸ ◀──────────┼─┤
                         │ │
 [Data] ◀────────────────┴─┘
 
-tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
-       (N) weight  
+tree   ─ contains  ┄ := internals  & has  * spawns  ? when  $ from data  @ attached  ! alerts  
+       = gathers  _ one of  (N) weight  
 wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
        ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  r┄ reads  w┄ writes  
        b┄ borrows  1w writers  

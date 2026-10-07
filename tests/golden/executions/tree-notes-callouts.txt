@@ -10,8 +10,8 @@
                                     │ │      [Metrics] ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│╌┤ │ │
 ╭ E4 a self-call bounded as a  ╮ ───┘ │                                                  │ ╎ │ │
 │ whole: every attempt of      │  ┌───│#> ┌─ [Parser] ◀──────────────────────────────●─┬─│─╎─┤ │
-╰ throttle() fits in 2s · E5…  ╯  │   │   │  ├── [Lexer] ────────────────────────●   │ │ │ ╎ │ │
-                                  │   │   │  └── [Builder] ↻ ◀───────────────────┘┄┄┄│┄│┄│┄╎┄│┄│┄┆a┆
+╰ throttle() fits in 2s · E5…  ╯  │   │   │  ├┄┄ [Lexer] ────────────────────────●   │ │ │ ╎ │ │
+                                  │   │   │  └┄┄ [Builder] ↻ ◀───────────────────┘┄┄┄│┄│┄│┄╎┄│┄│┄┆a┆
 ╭ E6 an external op: the far   ╮ ─│───┘   │                                          │ │ │ ╎ │ │
 │ side is host-provided and    │  │       │  [Doc.walk] ↻ ◀──────────────────────────┘ │ │ ╎ │ │
 ╰ opaque; it may fail · E7 a…  ╯  │ ┌──#> ├─ [Indexer] ──────────────────────────●─✖───● │ ╎ │ │
@@ -21,7 +21,7 @@
 ╰ per child, depth unstated    ╯  ┌─│──#>    [Notifier] ⇱                                │ ╎ │ │
                                   │ │                                                    │ ╎ │ │
                                   │ │ ┌#>    [[follow]]                                  │ ╎ │ │
-╭ E11 several calls into one   ╮ ─│─┘ │      └── [Crawler] ↻ ◀───────────────────────────●─○─●─┘
+╭ E11 several calls into one   ╮ ─│─┘ │      └┄┄ [Crawler] ↻ ◀───────────────────────────●─○─●─┘
 │ target: reserve, then write; │  │   │
 ╰ on failure release · a call… ╯  │   │
                                   │   │
@@ -33,8 +33,8 @@
 │ alias: follow() calls itself │                              ┆a┆ # the builder recurses into nested
 ╰ on every outgoing link       ╯                                  blocks
 
-tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
-       (N) weight  
+tree   ─ contains  ┄ := internals  & has  * spawns  ? when  $ from data  @ attached  ! alerts  
+       = gathers  _ one of  (N) weight  
 wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
        ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  ↺ self-call  ↻ recursion  
        ⇱ host-provided (opaque)  

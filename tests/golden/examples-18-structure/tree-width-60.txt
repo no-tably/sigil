@@ -10,8 +10,8 @@
 └─{lagging}! <LagAlarm> ◀┄┴╌╌╌╌╌╎╌○ ┃ │
                                 ╎ ╎ ┃ │
 [Payments] ◀──────────────●─●─┐ ╎ ╎ ┃ │
-├─_ [PrimaryPsp] ◀────────┘ │ │ ╎ ╎ ┃ │
-└─_ [StandbyPsp] ◀──────────┘ │ ╎ ╎ ┃ │
+├─_ [PrimaryPsp] ⎫ ◀──────┘ │ │ ╎ ╎ ┃ │
+└─_ [StandbyPsp] ⎭ ◀────────┘ │ ╎ ╎ ┃ │
                               │ ╎ ╎ ┃ │
 (User) ───────────────────────●─╎─╎─┃─●
 {Hits} ◀━━━━━━━━━━━━━━━━━━━━━━━━╎━╎━┛
@@ -19,7 +19,7 @@
 (OnCall) ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘
 
 tree   ─ contains  & has  * spawns  ? when  $ from data  
-       @ attached  ! alerts  = gathers  _ one of  
+       @ attached  ! alerts  = gathers  _⎫ one of  
        (N) weight  
 wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  
        ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  ›─ emits  

@@ -10,8 +10,8 @@
    [Metrics] ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│╌┤┄│┄│┄┆f┆           ┆d┆ ⇱ http.get(${url})
                                                │ ╎ │ │               ┆e┆ allowed(${url})
 ┌─ [Parser] ◀──────────────────────────────●─┬─│─╎─┤┄│┄┆g┆           ┆f┆ count(${host})
-│  ├── [Lexer] ────────────────────────●   │ │ │ ╎ │ │               ┆g┆ parse({Page}) ↩ {Doc}
-│  └── [Builder] ↻ ◀───────────────────┘┄┄┄│┄│┄│┄╎┄│┄│┄┆h┆               parse({Page}) ↩ {Doc}
+│  ├┄┄ [Lexer] ────────────────────────●   │ │ │ ╎ │ │               ┆g┆ parse({Page}) ↩ {Doc}
+│  └┄┄ [Builder] ↻ ◀───────────────────┘┄┄┄│┄│┄│┄╎┄│┄│┄┆h┆               parse({Page}) ↩ {Doc}
 │                                          │ │ │ ╎ │ │               ┆h┆ ↻ nest({Node})
 │  [Doc.walk] ↻ ◀──────────────────────────┘┄│┄│┄╎┄│┄│┄┆i┆               build(tokens) ↩ {Doc}
 ├─ [Indexer] ──────────────────────────●─✖───● │ ╎ │ │               ┆i┆ ↻ child
@@ -21,10 +21,10 @@
    [Notifier] ⇱ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄│┄╎┄│┄│┄┆k┆               ✖ release({Lease})
                                                │ ╎ │ │               ┆k┆ ⇱ mail.send(${report})
    [[follow]]                                  │ ╎ │ │               ┆l┆ ↻ follow(.links)
-   └── [Crawler] ↻ ◀───────────────────────────●─○─●─┘┄┆l┆               crawl({Plan}) ↩ {Site}
+   └┄┄ [Crawler] ↻ ◀───────────────────────────●─○─●─┘┄┆l┆               crawl({Plan}) ↩ {Site}
 
-tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
-       (N) weight  
+tree   ─ contains  ┄ := internals  & has  * spawns  ? when  $ from data  @ attached  ! alerts  
+       = gathers  _ one of  (N) weight  
 wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
        ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  ↺ self-call  ↻ recursion  
        ⇱ host-provided (opaque)  ↩ returns  ┄┆{…}┆ payload, on its target row

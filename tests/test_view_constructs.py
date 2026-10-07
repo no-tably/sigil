@@ -19,6 +19,8 @@ Covers (each in the graph view and the tree + wires view):
      box (╖║╜) and its generics in ‹ › — told apart from `~`'s heavy box.
  10. a block-string payload's chip (its first line + `…`) and its text as a
      note; a `@borrow(read)`'s ƀ head / lane; an error path's chip led by ✖ (tree).
+ 11. tree: an expansion's members on dotted rails (├┄┄ ┆), apart from `\\->`'s
+     solid ├──; a brace (⎫ ⎪ ⎭) joining a run of `\\-_` one-of siblings.
 
 Run:  python3 -m unittest discover tests
 """
@@ -480,6 +482,49 @@ class TestBlockStringsBorrowsErrorChips(unittest.TestCase):
         self.assertIn("┆ reserve => {Hold} ┆", row)
         self.assertIn("┆ ✖ release({Hold}) ┆", row)
         self.assertNotIn("✖ release", graph(doc, payloads=True))   # the graph edge has its ✖ head
+
+
+class TestInternalsAndOneOf(unittest.TestCase):
+    DOC = ("[Core]\n    \\-> [Hull]\n[Core] := {\n  [Router] -> [Handler]\n"
+           "  loop @while |Q|.nonempty {\n    [Handler] -> |Q|\n  }\n}\n")
+    ONE_OF = ("[Pay]\n    \\-_ [A]\n        \\-& {X}\n    \\-_ [B]\n    \\-_ [Cee]\n"
+              "    \\-> [D]\n    \\-_ [E]\n[A] -> [B]\n")
+
+    def test_members_hang_off_dotted_rails(self):
+        out = tree(self.DOC)
+        self.assertRegex(out, r"(?m)^\S* *├┄┄ \[Router\]")
+        self.assertRegex(out, r"[├└]── \[Hull\]")          # contains stays solid
+        self.assertIn("┆   ↺ loop", out)                    # the rail runs on dotted
+        self.assertNotRegex(out, r"[├└]── \[Router\]")
+
+    def test_nested_members_keep_dotted_rails(self):
+        out = tree("[A] := {\n  [B] -> [C]\n  [B] := {\n    [D] -> [E]\n  }\n}\n", depth=9)
+        self.assertIn("├┄┄ [B]", out)
+        self.assertIn("┆  ├┄┄ [D]", out)
+
+    def test_state_members_keep_their_mark(self):
+        out = tree("state {Order} {\n  Open -<Paid>-> Settled\n}\n")
+        self.assertIn("├─· Open", out)
+
+    def test_brace_joins_a_run_of_one_of_siblings(self):
+        lines = tree(self.ONE_OF).splitlines()
+        col = lines[1].index("⎫")
+        self.assertTrue(lines[1].startswith("├─_ [A]"))
+        self.assertEqual([ln[col] for ln in lines[1:5]], ["⎫", "⎪", "⎪", "⎭"])
+        self.assertNotIn("⎫", line_with("\n".join(lines), "[E]"))  # a lone `_`: no brace
+        self.assertNotIn("⎫", tree("[P]\n    \\-_ [Q]\n"))
+        self.assertIn("⎫ ──●", lines[1])                    # lanes start after the brace
+
+    def test_legend_lists_internals_and_brace_when_drawn(self):
+        def legend(text, depth=1):
+            marks = view.drawn_call_marks(render.parse_document(text), depth, False)
+            return "".join(t for r in view.tree_legend(calls=marks) for t, _ in r)
+        self.assertIn("┄ := internals", legend(self.DOC))
+        self.assertNotIn("internals", legend(self.DOC, depth=0))
+        self.assertIn("_⎫ one of", legend(self.ONE_OF))
+        plain = legend("[A] -> [B]\n")
+        self.assertNotIn("internals", plain)
+        self.assertIn("_ one of", plain)
 
 
 class TestCoverageFixture(unittest.TestCase):

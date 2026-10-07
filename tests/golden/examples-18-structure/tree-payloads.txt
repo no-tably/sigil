@@ -10,16 +10,16 @@
 └─{lagging}! <LagAlarm> ◀┄┴╌╌╌╌╌╎╌○ ┃ │
                                 ╎ ╎ ┃ │
 [Payments] ◀──────────────●─●─┐ ╎ ╎ ┃ │
-├─_ [PrimaryPsp] ◀────────┘┄│┄│┄╎┄╎┄┃┄│┄┆ {Charge} ┆
-└─_ [StandbyPsp] ◀──────────┘┄│┄╎┄╎┄┃┄│┄┆ {Charge} ┆
+├─_ [PrimaryPsp] ⎫ ◀──────┘┄│┄│┄╎┄╎┄┃┄│┄┆ {Charge} ┆
+└─_ [StandbyPsp] ⎭ ◀────────┘┄│┄╎┄╎┄┃┄│┄┆ {Charge} ┆
                               │ ╎ ╎ ┃ │
 (User) ───────────────────────●─╎─╎─┃─●
 {Hits} ◀━━━━━━━━━━━━━━━━━━━━━━━━╎━╎━┛
 |Primary| ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌○ ╎
 (OnCall) ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘
 
-tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
-       (N) weight  
+tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  
+       _⎫ one of  (N) weight  
 wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
        ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  
        ┄┆{…}┆ payload, on its target row

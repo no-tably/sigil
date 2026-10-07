@@ -69,7 +69,7 @@ def plain(rows) -> list:
 def find_row(rows, name: str) -> int:
     """The index of the first row whose label (rails, slot and marks off) is name."""
     for y, ln in enumerate(plain(rows)):
-        if re.sub(r"^[│├└┌─·▸◉ ]*", "", ln).startswith(name):
+        if re.sub(r"^[│┆├└┌─┄·▸◉ ]*", "", ln).startswith(name):
             return y
     raise AssertionError(f"no row {name!r}")
 
@@ -177,8 +177,8 @@ class Machines(unittest.TestCase):
 
     def current_rows(self, tick: int) -> list:
         rows, _w = draw(self.g, self.trace, tick)
-        return [re.sub(r"^[│├└─· ]*◉ ", "", ln).split()[0] for ln in plain(rows)
-                if re.match(r"^[│├└─· ]*◉ ", ln)]
+        return [re.sub(r"^[│┆├└─┄· ]*◉ ", "", ln).split()[0] for ln in plain(rows)
+                if re.match(r"^[│┆├└─┄· ]*◉ ", ln)]
 
     def test_start_states_then_moved(self):
         self.assertEqual(self.current_rows(0), ["Idle", "●"])

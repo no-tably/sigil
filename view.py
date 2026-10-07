@@ -257,7 +257,9 @@ def drawn_call_marks(graph, depth: int, payloads: bool) -> frozenset:
     `⇱` for an external op's far node, and `↩` when a call returns something and
     payloads are on; with them the glyph marks a node of it carries (`≋` a
     stream, `‹›` a generic role) and `ƀ` when a `@borrow(read)` is declared
-    (listed only with the access entries). A missing graph (a parse error) shows none."""
+    (listed only with the access entries), and the outline's structure marks
+    (view_tree.outline_marks: `┄` internals, `⎫` a one-of set). A missing graph
+    (a parse error) shows none."""
     if graph is None:
         return frozenset()
     scn = scene.build_scene(graph, depth=depth)
@@ -273,6 +275,7 @@ def drawn_call_marks(graph, depth: int, payloads: bool) -> frozenset:
         marks.add("ƀ")
     if payloads and any(c.returns for c in calls):
         marks.add("↩")
+    marks |= vtree.outline_marks(graph, depth)
     return frozenset(marks - {""})
 
 

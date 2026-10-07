@@ -3,30 +3,30 @@
 [Edge] ◀─────────────────────┴─●
                                │
 [Shop] ◀───────────────────────┴═════●═══›═══›
-├── [Cart] ──────────────────●       │   ║   ║
-├── [Checkout] ◀─────────────┴═●═════│═›═║═› ║
-├── [Payments] ◀───────────────┘     │ ║ ║ ║ ║
-│  ├── [Gateway] ────────────────●   │ ║ ║ ║ ║
-│  │  ├─_ [StripePSP]            │   │ ║ ║ ║ ║
-│  │  └─_ [AdyenPSP]             │   │ ║ ║ ║ ║
-│  ├── [Risk] ◀──────────────────┴┄◇ │ ║ ║ ║ ║
-│  │  ├── [Model] ━━━━━━━━━━━●━◆   ┆ │ ║ ║ ║ ║
-│  │  ├── |Features| ◀───────┘ ┃   ┆ │ ║ ║ ║ ║
-│  │  └── {Verdict} ◀━━━━━━━━━━┛   ┆ │ ║ ║ ║ ║
-│  └── [Review] ◀┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘ │ ║ ║ ║ ║
-└── <OrderPlaced>                    │ ║ ║ ║ ║
+├┄┄ [Cart] ──────────────────●       │   ║   ║
+├┄┄ [Checkout] ◀─────────────┴═●═════│═›═║═› ║
+├┄┄ [Payments] ◀───────────────┘     │ ║ ║ ║ ║
+┆  ├┄┄ [Gateway] ────────────────●   │ ║ ║ ║ ║
+┆  ┆  ├─_ [StripePSP] ⎫          │   │ ║ ║ ║ ║
+┆  ┆  └─_ [AdyenPSP]  ⎭          │   │ ║ ║ ║ ║
+┆  ├┄┄ [Risk] ◀──────────────────┴┄◇ │ ║ ║ ║ ║
+┆  ┆  ├┄┄ [Model] ━━━━━━━━━━━●━◆   ┆ │ ║ ║ ║ ║
+┆  ┆  ├┄┄ |Features| ◀───────┘ ┃   ┆ │ ║ ║ ║ ║
+┆  ┆  └┄┄ {Verdict} ◀━━━━━━━━━━┛   ┆ │ ║ ║ ║ ║
+┆  └┄┄ [Review] ◀┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘ │ ║ ║ ║ ║
+└┄┄ <OrderPlaced>                    │ ║ ║ ║ ║
                                      │ ║ ║ ║ ║
 |Catalog| ◀──────────────────────────┘ ║ ║ ║ ║
                                        ║ ║ ║ ║
 [Fulfilment] <OrderPlaced> ◀═══════════╩═╝ ║ ║
-├── [Picker] ────────────────●             ║ ║
-├── [Packer] ◀───────────────┴─●           ║ ║
-└── (Courier) ◀────────────────┘           ║ ║
+├┄┄ [Picker] ────────────────●             ║ ║
+├┄┄ [Packer] ◀───────────────┴─●           ║ ║
+└┄┄ (Courier) ◀────────────────┘           ║ ║
                                            ║ ║
 |Ledger| <OrderPlaced> ◀═══════════════════╩═╝
 
-tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
-       (N) weight  
+tree   ─ contains  ┄ := internals  & has  * spawns  ? when  $ from data  @ attached  ! alerts  
+       = gathers  _⎫ one of  (N) weight  
 wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
        ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  
 blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  

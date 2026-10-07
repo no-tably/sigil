@@ -57,6 +57,8 @@ scene = _sibling("sigil_scene", "scene.py")
 # ---------------------------------------------------------------------------
 
 LANE_GAP = 2
+INTERNAL_MARK = "┄"      # an expansion's member: its branch and rail drawn dotted (┆ ├┄)
+ONE_OF_BRACE = ("⎫", "⎪", "⎭")  # top / middle / bottom of the brace joining `_` siblings
 
 
 class TreeRow(NamedTuple):
@@ -98,7 +100,7 @@ def _tree_rows(g, depth: int, level: int = 0, base: int = 0, rows=None):
         rows.append(TreeRow(d, rel, g.nodes[nid], g, nid in g.expansions and level >= depth))
         if nid in g.expansions and level < depth:
             sub = g.expansions[nid]
-            mark = "·" if getattr(sub, "role", "") == "state" else "─"
+            mark = "·" if getattr(sub, "role", "") == "state" else INTERNAL_MARK
             before = len(rows)
             _tree_rows(sub, depth, level + 1, d + 1, rows)
             for k in range(before, len(rows)):     # direct members hang off with :=
@@ -135,16 +137,21 @@ def tree_legend(triggers: bool = True, payloads: bool = False, access: bool = Fa
     call marks the drawing shows (view.drawn_call_marks) — an entry is listed for
     each of `↺` self-call, `↻` recursion, `⇱` host-provided and `↩` a call's
     return only when its mark is in the set; so are `≋` a stream, `‹›` a
-    generic role (drawn `[R‹N›]`) and, with access, `ƀ` a borrow narrowed to read. `sim`: a last row of the
-    simulation overlay's marks (_sim_legend). Raises ValueError for an unknown
+    generic role (drawn `[R‹N›]`) and, with access, `ƀ` a borrow narrowed to read;
+    so are the outline's `┄ := internals` and the one-of brace `_⎫`
+    (outline_marks). `sim`: a last row of the simulation overlay's marks
+    (_sim_legend). Raises ValueError for an unknown
     events mode."""
     if events not in scene.EVENTS:
         raise ValueError(f"events must be one of {', '.join(scene.EVENTS)}, not {events!r}")
     dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
     rel = [("tree   ", dim), ("─", kit.TREE_STYLE), (" contains  ", mid)]
+    if INTERNAL_MARK in calls:
+        rel += [(INTERNAL_MARK, kit.TREE_STYLE), (" := internals  ", mid)]
+    brace = ONE_OF_BRACE[0] if ONE_OF_BRACE[0] in calls else ""
     for glyph, word in (("&", "has"), ("*", "spawns"), ("?", "when"), ("$", "from data"),
                         ("@", "attached"), ("!", "alerts"), ("=", "gathers"),
-                        ("_", "one of"), ("(N)", "weight")):
+                        ("_" + brace, "one of"), ("(N)", "weight")):
         rel += [(glyph, kit.REL_STYLE), (f" {word}  ", mid)]
     wires = [("wires  ", dim)]
     for kind, word in kit.ARROW_LEGEND + ((("trigger", "trigger"),) if triggers else ()):
@@ -497,24 +504,60 @@ def _space_units(rows):
 def _guides(rows):
     """Each row's ├─ / └─ / │ prefix ("" at depth 0, None for a blank row). A rail
     continues at a level while a later sibling at that level follows, before the
-    outline climbs above it — found in one backward pass."""
+    outline climbs above it — found in one backward pass. An expansion's member
+    (rel INTERNAL_MARK) branches dotted (├┄ / └┄), and the rail down to one is
+    dotted (┆): internals apart from the `\\->` contains relation's solid lines."""
     guides = [None] * len(rows)
-    later = []              # later[k]: rows below reach depth k before anything shallower
-    for y in range(len(rows) - 1, -1, -1):
+    later = []              # later[k]: the rail down to the next row at depth k
+    for y in range(len(rows) - 1, -1, -1):  # ("│" / "┆"), "" when none follows
         if not isinstance(rows[y], TreeRow):    # a blank row or a banner
             continue
         d = rows[y].depth
+        dotted = rows[y].rel == INTERNAL_MARK
         if d:
             def cont(k):
-                return k < len(later) and later[k]
-            guides[y] = ("".join("│  " if cont(k) else "   " for k in range(1, d))
-                         + ("├─" if cont(d) else "└─"))
+                return later[k] if k < len(later) else ""
+            guides[y] = ("".join(f"{cont(k) or ' '}  " for k in range(1, d))
+                         + ("├" if cont(d) else "└") + ("┄" if dotted else "─"))
         else:
             guides[y] = ""
         del later[d + 1:]
-        later += [False] * (d + 1 - len(later))
-        later[d] = True
+        later += [""] * (d + 1 - len(later))
+        later[d] = "┆" if dotted else "│"
     return guides
+
+
+def _one_of_spans(rows) -> list:
+    """[(first, last)]: the row spans of each run of two or more `\\-_` one-of
+    siblings (consecutive under one parent; a sibling's own subtree may sit
+    between them). The outline joins each with a brace (ONE_OF_BRACE)."""
+    spans, open_at = [], {}     # depth → (first, last) of the run still open there
+    def close(d):
+        first, last = open_at.pop(d)
+        if last > first:
+            spans.append((first, last))
+    for y, row in enumerate(rows):
+        if not isinstance(row, TreeRow):
+            continue
+        for d in [k for k in open_at if k > row.depth]:     # climbed out of a run
+            close(d)
+        if row.depth in open_at and not row.rel.endswith("_"):
+            close(row.depth)
+        if row.depth and row.rel.endswith("_"):
+            first = open_at.get(row.depth, (y, y))[0]
+            open_at[row.depth] = (first, y)
+    for d in sorted(open_at):
+        close(d)
+    return sorted(spans)
+
+
+def outline_marks(g, depth: int) -> set:
+    """The outline's structure marks the drawing of g to `depth` shows, for the
+    legend: INTERNAL_MARK when an expansion's members are drawn, the brace's top
+    piece when a one-of set is joined."""
+    rows = _tree_rows(g, depth)
+    marks = {INTERNAL_MARK} if any(r.rel == INTERNAL_MARK for r in rows) else set()
+    return marks | ({ONE_OF_BRACE[0]} if _one_of_spans(rows) else set())
 
 
 @dataclass
@@ -563,11 +606,11 @@ def _draw_outline(cv: kit.Canvas, rows, idx: dict, show_tags: bool = True, x0: i
         if row.depth:
             cv.put(x0, y, guide, kit.TREE_STYLE)
             x = x0 + len(guide)
-            if rel and rel != "─":
+            if rel and rel not in ("─", INTERNAL_MARK):
                 cv.put(x, y, rel, kit.REL_STYLE)
                 x += len(rel)
             else:
-                cv.put(x, y, "─", kit.TREE_STYLE)
+                cv.put(x, y, rel or "─", kit.TREE_STYLE)
                 x += 1
             x += 1
         state = sim.get(y) if sim is not None else None
@@ -615,8 +658,16 @@ def _draw_outline(cv: kit.Canvas, rows, idx: dict, show_tags: bool = True, x0: i
         if above is None or below is None:
             continue
         for x in range(x0, text_x):
-            if (cv.cell(x, above)[0] in "│├" and cv.cell(x, below)[0] in "│├└"):
-                cv.put(x, y, "│", kit.TREE_STYLE)
+            down = cv.cell(x, below)[0]
+            if (cv.cell(x, above)[0] in "│┆├" and down in "│┆├└"):
+                dotted = down == "┆" or cv.cell(x + 1, below)[0] == INTERNAL_MARK
+                cv.put(x, y, "┆" if dotted else "│", kit.TREE_STYLE)
+    for first, last in _one_of_spans(rows):     # a brace joins the one-of set
+        bx = max(out.ends[first:last + 1]) + 1
+        for y in range(first, last + 1):
+            piece = ONE_OF_BRACE[0 if y == first else 2 if y == last else 1]
+            cv.put(bx, y, piece, kit.REL_STYLE)
+            out.ends[y] = bx + 1
     return out
 
 

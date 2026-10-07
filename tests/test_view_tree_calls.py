@@ -55,7 +55,7 @@ def plain(rows) -> list:
 
 def line(rows, start: str) -> str:
     """The text of the first row that starts with `start` once its rails are off."""
-    return next(ln for ln in plain(rows) if re.sub(r"^[│├└┌─ ]*", "", ln).startswith(start))
+    return next(ln for ln in plain(rows) if re.sub(r"^[│┆├└┌─┄ ]*", "", ln).startswith(start))
 
 
 def chips(text: str) -> list:

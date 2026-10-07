@@ -153,8 +153,8 @@
                ├─{rows}$ [Row]                    ┆ │ │ │ │       │ │ │ ╎ │ │
                ├─@ [Tracer]                       ┆ │ │ │ │       │ │ │ ╎ │ │
                ├─{lagging}! <LagAlarm> ◀┄┄┄┄┄┄┄┄┄┄┘ │ │ │ │       │ │ │ ╎ │ │
-               ├─_ [PrimaryPsp]                     │ │ │ │       │ │ │ ╎ │ │
-               ├─_ [StandbyPsp]                     │ │ │ │       │ │ │ ╎ │ │
+               ├─_ [PrimaryPsp] ⎫                   │ │ │ │       │ │ │ ╎ │ │
+               ├─_ [StandbyPsp] ⎭                   │ │ │ │       │ │ │ ╎ │ │
                ├─(3)─ [ZoneA]                       │ │ │ │       │ │ │ ╎ │ │
                └─(1)─ [ZoneB]                       │ │ │ │       │ │ │ ╎ │ │
                                                     │ │ │ │       │ │ │ ╎ │ │
@@ -169,16 +169,16 @@
                (Client) ──────────────────────────────────│───────│─│─│─╎─● │
                                                           │       │ │ │ ╎   │
                [Core] ◀───────────────────────────────────●───────│─│─│─╎───┘
-               ├── [Router] ──────────────────────────────────────│─● │ ╎
-               ├── [Handler] ▸ ◀──────────────────────────────────●─┴─▶╌○
-               ├── |Cache| ◀──────────────────────────────────────────┘ ╎
-               ├── <AuditEvt> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌●╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘
-               └── |Log| ◀────────────────────────┘
+               ├┄┄ [Router] ──────────────────────────────────────│─● │ ╎
+               ├┄┄ [Handler] ▸ ◀──────────────────────────────────●─┴─▶╌○
+               ├┄┄ |Cache| ◀──────────────────────────────────────────┘ ╎
+               ├┄┄ <AuditEvt> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌●╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘
+               └┄┄ |Log| ◀────────────────────────┘
 
                [[retry]] #1
 
                [[walk]] #11
-               └── [Node] ↻
+               └┄┄ [Node] ↻
 
                ── <Signal> state machine ──────────────────────────────────────────────────────────────────────────────
                <Signal>
@@ -199,8 +199,8 @@
                                                             ┆e┆ # inline note on a branch
                                                             ┆f┆ # cardinality fan-out
 
-tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
-       (N) weight  
+tree   ─ contains  ┄ := internals  & has  * spawns  ? when  $ from data  @ attached  ! alerts  
+       = gathers  _⎫ one of  (N) weight  
 wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
        ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  ↺ self-call  ↻ recursion  
        ⇱ host-provided (opaque)  ≋ stream  [R‹N›] role: N members  

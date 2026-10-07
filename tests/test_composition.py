@@ -161,7 +161,7 @@ class TestTreeView(unittest.TestCase):
     def test_expansions_nest(self):
         out = self.draw("[Game] := {\n  [World] -> [Render]\n}\n")
         self.assertTrue(out[0].startswith("[Game]"))
-        self.assertTrue(any(ln.startswith("├── [World]") or ln.startswith("└── [World]")
+        self.assertTrue(any(ln.startswith("├┄┄ [World]") or ln.startswith("└┄┄ [World]")
                             for ln in out))
 
     def test_legend_in_live_view_and_once(self):

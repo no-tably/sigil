@@ -85,8 +85,7 @@ triggers), so a construct reads the same in the graph and the tree. Re-graded fr
 - **Simulation** (`x`, `--sim`): not a drawing grade — see "Simulation over this
   fixture" below.
 
-Still open: block-comment anchoring (85), expansion vs contains in the tree (51), the
-`\-_` group (76), path chips in the graph (81).
+Still open: block-comment anchoring (85), path chips in the graph (81).
 
 ## Construct table
 
@@ -142,7 +141,7 @@ Still open: block-comment anchoring (85), expansion vs contains in the tree (51)
 | 48 | payload on a self-loop | `[Tree.walk] -> [Tree.walk] : child` | DRAWN | DRAWN | graph: `[Tree.walk] ↻` with a stub chip `└─● ┆ ↻ child ┆` (`p`); tree: `[Tree.walk] ↻ ┄┄┄ ┆ ↻ child ┆` on its own row (no longer only in a footer) | done (scene + views) | — |
 | 49 | payloads of several edges to one target | `reserve => {Hold}` + `!> … : release({Hold})` | DRAWN | DRAWN | a chip per flow: `┆ reserve => {Hold} ┆   ┆ release({Hold}) ┆`. Graph: each on its own edge (the `release` one on the `✖` edge). Tree: both on the `[Inventory]` row, the error path's chip led by `✖` (`┆ ✖ release({Hold}) ┆`), so it reads without colour | done (view.py) | — |
 | 50 | alias `name := expr` | `retry := @after(…)`, `walk := [Node] -> walk(.children)` | DRAWN | DRAWN | alias nodes in their own brackets and colour: `[[retry]]`, `[[walk]] ▾` with its `[[walk]] := { … }` section (`[Node] ↺`) | done (view.py) | FIXED: `retry`, `walk` are `alias` nodes (mods / expansion = the definition) |
-| 51 | expansion `X := { … }` | `[Core] := { [Router] -> [Handler]×N … }` | DRAWN | WEAK | graph: `── [Core] := { … } ──` section, `[Core] ▾` / `▸` at depth 0. Tree: children nested as `├── [Router]` — same `──` as the `\->` "contains" relation | tree: a distinct marker for internals (`├┄ [Router]` or `╞═`), as Mermaid's "internals" subgraph | — |
+| 51 | expansion `X := { … }` | `[Core] := { [Router] -> [Handler]×N … }` | DRAWN | DRAWN | graph: `── [Core] := { … } ──` section, `[Core] ▾` / `▸` at depth 0. Tree: the members hang off dotted rails (`├┄┄ [Router]`, `┆` down to the next member, also through a block bracket), apart from the `\->` contains relation's solid `├──`; `┄ := internals` in the legend when drawn | done (view.py) | — |
 | 52 | expansion holding only aliases | `[Handler] := { ingress := {Req} => {Ctx} … }` | DRAWN | DRAWN | graph: a header `── [Handler] := { … } ──` with **nothing under it**, and `[Handler] ▾` promises content. Tree: nothing. (Mermaid: an empty `subgraph Handler_service` that collides with the `Handler_service` node inside `Core`) | render aliases (#50) inside the section; else drop the `▾` | FIXED: the section holds the alias nodes `ingress` / `process` / `egress`, each expandable |
 | 53 | named declaration | `[Boss]`, `(Auditor)` | DRAWN | DRAWN | orphan strip at the bottom: `│ [Boss] │ │ <N> │ ╭ (Auditor) ╮` | — | — |
 | 54 | topic section `--- Name ---` | `--- Control ---`, `--- Composition ---` | DRAWN | DRAWN | graph: a divider `── Control ─────` over the part holding that section's flows, nodes and block frames; tree: `── Control ──` before its first unit | done (view.py) | KEPT: `Graph.sections` (level None) |
@@ -167,7 +166,7 @@ Still open: block-comment anchoring (85), expansion vs contains in the tree (51)
 | 73 | `\-@` attached | `\-@ [Tracer]` | LOST | DRAWN | tree `├─@ [Tracer]` | — | — |
 | 74 | `\-!` alerts | `\-{lagging}-! <LagAlarm>` | LOST | DRAWN | tree `├─{lagging}! <LagAlarm>` | — | — |
 | 75 | `\-=` gathers + `*-` | `\-*-= [ShardQuery]` | LOST | DRAWN | tree `├─*= [ShardQuery]` | — | — |
-| 76 | `\-_` one of | `\-_ [PrimaryPsp]`, `\-_ [StandbyPsp]` | LOST | WEAK | tree `├─_ [PrimaryPsp]` / `├─_ [StandbyPsp]` — each marked, but nothing groups the set | a side bracket `⎫` joining the `_` siblings | — |
+| 76 | `\-_` one of | `\-_ [PrimaryPsp]`, `\-_ [StandbyPsp]` | LOST | DRAWN | graph (by design, flows only, as row 69): orphan boxes. Tree: `├─_ [PrimaryPsp] ⎫` / `├─_ [StandbyPsp] ⎭` — a brace after the labels joins each run of two or more `_` siblings (`⎪` over rows between them, a sibling's own subtree), lanes start after it; `_⎫ one of` in the legend when drawn | done (view.py) | — |
 | 77 | `*-` spawn / bare `\-*` | `\-*-> [Bullet] ×N`, `\-* [Drone]` | LOST | DRAWN | tree `├─* [Bullet]`, `└─* [Drone]` | — | — |
 | 78 | `(N)-` weight | `\-(3)-> [ZoneA]`, `\-(1)-> [ZoneB]` | LOST | DRAWN | tree `├─(3)─ [ZoneA]`, `└─(1)─ [ZoneB]` | maybe a share bar `███░` | — |
 | 79 | child count `×N` | `\-*-> [Bullet] ×N` | WEAK | DRAWN | with `m`: tree `├─* [Bullet] ×N`; graph: the `[Bullet] ×N` box (composition itself is not in the graph) | done (view.py) | KEPT: node mod ("×", "N") on `[Bullet]` |

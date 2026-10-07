@@ -773,8 +773,8 @@ where the prose says — `{Order}` in `Cancelled`, `[Checkout]` back in `Idle`.
 └─{lagging}! <LagAlarm> ◀┄┴╌╌╌╌╌╎╌○ ┃ │
                                 ╎ ╎ ┃ │
 [Payments] ◀──────────────●─●─┐ ╎ ╎ ┃ │
-├─_ [PrimaryPsp] ◀────────┘ │ │ ╎ ╎ ┃ │
-└─_ [StandbyPsp] ◀──────────┘ │ ╎ ╎ ┃ │
+├─_ [PrimaryPsp] ⎫ ◀──────┘ │ │ ╎ ╎ ┃ │
+└─_ [StandbyPsp] ⎭ ◀────────┘ │ ╎ ╎ ┃ │
                               │ ╎ ╎ ┃ │
 (User) ───────────────────────●─╎─╎─┃─●
 {Hits} ◀━━━━━━━━━━━━━━━━━━━━━━━━╎━╎━┛

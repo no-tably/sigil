@@ -3,22 +3,22 @@
 │ in; the edge does TLS, │    [Edge] ◀─────────────────────┴─●
 ╰ auth and rate limits   ╯                                   │
                               [Shop] ◀───────────────────────┴═●═══›═══›
-                              ├── [Cart] ──────────────────●   │   ║   ║
-                              ├── [Checkout] ◀─────────────┴═●═│═›═║═› ║
-                              ├── [Payments] ▸ ◀─────────────┘┄│┄║┄║┄║┄║┄# 3 retries, idempotent key
-                              └── <OrderPlaced>                │ ║ ║ ║ ║
+                              ├┄┄ [Cart] ──────────────────●   │   ║   ║
+                              ├┄┄ [Checkout] ◀─────────────┴═●═│═›═║═› ║
+                              ├┄┄ [Payments] ▸ ◀─────────────┘┄│┄║┄║┄║┄║┄# 3 retries, idempotent key
+                              └┄┄ <OrderPlaced>                │ ║ ║ ║ ║
                                                                │ ║ ║ ║ ║
                               |Catalog| ◀──────────────────────┘ ║ ║ ║ ║
                                                                  ║ ║ ║ ║
                               [Fulfilment] <OrderPlaced> ◀═══════╩═╝┄║┄║┄# the ledger is append-only
-                              ├── [Picker] ────────────────●         ║ ║
-                              ├── [Packer] ◀───────────────┴─●       ║ ║
-                              └── (Courier) ◀────────────────┘       ║ ║
+                              ├┄┄ [Picker] ────────────────●         ║ ║
+                              ├┄┄ [Packer] ◀───────────────┴─●       ║ ║
+                              └┄┄ (Courier) ◀────────────────┘       ║ ║
                                                                      ║ ║
                               |Ledger| <OrderPlaced> ◀═══════════════╩═╝┄# the ledger is append-only
 
-tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
-       (N) weight  
+tree   ─ contains  ┄ := internals  & has  * spawns  ? when  $ from data  @ attached  ! alerts  
+       = gathers  _ one of  (N) weight  
 wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
        ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  
 blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  

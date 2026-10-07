@@ -61,7 +61,8 @@ Options:
 - `--once` prints the drawing and a lint summary, then exits (1 on a lint error; see
   [exit codes](#exit-codes)).
 - `--tree` starts in the tree view.
-- `--depth N|all` opens `X := { … }` expansions.
+- `--depth N|all` opens `X := { … }` expansions (in the tree view an expansion's
+  members hang off dotted rails, `├┄┄`, apart from a branch's solid `├──`).
 - `--payloads` shows flow payloads: chips on edges in the graph view, a list in the
   tree view (an error path's chip there led by `✖`). A `"""…"""` block-string shows its
   first line and `…`; its full text is a note (`--notes`).

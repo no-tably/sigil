@@ -777,7 +777,10 @@ Lint `SGL112` (warning): a path that matches no occurrence in the document.
 **Terminal.** `view.py FILE --tree` draws the tree as an outline and each flow as a
 lane beside it (`●` marks a lane's source, `◀` each target; a lane crossing another
 row hops over it). A flow to a bare name taps every occurrence; a path flow taps only
-the occurrences it matches. The default graph view shows the flows alone.
+the occurrences it matches. An opened `X := { … }` expansion's members hang off dotted
+rails (`├┄┄ [Router]`), apart from a branch's solid `├──`; a run of `\-_` one-of
+siblings is joined by a brace (`⎫ … ⎭`) after their labels. The default graph view
+shows the flows alone.
 
 **Mermaid.** `render.py` draws composition by default:
 

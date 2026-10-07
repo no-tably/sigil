@@ -10,16 +10,16 @@
 └─{lagging}! <LagAlarm> ◀┄┴╌╌╌╌╌╎╌○ ┃ │
                                 ╎ ╎ ┃ │
 [Payments] ◀──────────────●─●─┐ ╎ ╎ ┃ │
-├─_ [PrimaryPsp] ◀────────┘ │ │ ╎ ╎ ┃ │
-└─_ [StandbyPsp] ◀──────────┘ │ ╎ ╎ ┃ │
+├─_ [PrimaryPsp] ⎫ ◀──────┘ │ │ ╎ ╎ ┃ │
+└─_ [StandbyPsp] ⎭ ◀────────┘ │ ╎ ╎ ┃ │
                               │ ╎ ╎ ┃ │
 (User) ───────────────────────●─╎─╎─┃─●
 {Hits} ◀━━━━━━━━━━━━━━━━━━━━━━━━╎━╎━┛
 |Primary| ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌○ ╎
 (OnCall) ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘
 
-tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
-       (N) weight  
+tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  
+       _⎫ one of  (N) weight  
 wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
        ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  ┆@… ×N┆ modifiers
 blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  

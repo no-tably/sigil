@@ -3,17 +3,17 @@
 [Edge] ◀─────────────────────┴─●
                                │
 [Shop] ◀───────────────────────┴═●═══›═══›┄┆ {Request} ┆
-├── [Cart] ──────────────────●   │   ║   ║
-├── [Checkout] ◀─────────────┴═●═│═›═║═›┄║┄┆ {Cart} ┆
-├── [Payments] ▸ ◀─────────────┘┄│┄║┄║┄║┄║┄┆ charge(total) ↩ {Receipt} ┆
-└── <OrderPlaced>                │ ║ ║ ║ ║
+├┄┄ [Cart] ──────────────────●   │   ║   ║
+├┄┄ [Checkout] ◀─────────────┴═●═│═›═║═›┄║┄┆ {Cart} ┆
+├┄┄ [Payments] ▸ ◀─────────────┘┄│┄║┄║┄║┄║┄┆ charge(total) ↩ {Receipt} ┆
+└┄┄ <OrderPlaced>                │ ║ ║ ║ ║
                                  │ ║ ║ ║ ║
 |Catalog| ◀──────────────────────┘┄║┄║┄║┄║┄┆ lookup(sku) ↩ {Item} ┆
                                    ║ ║ ║ ║
 [Fulfilment] <OrderPlaced> ◀═══════╩═╝ ║ ║
-├── [Picker] ────────────────●         ║ ║
-├── [Packer] ◀───────────────┴─●       ║ ║
-└── (Courier) ◀────────────────┘┄┄┄┄┄┄┄║┄║┄┆ {Parcel} ┆
+├┄┄ [Picker] ────────────────●         ║ ║
+├┄┄ [Packer] ◀───────────────┴─●       ║ ║
+└┄┄ (Courier) ◀────────────────┘┄┄┄┄┄┄┄║┄║┄┆ {Parcel} ┆
                                        ║ ║
 |Ledger| <OrderPlaced> ◀═══════════════╩═╝
 
@@ -22,8 +22,8 @@
   [Gateway] -> [Risk] : score(card) => {Verdict}
   [Model] -> |Features| : read(customer)
 
-tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
-       (N) weight  
+tree   ─ contains  ┄ := internals  & has  * spawns  ? when  $ from data  @ attached  ! alerts  
+       = gathers  _ one of  (N) weight  
 wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
        ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  ↩ returns  
        ┄┆{…}┆ payload, on its target row

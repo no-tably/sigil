@@ -10,8 +10,8 @@
    [Metrics] ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│╌┤ │ │
                                                │ ╎ │ │
 ┌─ [Parser] #5 ◀───────────────────────────●─┬─│─╎─┤ │
-│  ├── [Lexer] ────────────────────────●   │ │ │ ╎ │ │
-│  └── [Builder] ↻ ◀───────────────────┘┄┄┄│┄│┄│┄╎┄│┄│┄#9
+│  ├┄┄ [Lexer] ────────────────────────●   │ │ │ ╎ │ │
+│  └┄┄ [Builder] ↻ ◀───────────────────┘┄┄┄│┄│┄│┄╎┄│┄│┄#9
 │                                          │ │ │ ╎ │ │
 │  [Doc.walk] ↻ ◀──────────────────────────┘ │ │ ╎ │ │
 ├─ [Indexer] #7 ───────────────────────●─✖───● │ ╎ │ │
@@ -21,7 +21,7 @@
    [Notifier] ⇱ #8                             │ ╎ │ │
                                                │ ╎ │ │
    [[follow]] #6                               │ ╎ │ │
-   └── [Crawler] ↻ ◀───────────────────────────●─○─●─┘
+   └┄┄ [Crawler] ↻ ◀───────────────────────────●─○─●─┘
 
 ── notes ──
 
@@ -45,8 +45,8 @@
    unnamed
 #9 the builder recurses into nested blocks
 
-tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
-       (N) weight  
+tree   ─ contains  ┄ := internals  & has  * spawns  ? when  $ from data  @ attached  ! alerts  
+       = gathers  _ one of  (N) weight  
 wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
        ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  ↺ self-call  ↻ recursion  
        ⇱ host-provided (opaque)  
