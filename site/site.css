@@ -236,6 +236,7 @@ main { position: relative; z-index: 1; }
 }
 .hero-text { max-width: 46ch; }
 .lede { color: var(--muted); margin: 0; }
+.lede + .lede { margin-top: 0.6em; }
 @media (max-width: 860px) {
   .hero-head { flex-direction: column; text-align: center; }
 }
@@ -270,6 +271,9 @@ main { position: relative; z-index: 1; }
   border-radius: 8px;
 }
 .card p { margin: 0.4em 0 0; }
+/* the first example read line by line: one card on its own, scrolling sideways
+   rather than wrapping a line of Sigil */
+.card.reading { margin: 1.4rem 0; overflow-x: auto; }
 .small { font-size: var(--fs-s); color: var(--muted); }
 
 table.ref { border-collapse: collapse; width: 100%; }

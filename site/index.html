@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sigil</title>
-<meta name="description" content="Sigil — a compact notation for system designs. Glyphs for things, arrows for flows; linted, drawn live in the terminal, and fluent for coding agents.">
+<meta name="description" content="Sigil — a small notation for writing a system's design down, in a file you and your coding agent share. Its tools lint it, check it for undeclared risks, draw it and walk its paths.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <!-- the fallback font, only for the symbols Departure Mono lacks (site.js FALLBACK) -->
@@ -38,10 +38,14 @@
   <div class="hero-head">
     <pre class="logo" id="logo" role="img" aria-label="Sigil"></pre>
     <div class="hero-text">
-      <h1>A compact notation for system designs.</h1>
-      <p class="lede">Glyphs for the things, arrows for the flows. A whole architecture fits
-      on one screen, reads aloud, lints, and draws itself live in your terminal — and your
-      coding agent speaks it fluently.</p>
+      <h1>Write the design down where your agent can read it.</h1>
+      <p class="lede">A design usually lives in prose and in people's heads. Agents and
+      teammates lose its shape, and its gaps — a failure nobody handles, a store with two
+      writers — turn up only in code.</p>
+      <p class="lede">Sigil is a small notation for that design: glyphs for the parts,
+      arrows for the flows, in a file you and your agent edit together. Its tools lint
+      it, check it for risks it leaves undeclared, draw it and walk its paths. The
+      plugin teaches your agent the notation and gives it those tools.</p>
     </div>
   </div>
 
@@ -68,6 +72,22 @@
   <p>Sigil describes the <em>wiring</em> of a system — what exists, what talks to what,
   what fails where — and nothing about how it is coded. It is a notation for people and
   agents to think in, not a language to run.</p>
+
+  <article class="card reading">
+    <h3>the URL shortener, line by line</h3>
+    <table class="ref">
+      <tr><td><code class="hl">(User) -&gt; [Shortener] : shorten({Url}) =&gt; {Code}</code></td><td>a user outside the system calls the shortener with a URL and gets a code back</td></tr>
+      <tr><td><code class="hl"># accepts: race — …</code></td><td><code>check.py</code> asks who wins when one part writes <code class="hl">|Links|</code> and another reads it; a code is written once, so the risk is accepted, with its reason</td></tr>
+      <tr><td><code class="hl">[Shortener] -&gt; |Links| : save({Code}, {Url})</code></td><td>the pair goes into a store</td></tr>
+      <tr><td><code class="hl">(Visitor) -&gt; [Redirect] : follow({Code})</code></td><td>a visitor follows a short link</td></tr>
+      <tr><td><code class="hl">[Redirect] -&gt; |Links| : lookup({Code}) =&gt; {Url}</code></td><td>the code is looked up; the store returns the URL</td></tr>
+      <tr><td><code class="hl">!&gt; (Visitor) : &lt;NotFound&gt;</code></td><td>continues the line above: a missing code fails the lookup, and the visitor gets <code class="hl">&lt;NotFound&gt;</code></td></tr>
+      <tr><td><code class="hl">[Redirect] -&gt; (Visitor) : redirect({Url})</code></td><td>otherwise the visitor is redirected</td></tr>
+      <tr><td><code class="hl">[Redirect] ~&gt; &lt;Clicked&gt; -&gt; [Stats]</code></td><td>and, without waiting, each click is an event for the stats</td></tr>
+    </table>
+    <p class="small">Simulate it in the playground below: <em>happy</em>, and
+    <em>Redirect.lookup:fails</em> — the run ends on the <code class="hl">!&gt;</code> route.</p>
+  </article>
 
   <div class="cards">
     <article class="card">

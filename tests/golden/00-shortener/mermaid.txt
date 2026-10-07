@@ -1,0 +1,29 @@
+flowchart TD
+    User_actor(("User"))
+    Shortener_service["Shortener"]
+    Links_store[("Links")]
+    Visitor_actor(("Visitor"))
+    Redirect_service["Redirect"]
+    Clicked_event>"Clicked"]
+    Stats_service["Stats"]
+    User_actor --> Shortener_service
+    Shortener_service --> Links_store
+    Visitor_actor --> Redirect_service
+    Redirect_service --> Links_store
+    Redirect_service -- "!" --> Visitor_actor
+    Redirect_service --> Visitor_actor
+    Redirect_service -.-> Clicked_event
+    Clicked_event --> Stats_service
+    class Shortener_service,Redirect_service,Stats_service service
+    class Clicked_event event
+    class User_actor,Visitor_actor actor
+    class Links_store store
+
+    classDef service fill:#E3F2FD,stroke:#1976D2,color:#0D47A1
+    classDef data    fill:#F3E5F5,stroke:#7B1FA2,color:#4A148C
+    classDef event   fill:#FFF3E0,stroke:#F57C00,color:#E65100
+    classDef actor   fill:#E8F5E9,stroke:#388E3C,color:#1B5E20
+    classDef store   fill:#FFF9C4,stroke:#F9A825,color:#F57F17
+    classDef state   fill:#E0F2F1,stroke:#00897B,color:#004D40
+    classDef hole    stroke-dasharray:5 5,opacity:0.7
+    classDef mutable stroke-width:3px

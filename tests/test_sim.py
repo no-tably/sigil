@@ -83,10 +83,22 @@ def logs(trace, needle: str) -> list:
 
 class TestScenarioLists(unittest.TestCase):
     def test_examples(self):
+        self.assertEqual(names(load("00-shortener.sigil")), ["happy", "Redirect.lookup:fails"])
         self.assertEqual(names(load("01-checkout.sigil")), ["happy", "API.charge:fails"])
         self.assertEqual(names(load("02-shop.sigil")), ["happy", "Risk?>Review"])
         self.assertEqual(names(load("03-arena.sigil")), ["happy"])
         self.assertEqual(names(load("04-orders.sigil")), ["happy", "Payments:fails"])
+
+    def test_shortener_paths(self):
+        # the page's first example: follow redirects and counts the click, or a
+        # missing code ends on the !> route with neither
+        sc = load("00-shortener.sigil")
+        happy, missing = run(sc), run(sc, "Redirect.lookup:fails")
+        self.assertEqual(happy.outcome, "ok")
+        self.assertTrue(logs(happy, "redirect({Url})") and logs(happy, "<Clicked> -> [Stats]"))
+        self.assertEqual(missing.outcome, "failed")
+        self.assertTrue(logs(missing, "[Redirect] failed → (Visitor)"))
+        self.assertEqual(logs(missing, "redirect({Url})") + logs(missing, "<Clicked>"), [])
 
     def test_executions_fixture_in_line_order(self):
         self.assertEqual(names(load("executions.sigil")), [
