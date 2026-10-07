@@ -323,6 +323,16 @@ class TestShopLevels(unittest.TestCase):
         self.assertTrue(logs(tr, "[H] -> |DB|"))
         self.assertTrue(logs(tr, "[Core] -> |Log|"))
 
+    def test_a_route_or_optional_detail_is_no_summary(self):
+        # the expansion reaches [Audit] only by a failure route or an untaken ?>:
+        # [Shop]'s own call still runs
+        for inner in ("[Pay] !> [Audit]", "[Checkout] ?> [Audit]"):
+            sc = build("(User) -> [Shop] : buy\n[Shop] -> [Audit] : record\n"
+                       "[Shop] := {\n  [Checkout] -> [Pay] : charge\n  " + inner + "\n}\n")
+            with self.subTest(inner=inner):
+                self.assertEqual(sim.program(sim.canonical(sc.graph)).summaries, {})
+                self.assertTrue(logs(run(sc), "[Shop] -> [Audit]"))
+
     def test_a_node_with_no_work_where_reached_runs_its_home_body(self):
         sc = build("(U) -> [A]\n[A] ~> <E>\n<E> -> |Log| : add()\n"
                    "[A] := {\n  [B] ~> <E>\n}\n")

@@ -225,7 +225,8 @@ random; the run is a function of the design and the chosen **scenario**.
   count their attempts, events drive the state machines that name them (each
   machine's current state is marked `◉`), loops and recursion are bounded.
 - **Levels:** an expansion is a closer reading of its node, so an outer flow whose
-  target the expansion also reaches is a summary of that detail — `[Shop] ~>
+  target the expansion also reaches by a flow (not only by a failure route or
+  an optional `?>`) is a summary of that detail — `[Shop] ~>
   <OrderPlaced>` over `[Checkout] ~> <OrderPlaced>` inside `[Shop] := { … }` — and
   runs once, as the detail (the summary lights with it).
 - **The marks:** `●` a token going out, `○` a return or fallback, `✕` a failure (in

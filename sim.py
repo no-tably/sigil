@@ -482,8 +482,10 @@ def _summaries(prog: Program, flows: list) -> dict:
     detail: an expansion is a closer reading of the same node, so the detail
     carries the traffic and the summary runs no token of its own
     (`[Shop] ~> <OrderPlaced>` over `[Checkout] ~> <OrderPlaced>` inside
-    `[Shop] := { … }`). Routes are not summaries: a failure reaching X still
-    takes X's own routes."""
+    `[Shop] := { … }`). Only a detail every run takes counts: a route (`!>`)
+    or an optional `?>` to the same target may not be taken, so X's own wire
+    still runs. Routes are not summaries: a failure reaching X still takes X's
+    own routes."""
     by_unit = {}
     for w in flows:
         by_unit.setdefault(prog.wire_unit[id(w)], []).append(w)
@@ -500,7 +502,7 @@ def _summaries(prog: Program, flows: list) -> dict:
 
     out = {}
     for (ui, nid), exp in prog.expansions.items():
-        inner = detail(exp, set())
+        inner = [x for x in detail(exp, set()) if x.kind not in ("!>", "?>")]
         for w in _flat(prog.bodies.get((ui, nid), ())):
             if w.src == nid and w.dst != nid:
                 hits = tuple(x.ident for x in inner if x.dst == w.dst)
