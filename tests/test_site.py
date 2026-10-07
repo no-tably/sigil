@@ -213,20 +213,33 @@ class TestBuild(unittest.TestCase):
         view = pg.view
         text = (SITE / "examples" / "04-orders.sigil").read_text()
         g = view.render.parse_document(text)
-        for tree in (True, False):
-            with self.subTest(tree=tree):
-                got = json.loads(pg.draw(json.dumps({"text": text,
-                                                     "view": "tree" if tree else "graph"})))
+        for name in view.VIEWS:
+            with self.subTest(view=name):
+                got = json.loads(pg.draw(json.dumps({"text": text, "view": name})))
                 rows, _w = view.compose_view(
-                    g, tree, depth=pg.MAX_DEPTH, payloads=True,
-                    notes="callouts" if tree else "markers", triggers=True, spaced=True,
-                    width=None, access=False, mods=False,
-                    events=view.DEFAULT_EVENTS[view.view_name(tree)])
+                    g, name, depth=pg.MAX_DEPTH, payloads=True,
+                    notes="callouts" if name == "tree" else "markers", triggers=True,
+                    spaced=True, width=None, access=False, mods=False,
+                    events=view.DEFAULT_EVENTS[name])
                 want = ["".join(t for t, _s in r).rstrip() for r in rows]
                 drawn = ["".join(t for t, _s in r).rstrip() for r in got["rows"]]
                 while want and not want[-1]:
                     want.pop()
                 self.assertEqual(drawn, want)
+
+    def test_playground_flow_view_has_its_legend(self):
+        pg = _load("sigil_playground_t4", SITE / "playground.py")
+        text = (SITE / "examples" / "00-shortener.sigil").read_text()
+        got = json.loads(pg.draw(json.dumps({"text": text, "view": "flow"})))
+        legend = "".join(t for r in got["legend"] for t, _s in r)
+        self.assertTrue(legend.startswith("flow "))
+        self.assertIn("back to an earlier column", legend)
+        run = json.loads(pg.sim(json.dumps({"text": text, "view": "flow",
+                                            "scenario": "Redirect.lookup:fails", "frame": 0})))
+        player = pg.view.SimPlayer(pg.view.render.parse_document(text), "Redirect.lookup:fails")
+        self.assertEqual(run["say"], player.narration())
+        self.assertTrue(run["say"])
+        self.assertIn("●", "".join(t for r in run["legend"] for t, _s in r))
 
     def test_playground_sim_narrates_as_the_viewer_does(self):
         """sim() carries the viewer's wording: "say" (the narration line), "story"
@@ -411,6 +424,29 @@ class TestSiteJs(unittest.TestCase):
         self.assertIn('<span class="pg-why">a storm</span>', out)
         self.assertIn('<li class="accepted"><button type="button" data-line="4">accepted:4:SGC101'
                       '</button> call-without-timeout: an upsert</li>', out)
+
+    def test_run_story_rows(self):
+        # the viewer's rows under its footer: trail, the beats before, then `›` now
+        code = _js_section("  const STORY_ROWS", "  const b64url")
+        r = {"trail": "(A) -> [B]", "say": "4 [B] <fails>",
+             "story": ["1 one", "2 two", "3 three", "4 [B] <fails>"]}
+        out = self._run(code + f"\nprocess.stdout.write(storyHtml({json.dumps(r)}));")
+        self.assertEqual(out.split("\n"), [
+            '<span class="pg-dim">trail  </span>(A) -&gt; [B]',
+            '<span class="pg-dim">  2 two</span>',
+            '<span class="pg-dim">  3 three</span>',
+            '<span class="pg-now">› 4 [B] &lt;fails&gt;</span>'])
+        empty = self._run(code + '\nprocess.stdout.write(storyHtml({}));')
+        self.assertEqual(empty.split("\n")[-1], '<span class="pg-now">› </span>')
+
+    def test_playground_view_picker_offers_every_view(self):
+        page = (SITE / "index.html").read_text(encoding="utf-8")
+        view = _load("sigil_view_names", _DIR / "view.py")
+        picker = re.search(r'<div class="seg" id="pg-views".*?</div>', page, re.S).group(0)
+        self.assertEqual(re.findall(r'data-view="(\w+)"', picker), list(view.VIEWS))
+        js = (SITE / "site.js").read_text()
+        self.assertIn('const VIEW_KEYS = "1 2 3 t"', js)
+        self.assertEqual(view.view_keys(), "1 2 3")
 
     def test_playground_speed_steps(self):
         # the terminal viewer's - / + steps, a readable start, a remembered choice

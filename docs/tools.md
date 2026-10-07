@@ -135,7 +135,10 @@ wires taken before are faded (the trail, `ui.sim_trail`), and wires never taken 
 fainter (`ui.sim_faint`). Under the footer, in words that read without colour:
 `trail` and the episode's hops so far in notation, the last few events, and the
 narration line, `›` and what is happening now. The view follows the run's tokens
-and active nodes, panning only when they leave the window; `w` turns that off.
+and active nodes, panning only when they leave the window; `w` turns that off. The
+playground shows the same trail and narration under its drawing (from the same
+`SimPlayer`), steps a frame (`,` `.`) or an event (`<` `>`) at a time, and picks its
+view with the same `1` `2` `3` and `t`.
 
 Live keys:
 

@@ -10,7 +10,7 @@ the tools for a drawing and packs it (frames.py) the way frames.json is packed.
     sim(request)     one frame of a scenario's run, drawn over the same view
     check(request)   the document's composition findings (check.py at k = 1)
 
-A request: {"text", "view": "tree"|"graph", "width": cols|null, "depth",
+A request: {"text", "view": "tree"|"graph"|"flow", "width": cols|null, "depth",
 "payloads", "notes", "events"} (+ "scenario", "frame" for sim; "text" and
 "mode" for check). Every drawing response carries "styles": the style table so far (ids are stable for the session, so
 the page only adds the entries it has not seen).
@@ -53,10 +53,11 @@ _player: dict = {}          # the run being shown: {"key": (text, scenario), "pl
 
 
 def _opts(req: dict) -> dict:
-    tree = req.get("view", "tree") == "tree"
-    events = req.get("events") or view.DEFAULT_EVENTS[view.view_name(tree)]
+    name = view.view_name(req.get("view") or "tree")
+    tree = name == "tree"
+    events = req.get("events") or view.DEFAULT_EVENTS[name]
     width = req.get("width")
-    return {"tree": tree, "depth": int(req.get("depth", MAX_DEPTH)),
+    return {"view": name, "tree": tree, "depth": int(req.get("depth", MAX_DEPTH)),
             "payloads": bool(req.get("payloads", True)),
             "notes": req.get("notes") or ("callouts" if tree else "markers"),
             "triggers": True, "spaced": True,
@@ -70,7 +71,7 @@ def _graph(text: str):
 
 
 def _rows(g, o: dict, trace=None, tick: int = 0) -> list:
-    rows, _w = view.compose_view(g, o["tree"], depth=o["depth"], payloads=o["payloads"],
+    rows, _w = view.compose_view(g, o["view"], depth=o["depth"], payloads=o["payloads"],
                                  notes=o["notes"], triggers=o["triggers"],
                                  spaced=o["spaced"], width=o["width"], access=o["access"],
                                  mods=o["mods"], events=o["events"], trace=trace, tick=tick)
@@ -78,12 +79,16 @@ def _rows(g, o: dict, trace=None, tick: int = 0) -> list:
 
 
 def _legend(o: dict, g, sim: bool) -> list:
-    """The view's legend rows (the tree's key, the run's markers), wrapped."""
+    """The view's legend rows (the tree's key, the flow view's wires, the run's
+    markers), wrapped."""
     rows = []
     if o["tree"]:
         rows += view.vtree.tree_legend(o["triggers"], o["payloads"], o["access"], o["mods"],
                                        o["events"],
                                        calls=view.drawn_call_marks(g, o["depth"], o["payloads"]))
+    elif o["view"] == "flow":
+        rows.append(view.vflow.flow_legend(o["triggers"], o["payloads"], o["access"], o["mods"],
+                                           o["events"]))
     if sim:
         rows.append(view.sim_legend(o["tree"]))
     width = min(view.LEGEND_WIDTH, o["width"] or view.LEGEND_WIDTH)

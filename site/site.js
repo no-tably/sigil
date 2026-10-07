@@ -776,6 +776,7 @@
   const SHARE = "play=";
   const CHECK_WAIT = 450;          // ms of quiet typing before a check (a draw waits 180)
   const CHECK_BUDGET = 1500;       // ms a check may take before checking waits for the button
+  const VIEW_KEYS = "1 2 3 t";     // the drawing's view keys, as the terminal viewer's
 
   // Run speeds in frames a second: the terminal viewer's - / + steps. A run starts
   // at a readable 2/s; a viewer's own choice is remembered (index into the steps).
@@ -797,6 +798,19 @@
       (f.why ? `<span class="pg-why">${esc(f.why)}</span>` : "") + "</li>";
     return findings.map((f) => item(f, f.severity, f.message)).join("") +
       accepted.map((f) => item(f, "accepted", f.acknowledged || "")).join("");
+  }
+
+  // A run's story under the drawing, worded by view.py (sim.narrate) as the
+  // terminal viewer's rows under its footer: `trail` and the episode's hops so
+  // far, the STORY_ROWS beats before this one (dim), then this one after `›` —
+  // the narration line. Mono reads them all; the classes only rank them.
+  const STORY_ROWS = 2;
+  function storyHtml(r) {
+    const told = r.story || [];
+    const rows = [`<span class="pg-dim">trail  </span>${esc(r.trail || "")}`];
+    rows.push(...told.slice(-STORY_ROWS - 1, -1).map((b) => `<span class="pg-dim">  ${esc(b)}</span>`));
+    rows.push(`<span class="pg-now">› ${esc(r.say || "")}</span>`);
+    return rows.join("\n");
   }
 
   const b64url = {
@@ -832,14 +846,15 @@
     if (!root) return;
     const el = {
       go: $("#pg-go"), msg: $("#pg-msg"), app: $("#pg-app"), example: $("#pg-example"),
-      tree: $("#pg-tree"), graph: $("#pg-graph"), share: $("#pg-share"),
+      views: [...document.querySelectorAll("#pg-views button[data-view]")], share: $("#pg-share"),
       src: $("#pg-src"), hl: $("#pg-hl"), draw: $("#pg-draw"), legend: $("#pg-legend"),
+      story: $("#pg-story"),
       scenario: $("#pg-scenario"), back: $("#pg-back"), play: $("#pg-play"), fwd: $("#pg-fwd"),
       scrub: $("#pg-scrub"), tick: $("#pg-tick"), speed: $("#pg-speed"), lint: $("#pg-lint"),
       count: $("#pg-count"), diags: $("#pg-diags"), log: $("#pg-log"), check: $("#pg-check"),
       findings: $("#pg-findings"), mode: $("#pg-mode"), recheck: $("#pg-recheck"),
     };
-    const st = { view: "tree", scenario: "", frame: 0, last: 0, playing: false,
+    const st = { view: "tree", scenario: "", frame: 0, last: 0, beats: [], playing: false,
       speed: speedIndex(store.get(SPEED_KEY)),
       timer: null, typing: null, styles: 0, api: null, booting: false,
       checkTimer: null, checked: "", checkPaused: false };
@@ -1053,9 +1068,10 @@
       el.scrub.value = "0";
       el.tick.textContent = "";
       el.log.hidden = true;
+      el.story.hidden = true;
       root.classList.remove("running");
       [el.back, el.play, el.fwd, el.scrub].forEach((b) => { b.disabled = true; });
-      el.draw.removeAttribute("aria-keyshortcuts");
+      el.draw.setAttribute("aria-keyshortcuts", VIEW_KEYS);
     }
 
     function frame(k) {
@@ -1068,12 +1084,15 @@
       showDrawing(r);
       root.classList.add("running");
       [el.back, el.play, el.fwd, el.scrub].forEach((b) => { b.disabled = false; });
-      el.draw.setAttribute("aria-keyshortcuts", "Space , . - +");
+      el.draw.setAttribute("aria-keyshortcuts", `${VIEW_KEYS} Space , . < > - +`);
       st.frame = r.frame;
       st.last = r.last;
+      st.beats = r.beats || [];
       el.scrub.max = String(r.last);
       el.scrub.value = String(r.frame);
       el.tick.textContent = `t${r.tick}/${r.ticks}` + (r.outcome ? ` · ${r.outcome}` : "");
+      el.story.hidden = false;
+      el.story.innerHTML = storyHtml(r);
       el.log.hidden = false;
       el.log.textContent = r.log.join("\n");
       el.log.scrollTop = el.log.scrollHeight;
@@ -1104,6 +1123,14 @@
       stop();
       frame(Math.max(0, Math.min(st.last, st.frame + delta)));
     }
+    // < >: the previous / next frame where something happens (a beat)
+    function stepEvent(dir) {
+      if (!st.scenario) return;
+      const to = dir > 0 ? st.beats.find((k) => k > st.frame)
+        : st.beats.filter((k) => k < st.frame).pop();
+      stop();
+      frame(to ?? (dir > 0 ? st.last : 0));
+    }
     function setSpeed(i) {
       st.speed = Math.max(0, Math.min(i, SIM_SPEEDS.length - 1));
       el.speed.value = String(st.speed);
@@ -1111,12 +1138,17 @@
       if (st.playing) arm();                       // keep playing, at the new pace
     }
 
+    // the views in the terminal viewer's order: 1 2 3 pick one, t the next
     function setView(v) {
       st.view = v;
-      el.tree.setAttribute("aria-pressed", String(v === "tree"));
-      el.graph.setAttribute("aria-pressed", String(v === "graph"));
+      el.views.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === v)));
       if (st.scenario) frame(st.frame);
       else refresh();
+    }
+    function viewKey(key) {
+      const names = el.views.map((b) => b.dataset.view);
+      const at = names.indexOf(st.view);
+      return key === "t" ? names[(at + 1) % names.length] : names[Number(key) - 1];
     }
 
     el.go.addEventListener("click", boot);
@@ -1154,8 +1186,7 @@
       st.scenario = "";
       refresh();
     });
-    el.tree.addEventListener("click", () => setView("tree"));
-    el.graph.addEventListener("click", () => setView("graph"));
+    el.views.forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
     el.scenario.addEventListener("change", () => {
       st.scenario = el.scenario.value;
       stop();
@@ -1167,10 +1198,18 @@
     el.fwd.addEventListener("click", () => step(1));
     el.speed.addEventListener("change", () => setSpeed(Number(el.speed.value)));
     // the drawing takes the terminal viewer's run keys while a scenario is on
+    // the drawing takes the viewer's view keys (1 2 3, t) at any time
     el.draw.addEventListener("keydown", (e) => {
-      if (!st.scenario || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const v = /^[1-9t]$/.test(e.key) ? viewKey(e.key) : undefined;
+      if (v) {
+        e.preventDefault();
+        setView(v);
+        return;
+      }
+      if (!st.scenario) return;
       const act = { " ": () => (st.playing ? stop() : play()), ",": () => step(-1),
-        ".": () => step(1), "-": () => setSpeed(st.speed - 1), "+": () => setSpeed(st.speed + 1),
+        ".": () => step(1), "<": () => stepEvent(-1), ">": () => stepEvent(1), "-": () => setSpeed(st.speed - 1), "+": () => setSpeed(st.speed + 1),
         "=": () => setSpeed(st.speed + 1) }[e.key];
       if (!act) return;
       e.preventDefault();

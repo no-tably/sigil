@@ -320,7 +320,9 @@ The **playground** runs the tools themselves in the browser: the build copies
 `view.py`, `lint.py`, `sim.py` and the modules they load into `py/` byte for byte, and
 [Pyodide](https://pyodide.org) runs them when a visitor presses *start*
 (`site/playground.py` is the thin JSON layer the page calls). Write a design, switch
-views, read the lint, pick a scenario and step through its run; *share* puts the
+views (graph, flow, tree — `1` `2` `3` or `t` on the drawing, as in the viewer), read
+the lint, pick a scenario and step through its run, a frame or an event at a time,
+with the viewer's trail and narration line under the drawing; *share* puts the
 document in the link. Nothing about the notation is re-implemented in JavaScript, so
 the page cannot drift from the CLI (`tests/test_site.py` checks the copies and that
 the playground draws what `view.py` draws).

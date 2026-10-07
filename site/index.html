@@ -168,9 +168,10 @@
     <div class="pg-app" id="pg-app" hidden>
       <div class="pg-bar">
         <label>example <select id="pg-example" aria-label="Load an example"></select></label>
-        <div class="seg" role="group" aria-label="View">
-          <button type="button" id="pg-tree" aria-pressed="true">tree</button>
-          <button type="button" id="pg-graph" aria-pressed="false">graph</button>
+        <div class="seg" id="pg-views" role="group" aria-label="View">
+          <button type="button" data-view="graph" title="Graph view (1)" aria-pressed="false">graph</button>
+          <button type="button" data-view="flow" title="Flow view (2)" aria-pressed="false">flow</button>
+          <button type="button" data-view="tree" title="Tree view (3)" aria-pressed="true">tree</button>
         </div>
         <button type="button" id="pg-share" title="Copy a link to this design">share</button>
       </div>
@@ -182,6 +183,7 @@
         </div>
         <div class="pg-out">
           <pre class="pg-draw" id="pg-draw" tabindex="0" aria-label="Drawing"></pre>
+          <pre class="pg-story" id="pg-story" hidden></pre>
           <pre class="pg-legend" id="pg-legend"></pre>
         </div>
       </div>
@@ -231,14 +233,22 @@
       a hierarchy and a wired graph at the same time. Comments become margin callouts.</p>
       <pre class="snippet cmd">view.py design.sigil --tree --notes callouts</pre>
     </article>
+    <article class="card">
+      <h3>flow view</h3>
+      <p>The call graph read left to right, like the toy graphs behind this page: bare glyph
+      labels in columns by call depth, bent wires between them, each flow's chip on its wire.
+      The quickest way to read who calls whom.</p>
+      <pre class="snippet cmd">view.py design.sigil --flow</pre>
+    </article>
   </div>
   <div class="cards two">
     <article class="card">
       <h3>simulate</h3>
-      <p>Walk the design: tokens travel its flows in either view — the happy path, each
+      <p>Walk the design: tokens travel its flows in every view — the happy path, each
       failure route, branch arm and race, one named scenario at a time. Calls wait for
       their return, <code class="hl">!&gt;</code> fires only on failure, events move the
-      state machines. No values are computed: it walks the wiring, not your code.</p>
+      state machines. A line under the drawing says each step in plain words, after the
+      trail of hops so far. No values are computed: it walks the wiring, not your code.</p>
       <pre class="snippet cmd">view.py design.sigil --once --tree --sim happy</pre>
     </article>
     <article class="card">
