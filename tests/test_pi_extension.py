@@ -20,6 +20,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -197,6 +198,11 @@ class DriveMixin:
         self.assertIn("(frame 1 of", run["reply"])
         self.assertIn("frame 1/", run["lines"][0])
         self.assertIn("frame 2/", self.steps["next"]["lines"][0])
+        # the run's trail and narration line under the drawing, and in the reply
+        plain = [re.sub(r"\x1b\[[0-9;]*m", "", ln) for ln in self.steps["next"]["lines"]]
+        self.assertTrue(any(ln.startswith("trail  (") for ln in plain), plain)
+        self.assertTrue(any(ln.startswith("› ") and len(ln) > 2 for ln in plain), plain)
+        self.assertIn("\nnow: ", run["reply"])
 
     def test_close_and_an_unasked_widget_on_a_wide_terminal(self):
         self.assertFalse(self.steps["close"]["widget"])

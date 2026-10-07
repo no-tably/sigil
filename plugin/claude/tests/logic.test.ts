@@ -2,7 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import {
   colourOf, frameIndex, herdrPaneOf, nextView, parseCommandArgs, parseDrawing, parseRequest,
-  rasterCells, resolveDisplay, shellQuote, slices, splitArgv, viewArgv,
+  rasterCells, resolveDisplay, runLines, shellQuote, slices, splitArgv, viewArgv,
 } from '../hooks/logic'
 import type { Drawing } from '../types'
 
@@ -77,5 +77,12 @@ describe('cells', () => {
     expect(nextView('flow')).toBe('tree')
     expect(parseDrawing('{"error":"x: no such file"}')).toEqual({ error: 'x: no such file' })
     expect(parseDrawing('garbage')).toEqual({ error: 'pane.py printed no drawing' })
+  })
+  test("a run's trail and narration line; the log line from an older pane.py", () => {
+    const run = { frames: [[], []], status: ['a', 'b'], log: ['', 'l'], say: ['', 's'], trail: ['', '(A) -> [B]'] } as unknown as Drawing
+    expect(runLines(run, 1)).toEqual({ trail: 'trail  (A) -> [B]', now: '› s' })
+    const old = { frames: [[]], status: ['a'], log: ['l'] } as unknown as Drawing
+    expect(runLines(old, 0)).toEqual({ trail: 'trail  ', now: '› l' })
+    expect(runLines({ frames: [[]] } as unknown as Drawing, 0)).toBeNull()
   })
 })

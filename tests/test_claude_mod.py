@@ -102,6 +102,12 @@ class DrawTest(unittest.TestCase):
         self.assertEqual(out["outcome"], player.trace.outcome)
         self.assertTrue(out["status"][-1].startswith("sim happy · "))
         self.assertNotIn("/s ·", out["status"][0])         # the live view's speed is not ours
+        # the viewer's narration line and trail, a frame at a time
+        self.assertEqual(len(out["say"]), len(out["frames"]))
+        self.assertEqual(len(out["trail"]), len(out["frames"]))
+        player.at = player.last
+        self.assertEqual(out["say"][-1], player.narration())
+        self.assertEqual(out["trail"][-1], player.trail())
 
     def test_sampling_keeps_both_ends(self):
         self.assertEqual(pane.sampled(3), [0, 1, 2, 3])
@@ -123,9 +129,12 @@ class DrawTest(unittest.TestCase):
         while want and not want[-1]:
             want.pop()
         self.assertEqual([ln.rstrip() for ln in text_of(out["frames"][0])], want)
+        legend = "".join(text_of(out["legend"]))
+        self.assertTrue(legend.startswith("flow "), legend)  # the flow view's own key
         run = run_pane("draw", str(SHOP), "--view", "flow", "--scenario", "happy")
         self.assertEqual(run["view"], "flow")
         self.assertEqual(len(run["frames"]), len(run["status"]))
+        self.assertTrue(run["say"][-1])
 
     def test_a_view_py_without_the_flow_view_is_named(self):
         old = types.SimpleNamespace(VIEWS=("graph", "tree"))

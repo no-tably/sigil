@@ -174,8 +174,9 @@ The tool's input:
 - `payloads` — show flow payloads.
 
 A field you leave out keeps its last value. The reply says where the document is
-shown, then gives the summary line, lint, the run's step and log line at that
-frame, its outcome, and the scenario names. It never returns the drawing:
+shown, then gives the summary line, lint, the run's step at that frame, its
+narration line (`now: …`, in view.py's words) and trail (`trail: …`), the run's
+outcome, and the scenario names. It never returns the drawing:
 `view.py --once` prints that.
 
 `/sigil-pane` takes the same fields as words, in any order: `FILE`, a view name,
@@ -185,7 +186,9 @@ words it reopens the pane.
 The plugin option `display` picks where the viewer draws:
 
 - `mod` draws in a pane. `t` cycles the view, `d` the depth; with a run, `p` plays
-  or pauses it and `b` and `n` step it. The pane draws the cells that `pane.py
+  or pauses it and `b` and `n` step it, and under the drawing the pane shows the
+  run's trail and, after `›`, its narration line, as the live view's rows under
+  its footer. The flow view draws with its own legend. The pane draws the cells that `pane.py
   draw` packs (frames.py's packing, with hex colours), not ANSI. A pane opened
   without being asked needs 144 columns. Below that, the reply says it's waiting
   and names `/sigil-pane`, which opens it at any width.
@@ -207,7 +210,8 @@ Claude Code, with these differences:
   `"last"`. A number passes too, since pi converts it.
 - `mod` draws in a widget above the editor, in the theme's colours as truecolour
   text. A tall drawing is cut to fit the terminal, and the last row says how
-  many rows were left out. A widget opened without being asked needs 144 columns.
+  many rows were left out. A run's trail and narration line (`›`) follow the
+  drawing, as in the pane. A widget opened without being asked needs 144 columns.
   Below that, the reply says it's waiting and names `/sigil`, which opens it at
   any width.
 - The widget takes no keys, since it never has focus. `/sigil` takes the tool's

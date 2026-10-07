@@ -15,7 +15,10 @@ Usage:
         [[fg hex|null, bg hex|null, bold]], "frames": [rows], "legend": rows,
         "summary", "lint": [lines], "scenarios": [names], and with --scenario
         "scenario", "status": [a line per frame], "log": [the latest log line
-        per frame], "outcome"}; a row is [[text, style id], …]. A document or
+        per frame], "say": [the narration line per frame: the latest beat in
+        plain words, view.py's `›` line], "trail": [the episode's hops so far
+        per frame, in notation], "outcome"}; a row is [[text, style id], …].
+        The legend is the tree's key or the flow view's, then a run's marks. A document or
         view that cannot be drawn: {"error"}. Exit status 0 either way.
     pane.py follow CONTROL
         The multiplexer split's loop: runs `view.py` live with the argv in the
@@ -146,14 +149,16 @@ def draw(path: Path, view_name: str = "graph", depth: int = 1, width: int | None
             sim = view.SimPlayer(g, scenario)
             shown = sim.shown(view.scene.SceneOptions(events, True, False, depth))
             picks = sampled(sim.last)
-            drawn, status, log = [], [], []
+            drawn, status, log, say, trail = [], [], [], [], []
             for at in picks:
                 sim.at = at
                 rows, _w = compose(view, g, view_name, trace=shown, tick=at, **kw)
                 drawn.append(packed(rows, styles, frames))
                 status.append(_SPEED_RE.sub("", sim.status()))
                 log.append(sim.log_line())
-            out.update(scenario=sim.scenario.name, status=status, log=log,
+                say.append(sim.narration())
+                trail.append(sim.trail())
+            out.update(scenario=sim.scenario.name, status=status, log=log, say=say, trail=trail,
                        outcome=sim.trace.outcome, choice=sim.choice())
         else:
             rows, _w = compose(view, g, view_name, **kw)
@@ -166,6 +171,8 @@ def draw(path: Path, view_name: str = "graph", depth: int = 1, width: int | None
     if tree:
         legend += view.vtree.tree_legend(True, payloads, False, False, events,
                                          calls=view.drawn_call_marks(g, depth, payloads))
+    elif view_name == "flow":
+        legend.append(view.vflow.flow_legend(True, payloads, False, False, events))
     if scenario:
         legend.append(view.sim_legend(tree))
     cols = min(view.LEGEND_WIDTH, width or view.LEGEND_WIDTH)

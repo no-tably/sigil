@@ -31,6 +31,8 @@ export type Drawing = {
   scenario?: string
   status?: string[]
   log?: string[]
+  say?: string[]
+  trail?: string[]
   outcome?: string
   choice?: string
 }

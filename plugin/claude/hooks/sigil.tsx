@@ -11,7 +11,7 @@ import type { Drawing, Playback, Split, ViewRequest } from '../types'
 import {
   COMMAND, DEFAULT_WIDTH, PANE, RASTER_COLUMNS, TOOL, UNASKED_COLUMNS,
   detectMux, drawArgv, frameIndex, herdrPaneOf, nextDepth, nextView, parseCommandArgs,
-  parseDrawing, parseRequest, rasterCells, replyText, resolveDisplay, rowsWidth,
+  parseDrawing, parseRequest, rasterCells, replyText, resolveDisplay, rowsWidth, runLines,
   shellQuote, slices, splitArgv, statusLine, viewArgv,
 } from './logic'
 import type { Asked, Display } from './logic'
@@ -293,6 +293,7 @@ export const register: Register = (on, options) => {
     const at = frameIndex(shown, now)
     const rows = shown.frames[at] ?? []
     const isRun = shown.status !== undefined
+    const told = runLines(shown, at)
     const body = (cells: typeof rows, key: string) => {
       if (e.surface === 'terminal') {
         const { Raster } = $.ui.resolve(e)
@@ -318,7 +319,8 @@ export const register: Register = (on, options) => {
         <Text bold wrap="truncate">{statusLine(shown, req, at, now.isPlaying)}</Text>
         {error !== null && <Text color="error" wrap="truncate">✖ {error}</Text>}
         {body(rows, 'frame')}
-        {isRun && <Text dimColor wrap="truncate">{shown.log?.[at] || ' '}</Text>}
+        {told !== null && <Text dimColor wrap="truncate">{told.trail}</Text>}
+        {told !== null && <Text bold wrap="truncate">{told.now}</Text>}
         {shown.legend.length > 0 && body(shown.legend, 'legend')}
         <Text dimColor wrap="truncate">{shown.summary}</Text>
         {shown.lint.map(line => <Text dimColor wrap="truncate">{line}</Text>)}

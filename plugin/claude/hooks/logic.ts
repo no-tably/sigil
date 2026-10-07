@@ -225,13 +225,26 @@ export function statusLine(drawing: Drawing, request: ViewRequest, at: number, i
   return `${head} · ${isPlaying ? '▶' : '❚❚'} ${run} · frame ${at + 1}/${drawing.frames.length}`
 }
 
+/** A run's lines under the drawing at a frame, as view.py's rows under its
+ * footer: `trail` and the episode's hops so far, then `›` and the narration
+ * line (the run's log line from a pane.py that has none). null for a still. */
+export function runLines(drawing: Drawing, at: number): { trail: string; now: string } | null {
+  if (drawing.status === undefined) return null
+  const now = drawing.say?.[at] ?? drawing.log?.[at] ?? ''
+  return { trail: `trail  ${drawing.trail?.[at] ?? ''}`, now: `› ${now}` }
+}
+
 /** What the tool answers the agent: what is drawn and where, in words. */
 export function replyText(drawing: Drawing, at: number, isPlaying: boolean, where: string): string {
   const lines = [where, drawing.summary, ...drawing.lint]
   if (drawing.status !== undefined) {
     lines.push(`${isPlaying ? 'playing' : 'paused at'} ${drawing.status[at] ?? ''} (frame ${at + 1} of ${drawing.frames.length})`)
+    const say = drawing.say?.[at]
     const log = drawing.log?.[at]
-    if (log) lines.push(`log: ${log}`)
+    if (say) lines.push(`now: ${say}`)
+    else if (log) lines.push(`log: ${log}`)
+    const trail = drawing.trail?.[at]
+    if (trail) lines.push(`trail: ${trail}`)
     if (drawing.outcome !== undefined) lines.push(`outcome of the whole run: ${drawing.outcome}`)
   }
   if (drawing.scenarios.length > 0) lines.push(`scenarios: ${drawing.scenarios.join(', ')}`)
