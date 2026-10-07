@@ -1,0 +1,13 @@
+── URL shortener ────────────────────────────────────────────
+
+      (User) ─────▶ [Shortener] #1 ─┬─▶ |Links|
+╭───✖┐(Visitor) ──▶ [Redirect] ─────┼╌▶ <Clicked> ──▶ [Stats]
+│ ╭─▶┘                              │
+│ ╰─────────────────────────────────┤
+╰───────────────────────────────────╯
+
+── notes ────────────────────────────────────────────────────
+
+#1 accepts: race — a code is written once, then only read
+
+00-shortener.sigil: 7 nodes, 8 edges, 0 expansions · #!sketch

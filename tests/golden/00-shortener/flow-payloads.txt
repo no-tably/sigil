@@ -1,0 +1,16 @@
+── URL shortener ───────────────────────────────────────────────────────────────────────────────────
+
+      (User) ───────┆a┆───▶ [Shortener] ─────┆b┆──┬─▶ |Links|
+╭───✖┐(Visitor) ────┆c┆───▶ [Redirect] ──┬───┆d┆──╯
+│ ╭─▶┘                                   ├╌╌╌╌╌╌╌╌╌╌▶ <Clicked> ──▶ [Stats]
+│ ╰─┆f┆──────────────────────────────────┤
+╰─┆e┆────────────────────────────────────╯
+
+                                                                         ┆a┆ shorten({Url}) ↩ {Code}
+                                                                         ┆b┆ save({Code}, {Url})
+                                                                         ┆c┆ follow({Code})
+                                                                         ┆d┆ lookup({Code}) ↩ {Url}
+                                                                         ┆e┆ <NotFound>
+                                                                         ┆f┆ redirect({Url})
+
+00-shortener.sigil: 7 nodes, 8 edges, 0 expansions · #!sketch
