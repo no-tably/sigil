@@ -302,7 +302,7 @@ _CORE_FILES = ("lint.py", "render.py", "dialects.py", "themes.py",
                "sim.py", "check.py", "check_state.py", "check_trace.py",
                "check_flow.py", "check_inv.py")
 # Directories whose every text file must also be free of dialect/host vocabulary.
-_SCANNED_DIRS = ("highlight", "tests", "site", "themes")
+_SCANNED_DIRS = ("highlight", "tests", "site", "themes", "plugin")
 _WORDLIST_BEGIN = "# vocab-check: word list begin"
 _WORDLIST_END = "# vocab-check: word list end"
 

@@ -149,7 +149,7 @@ class BuildTestCase(unittest.TestCase):
         self.assertEqual(man["name"], "sigil")
         self.assertRegex(man["name"], build.SKILL_NAME_RE)
         self.assertEqual(man["author"]["name"], "Ian Patrick")
-        self.assertLessEqual(set(man), build.CLAUDE_KEYS)
+        self.assertLessEqual(set(man), build.CLAUDE_KEYS | set(build.MOD_KEYS))
         for k in ("homepage", "repository"):
             if k in man:
                 self.assertTrue(man[k].startswith("https://"))

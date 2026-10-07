@@ -1,0 +1,81 @@
+import { describe, expect, test } from 'claude-code/testing'
+
+import {
+  colourOf, frameIndex, herdrPaneOf, nextView, parseCommandArgs, parseDrawing, parseRequest,
+  rasterCells, resolveDisplay, shellQuote, slices, splitArgv, viewArgv,
+} from '../hooks/logic'
+import type { Drawing } from '../types'
+
+describe('display', () => {
+  test('unset: mod outside a multiplexer, multiplex inside one', () => {
+    expect(resolveDisplay(undefined, {})).toBe('mod')
+    expect(resolveDisplay('auto', {})).toBe('mod')
+    expect(resolveDisplay(undefined, { herdr: '1' })).toBe('multiplex')
+    expect(resolveDisplay('auto', { tmux: '/tmp/tmux-1/default,1,0' })).toBe('multiplex')
+    expect(resolveDisplay(undefined, { zellij: '0' })).toBe('multiplex')
+  })
+  test('set: the setting wins over what is detected', () => {
+    expect(resolveDisplay('mod', { tmux: 'x' })).toBe('mod')
+    expect(resolveDisplay('multiplex', {})).toBe('multiplex')
+  })
+})
+
+describe('requests', () => {
+  test('a file is needed the first time; fields left out keep their value', () => {
+    expect(parseRequest({}, null)).toEqual({ error: 'name the Sigil file to show (file)' })
+    const first = parseRequest({ file: 'a.sigil', view: 'tree', depth: 'all', scenario: 'happy' }, null)
+    expect(first).toEqual({ request: { file: 'a.sigil', view: 'tree', depth: 99, scenario: 'happy' } })
+    if ('error' in first) throw new Error('unexpected')
+    const again = parseRequest({ frame: 3, play: true }, first.request)
+    expect(again).toEqual({ request: first.request, frame: 3, play: true })
+    expect(parseRequest({ scenario: '' }, first.request)).toEqual({ request: { file: 'a.sigil', view: 'tree', depth: 99 } })
+    expect(parseRequest({ frame: 'last' }, first.request)).toEqual({ request: first.request, frame: -1 })
+  })
+  test('another file drops the run; bad values are named', () => {
+    const shown = { file: 'a.sigil', view: 'graph' as const, depth: 1, scenario: 'happy' }
+    expect(parseRequest({ file: 'b.sigil' }, shown)).toEqual({ request: { file: 'b.sigil', view: 'graph', depth: 1 } })
+    expect(parseRequest({ file: 'a.sigil', view: 'side' }, null)).toEqual({ error: 'view must be one of graph, tree, flow' })
+    expect(parseRequest({ file: 'a.sigil', depth: -1 }, null)).toEqual({ error: 'depth must be a whole number or "all"' })
+  })
+  test('/sigil words', () => {
+    expect(parseCommandArgs('')).toEqual({})
+    expect(parseCommandArgs('shop.sigil flow depth all sim API.charge:fails frame 2 play'))
+      .toEqual({ file: 'shop.sigil', view: 'flow', depth: 'all', scenario: 'API.charge:fails', frame: '2', play: true })
+  })
+})
+
+describe('commands', () => {
+  test("view.py's live flags, flow passed through", () => {
+    expect(viewArgv({ file: '/d/a.sigil', view: 'flow', depth: 99, scenario: 'happy' }))
+      .toEqual(['/d/a.sigil', '--depth', 'all', '--flow', '--sim', 'happy'])
+    expect(viewArgv({ file: '/d/a.sigil', view: 'graph', depth: 0 })).toEqual(['/d/a.sigil', '--depth', '0'])
+  })
+  test('a split per multiplexer', () => {
+    const follow = ['python3', '/p/pane.py', 'follow', '/tmp/c.json']
+    expect(splitArgv('tmux', follow)).toEqual(['tmux', 'split-window', '-h', '-d', '-P', '-F', '#{pane_id}', '--', ...follow])
+    expect(splitArgv('zellij', follow).slice(0, 3)).toEqual(['zellij', 'run', '--direction'])
+    expect(splitArgv('herdr', follow, 'w6:p1')).toEqual(['herdr', 'pane', 'split', 'w6:p1', '--direction', 'right', '--no-focus'])
+    expect(herdrPaneOf('{"result":{"pane":{"pane_id":"w6:p2"}}}')).toBe('w6:p2')
+    expect(herdrPaneOf('nope')).toBeUndefined()
+    expect(shellQuote(['python3', "/a b/it's.py"])).toBe(`python3 '/a b/it'\\''s.py'`)
+  })
+})
+
+describe('cells', () => {
+  test('a run in its colour, padded with the default', () => {
+    expect(colourOf('#8b7aad')).toBe(0x8b7aad)
+    expect(colourOf('#fff')).toBe(0xffffff)
+    expect(colourOf(null)).toBe(0x01000000)
+    expect(rasterCells([[['A', 0]]], [['#8b7aad', null, false]], 2)).toBe('QQAAAK16iwAAAAABIAAAAAAAAAEAAAAB')
+  })
+  test('slices and frames', () => {
+    expect(slices([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]])
+    const drawing = { frames: [[], [], []], styles: [] } as unknown as Drawing
+    expect(frameIndex(drawing, { at: 9, isPlaying: false })).toBe(2)
+    expect(nextView('tree')).toBe('graph')
+    expect(nextView('graph')).toBe('flow')
+    expect(nextView('flow')).toBe('tree')
+    expect(parseDrawing('{"error":"x: no such file"}')).toEqual({ error: 'x: no such file' })
+    expect(parseDrawing('garbage')).toEqual({ error: 'pane.py printed no drawing' })
+  })
+})

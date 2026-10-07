@@ -1,0 +1,17 @@
+{
+  "name": "sigil",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "display": {
+      "type": "string",
+      "title": "Viewer display",
+      "description": "Where the agent's sigil viewer draws: mod (a pane inside Claude Code) or multiplex (a herdr / tmux / zellij split running view.py live). auto: multiplex inside a multiplexer, else mod.",
+      "options": [
+        "auto",
+        "mod",
+        "multiplex"
+      ],
+      "default": "auto"
+    }
+  }
+}

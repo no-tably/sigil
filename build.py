@@ -11,6 +11,11 @@ Canonical sources (edit these, never dist/):
     plugin/meta.json           name, version, description, author, keywords, urls
     plugin/commands/*.md       slash commands; bodies use $1 / $ARGUMENTS and the
                                placeholder @SCRIPTS@ for the skill's scripts dir
+    plugin/claude/             the Claude Code viewer mod: its manifest's types and
+                               userConfig (merged into the claude plugin.json),
+                               hooks/ and types/ (copied), scripts/pane.py and
+                               site/frames.py (into the skill's scripts/); its
+                               tests/ and tsconfig.json stay here
     lint.py render.py view.py  copied into skills/sigil/scripts/ (required)
     viewkit.py view_graph.py   view.py's drawing modules, the scene layer and
     view_tree.py view_flow.py  the simulation engine, copied alongside (required)
@@ -24,7 +29,8 @@ Canonical sources (edit these, never dist/):
     language.md examples.md    copied into skills/sigil/references/
 
 Outputs (under --out, default ./dist):
-    claude/                    Claude Code plugin (.claude-plugin/plugin.json)
+    claude/                    Claude Code plugin (.claude-plugin/plugin.json), with
+                               the viewer mod (hooks/hooks.json)
     claude-marketplace/        marketplace repo layout -> ./plugins/sigil
     codex/                     Agent Plugins 1.0 plugin (root plugin.json);
                                commands become skills that opt out of implicit use
@@ -86,6 +92,12 @@ CODEX_KEYS = {"$schema", "name", "version", "description", "author", "homepage",
 MANIFEST_ORDER = ("name", "version", "description", "author", "homepage", "repository",
                   "license", "keywords")
 CLAUDE_KEYS = set(MANIFEST_ORDER)
+# The Claude Code viewer mod (plugin/claude): the manifest fields it adds, the
+# folders copied whole, and its Python, which goes beside the skill's tools.
+MOD = ROOT / "plugin" / "claude"
+MOD_KEYS = ("types", "userConfig")
+MOD_DIRS = ("hooks", "types")
+MOD_SCRIPTS = {"pane.py": MOD / "scripts" / "pane.py", "frames.py": ROOT / "site" / "frames.py"}
 # Where each target records its version (opencode has no manifest).
 VERSION_FILES = {"claude": ".claude-plugin/plugin.json", "codex": "plugin.json",
                  "pi": "package.json"}
@@ -257,11 +269,33 @@ def copy_into_marketplace(root: Path, market: Path, meta: dict[str, Any]) -> str
 # Targets
 # ---------------------------------------------------------------------------
 
+def load_mod_manifest() -> dict[str, Any]:
+    """plugin/claude's own plugin.json (the fields it adds to the claude manifest);
+    its name must be the plugin's, since its state and tool are named by it."""
+    return json.loads((MOD / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+
+
+def stage_mod(root: Path, meta: dict) -> dict[str, Any]:
+    """Copy the viewer mod into a built claude plugin; returns its manifest fields."""
+    mod = load_mod_manifest()
+    if mod.get("name") != meta["name"]:
+        raise ValueError(f"plugin/claude: name {mod.get('name')!r} != {meta['name']!r}")
+    for d in MOD_DIRS:
+        for p in sorted((MOD / d).rglob("*")):
+            if p.is_file() and "__pycache__" not in p.parts:
+                write(root / p.relative_to(MOD), p.read_text(encoding="utf-8"))
+    for name, src in MOD_SCRIPTS.items():
+        write(root / "skills" / SKILL / "scripts" / name, src.read_text(encoding="utf-8"),
+              executable=True)
+    return {k: mod[k] for k in MOD_KEYS if k in mod}
+
+
 def build_claude(out: Path, meta: dict) -> list[Path]:
     root = out / "claude"
     manifest = base_manifest(meta, CLAUDE_KEYS)
-    write_json(root / ".claude-plugin" / "plugin.json", manifest)
     stage_skill(root / "skills" / SKILL, claude=True)
+    manifest.update(stage_mod(root, meta))
+    write_json(root / ".claude-plugin" / "plugin.json", manifest)
     write_commands(root / "commands", f"${{CLAUDE_PLUGIN_ROOT}}/skills/{SKILL}/scripts")
 
     market = out / "claude-marketplace"
@@ -577,10 +611,11 @@ def check_claude(out: Path, errs: list[str]) -> None:
     man = _load_obj(root / ".claude-plugin" / "plugin.json", errs)
     if not SKILL_NAME_RE.match(str(man.get("name", ""))):
         errs.append(f"{root}: plugin.json name must be kebab-case")
-    for k in set(man) - CLAUDE_KEYS:
+    for k in set(man) - CLAUDE_KEYS - set(MOD_KEYS):
         errs.append(f"{root}: plugin.json has unexpected key {k!r}")
     skill = root / "skills" / SKILL
     check_sigil_skill(skill, errs)
+    check_mod(root, man, errs)
     fm = _read_frontmatter(skill / "SKILL.md", []) if (skill / "SKILL.md").is_file() else None
     body = fm[1] if fm else ""
     if "${CLAUDE_SKILL_DIR}/scripts/" not in body:
@@ -600,6 +635,34 @@ def check_claude(out: Path, errs: list[str]) -> None:
             errs.append(f"{market}: plugin source {source!r} has no plugin.json")
     check_tree_text(root, errs)
     check_tree_text(market, errs)
+
+
+def check_mod(root: Path, man: dict[str, Any], errs: list[str]) -> None:
+    """The viewer mod: hooks.json names modules that are there, the types file the
+    manifest names is there, `display` offers its three values, and pane.py and
+    frames.py sit beside the skill's tools."""
+    hooks = root / "hooks" / "hooks.json"
+    mods = _load_obj(hooks, errs).get("modules")
+    if not (isinstance(mods, list) and mods):
+        errs.append(f"{hooks}: no modules")
+        mods = []
+    for m in mods:
+        if not (isinstance(m, str) and (hooks.parent / m).is_file()):
+            errs.append(f"{hooks}: module {m!r} missing")
+    types = man.get("types")
+    if not (isinstance(types, str) and (root / types).is_file()):
+        errs.append(f"{root}: plugin.json types {types!r} missing")
+    display = (man.get("userConfig") or {}).get("display")
+    if not (isinstance(display, dict) and display.get("options") == ["auto", "mod", "multiplex"]
+            and display.get("default") == "auto"):
+        errs.append(f"{root}: plugin.json userConfig.display must offer auto / mod / multiplex")
+    for name in MOD_SCRIPTS:
+        p = root / "skills" / SKILL / "scripts" / name
+        if not p.is_file():
+            errs.append(f"{p}: missing")
+    for p in _entries(root):
+        if p.name.endswith((".test.ts", ".test.tsx")):
+            errs.append(f"{p}: a mod test shipped")
 
 
 def check_codex(out: Path, errs: list[str]) -> None:
