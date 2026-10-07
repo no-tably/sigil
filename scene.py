@@ -51,7 +51,7 @@ Wire
   src, dst    node ids. An arm starting at a branch with no glyph in its header
               starts at decision_id(owner, block index) (no SceneNode).
   kind        the arrow as written (`->`, `~>`, `!>`, …), or "trigger",
-              "access:r|w|b", "arm", or `\\-<rel>` for a composition branch
+              "access:r|w|b|ƀ", "arm", or `\\-<rel>` for a composition branch
   role        flow     an edge of a unit graph
               emit     emitter → destination through a collapsed event (via)
               trigger  an event → the state it drives (to the machine's owner
@@ -1006,7 +1006,7 @@ def with_trigger_sources(scene: Scene, machine, owner: str):
 
 
 def access_edges(scene: Scene, nodes, unit=ANY_UNIT) -> list:
-    """An edge principal → store (kind access:r|w|b) for each access wire with
+    """An edge principal → store (kind access:r|w|b|ƀ) for each access wire with
     both ends in `nodes`; with `unit` (a unit owner, None: the document), only
     the wires of that unit's graph — its own permissions."""
     return [kit.render.Edge(src=w.src, dst=w.dst, kind=w.kind, line=w.line)

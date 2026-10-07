@@ -63,11 +63,12 @@ Options:
 - `--tree` starts in the tree view.
 - `--depth N|all` opens `X := { … }` expansions.
 - `--payloads` shows flow payloads: chips on edges in the graph view, a list in the
-  tree view.
+  tree view (an error path's chip there led by `✖`). A `"""…"""` block-string shows its
+  first line and `…`; its full text is a note (`--notes`).
 - `--mods` shows modifiers (`@timeout 30s ×3`, `^10k drop`, `!`) as chips on edges and
   after node labels.
 - `--access` draws the permission graph. `@read`, `@write` and `@borrow` become dotted
-  principal → store edges headed `r`, `w` or `b`. Stores get a `1w` or `Nw` writer badge.
+  principal → store edges headed `r`, `w` or `b` (`ƀ` for `@borrow(read)`). Stores get a `1w` or `Nw` writer badge.
 - `--events land|nodes` draws a pass-through event where it lands (each emitter wired
   straight to each destination) or as a node of its own. The tree view defaults to
   `land`, the graph view to `nodes`.

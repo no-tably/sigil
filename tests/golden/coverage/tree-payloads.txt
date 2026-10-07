@@ -175,32 +175,32 @@
                ├─· Free ──────────────────────────●
                └─· Away <assign> ◀────────────────┘
 
-                                                                    ┆a┆ false
-                                                                    ┆b┆ "ack"
-                                                                    ┆c┆ {Cart}
-                                                                    ┆d┆ {creds}
-                                                                    ┆e┆ score
-                                                                    ┆f┆ charge(amount) ↩ {Receipt}
-                                                                    ┆g┆ score({Cart})
-                                                                    ┆h┆ ⇱ http.get(${url})
-                                                                    ┆i┆ {retries: 3, mode: "x"}
-                                                                    ┆j┆ [1, 2, 3]
-                                                                    ┆k┆ 0.5
-                                                                    ┆l┆ null
-                                                                    ┆m┆ ${state.history} ++ [${out}]
-                                                                    ┆n┆ ${state.count} + 1
-                                                                    ┆o┆ ${a} || {b: 1}
-                                                                    ┆p┆ ${n} * 2 - ${m} / 4
-                                                                    ┆q┆ "block-string"
-                                                                    ┆r┆ ↺ run()
-                                                                    ┆s┆ ↻ child
-                                                                    ┆t┆ query => {Rows}
-                                                                    ┆u┆ @timeout(1d)
-                                                                    ┆v┆ ×3
-                                                                    ┆w┆ pop => {Job}
-                                                                    ┆x┆ reserve => {Hold}
-                                                                        release({Hold})
-                                                                    ┆y┆ ↻ walk(.children)
+                                                                  ┆a┆ false
+                                                                  ┆b┆ "ack"
+                                                                  ┆c┆ {Cart}
+                                                                  ┆d┆ {creds}
+                                                                  ┆e┆ score
+                                                                  ┆f┆ charge(amount) ↩ {Receipt}
+                                                                  ┆g┆ score({Cart})
+                                                                  ┆h┆ ⇱ http.get(${url})
+                                                                  ┆i┆ {retries: 3, mode: "x"}
+                                                                  ┆j┆ [1, 2, 3]
+                                                                  ┆k┆ 0.5
+                                                                  ┆l┆ null
+                                                                  ┆m┆ ${state.history} ++ [${out}]
+                                                                  ┆n┆ ${state.count} + 1
+                                                                  ┆o┆ ${a} || {b: 1}
+                                                                  ┆p┆ ${n} * 2 - ${m} / 4
+                                                                  ┆q┆ """You are a strict rubric…"""
+                                                                  ┆r┆ ↺ run()
+                                                                  ┆s┆ ↻ child
+                                                                  ┆t┆ query => {Rows}
+                                                                  ┆u┆ @timeout(1d)
+                                                                  ┆v┆ ×3
+                                                                  ┆w┆ pop => {Job}
+                                                                  ┆x┆ reserve => {Hold}
+                                                                      ✖ release({Hold})
+                                                                  ┆y┆ ↻ walk(.children)
 
 tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
        (N) weight  

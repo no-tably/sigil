@@ -254,25 +254,25 @@
                                                                                    └───┐    ╏              ╏            │
                                                                                        ▼    ▼              ╏            │
                                                                                       ╭──────╮             ╏         ╭┄┄┄┄╮
-                                                   ┆a┆ {Cart}                         │ Open │             ╏         ┆ ×3 ┆
-                                                   ┆b┆ {creds}                        ╰──────╯             ╏         ╰┄┄┄┄╯
-                                                   ┆c┆ charge(amount) ↩ {Receipt}         │                ╏            │
-                                                   ┆d┆ score({Cart})                      │             ┌╍╍┘            │
-                                                   ┆e┆ ⇱ http.get(${url})                 │             ╏               ▼ <cancel>
-                                                   ┆f┆ false                         ╭┄┄┄┄┄┄┄┄┄┄┄┄┄┄╮   ╏         ╭───────────╮
-                                                   ┆g┆ {retries: 3, mode: "x"}       ┆ @timeout(1d) ┆   ╏         │ Cancelled │
-                                                   ┆h┆ "ack"                         ╰┄┄┄┄┄┄┄┄┄┄┄┄┄┄╯   ╏         ╰───────────╯
-                                                   ┆i┆ [1, 2, 3]                              │         ╏
-                                                   ┆j┆ 0.5                                    │       ┌╍┘
-                                                   ┆k┆ null                                   ▼       ▼
-                                                   ┆l┆ ${state.history} ++ [${out}]          ╭─────────╮
-                                                   ┆m┆ ${state.count} + 1                    │ Settled │
-                                                   ┆n┆ ${a} || {b: 1}                        ╰─────────╯
-                                                   ┆o┆ ${n} * 2 - ${m} / 4                        │
-                                                   ┆p┆ "block-string"                             ▼ <ship>
-                                                   ┆q┆ ↺ run()                                  ╭───╮
-                                                   ┆r┆ ↻ child                                  │ ◉ │
-                                                   ┆s┆ query => {Rows}                          ╰───╯
+                                                 ┆a┆ {Cart}                           │ Open │             ╏         ┆ ×3 ┆
+                                                 ┆b┆ {creds}                          ╰──────╯             ╏         ╰┄┄┄┄╯
+                                                 ┆c┆ charge(amount) ↩ {Receipt}           │                ╏            │
+                                                 ┆d┆ score({Cart})                        │             ┌╍╍┘            │
+                                                 ┆e┆ ⇱ http.get(${url})                   │             ╏               ▼ <cancel>
+                                                 ┆f┆ false                           ╭┄┄┄┄┄┄┄┄┄┄┄┄┄┄╮   ╏         ╭───────────╮
+                                                 ┆g┆ {retries: 3, mode: "x"}         ┆ @timeout(1d) ┆   ╏         │ Cancelled │
+                                                 ┆h┆ "ack"                           ╰┄┄┄┄┄┄┄┄┄┄┄┄┄┄╯   ╏         ╰───────────╯
+                                                 ┆i┆ [1, 2, 3]                                │         ╏
+                                                 ┆j┆ 0.5                                      │       ┌╍┘
+                                                 ┆k┆ null                                     ▼       ▼
+                                                 ┆l┆ ${state.history} ++ [${out}]            ╭─────────╮
+                                                 ┆m┆ ${state.count} + 1                      │ Settled │
+                                                 ┆n┆ ${a} || {b: 1}                          ╰─────────╯
+                                                 ┆o┆ ${n} * 2 - ${m} / 4                          │
+                                                 ┆p┆ """You are a strict rubric…"""               ▼ <ship>
+                                                 ┆q┆ ↺ run()                                    ╭───╮
+                                                 ┆r┆ ↻ child                                    │ ◉ │
+                                                 ┆s┆ query => {Rows}                            ╰───╯
 
 ── [Checkout] state machine ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 

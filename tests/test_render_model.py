@@ -142,6 +142,24 @@ class Generics(unittest.TestCase):
         self.assertEqual(roles, {"Worker<N>", "Agent<M>", "Cache<K,V>"})
 
 
+class BlockStrings(unittest.TestCase):
+    def test_a_block_string_payload_keeps_its_text(self):
+        g = parse('[A] -> ~|Sys| : """\n  first line\n  second\n"""\n[B] -> [C] : "x"\n')
+        by = {(e.src, e.dst): e for e in g.edges}
+        e = by[("A_service", "Sys_store")]
+        self.assertEqual(e.payload, render.BLOCK_SENTINEL)      # the payload stays masked
+        self.assertEqual(e.block_string, "\n  first line\n  second\n")
+        self.assertIsNone(by[("B_service", "C_service")].block_string)
+
+    def test_a_single_line_block_string(self):
+        (e,) = parse('[A] -> [B] : """one"""\n').edges
+        self.assertEqual(e.block_string, "one")
+
+    def test_an_unterminated_block_string_keeps_none(self):
+        self.assertEqual([e.block_string for e in parse('[A] -> [B]\n[C] -> [D] : """\nx\n').edges],
+                         [None])
+
+
 BRANCH = """branch on {Request}.kind {
   read  => [Reader] -> |DB|
   write => [Writer] -> |DB| -> |WAL|

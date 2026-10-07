@@ -1,15 +1,15 @@
-                                                ── judge-loop ────────────────
+                                                ── judge-loop ────────────────────
 ╭ control values written to a mutable      ╮ #> [Loop] ──────────────●
 ╰ store                                    ╯    ~|running| ◀─────────┴─┐
                                                 <stop> ────────────────●
 ╭ an internal op-call (structural) — no    ╮ #> [Judge] ─────────────●─────●─●
-│ `op` keyword, no namespace · external    │    [Scorer] ◀───────────┴─›   │ │
-╰ op-calls: a host-provided reach (far…    ╯    ~|history| <rated> ◀───┘   │ │
-                                                ~|total|                   │ │
-                                                [Cfg] ───────────────●─●─● │ │
-                                                ~|rubric| ◀──────────┘ │ │ │ │
+│ `op` keyword, no namespace · external    │    [Scorer] ◀───────────┴─›   │ │  ┆a┆ # """Rate the
+╰ op-calls: a host-provided reach (far…    ╯    ~|history| <rated> ◀───┘   │ │      draft 1-10 on
+                                                ~|total|                   │ │      ${state.rubric}.
+                                                [Cfg] ───────────────●─●─● │ │      Return only the
+                                                ~|rubric| ◀──────────┘ │ │ │ │      integer."""
                                                 ~|opts| ◀──────────────┘ │ │ │
-                                                ~|policy| ◀──────────────┘ │ │
+                                                ~|policy| ◀──────────────┘┄│┄│┄┆a┆
                                                 |Scores| ⇱ ◀───────────────┘ │
                                                 [Index] ⇱ ◀──────────────────┘
 

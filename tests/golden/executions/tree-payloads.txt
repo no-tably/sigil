@@ -18,7 +18,7 @@
 └─ ↺ loop @each page of {Site}.pages   │ │     │ ╎ │ │                   {Doc}
    |Index| ◀───────────────────────────┴─┘┄┄┄┄┄│┄╎┄│┄│┄┆j┆           ┆j┆ reserve(${shard}) ↩ {Lease}
    {Site}                                      │ ╎ │ │                   write({Doc}, {Lease})
-   [Notifier] ⇱ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄│┄╎┄│┄│┄┆k┆               release({Lease})
+   [Notifier] ⇱ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄│┄╎┄│┄│┄┆k┆               ✖ release({Lease})
                                                │ ╎ │ │               ┆k┆ ⇱ mail.send(${report})
    [[follow]]                                  │ ╎ │ │               ┆l┆ ↻ follow(.links)
    └── [Crawler] ↻ ◀───────────────────────────●─○─●─┘┄┆l┆               crawl({Plan}) ↩ {Site}

@@ -134,8 +134,8 @@ def tree_legend(triggers: bool = True, payloads: bool = False, access: bool = Fa
     mode — in "nodes" mode an event is a row with lanes in and out. `calls`: the
     call marks the drawing shows (view.drawn_call_marks) — an entry is listed for
     each of `↺` self-call, `↻` recursion, `⇱` host-provided and `↩` a call's
-    return only when its mark is in the set; so are `≋` a stream and `‹›` a
-    generic role (drawn `[R‹N›]`). `sim`: a last row of the
+    return only when its mark is in the set; so are `≋` a stream, `‹›` a
+    generic role (drawn `[R‹N›]`) and, with access, `ƀ` a borrow narrowed to read. `sim`: a last row of the
     simulation overlay's marks (_sim_legend). Raises ValueError for an unknown
     events mode."""
     if events not in scene.EVENTS:
@@ -161,8 +161,10 @@ def tree_legend(triggers: bool = True, payloads: bool = False, access: bool = Fa
     if access:
         acc = (kit.EDGE_COLOR["access"], None, False)
         wires += [("r┄", acc), (" reads  ", mid), ("w┄", acc), (" writes  ", mid),
-                  ("b┄", acc), (" borrows  ", mid),
-                  ("1w", (kit.EDGE_COLOR["access"], None, True)), (" writers  ", mid)]
+                  ("b┄", acc), (" borrows  ", mid)]
+        if "ƀ" in calls:
+            wires += [("ƀ┄", acc), (" borrows read  ", mid)]
+        wires += [("1w", (kit.EDGE_COLOR["access"], None, True)), (" writers  ", mid)]
     call = (kit.EDGE_DEFAULT, None, False)
     for mark, word, style in (("↺", "self-call", call), ("↻", "recursion", call),
                               (EXTERNAL_MARK, "host-provided (opaque)", call),
@@ -721,8 +723,8 @@ def _row_chips(lanes, chip_lists: dict, self_chips: dict) -> tuple:
     (scene.chip_lists) of each lane it is the target of, one per call, never
     merged — each in its wire's stroke. A chip is one call, not one text: two
     calls with equal text both show, while the same call reaching a row twice
-    (two lanes of one stroke) shows once. The keys are the strokes whose chips
-    were placed."""
+    (two lanes of one stroke) shows once; an error path's chip leads with `✖`
+    (_error_lead). The keys are the strokes whose chips were placed."""
     chips, seen, drawn = {}, set(), set()
 
     def add(y, ident, text, style):
@@ -732,17 +734,23 @@ def _row_chips(lanes, chip_lists: dict, self_chips: dict) -> tuple:
 
     for y, chips_ in self_chips.items():
         for w, text, style in chips_:
-            add(y, ("self", id(w)), text, style)
+            add(y, ("self", id(w)), _error_lead(w, text), style)
             drawn.add(w.key)
     for ln in lanes:
         key = ln.wire.key
         texts = chip_lists.get(key, ())
         for y in ln.dy:
             for i, text in enumerate(texts):
-                add(y, ("lane", key, i), text, ln.style)
+                add(y, ("lane", key, i), _error_lead(ln.wire, text), ln.style)
         if texts:
             drawn.add(key)
     return chips, drawn
+
+
+def _error_lead(w, text: str) -> str:
+    """A chip's text, led by `✖` on an error path (`!>`): several chips on one
+    row are told apart without colour."""
+    return f"{kit.SOURCE_MARK['!>']} {text}" if w.kind == "!>" else text
 
 
 class _Lane(NamedTuple):

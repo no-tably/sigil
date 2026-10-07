@@ -6,7 +6,7 @@ Covers (each in the graph view and the tree + wires view):
      decision node and arm chips / arm labels, the `!>` compensation after `}`;
   2. joins: a join bar labelled `&` / `&?` / `/` (graph), join-marked taps (tree);
      a `*>` broadcast's target list is not a join;
-  3. the permission graph behind `a` / --access: r / w / b heads and lanes, the
+  3. the permission graph behind `a` / --access: r / w / b / ƀ heads and lanes, the
      `1w` / `Nw` writer badge;
   4. arrow kinds told apart without colour: `!>`'s ✖ head, the trigger's ╍╏
      stroke, `?>` beside `->` on one pair, the `<->` lane's ▶;
@@ -17,6 +17,8 @@ Covers (each in the graph view and the tree + wires view):
   8. Mermaid ids unique per expansion path.
   9. a stream's shadowed box (┒┃┛) and ` ≋` tree mark; a generic role's stacked
      box (╖║╜) and its generics in ‹ › — told apart from `~`'s heavy box.
+ 10. a block-string payload's chip (its first line + `…`) and its text as a
+     note; a `@borrow(read)`'s ƀ head / lane; an error path's chip led by ✖ (tree).
 
 Run:  python3 -m unittest discover tests
 """
@@ -180,15 +182,15 @@ class TestAccess(unittest.TestCase):
         out = graph(self.DOC, access=True)
         self.assertIn("|Directives| 1w", out)
         self.assertIn("|Results| 2w", out)
-        heads = "".join(re.findall(r"(?<=[┆ ])[rwb](?= |$)", out, re.M))
-        for letter in "rwb":
+        heads = "".join(re.findall(r"(?<=[┆ ])[rwbƀ](?= |$)", out, re.M))
+        for letter in "rwƀ":                                 # ƀ: the @borrow(read)
             self.assertIn(letter, heads)
         self.assertIn("┆", out)                              # dotted access strokes
 
     def test_tree_access_lanes(self):
         out = tree(self.DOC, access=True)
         self.assertRegex(line_with(out, "[Boss]"), r"[┄─]w")
-        self.assertRegex(line_with(out, "[Helper]"), r"┄b")
+        self.assertRegex(line_with(out, "[Helper]"), r"┄ƀ")
         self.assertIn("|Results| 2w ◀", out)
 
     def test_key_and_flag(self):
@@ -424,6 +426,60 @@ class TestStreamsAndRoles(unittest.TestCase):
         plain = view.drawn_call_marks(render.parse_document("[A] -> [B]\n"), 1, False)
         text = "".join(t for r in view.tree_legend(calls=plain) for t, _ in r)
         self.assertNotIn("stream", text)
+
+
+class TestBlockStringsBorrowsErrorChips(unittest.TestCase):
+    BLOCK = '[Grader] -> ~|Sys| : """\n  You are a strict rubric grader.\n  Be terse.\n"""\n'
+
+    def test_chip_shows_the_first_line(self):
+        for out in (graph(self.BLOCK, payloads=True), tree(self.BLOCK, payloads=True)):
+            self.assertIn('"""You are a strict rubric…"""', out)
+            self.assertNotIn("block-string", out)
+
+    def test_preview_cuts_at_a_word(self):
+        self.assertEqual(view.block_preview("one"), '"""one"""')
+        self.assertEqual(view.block_preview("\n a\n b\n"), '"""a…"""')
+        self.assertEqual(view.block_preview("Rate the draft 1-10 on ${state.rubric}."),
+                         '"""Rate the draft 1-10 on…"""')
+        self.assertEqual(view.block_preview("x" * 30), '"""' + "x" * 24 + '…"""')
+
+    def test_full_text_is_listed_with_the_notes(self):
+        out = graph(self.BLOCK, notes="markers")
+        self.assertIn('#1 """You are a strict rubric grader.', out)
+        self.assertIn('   Be terse."""', out)                 # one row per text line
+        self.assertRegex(line_with(tree(self.BLOCK, notes="markers"), "~|Sys|"), r"#1")
+
+    def test_block_note_numbers_in_document_order(self):
+        doc = "[A] -> [B]  # first\n" + self.BLOCK + "[C] -> [D]  # last\n"
+        idx = view.note_index(render.parse_document(doc))
+        texts = [t for _n, t, _k, _e in sorted(e for es in idx.values() for e in es)]
+        self.assertEqual(texts[0], "first")
+        self.assertTrue(texts[1].startswith('"""You are'))
+        self.assertEqual(texts[2], "last")
+
+    BORROW = "[Helper]\n|Directives|\n|Results|\n[Helper] @borrow |Directives|\n" \
+             "[Helper] @borrow(read) |Results|\n"
+
+    def test_borrow_read_has_its_own_head(self):
+        out = graph(self.BORROW, access=True)
+        heads = "".join(re.findall(r"(?<=[┆ ])[rwbƀ](?= |$)", out, re.M))
+        self.assertEqual(sorted(heads), ["b", "ƀ"])
+        self.assertRegex(line_with(tree(self.BORROW, access=True), "[Helper]"), r"┄ƀ┄b|┄b┄ƀ")
+
+    def test_borrow_read_is_in_the_legends_when_drawn(self):
+        self.assertIn("ƀ borrow(read)", "".join(t for t, _ in view.graph_legend(access=True)))
+        marks = view.drawn_call_marks(render.parse_document(self.BORROW), 1, False)
+        text = "".join(t for r in view.tree_legend(access=True, calls=marks) for t, _ in r)
+        self.assertIn("ƀ┄ borrows read", text)
+        text = "".join(t for r in view.tree_legend(access=True) for t, _ in r)
+        self.assertNotIn("ƀ", text)
+
+    def test_tree_error_chip_leads_with_a_cross(self):
+        doc = "[Api] -> [Inventory] : reserve => {Hold}\n       !> [Inventory] : release({Hold})\n"
+        row = line_with(tree(doc, payloads=True), "[Inventory]")
+        self.assertIn("┆ reserve => {Hold} ┆", row)
+        self.assertIn("┆ ✖ release({Hold}) ┆", row)
+        self.assertNotIn("✖ release", graph(doc, payloads=True))   # the graph edge has its ✖ head
 
 
 class TestCoverageFixture(unittest.TestCase):

@@ -1,14 +1,14 @@
 ── hierarchical ──────────────────
 [Boss] ──────────────●┄w┄┄┄┄┄┄┄┄┄r
 |Directives| 1w ◀────┴┄┴┄┬┄┐     ┆
-[Worker] ────────────────r─b─●┄w ┆
+[Worker] ────────────────r─ƀ─●┄w ┆
 |Results| 1w ◀───────────────┴┄┴┄┘
 
 tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
        (N) weight  
 wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
        ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  r┄ reads  w┄ writes  
-       b┄ borrows  1w writers  
+       b┄ borrows  ƀ┄ borrows read  1w writers  
 blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
        ── ── section
 

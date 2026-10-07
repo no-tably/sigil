@@ -1,7 +1,7 @@
 [API] ◀────────────────────●─›─┬─✖─●┄┆ {Cart} ┆
 [Payment] ◀────────────────┘┄│┄│┄│┄│┄┆ charge ┆ ┆ charge ┆
 [Shipping] <OrderPlaced> ◀───┘ │ │ │
-(User) ◀───────────────────────●─┘┄│┄┆ <Failed> ┆
+(User) ◀───────────────────────●─┘┄│┄┆ ✖ <Failed> ┆
 [Inventory] ◀──────────────────────┘┄┆ reserve => {Hold} ┆
 [[Retry]]
 

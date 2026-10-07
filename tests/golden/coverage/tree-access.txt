@@ -66,7 +66,7 @@
 │ │ │ │ │ │    (Auditor) ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┆┄┆┄┄┄┆┄┆┄│┄│┄┄┄┄┄┄┄│┄│┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄r │ │ │ │ │ ╎ │
 │ │ │ │ │ │    |Directives| 1w ◀┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┬┄┴┄┆┄┄┄┘ ┆ │ │       │ │                               │ │ │ │ │ ╎ │
 │ │ │ │ │ │    |Results| 1w ◀┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┬┄┆┄┄┄┴┄┄┄┄┄┘ │ │       │ │                               │ │ │ │ │ ╎ │
-│ │ │ │ │ │    [Helper] ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄b┄b           │ │       │ │                               │ │ │ │ │ ╎ │
+│ │ │ │ │ │    [Helper] ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ƀ┄b           │ │       │ │                               │ │ │ │ │ ╎ │
 │ │ │ │ │ │ ┌─ □ [Handler] @owns |Conn|                         │ │       │ │                               │ │ │ │ │ ╎ │
 │ │ │ │ │ │ ├─ [Handler] ◀────────────────────────────────────●─│─│─┬─▶╌○ │ │                               │ │ │ │ │ ╎ │
 │ │ │ │ │ │ └─ |Conn| ◀───────────────────────────────────────┤ │ │ │ │ ╎ │ │                               │ │ │ │ │ ╎ │
@@ -179,8 +179,8 @@ tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts 
        (N) weight  
 wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger  
        ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  r┄ reads  w┄ writes  
-       b┄ borrows  1w writers  ↺ self-call  ↻ recursion  ⇱ host-provided (opaque)  ≋ stream  
-       [R‹N›] role: N members  
+       b┄ borrows  ƀ┄ borrows read  1w writers  ↺ self-call  ↻ recursion  ⇱ host-provided (opaque)  
+       ≋ stream  [R‹N›] role: N members  
 blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of  
        ── ── section
 

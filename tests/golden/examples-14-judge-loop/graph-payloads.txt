@@ -31,7 +31,7 @@
                    ┃ ~|history| ┃                             ┆d┆ ${state.history} ++ [${out.score}]
                    ┗━━━━━━━━━━━━┛                             ┆e┆ "clarity, correctness, concision"
                                                               ┆f┆ {retries: 3, mode: "strict"}
-┏━━━━━━━━━━┓                                                  ┆g┆ "block-string"
+┏━━━━━━━━━━┓                                                  ┆g┆ """Rate the draft 1-10 on…"""
 ┃ ~|total| ┃                                                  ┆h┆ ⇱ db.insert(${out.score})
 ┗━━━━━━━━━━┛                                                  ┆i┆ ⇱ mcp.search(${query})
 

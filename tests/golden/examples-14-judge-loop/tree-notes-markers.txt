@@ -1,4 +1,4 @@
-── judge-loop ────────────────
+── judge-loop ───────────────────
 [Loop] #1 ───────────●
 ~|running| ◀─────────┴─┐
 <stop> ────────────────●
@@ -9,7 +9,7 @@
 [Cfg] ───────────────●─●─● │ │
 ~|rubric| ◀──────────┘ │ │ │ │
 ~|opts| ◀──────────────┘ │ │ │
-~|policy| ◀──────────────┘ │ │
+~|policy| ◀──────────────┘┄│┄│┄#4
 |Scores| ⇱ ◀───────────────┘ │
 [Index] ⇱ ◀──────────────────┘
 
@@ -19,6 +19,8 @@
 #2 an internal op-call (structural) — no `op` keyword, no namespace ·
    external op-calls: a host-provided reach (far side opaque), each bounded
 #3 store writes using the closed value operators
+#4 """Rate the draft 1-10 on ${state.rubric}.
+   Return only the integer."""
 
 tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
        (N) weight  

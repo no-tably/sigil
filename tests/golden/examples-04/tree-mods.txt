@@ -3,7 +3,7 @@
 [Enrich] *<Parsed> ≋ ◀──────────┴═›═›─✖
 |Warehouse| *<Enriched> ≋ ◀═══════╝┄║┄│┄┆ @sla p99<50ms ┆
 |RealtimeIdx| *<Enriched> ≋ ◀═══════╝┄│┄┆ @sla p99<50ms ┆
-|DLQ| *<Enriched> ≋ ◀─────────────────┘┄┆ @sla p99<50ms ┆
+|DLQ| *<Enriched> ≋ ◀─────────────────┘┄┆ ✖ @sla p99<50ms ┆
 
 tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of  
        (N) weight  

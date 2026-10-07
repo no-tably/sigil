@@ -349,10 +349,11 @@ _STROKE_RANK = {"heavy": 4, "double": 3, "light": 2, "hdash": 1, "dashed": 1, "d
 
 # Each arrow kind's source marker in the tree view (its stroke comes from _stroke).
 # A `<->` lane starts in ▶ (its row also gets ◀: ◀──▶ both ways); a permission
-# lane (the a key) starts in its access letter: r read, w write, b borrow.
+# lane (the a key) starts in its access letter: r read, w write, b borrow, ƀ a
+# borrow narrowed to read (`@borrow(read)`: b with its write struck off).
 SOURCE_MARK = {"->": "●", "~>": "○", "=>": "◆", "!>": "✖", "?>": "◇", "*>": "✱",
                "<->": "▶", "trigger": "◎",
-               "access:r": "r", "access:w": "w", "access:b": "b"}
+               "access:r": "r", "access:w": "w", "access:b": "b", "access:ƀ": "ƀ"}
 
 
 def _stroke(kind: str) -> str:
@@ -596,9 +597,50 @@ def edge_mods(e) -> list:
     return ([("×", card)] if card else []) + list(e.mods or ())
 
 
+BLOCK_PREVIEW = 24      # the most of a block-string's first line a chip shows
+
+
+def block_string_of(e):
+    """The text of an edge's (or a wire's edge's) `\"\"\"…\"\"\"` payload, or None."""
+    body = getattr(e, "block_string", None)
+    return body if body is not None else getattr(getattr(e, "edge", None), "block_string", None)
+
+
+def block_lines(body: str) -> list:
+    """A block-string's lines, the blank ones at its ends dropped, each stripped."""
+    lines = [ln.strip() for ln in body.splitlines()]
+    while lines and not lines[0]:
+        lines.pop(0)
+    while lines and not lines[-1]:
+        lines.pop()
+    return lines
+
+
+def block_preview(body: str) -> str:
+    """A block-string as a chip shows it: its first line (to BLOCK_PREVIEW
+    characters, cut at a word) in triple quotes, `…` when there is more (`\"\"\"You are a strict
+    rubric…\"\"\"`)."""
+    lines = block_lines(body)
+    first = lines[0] if lines else ""
+    more = len(lines) > 1 or len(first) > BLOCK_PREVIEW
+    if len(first) > BLOCK_PREVIEW:              # cut at a word, else mid-word
+        cut = first[:BLOCK_PREVIEW + 1].rfind(" ")
+        first = first[:cut if cut > 0 else BLOCK_PREVIEW].rstrip()
+    return '"""' + first + ("…" if more else "") + '"""'
+
+
+def shown_payload(e):
+    """An edge's payload as written, a block-string's masked STR shown by its
+    preview (block_preview)."""
+    payload, body = e.payload, block_string_of(e)
+    if payload and body is not None and render.BLOCK_SENTINEL in payload:
+        payload = payload.replace(render.BLOCK_SENTINEL, block_preview(body), 1)
+    return payload
+
+
 def chip_parts(e, payloads: bool, mods: bool):
     """(payload, modifiers) an edge's chip shows — each None when not shown."""
-    payload = e.payload if payloads else None
+    payload = shown_payload(e) if payloads else None
     mtext = mods_text(edge_mods(e)) if mods else ""
     if payload and mtext and _payload_is_mods(e):
         payload = None
@@ -687,7 +729,11 @@ def drawn_join(g, e, side: str):
 
 
 def access_kind(a) -> str:
-    """A permission edge's kind: `access:r` read, `access:w` write, `access:b` borrow."""
+    """A permission edge's kind: `access:r` read, `access:w` write, `access:b`
+    borrow, `access:ƀ` a borrow narrowed to read (`@borrow(read)`). A borrow
+    narrowed to write keeps `b`: only the write it lends is left."""
+    if a.mode == "borrow" and getattr(a, "narrow", None) == "read":
+        return "access:ƀ"
     return "access:" + a.mode[0]
 
 
@@ -830,7 +876,7 @@ def note_index(g) -> dict:
     and keeps the (src, dst, kind) of the flows that line drew."""
     out, num = {}, 0
     for cur in _walk(g):
-        for n in getattr(cur, "notes", []):
+        for n in _notes_and_blocks(cur):
             kind = getattr(n, "kind", "block")
             entries = out.setdefault(n.node, [])
             block = next((i for i, e in enumerate(entries) if e[2] == "block"), None)
@@ -841,6 +887,27 @@ def note_index(g) -> dict:
             num += 1
             entries.append((num, n.text, kind, tuple(getattr(n, "edges", ()) or ())))
     return out
+
+
+def _notes_and_blocks(g) -> list:
+    """g's notes with, among them in line order, an inline note per edge with a
+    `\"\"\"…\"\"\"` payload holding its full text (about the flow, so drawn on it
+    and listed where notes are)."""
+    blocks = sorted((e.line, i, e) for i, e in enumerate(getattr(g, "edges", []))
+                    if getattr(e, "block_string", None) is not None)
+    out, k = [], 0
+    for n in getattr(g, "notes", []):
+        while k < len(blocks) and blocks[k][0] < n.line:
+            out.append(_block_note(blocks[k][2]))
+            k += 1
+        out.append(n)
+    return out + [_block_note(b[2]) for b in blocks[k:]]
+
+
+def _block_note(e):
+    """The note holding edge e's block-string, one line of it per text line."""
+    text = '"""' + "\n".join(block_lines(e.block_string)) + '"""'
+    return render.Note(e.src, text, e.line, "inline", (e.key,))
 
 
 def node_notes(entries) -> list:
@@ -878,7 +945,9 @@ def note_rows(idx: dict, width: int = NOTE_WIDTH):
     rows = []
     for num, text, kind, _edges in sorted(e for entries in idx.values() for e in entries):
         tag = f"#{num} "
-        for k, ln in enumerate(textwrap.wrap(text, max(width - len(tag), 20)) or [""]):
+        wrapped = [w for part in text.split("\n")
+                   for w in textwrap.wrap(part, max(width - len(tag), 20)) or [""]]
+        for k, ln in enumerate(wrapped):
             rows.append([(tag if k == 0 else " " * len(tag), NOTE_STYLE[kind]),
                          (ln, NOTE_STYLE[kind] if kind == "inline" else NOTE_TEXT_STYLE)])
     return rows

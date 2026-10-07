@@ -445,7 +445,7 @@ def _route(lay: _Layout) -> None:
 
 def _head(kind: str, up: bool = False) -> str:
     """An arrowhead: ✖ for `!>` (an error reads without colour), a permission
-    edge's access letter (r / w / b), else ▼ / ▲."""
+    edge's access letter (r / w / b / ƀ), else ▼ / ▲."""
     if kind == "!>":
         return "✖"
     if kind.startswith("access:"):
@@ -1813,7 +1813,7 @@ def graph_legend(triggers: bool = True, payloads: bool = False, access: bool = F
     if access:
         acc = (kit.EDGE_COLOR["access"], None, False)
         row += [("┄┄r", acc), (" read  ", mid), ("┄┄w", acc), (" write  ", mid),
-                ("┄┄b", acc), (" borrow  ", mid),
+                ("┄┄b", acc), (" borrow  ", mid), ("┄┄ƀ", acc), (" borrow(read)  ", mid),
                 ("1w", (kit.EDGE_COLOR["access"], None, True)), (" writers  ", mid)]
     if payloads:
         row += [("╭┄{…}┄╯", dim), (" payload  ", mid), ("↩", op), (" returns", mid)]

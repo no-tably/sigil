@@ -1,7 +1,7 @@
-── booking-declared ────────────────────────────────────────────────────────────
+── booking-declared ──────────────────────────────────────────────────────────────
 [Booking] ◀──────────────●─✖─┬─›─●┄┆ book({Seat}) ┆
-~|Seats| ◀───────────────┴─┘┄│┄│┄│┄┆ ${state.Seats} - 1 ┆ ┆ ${state.Seats} + 1 ┆
-(User) ↻ <Booked> ◀──────────●─┘┄│┄┆ ↻ <BookingFailed> ┆
+~|Seats| ◀───────────────┴─┘┄│┄│┄│┄┆ ${state.Seats} - 1 ┆ ┆ ✖ ${state.Seats} + 1 ┆
+(User) ↻ <Booked> ◀──────────●─┘┄│┄┆ ✖ ↻ <BookingFailed> ┆
 [Payments] ◀─────────────●───────┘┄┆ charge({Seat}) ┆
 [Card] ⇱ ◀───────────────┘┄┄┄┄┄┄┄┄┄┆ ⇱ card.charge(${total}) ┆
 

@@ -122,7 +122,8 @@ class TestChips(unittest.TestCase):
     def test_several_calls_into_one_target_stay_apart(self):
         rows = tree(INDEX, payloads=True)
         self.assertEqual(chips(line(rows, "|Index|")),
-                         ["reserve(${shard}) ↩ {Lease}", "write({Doc}, {Lease})", "release({Lease})"])
+                         ["reserve(${shard}) ↩ {Lease}", "write({Doc}, {Lease})",
+                          "✖ release({Lease})"])            # the `!>`: led by ✖
 
     def test_equal_calls_are_two_chips(self):
         # Two calls with the same text are two calls: two chips, as in the graph.

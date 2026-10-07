@@ -300,6 +300,9 @@ class Edge:
     src_mods: list = field(default_factory=list)
     # "return" | "alert": an edge the notation implies (see the model notes).
     implied: Optional[str] = None
+    # A `"""…"""` block-string payload's text (the payload itself keeps the masked
+    # BLOCK_SENTINEL, so what reads the payload sees one STR); None when none.
+    block_string: Optional[str] = None
 
     @property
     def key(self) -> tuple:
@@ -1111,16 +1114,18 @@ def _access(graph: Graph, owner: Node, pair: tuple, line_no: int, layer: str):
 # Multiline block-string delimiter — a `str` literal's
 # triple-quoted multiline form `"""…"""` (language.md "Multiline block-strings").
 BLOCK_DELIM = '"""'
+BLOCK_SENTINEL = '"block-string"'      # the masked STR a block-string folds to
 
 
-def collapse_block_strings(lines: list) -> list:
+def collapse_block_strings(lines: list, bodies: Optional[dict] = None) -> list:
     """Fold each `\"\"\"…\"\"\"` multiline block-string into a single masked STR
     (`"block-string"`) on its opening line, blanking the consumed body lines.
     Mirrors lint.py's pre-pass so render is block-aware for this one token: the
     block is a payload VALUE, so the masked `"…"` is removed by the `: payload`
     strip in extract_flows and leaves NO phantom node (the slot/component still
     renders). An unterminated block simply blanks to EOF (lint flags it; render
-    renders nothing for it). Line numbering is preserved."""
+    renders nothing for it). Line numbering is preserved. `bodies`, when given,
+    gets {opening line index: the block's text} for each terminated block."""
     out = list(lines)
     n = len(out)
     i = 0
@@ -1141,7 +1146,9 @@ def collapse_block_strings(lines: list) -> list:
         after_open = raw[pos + len(BLOCK_DELIM):]
         close_rel = after_open.find(BLOCK_DELIM)
         if close_rel != -1:           # degenerate single-line `"""…"""`
-            out[i] = prefix + '"block-string"' + after_open[close_rel + len(BLOCK_DELIM):]
+            if bodies is not None:
+                bodies[i] = after_open[:close_rel]
+            out[i] = prefix + BLOCK_SENTINEL + after_open[close_rel + len(BLOCK_DELIM):]
             i += 1
             continue
         j = i + 1
@@ -1151,8 +1158,11 @@ def collapse_block_strings(lines: list) -> list:
             for k in range(i, n):
                 out[k] = ""
             break
-        suffix = out[j][out[j].find(BLOCK_DELIM) + len(BLOCK_DELIM):]
-        out[i] = prefix + '"block-string"' + suffix
+        close = out[j].find(BLOCK_DELIM)
+        if bodies is not None:
+            bodies[i] = "\n".join([after_open] + out[i + 1:j] + [out[j][:close]])
+        suffix = out[j][close + len(BLOCK_DELIM):]
+        out[i] = prefix + BLOCK_SENTINEL + suffix
         for k in range(i + 1, j + 1):
             out[k] = ""
         i = j + 1
@@ -1368,7 +1378,8 @@ class _DocParser:
         # Pre-pass: fold multiline `"""…"""` block-strings to masked single-line STRs
         # so the block body never emits phantom nodes (block-aware for this token).
         # Then any dialect pre-passes (line-count preserving).
-        lines = collapse_block_strings(text.splitlines())
+        bodies: dict = {}
+        lines = collapse_block_strings(text.splitlines(), bodies)
         self.comments = collect_comments(lines, self.dialect)   # before dialect pre-passes
         for prepass in self.prepasses:
             lines = prepass(lines)
@@ -1382,7 +1393,10 @@ class _DocParser:
                 self.line(k, raw)
         else:
             self._stream(lines)
-        return self._end(len(lines))
+        graph = self._end(len(lines))
+        if bodies:
+            _attach_block_strings(graph, {self.ln(k): body for k, body in bodies.items()})
+        return graph
 
     def _end(self, n: int) -> Graph:
         """The text (of n lines) is read: drop what was left open, then finish."""
@@ -2046,6 +2060,15 @@ def parse_document(text: str, _hole_seq: Optional[list] = None, dialect=None,
     `_hole_seq` / `_line0` are internal: a sub-document (an expansion body) shares
     its parent's hole counter, and its line numbers are offset to the source's."""
     return _DocParser(_hole_seq, dialect, _line0).parse(text)
+
+
+def _attach_block_strings(graph: Graph, bodies: dict):
+    """Give each edge whose payload holds a block-string its text: bodies is
+    {source line: text}, the line its block opens on (the flow's own line)."""
+    for g, _owner, _level in _walk(graph):
+        for e in g.edges:
+            if e.payload and BLOCK_SENTINEL in e.payload and e.line in bodies:
+                e.block_string = bodies[e.line]
 
 
 def _walk(g, owner=None, level=0):

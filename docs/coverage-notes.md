@@ -85,9 +85,8 @@ triggers), so a construct reads the same in the graph and the tree. Re-graded fr
 - **Simulation** (`x`, `--sim`): not a drawing grade — see "Simulation over this
   fixture" below.
 
-Still open: `@borrow(read)`'s narrowing (28), block-comment anchoring (85), which of two chips on one tree row is the error path
-without colour (49), the block-string's content (45), expansion vs contains in the
-tree (51), the `\-_` group (76), path chips in the graph (81).
+Still open: block-comment anchoring (85), expansion vs contains in the tree (51), the
+`\-_` group (76), path chips in the graph (81).
 
 ## Construct table
 
@@ -120,7 +119,7 @@ tree (51), the `\-_` group (76), path chips in the graph (81).
 | 25 | `@inv` | `[Payment] @inv idempotent(…)`, `{User}.age @inv >= 0` | DRAWN | DRAWN | with `m`: `[Payment] @inv idempotent(transa…`, `{User} .age @inv >= 0` | done (view.py) | KEPT: node mods (".", "age"), ("inv", ">= 0") |
 | 26 | `@cap` | `[Auth] -> \|UserDB\| @cap(read)` | DRAWN | DRAWN | with `m`: a chip `┆ @cap read ┆` on the `[Auth] → \|UserDB\|` edge (graph), after the payload in the right margin (tree) | done (view.py) | KEPT: edge mod ("cap", "read") |
 | 27 | `@owns X { … }` | `[Handler] @owns \|Conn\| { … }` | DRAWN | DRAWN | graph: a frame `╭╌ □ [Handler] @owns \|Conn\| ╌╮` around `[Handler] → \|Conn\|`; tree: a bracket `┌─ □ [Handler] @owns \|Conn\|` over the two rows | done (view.py) | KEPT: `Block(kind="owns")`, node mod ("owns", "\|Conn\|") |
-| 28 | `@borrow` / `@borrow(read)` | `[Helper] @borrow \|Directives\|` | DRAWN | DRAWN | with `a`: dotted access edges `[Helper] ┄┄b` into `\|Directives\|` and `\|Results\|` (graph); `[Helper] ┄┄b┄b` lanes (tree). The narrowing `(read)` is not shown — both read `b` | done (view.py) | KEPT: `Graph.access` mode "borrow", `narrow` |
+| 28 | `@borrow` / `@borrow(read)` | `[Helper] @borrow \|Directives\|` | DRAWN | DRAWN | with `a`: dotted access edges into `\|Directives\|` headed `b` and into `\|Results\|` headed `ƀ` — the `(read)` narrowing (graph); `[Helper] ┄┄ƀ┄b` lanes (tree). `@borrow(write)` keeps `b`. Both legends list `ƀ` borrow(read) (the tree's only when drawn) | done (view.py) | KEPT: `Graph.access` mode "borrow", `narrow` |
 | 29 | `@timeout` (flow) | `… : score({Cart}) @timeout(30s) ×3 @fallback(0)` | DRAWN | DRAWN | with `m`: `┆ score({Cart}) ┆ @timeout 30s ×3 @fallback 0 ┆` (payload, then the modifiers) | done (view.py) | KEPT: edge mods timeout / × / fallback |
 | 30 | `@after` | `[Retry] @after(exp-backoff, cap=1min)` | DRAWN | DRAWN | with `m`: `[Retry] @after exp-backoff, cap=…`, `[[retry]] @after …` | done (view.py) | KEPT: node mod ("after", …) |
 | 31 | `@deadline` | `[Worker] -> run() @deadline(2s)` | DRAWN | DRAWN | graph: `[Worker] ↺` with a stub under the box, `└─● ┆ ↺ run() ┆ @deadline 2s ┆` (`p`, `m`); tree: `[Worker] ↺` and the chip `┆ ↺ run() ┆ @deadline 2s ┆` on its row | done (scene + views) | FIXED: the flow is a self-edge, `target_op` "run()", edge mod ("deadline", "2s") |
@@ -137,11 +136,11 @@ tree (51), the `\-_` group (76), path chips in the graph (81).
 | 42 | payload: value literals | `: false`, `: "ack"`, `: 0.5`, `: null` | DRAWN | DRAWN | `┆ false ┆`, `┆ "ack" ┆`, `┆ 0.5 ┆`, `┆ null ┆` | — | — |
 | 43 | payload: `${ref}` | `: ${state.count} + 1` | DRAWN | DRAWN | raw text in the chip | optional: tint `${…}` in the chip | — |
 | 44 | payload: map / list | `: {retries: 3, mode: "x"}`, `: [1, 2, 3]` | DRAWN | DRAWN | `┆ {retries: 3, mode: "x"} ┆`, `┆ [1, 2, 3] ┆` (not mistaken for a `{X}` node) | — | — |
-| 45 | payload: `"""…"""` block string | `[Grader] -> ~\|Sys\| : """ … """` | WEAK | WEAK | placeholder chip `┆ "block-string" ┆`; content gone (no phantom nodes, good) | first line + `…` (`"You are a strict rubric…"`), full text in a notes-style list | — |
+| 45 | payload: `"""…"""` block string | `[Grader] -> ~\|Sys\| : """ … """` | DRAWN | DRAWN | the chip shows its first line, cut at a word, and `…`: `┆ """You are a strict rubric…""" ┆`; the full text is an inline note on the flow (`#8` with `n`, one notes-list row per text line; a callout box in callouts mode). No phantom nodes | done (view.py) | KEPT: `Edge.block_string` |
 | 46 | payload: value operators | `${state.history} ++ [${out}]`, `${a} \|\| {b: 1}`, `${n} * 2 - ${m} / 4` | DRAWN | DRAWN | raw text in chips | — | — |
 | 47 | payload: external `op ns.verb` | `: op http.get(${url})` | DRAWN | DRAWN | `┆ ⇱ http.get(${url}) ┆` (no `op ` keyword) and the target badged `(Web) ⇱`; legend `⇱ host-provided (opaque)` | done (scene + views) | — |
 | 48 | payload on a self-loop | `[Tree.walk] -> [Tree.walk] : child` | DRAWN | DRAWN | graph: `[Tree.walk] ↻` with a stub chip `└─● ┆ ↻ child ┆` (`p`); tree: `[Tree.walk] ↻ ┄┄┄ ┆ ↻ child ┆` on its own row (no longer only in a footer) | done (scene + views) | — |
-| 49 | payloads of several edges to one target | `reserve => {Hold}` + `!> … : release({Hold})` | DRAWN | WEAK | a chip per flow: `┆ reserve => {Hold} ┆   ┆ release({Hold}) ┆`. Graph: each on its own edge (the `release` one on the `✖` edge). Tree: both on the `[Inventory]` row, each in its wire's colour — without colour, nothing says which is the error path | tree: a `✖` lead on an error-path chip | — |
+| 49 | payloads of several edges to one target | `reserve => {Hold}` + `!> … : release({Hold})` | DRAWN | DRAWN | a chip per flow: `┆ reserve => {Hold} ┆   ┆ release({Hold}) ┆`. Graph: each on its own edge (the `release` one on the `✖` edge). Tree: both on the `[Inventory]` row, the error path's chip led by `✖` (`┆ ✖ release({Hold}) ┆`), so it reads without colour | done (view.py) | — |
 | 50 | alias `name := expr` | `retry := @after(…)`, `walk := [Node] -> walk(.children)` | DRAWN | DRAWN | alias nodes in their own brackets and colour: `[[retry]]`, `[[walk]] ▾` with its `[[walk]] := { … }` section (`[Node] ↺`) | done (view.py) | FIXED: `retry`, `walk` are `alias` nodes (mods / expansion = the definition) |
 | 51 | expansion `X := { … }` | `[Core] := { [Router] -> [Handler]×N … }` | DRAWN | WEAK | graph: `── [Core] := { … } ──` section, `[Core] ▾` / `▸` at depth 0. Tree: children nested as `├── [Router]` — same `──` as the `\->` "contains" relation | tree: a distinct marker for internals (`├┄ [Router]` or `╞═`), as Mermaid's "internals" subgraph | — |
 | 52 | expansion holding only aliases | `[Handler] := { ingress := {Req} => {Ctx} … }` | DRAWN | DRAWN | graph: a header `── [Handler] := { … } ──` with **nothing under it**, and `[Handler] ▾` promises content. Tree: nothing. (Mermaid: an empty `subgraph Handler_service` that collides with the `Handler_service` node inside `Core`) | render aliases (#50) inside the section; else drop the `▾` | FIXED: the section holds the alias nodes `ingress` / `process` / `egress`, each expandable |

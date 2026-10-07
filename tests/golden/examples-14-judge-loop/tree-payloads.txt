@@ -9,7 +9,7 @@
 [Cfg] ───────────────●─●─● │ │
 ~|rubric| ◀──────────┘┄│┄│┄│┄│┄┆ "clarity, correctness, concision" ┆
 ~|opts| ◀──────────────┘┄│┄│┄│┄┆ {retries: 3, mode: "strict"} ┆
-~|policy| ◀──────────────┘┄│┄│┄┆ "block-string" ┆
+~|policy| ◀──────────────┘┄│┄│┄┆ """Rate the draft 1-10 on…""" ┆
 |Scores| ⇱ ◀───────────────┘┄│┄┆ ⇱ db.insert(${out.score}) ┆
 [Index] ⇱ ◀──────────────────┘┄┆ ⇱ mcp.search(${query}) ┆
 
