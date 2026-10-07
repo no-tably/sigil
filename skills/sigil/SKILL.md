@@ -116,7 +116,7 @@ view: it reads the checkout's request path and its failure route left to right."
 | flow (`--flow`) | request paths, call chains, failure routes (`├─✖`), payloads (`--payloads`) and findings (`--checks`) on the wire; usually the shortest drawing, and it wraps into bands in a narrow pane. With a run: the route taken | many back-edges or state triggers tangle it |
 | tree (`--tree`) | composition and ownership (`\-&` has, `\-*` spawns, `:=` internals — the other views draw a parts-only unit with no parts), state machines with their triggers in a few rows; the narrowest drawing of a small design. With a run: `◉` current states, wires taken | lanes multiply on large designs |
 | graph (default) | overall topology: fan-in (several writers into one store), fan-out, where flows converge; state machines as state diagrams; control blocks as frames | never wraps, so a wide design overflows the pane; the tallest drawing |
-| run (`--run`) | presenting a simulation: order and timing, retries (`╰───✖` per attempt), spawned instances (`{Bullet·2}`), recursion levels (`↻2`), async hand-offs, fan-out, episodes, a plain-words note per lane; the happy run without `--sim` | shows only what ran — unreached parts are absent, so it is not a picture of the design |
+| run (`--run`) | presenting a simulation: order and timing, retries (`╰───✖` per attempt), spawned instances (`[Bullet·2]`), recursion levels (`↻2`), async hand-offs, fan-out, episodes, a plain-words note per lane; the happy run without `--sim` | shows only what ran — unreached parts are absent, so it is not a picture of the design |
 
 To show a design, start with flow; switch to tree when the question is what owns
 or contains what, or the pane is narrow, and to graph for the big picture of a

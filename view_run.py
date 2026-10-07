@@ -597,9 +597,8 @@ def lane_notes(tl, scn, numbered: set, tick: int, final: bool) -> dict:
         if calls:
             names = [_name(scn, n) for n in calls]
             text = ("calls " + names[0] if len(names) == 1 else
-                    f"calls {names[0]}, then {names[1]}" if len(names) == 2 else
-                    f"calls {len(names)}")
-            cl.append(Clause(text, MINOR, f"calls {len(names)}" if len(names) > 1 else None))
+                    f"calls {', '.join(names[:-1])}, then {names[-1]}")
+            cl.append(Clause(text, MINOR, f"calls {len(names)} others" if len(names) > 1 else None))
         fan = {}
         for m in outof:
             if m.kind == "*>":
@@ -783,18 +782,21 @@ def compose_run(g, trace=None, tick: Optional[int] = None, width: Optional[int] 
     if checks is not None:
         for ident, ms in checks.wires.items():
             wire_marks.setdefault(ident[1], []).extend(ms)
-    labels, indent = {}, {}
-    for ln in fr.lanes:
+    labels, label_w = {}, 0
+    shown = {ln.key for ln in fr.lanes}
+    for ln in tl.lanes:                 # every lane's widest label: the column holds still in a run
         depth = 0
         p = ln.parent
         while p is not None and depth < 50:
             depth += 1
             p = next((x.parent for x in tl.lanes if x.key == p), None)
-        indent[ln.key] = 2 * depth
         ms = () if ln.level > 1 or ln.levels else tuple(sorted(set(
             list(node_marks.get(ln.node, ())) + wire_marks.get(ln.node, []))))
-        labels[ln.key] = [(" " * indent[ln.key], None)] + _label_runs(ln, scn, numbered, t, ms)
-    label_w = max([kit.row_len(r) for r in labels.values()] + [0])
+        lead = [(" " * (2 * depth), None)]
+        widest = lead + _label_runs(ln, scn, numbered, -1, ms)    # with ◌ if it is ever spawned
+        label_w = max(label_w, kit.row_len(widest))
+        if ln.key in shown:
+            labels[ln.key] = lead + _label_runs(ln, scn, numbered, t, ms)
     x0 = GUTTER + label_w + 1
     shown_cols = fr.cols.of[t] + 1
     if notes == "run":

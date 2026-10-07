@@ -170,6 +170,14 @@ class TestPlayhead(unittest.TestCase):
         self.assertNotIn("◌", row(done, "[Shard·1]"))
         self.assertIn("spawned by [Spawner] for [Asteroid]", row(done, "[Shard·1]"))
 
+    def test_the_label_column_holds_still_as_lanes_appear(self):
+        def x0(lines):
+            ruler = next(ln for ln in lines if ln.strip().startswith("0"))
+            return ruler.index("0")
+        early = drawn(CHECKOUT, "happy", tick=10, width=140, notes="off")
+        self.assertFalse(any("<OrderPlaced>" in ln for ln in early))   # the widest, not born
+        self.assertEqual(x0(early), x0(drawn(CHECKOUT, "happy", width=140, notes="off")))
+
     def test_notes_say_so_far(self):
         lines = drawn(CHECKOUT, "API.charge:fails", tick=17, width=140)
         self.assertIn("3 attempts so far, each fails", row(lines, "[Payments]"))

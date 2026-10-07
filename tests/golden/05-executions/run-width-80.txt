@@ -14,7 +14,7 @@
   (Operator)       episode 1's entry; calls [Scheduler]
   [Scheduler]      calls [Crawler]; runs plan() itself
   {Plan}           produced by [Scheduler]
-  [Crawler]        calls 3; returns {Site}
+  [Crawler]        calls (Web), [Crawler.follow], then |Index|; returns {Site}
   (Web)            reached: the host's side, opaque
   [Crawler.follow] recurses to depth 3
   |Index|          returns {Lease}; runs 2×
