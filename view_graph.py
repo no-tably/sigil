@@ -1819,8 +1819,7 @@ def _path_tags(scn, side: int = 1) -> dict:
     one box per name and the edge would read as reaching every `{Transform}`.
     A path name with no node of its own shows bare (`Bullet/`). side 0: a flow
     out of a qualified path (`[Bullet]/{Transform} -> [Render]`), keyed
-    tail_key(key) and written `from [Bullet]/` (it may end up beside the head,
-    and in the flow view it is text on the wire)."""
+    tail_key(key) and written `from [Bullet]/` (it may end up beside the head)."""
     labels = {}
     for sn in scn.nodes.values():
         labels.setdefault(sn.node.name, kit.node_label(sn.node))

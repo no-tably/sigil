@@ -106,8 +106,7 @@ inline trailing comments (86).
 Follow-up (view_graph.py): a mutable stream `~*` keeps its stream shape. No box set is
 both heavy and shadowed, so its heavy `~` box carries the tree's ` ≋` after the label
 (`┃ ~*<Raw> ≋ ┃`, before any #N tags); a plain stream keeps its shadow, unmarked. The
-graph legend reads `┒┃┛ ≋ stream`. The flow view draws no boxes: its labels' `~*` / `*`
-leads say it.
+graph legend reads `┒┃┛ ≋ stream`.
 
 Follow-up (render.py): every `@borrow` line keeps its access edge. A borrowed store that
 is a node nowhere in the document (`[Helper] @borrow(read) |Feed2|`, `|Feed2|` in no
@@ -116,14 +115,12 @@ places it as a node where the borrow is written (in the borrower's layer), and t
 reads `[Helper] ┄┄b┄ƀ` / `|Feed2| ◀┄┄┘`. lint.py and check.py output is unchanged on
 every fixture and site example.
 
-Follow-up (view_graph.py, view_flow.py): a flow OUT of a qualified path
+Follow-up (view_graph.py): a flow OUT of a qualified path
 (`[Bullet]/{Transform} -> [Render]`) carries `from [Bullet]/` beside its tail, just under
 the source box (`│ from [Bullet]/`), where that stroke leaves the box on a port of its
 own; on a trunk shared with other edges (`{Transform} -> [Audit]` beside it) it would
 read as theirs too, so it goes beside the head instead, before any head tag
-(`▼ from [Bullet]/ [Ship]/`). "from" keeps it apart from the head side's `[A]/` there and
-in the flow view, which writes it on the wire with the head's tags
-(`─┬─── from [Bullet]/ ───▶ [Render]`). Legend `│ from [A]/ out of path`. Accepted limit,
+(`▼ from [Bullet]/ [Ship]/`). "from" keeps it apart from the head side's `[A]/` there. Legend `│ from [A]/ out of path`. Accepted limit,
 as for every edge label: where the text fits on neither side of its spot (a fan-out of
 narrow heads) it is left out.
 
@@ -141,7 +138,7 @@ narrow heads) it is left out.
 | 8 | wildcard `_` (branch arm) | `_ => <Rejected>` | DRAWN | DRAWN | graph: an arm chip `┆ _ ┆` on the `◇ {Request}.kind` → `<Rejected>` arm; tree: `<Rejected> ‹_›` on its row inside the branch bracket | done (view.py) | FIXED: arm `_` in `Block.arms` / `arm_nodes`; no phantom edge |
 | 9 | generics `<…>` | `[Cache<K,V>]`, `{List<T>}`, `<Msg<T>>` | DRAWN | DRAWN | phantom **event** boxes `│ <K,V> │` and `│ <T> │`; `[Cache]`, `{List}`, `<Msg>` never appear; `[Api] <-> [Cache<K,V>]` draws as `[Api] ↔ <K,V>`. Lint says OK | parse `<…>` as part of the glyph; draw `[Cache‹K,V›]` in the owner's box shape | FIXED: one glyph, name `Cache<K,V>`, `params` ("K","V"), `base_name`; Mermaid escapes `<>` |
 | 10 | mutability `~` | `~{Session}`, `~\|Counter\|` | DRAWN | DRAWN | heavy border `┏━━━━━━━━━━━━┓ ~\|Counter\|`; tree keeps `~` in the label | — | — |
-| 11 | stream prefix `*` | `*<Raw>`, `*{Rows}`, `*\|AuditLog\|` | DRAWN | DRAWN | graph: a shadowed box — light top/left, heavy right side and bottom (`┌────────┒ │ *<Raw> ┃ ┕━━━━━━━━┛`), apart from `~`'s all-heavy `┏━┓` (a mutable stream `~*` keeps the heavy box and adds ` ≋` after its label: `┃ ~*<Raw> ≋ ┃`; flow view: the label's `*`); graph legend `┒┃┛ ≋ stream`; tree: ` ≋` after the label, also where the event lands (`[Parse] *<Raw> ≋`), `≋ stream` in the legend when drawn | done (view.py) | — |
+| 11 | stream prefix `*` | `*<Raw>`, `*{Rows}`, `*\|AuditLog\|` | DRAWN | DRAWN | graph: a shadowed box — light top/left, heavy right side and bottom (`┌────────┒ │ *<Raw> ┃ ┕━━━━━━━━┛`), apart from `~`'s all-heavy `┏━┓` (a mutable stream `~*` keeps the heavy box and adds ` ≋` after its label: `┃ ~*<Raw> ≋ ┃`); graph legend `┒┃┛ ≋ stream`; tree: ` ≋` after the label, also where the event lands (`[Parse] *<Raw> ≋`), `≋ stream` in the legend when drawn | done (view.py) | — |
 | 12 | stream bound `^N@policy` | `*<Raw>^10k@drop`, `*<Enriched>^5@latest`, `*{Rows}^100@err` | DRAWN | DRAWN | with `m`: `*<Raw> ^10k drop`, `*<Parsed> ^10k`, `*<Enriched> ^5 latest`, `*{Rows} ^100 err` after the label (both views); nothing without `m` | done (view.py) | KEPT: node mod ("^", "10k@drop") |
 | 13 | `->` | `(Customer) -> [Api]` | DRAWN | DRAWN | light `│─`; tree `●─ … ◀` | — | — |
 | 14 | `→` | `[Api] → [Auth]` | DRAWN | DRAWN | same as `->` | — | — |
@@ -211,7 +208,7 @@ narrow heads) it is left out.
 | 78 | `(N)-` weight | `\-(3)-> [ZoneA]`, `\-(1)-> [ZoneB]` | LOST | DRAWN | tree `├─(3)─ [ZoneA]`, `└─(1)─ [ZoneB]` | maybe a share bar `███░` | — |
 | 79 | child count `×N` | `\-*-> [Bullet] ×N` | WEAK | DRAWN | with `m`: tree `├─* [Bullet] ×N`; graph: the `[Bullet] ×N` box (composition itself is not in the graph) | done (view.py) | KEPT: node mod ("×", "N") on `[Bullet]` |
 | 80 | inline branch | `[Log] \-& {Scrollable}` | LOST | DRAWN | tree `[Log]` / `└─& {Scrollable}` | — | — |
-| 81 | qualified path `[A]/{B}` | `[Homing] -> [Bullet]/{Transform}` | DRAWN | DRAWN | graph: still one `{Transform}` box, but Homing's edge carries the path's prefix beside its head (`▼ [Bullet]/`, `[Ship]/[Bullet]/` for a deeper path; a name with no box of its own shows bare, `Ship/`), Physics' edge none; legend `▼ [A]/ in path`. A flow out of a path (`[Bullet]/{Transform} -> [Render]`): `│ from [Bullet]/` beside its tail (beside its head when the tail's trunk is shared); flow view `── from [Bullet]/ ──▶`. Tree: `[Physics]` taps both `{Transform}` rows, `[Homing]` only `│  ├─& {Transform} ◀──┼─┐` under `[Bullet]` | done (view.py) | — |
+| 81 | qualified path `[A]/{B}` | `[Homing] -> [Bullet]/{Transform}` | DRAWN | DRAWN | graph: still one `{Transform}` box, but Homing's edge carries the path's prefix beside its head (`▼ [Bullet]/`, `[Ship]/[Bullet]/` for a deeper path; a name with no box of its own shows bare, `Ship/`), Physics' edge none; legend `▼ [A]/ in path`. A flow out of a path (`[Bullet]/{Transform} -> [Render]`): `│ from [Bullet]/` beside its tail (beside its head when the tail's trunk is shared). Tree: `[Physics]` taps both `{Transform}` rows, `[Homing]` only `│  ├─& {Transform} ◀──┼─┐` under `[Bullet]` | done (view.py) | — |
 | 82 | permission `@read(…)` / `@write(…)` | `*\|AuditLog\| @read(Auditor) @write(Api, Worker)`, `\|Directives\| @read(Worker) @write(Boss)` | DRAWN | DRAWN | with `a`: dotted access edges principal → store headed `r` / `w` (graph), lanes whose source is marked `r` / `w` (tree); stores badged `\|Directives\| 1w`, `*\|AuditLog\| 2w` (one writer owns it vs shared) | done (view.py) | KEPT: `Graph.access` read/write, principals resolved to node ids |
 | 83 | generic role | `[Worker<N>]` (`@read(Worker)`) | DRAWN | DRAWN | a generic glyph an `@read`/`@write` list names is a role (Node.is_role): its generics in ‹ › (`[Worker‹N›]`, both views) and, in the graph, a stacked box with a double right side (`┌─────────────╖ │ [Worker‹N›] ║ └─────────────╜`); the tree row `[Worker‹N›]`, `[R‹N›] role: N members` in its legend (`╖║╜ role` in the graph's). `[Cache<K,V>]` (no principal) stays a plain box; a role's self-call stubs leave its `╢` tee on `╟─●` / `╙─●` (double above, light right: no double line runs into a light stub; a double `╝` box's `╣` likewise) | done (view.py) | FIXED: `[Worker<N>]` one node; `@read(Worker)` resolves by `base_name` when no exact `[Worker]`; `Node.is_role` marks the role (also when an exact `[Worker]` takes the edge) |
 | 84 | block comment above | `# order lifecycle, driven by events` / `state {Order}` | DRAWN | DRAWN | `{Order} ¶10`; callout `╭ ¶10 order lifecycle, ╮ ──── {Order} ¶10` | — | — |
