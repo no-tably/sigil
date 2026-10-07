@@ -152,3 +152,53 @@ describe('multiplex display', () => {
     expect(JSON.parse(seen.writes[1]?.text ?? '{}')).toEqual({ argv: [FILE, '--depth', '1', '--sim', 'happy'] })
   })
 })
+
+describe('/sigil-pane display', () => {
+  const run = { origin: { kind: 'composer' as const }, presentation: { isFullscreen: true, columns: 90 } }
+
+  test('with no value it says the setting, its row and what auto is here', { options: { display: 'auto' } }, async ($, on) => {
+    world(on, { isPlaced: true, env: { HERDR_ENV: '1' } })
+    await $.session.start(START)
+    const { text } = await $.command.run({ command: 'sigil-pane', args: 'display', ...run })
+    expect(text).toBe('display: auto → multiplex (herdr detected) · from /config sigil.display')
+  })
+
+  test('a value set outright still says what auto would be', { options: { display: 'mod' } }, async ($, on) => {
+    world(on, { isPlaced: true })
+    await $.session.start(START)
+    const { text } = await $.command.run({ command: 'sigil-pane', args: 'display', ...run })
+    expect(text).toBe('display: mod · from /config sigil.display · auto here → mod (no multiplexer detected)')
+  })
+
+  test("a value writes the plugin's own /config row", { options: { display: 'auto' } }, async ($, on) => {
+    const seen = world(on, { isPlaced: true, env: { TMUX: 'x' } })
+    const sets: { key: string; value: unknown }[] = []
+    on('config.set', ($, e) => {
+      sets.push({ key: e.key, value: e.value })
+      return { value: e.value }
+    })
+    await $.session.start(START)
+    const { text } = await $.command.run({ command: 'sigil-pane', args: 'display mod', ...run })
+    expect(sets).toEqual([{ key: 'sigil.display', value: 'mod' }])
+    expect(text).toContain('display: mod · from /config sigil.display · auto here → multiplex (tmux detected)')
+    expect(text).toContain('The next view draws in the sigil pane.')
+    expect(seen.runs).toEqual([])   // nothing drawn, no file looked for
+  })
+
+  test('a refused change and a bad value are said, nothing written', { options: { display: 'auto' } }, async ($, on) => {
+    world(on, { isPlaced: true })
+    const sets: string[] = []
+    on('config.set', ($, e) => {
+      sets.push(String(e.value))
+      return { deny: 'your organization sets it' }
+    })
+    await $.session.start(START)
+    const denied = await $.command.run({ command: 'sigil-pane', args: 'display multiplex', ...run })
+    expect(denied.text).toBe('sigil: display stays auto: your organization sets it')
+    const bad = await $.command.run({ command: 'sigil-pane', args: 'display side', ...run })
+    expect(bad.text).toBe('sigil: display must be one of mod, multiplex, auto (got "side")')
+    const same = await $.command.run({ command: 'sigil-pane', args: 'display auto', ...run })
+    expect(same.text).toContain('(unchanged)')
+    expect(sets).toEqual(['multiplex'])
+  })
+})

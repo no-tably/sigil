@@ -392,9 +392,10 @@ def build_pi(out: Path, meta: dict) -> list[Path]:
           "Install: `pi install ./` from this directory (add `-l` for project-local).\n"
           f"Provides the `{SKILL}` skill, the prompts {prompts}, and a viewer: the\n"
           "agent's `sigil_view` tool and the `/sigil-pane` command show a design live, in a\n"
-          "widget above the editor or in a herdr / tmux / zellij split. `--sigil-display\n"
-          "auto|mod|multiplex` (or `SIGIL_DISPLAY`) picks which; auto takes the split\n"
-          "inside a multiplexer.\n")
+          "widget above the editor or in a herdr / tmux / zellij split.\n"
+          "`/sigil-pane display auto|mod|multiplex` picks which (saved in\n"
+          "~/.config/sigil/viewer.json; `--sigil-display` or `SIGIL_DISPLAY` wins for a\n"
+          "session); auto takes the split inside a multiplexer.\n")
     return [root]
 
 

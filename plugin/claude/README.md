@@ -18,6 +18,10 @@ tests/*.test.ts      run by `claude plugin test`
 ```
 
 `/sigil` is the skill's own command, so the mod's command is `/sigil-pane`.
+`/sigil-pane display [mod|multiplex|auto]` says or sets where it draws: it writes
+the plugin's own `/config` row (`<plugin>.display`) with `$.config.set`, which
+reloads the module with the new option. It follows the
+[viewer plugin contract](../../docs/tools.md#the-viewer-plugin-contract).
 
 ## Develop
 

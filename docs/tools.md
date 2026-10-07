@@ -181,9 +181,12 @@ outcome, and the scenario names. It never returns the drawing:
 
 `/sigil-pane` takes the same fields as words, in any order: `FILE`, a view name,
 `depth N|all`, `sim SCENARIO`, `frame N|last`, `play` and `payloads`. With no
-words it reopens the pane.
+words it reopens the pane. `/sigil-pane display [mod|multiplex|auto]` says or sets
+where it draws (see [the viewer plugin contract](#the-viewer-plugin-contract)).
 
-The plugin option `display` picks where the viewer draws:
+The plugin option `display` picks where the viewer draws. `/sigil-pane display
+VALUE` writes it, as `/config sigil.display=VALUE` does; the module reloads with
+the new value and the next view draws there.
 
 - `mod` draws in a pane. `t` cycles the view, `d` the depth; with a run, `p` plays
   or pauses it and `b` and `n` step it, and under the drawing the pane shows the
@@ -219,11 +222,47 @@ Claude Code, with these differences:
   `play`, `payloads`) plus `pause`, `back`, `next` and `close`. With no words it
   reopens the widget.
 - `multiplex` opens the same split, running `pane.py follow`.
-- Choose the display with `pi --sigil-display auto|mod|multiplex`, or with the
-  `SIGIL_DISPLAY` environment variable. Both default to `auto`.
+- pi has no plugin settings, so `/sigil-pane display VALUE` saves the display to
+  the shared settings file (`~/.config/sigil/viewer.json`). For one session,
+  `pi --sigil-display auto|mod|multiplex` or the `SIGIL_DISPLAY` environment
+  variable wins over the file; with none of them set it's `auto`.
 - In print and json modes (`-p`, `--mode json`) there's no UI. The `mod` reply
   says so and points to `view.py --once`. In RPC mode the widget isn't drawn:
   pi sends RPC clients only plain-text widgets, and this one is a component.
+
+## The viewer plugin contract
+
+Every agent plugin that carries a viewer (Claude Code's mod, pi's extension, and
+any later one) behaves the same way here, so a person moving between agents
+finds the same command and the same words.
+
+- **The command** is `/sigil-pane` (`/sigil` is the skill's own). With a file and
+  the tool's words it shows the file; with no words it reopens the viewer.
+- **`/sigil-pane display`** replies with the setting, where it comes from, and
+  what `auto` resolves to in this session. **`/sigil-pane display VALUE`** sets it
+  and replies the same way. Any other value is an error that names the three.
+  `display` is never read as a file name.
+- **The values**: `mod` draws inside the agent's own UI (a pane, a widget),
+  `multiplex` opens a split to the right running `view.py` live (through
+  `pane.py follow`), and `auto` picks `multiplex` when `HERDR_ENV`, `TMUX` or
+  `ZELLIJ` is set, and `mod` otherwise. `resolveDisplay` in
+  `plugin/claude/hooks/logic.ts` is the rule; a plugin in TypeScript imports it.
+- **Where it's kept**: in the host's own settings when it has them (Claude
+  Code: the plugin's `userConfig` field `display`, a `/config` row). A host
+  without them uses the shared file `$XDG_CONFIG_HOME/sigil/viewer.json`
+  (`~/.config/sigil/viewer.json` when that's unset), holding
+  `{"display": "mod"}`. It's read on each use, and writing it keeps any other
+  keys. A flag or environment variable the host offers for one session
+  (`--sigil-display`, `SIGIL_DISPLAY`) wins over the file, in that order.
+- **The reply** (`displayReport` in `logic.ts`), one line:
+
+  ```
+  display: auto → multiplex (herdr detected) · from /config sigil.display
+  display: mod · from SIGIL_DISPLAY · auto here → mod (no multiplexer detected)
+  ```
+
+  After a change, a second line says where the next view draws, or which
+  setting still wins in this session. An error starts with `sigil:`.
 
 ## OpenCode
 

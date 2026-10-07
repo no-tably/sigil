@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import {
-  colourOf, frameIndex, herdrPaneOf, herdrReadyArgv, nextView, parseCommandArgs, parseDrawing, parseRequest,
+  colourOf, displayReport, frameIndex, herdrPaneOf, herdrReadyArgv, nextView, parseCommandArgs, parseDisplayArgs,
+  parseDrawing, parseRequest, pickDisplay,
   rasterCells, resolveDisplay, runLines, shellQuote, slices, splitArgv, viewArgv,
 } from '../hooks/logic'
 import type { Drawing } from '../types'
@@ -17,6 +18,29 @@ describe('display', () => {
   test('set: the setting wins over what is detected', () => {
     expect(resolveDisplay('mod', { tmux: 'x' })).toBe('mod')
     expect(resolveDisplay('multiplex', {})).toBe('multiplex')
+  })
+})
+
+describe('the display command', () => {
+  test('display and its value are words of their own, never a file', () => {
+    expect(parseDisplayArgs('display')).toEqual({})
+    expect(parseDisplayArgs(' display  multiplex ')).toEqual({ choice: 'multiplex' })
+    expect(parseDisplayArgs('display side')).toEqual({ error: 'display must be one of mod, multiplex, auto (got "side")' })
+    expect(parseDisplayArgs('display mod tree')).toEqual({ error: 'display takes one value: mod, multiplex, auto' })
+    expect(parseDisplayArgs('shop.sigil tree')).toBeNull()
+    expect(parseDisplayArgs('')).toBeNull()
+    expect(parseCommandArgs('display')).toEqual({ display: '' })
+    expect(parseCommandArgs('display auto')).toEqual({ display: 'auto' })
+    expect(parseCommandArgs('a.sigil display tree')).toEqual({ file: 'a.sigil', display: '', view: 'tree' })
+  })
+  test('the first source holding a value wins; the reply says it and what auto is here', () => {
+    expect(pickDisplay([['--sigil-display', undefined], ['SIGIL_DISPLAY', 'mod'], ['file', 'multiplex']], 'default'))
+      .toEqual({ choice: 'mod', source: 'SIGIL_DISPLAY' })
+    expect(pickDisplay([['flag', ''], ['env', undefined]], 'default')).toEqual({ choice: 'auto', source: 'default' })
+    expect(pickDisplay([['flag', 'sideways']], 'default')).toEqual({ choice: 'auto', source: 'flag' })
+    expect(displayReport('auto', 'X', { herdr: '1' })).toBe('display: auto → multiplex (herdr detected) · from X')
+    expect(displayReport('mod', 'X', { zellij: '0' })).toBe('display: mod · from X · auto here → multiplex (zellij detected)')
+    expect(displayReport('auto', 'X', {})).toBe('display: auto → mod (no multiplexer detected) · from X')
   })
 })
 

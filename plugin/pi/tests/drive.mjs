@@ -8,7 +8,8 @@
 // node imports it directly (type stripping) and gets a stand-in API whose
 // exec runs the command. The UI is always a stand-in: setWidget keeps the
 // factory and the script renders it at a chosen width. The multiplexer step
-// expects a fake `tmux` on PATH that records its argv.
+// expects a fake `tmux` on PATH that records its argv; the display steps
+// write the settings file under $XDG_CONFIG_HOME (the test's own folder).
 
 import { execFile } from 'node:child_process'
 import { join } from 'node:path'
@@ -26,15 +27,22 @@ async function load() {
       tools: Object.fromEntries([...ext.tools].map(([k, v]) => [k, v.definition])),
       commands: Object.fromEntries(ext.commands),
       flags: [...ext.flags.keys()],
+      flagDefaults: Object.fromEntries([...ext.flags].map(([k, v]) => [k, v.default ?? null])),
       handlers: Object.fromEntries(ext.handlers),
+      setFlag: (name, value) => got.runtime.flagValues.set(name, value),
     }
   }
   const mod = await import(extension)
-  const reg = { tools: {}, commands: {}, flags: [], handlers: {}, flagValues: {} }
+  const reg = { tools: {}, commands: {}, flags: [], flagDefaults: {}, handlers: {}, flagValues: {} }
+  reg.setFlag = (name, value) => { reg.flagValues[name] = value }
   mod.default({
     registerTool: t => { reg.tools[t.name] = t },
     registerCommand: (name, o) => { reg.commands[name] = { name, ...o } },
-    registerFlag: (name, o) => { reg.flags.push(name); reg.flagValues[name] = o.default },
+    registerFlag: (name, o) => {
+      reg.flags.push(name)
+      reg.flagDefaults[name] = o.default ?? null
+      if (o.default !== undefined) reg.flagValues[name] = o.default
+    },
     getFlag: name => reg.flagValues[name],
     on: (event, fn) => { (reg.handlers[event] ??= []).push(fn) },
     exec: (cmd, args, o) => new Promise(done => execFile(cmd, args, { timeout: o?.timeout, maxBuffer: 1 << 26 },
@@ -45,7 +53,7 @@ async function load() {
 
 const reg = await load()
 const out = { errors: reg.errors ?? [], tools: Object.keys(reg.tools ?? {}), commands: Object.keys(reg.commands ?? {}),
-  flags: reg.flags ?? [], steps: [] }
+  flags: reg.flags ?? [], flagDefaults: reg.flagDefaults ?? {}, steps: [] }
 if (out.errors.length === 0) {
   let factory = null
   let rendered = null
@@ -88,6 +96,18 @@ if (out.errors.length === 0) {
   for (const fn of reg.handlers.session_shutdown ?? []) await fn({}, ctx)
   process.env.TMUX = '/tmp/fake,1,0'
   await step('multiplex', () => call({ file, view: 'tree' }))
+  // /sigil-pane display: the flag, SIGIL_DISPLAY, the settings file, auto
+  await step('display default', () => command.handler('display', ctx))
+  await step('display set mod', () => command.handler('display mod', ctx))
+  await step('display from the file', () => command.handler('display', ctx))
+  await step('a call after the file says mod', () => call({ file, view: 'graph' }), 150)
+  process.env.SIGIL_DISPLAY = 'multiplex'
+  await step('display from the env', () => command.handler(' display ', ctx))
+  reg.setFlag('sigil-display', 'mod')
+  await step('display from the flag', () => command.handler('display', ctx))
+  await step('display set under the flag', () => command.handler('display auto', ctx))
+  await step('display bad', () => command.handler('display side', ctx))
+  for (const fn of reg.handlers.session_shutdown ?? []) await fn({}, ctx)
 }
 process.stdout.write(JSON.stringify(out) + '\n')
 process.exit(0)

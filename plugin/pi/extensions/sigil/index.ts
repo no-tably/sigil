@@ -8,17 +8,19 @@
 // repository's plugin/pi/README.md has the layout.
 
 import { randomUUID } from 'node:crypto'
-import { stat, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { readFileSync } from 'node:fs'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
-  DEFAULT_WIDTH, UNASKED_COLUMNS, VIEWS,
-  detectMux, drawArgv, frameIndex, herdrPaneOf, herdrReadyArgv, parseCommandArgs, parseDrawing,
-  parseRequest, replyText, resolveDisplay, runLines, shellQuote, splitArgv, statusLine, viewArgv,
+  DEFAULT_WIDTH, DISPLAYS, UNASKED_COLUMNS, VIEWS,
+  detectMux, displayReport, drawArgv, frameIndex, herdrPaneOf, herdrReadyArgv, parseCommandArgs,
+  parseDisplayArgs, parseDrawing, parseRequest, pickDisplay, replyText, resolveDisplay, runLines, shellQuote,
+  splitArgv, statusLine, viewArgv,
 } from './logic.ts'
-import type { Asked, Display } from './logic.ts'
+import type { Asked, Display, DisplayChoice } from './logic.ts'
 
 // The shapes this file uses (types/index.d.ts in plugin/claude has them all).
 type ViewRequest = { file: string; view: 'graph' | 'tree' | 'flow'; depth: number; scenario?: string; payloads?: boolean }
@@ -49,7 +51,7 @@ type Pi = {
     execute(id: string, params: Record<string, unknown>, signal: unknown, onUpdate: unknown, ctx: Ctx): Promise<ToolResult>
   }): void
   registerCommand(name: string, options: { description: string; handler(args: string, ctx: Ctx): Promise<void> }): void
-  registerFlag(name: string, options: { description: string; type: 'string'; default: string }): void
+  registerFlag(name: string, options: { description: string; type: 'string'; default?: string }): void
   getFlag(name: string): unknown
   exec(command: string, args: string[], options?: { timeout?: number }): Promise<ExecResult>
   on(event: string, handler: (event: unknown, ctx: Ctx) => unknown): void
@@ -64,7 +66,7 @@ const PLAY_MS = 125 // a played run's frame time: 8 frames a second, view.py's s
 const ALIVE_MS = 3000 // a split whose follow loop touched its file this recently is up
 const CHROME_ROWS = 14 // the editor, footer and some conversation the widget leaves room for
 const MIN_BODY_ROWS = 10
-const HINT = `/${COMMAND} graph|tree|flow · depth N|all · sim NAME · play · pause · back · next · close`
+const HINT = `/${COMMAND} graph|tree|flow · depth N|all · sim NAME · play · pause · back · next · close · display`
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PANE_PY = join(HERE, '..', '..', 'skills', 'sigil', 'scripts', 'pane.py')
@@ -92,6 +94,37 @@ const TOOL_SCHEMA = {
     play: { type: 'boolean', description: 'Play the run from the frame shown (true) or pause it (false).' },
     payloads: { type: 'boolean', description: 'Show flow payloads.' },
   },
+}
+
+/** The viewer settings every agent plugin without settings of its own shares
+ * (docs/tools.md, the viewer plugin contract): $XDG_CONFIG_HOME/sigil/viewer.json,
+ * else ~/.config/sigil/viewer.json. */
+export function settingsPath(env: Record<string, string | undefined> = process.env): string {
+  const base = env.XDG_CONFIG_HOME && isAbsolute(env.XDG_CONFIG_HOME) ? env.XDG_CONFIG_HOME : join(homedir(), '.config')
+  return join(base, 'sigil', 'viewer.json')
+}
+
+/** The settings file's `display`, or undefined (no file, not JSON, unset). */
+export function savedDisplay(path: string): string | undefined {
+  try {
+    const value = JSON.parse(readFileSync(path, 'utf8'))?.display
+    return typeof value === 'string' ? value : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Writes `display` into the settings file, keeping any other keys. */
+export async function saveDisplay(path: string, choice: DisplayChoice): Promise<void> {
+  let kept: Record<string, unknown> = {}
+  try {
+    const got = JSON.parse(await readFile(path, 'utf8'))
+    if (got !== null && typeof got === 'object' && !Array.isArray(got)) kept = got
+  } catch {
+    // a missing or broken file is written afresh
+  }
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(path, JSON.stringify({ ...kept, display: choice }, null, 2) + '\n')
 }
 
 /** `#rrggbb` as an SGR colour (38 foreground, 48 background), or null. */
@@ -173,7 +206,28 @@ export default function sigil(pi: Pi): void {
   const columns = () => process.stdout.columns || DEFAULT_WIDTH
   const bodyRows = () => Math.max(MIN_BODY_ROWS, (process.stdout.rows || 40) - CHROME_ROWS)
   const env = () => ({ herdr: process.env.HERDR_ENV, tmux: process.env.TMUX, zellij: process.env.ZELLIJ })
-  const display = (): Display => resolveDisplay(pi.getFlag(FLAG) ?? process.env.SIGIL_DISPLAY, env())
+  /** The display setting by precedence: --sigil-display, SIGIL_DISPLAY, the
+   * shared settings file (read on each use), else auto. */
+  const setting = () => pickDisplay([
+    [`--${FLAG}`, pi.getFlag(FLAG)],
+    ['SIGIL_DISPLAY', process.env.SIGIL_DISPLAY],
+    [settingsPath(), savedDisplay(settingsPath())],
+  ], 'the default')
+  const display = (): Display => resolveDisplay(setting().choice, env())
+
+  /** `/sigil-pane display [VALUE]`: the setting in words, or saved to the file. */
+  async function displayCommand(choice: DisplayChoice | undefined): Promise<string> {
+    const now = setting()
+    if (choice === undefined) return displayReport(now.choice, now.source, env())
+    const path = settingsPath()
+    await saveDisplay(path, choice)
+    const after = setting()
+    const said = displayReport(choice, path, env())
+    if (after.source !== path) {
+      return `${said}\nBut ${after.source} (${after.choice}) wins in this session; the file applies once it is unset.`
+    }
+    return `${said}\nThe next view draws ${resolveDisplay(choice, env()) === 'mod' ? 'in the sigil widget' : 'in a split'}.`
+  }
 
   /** The file as an absolute path, or why it cannot be shown. */
   async function located(cwd: string, file: string): Promise<string | { error: string }> {
@@ -336,7 +390,7 @@ export default function sigil(pi: Pi): void {
     request = req
     const mux = detectMux(env())
     if (mux === null) {
-      return `sigil: display is multiplex, but no herdr, tmux or zellij session was found; start pi with --${FLAG} mod.`
+      return `sigil: display is multiplex, but no herdr, tmux or zellij session was found; /${COMMAND} display mod draws in the widget.`
     }
     const control = JSON.stringify({ argv: viewArgv(req) })
     if (split !== null && split.mux === mux && (await isAlive(split))) {
@@ -372,9 +426,9 @@ export default function sigil(pi: Pi): void {
 
   pi.registerFlag(FLAG, {
     description: 'Where the sigil viewer draws: mod (a widget above the editor), multiplex '
-      + '(a herdr / tmux / zellij split running view.py live) or auto (multiplex inside a multiplexer, else mod).',
+      + '(a herdr / tmux / zellij split running view.py live) or auto (multiplex inside a multiplexer, else mod). '
+      + `Unset: SIGIL_DISPLAY, then ${settingsPath()} (/${COMMAND} display sets it), then auto.`,
     type: 'string',
-    default: 'auto',
   })
 
   pi.registerTool({
@@ -391,8 +445,16 @@ export default function sigil(pi: Pi): void {
   })
 
   pi.registerCommand(COMMAND, {
-    description: 'Show a Sigil file in the viewer widget (any width), step or play its run, or close it',
+    description: 'Show a Sigil file in the viewer widget (any width), step or play its run, close it, '
+      + `or set where it draws (display ${DISPLAYS.join('|')})`,
     async handler(args, ctx) {
+      const asked = parseDisplayArgs(args)
+      if (asked !== null) {
+        if ('error' in asked) return ctx.ui.notify(`sigil: ${asked.error}`, 'error')
+        const text = await displayCommand(asked.choice)
+          .catch((err: unknown) => `sigil: could not save the display setting (${String(err)})`)
+        return ctx.ui.notify(text, text.startsWith('sigil:') ? 'error' : 'info')
+      }
       const { action, input } = commandWords(args)
       if (action === 'close') return closeWidget()
       if (action !== undefined) {

@@ -153,7 +153,9 @@ is the plugin's `display` option:
 - `auto` (the default) picks `multiplex` when `HERDR_ENV`, `TMUX` or `ZELLIJ` is
   set, and `mod` otherwise.
 
-Set it in `/config`, or under `pluginConfigs` in settings.
+Set it with `/sigil-pane display mod|multiplex|auto` (`/sigil-pane display`
+says what it is now and what `auto` picks here), in `/config`, or under
+`pluginConfigs` in settings.
 
 ### Codex
 
@@ -182,8 +184,9 @@ The pi package also carries a viewer extension, which works like the Claude Code
 mod. The agent gets a `sigil_view` tool, and you get a `/sigil-pane` command. With
 `mod` display it draws in a widget above the editor, and a widget you didn't ask
 for needs 144 columns. With `multiplex` it opens a herdr, tmux or zellij split.
-`auto` picks between them the same way. Choose with `pi --sigil-display
-auto|mod|multiplex`, or set `SIGIL_DISPLAY`.
+`auto` picks between them the same way. Choose with `/sigil-pane display
+mod|multiplex|auto`, which saves it to `~/.config/sigil/viewer.json`; for one
+session, `pi --sigil-display …` or `SIGIL_DISPLAY` wins over that.
 
 ### OpenCode
 

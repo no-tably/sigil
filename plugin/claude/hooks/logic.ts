@@ -32,6 +32,51 @@ export function resolveDisplay(option: unknown, env: MuxEnv): Display {
   return detectMux(env) === null ? 'mod' : 'multiplex'
 }
 
+/** The `display` values a person sets: auto picks by the multiplexer rule. */
+export const DISPLAYS = ['mod', 'multiplex', 'auto'] as const
+export type DisplayChoice = (typeof DISPLAYS)[number]
+
+export function isDisplayChoice(value: unknown): value is DisplayChoice {
+  return typeof value === 'string' && (DISPLAYS as readonly string[]).includes(value)
+}
+
+/** Where a display setting stands: the first source that holds a value, by
+ * precedence (a value that is not a display choice counts as `auto`). */
+export function pickDisplay(sources: readonly (readonly [source: string, value: unknown])[], fallback: string):
+  { choice: DisplayChoice; source: string } {
+  for (const [source, value] of sources) {
+    if (typeof value === 'string' && value !== '') return { choice: isDisplayChoice(value) ? value : 'auto', source }
+  }
+  return { choice: 'auto', source: fallback }
+}
+
+/** What auto resolves to here, in words: `multiplex (herdr detected)`. */
+export function autoWords(env: MuxEnv): string {
+  const mux = detectMux(env)
+  return mux === null ? 'mod (no multiplexer detected)' : `multiplex (${mux} detected)`
+}
+
+/** The display reply every viewer plugin gives (docs/tools.md, the viewer
+ * plugin contract): `display: auto → multiplex (herdr detected) · from SOURCE`,
+ * or for a value set outright `display: mod · from SOURCE · auto here → …`. */
+export function displayReport(choice: DisplayChoice, source: string, env: MuxEnv): string {
+  return choice === 'auto'
+    ? `display: auto → ${autoWords(env)} · from ${source}`
+    : `display: ${choice} · from ${source} · auto here → ${autoWords(env)}`
+}
+
+/** `/sigil-pane display [VALUE]`: null when the words are not that command;
+ * `{}` asks for the setting, `{ choice }` sets it; a bad value is named. */
+export function parseDisplayArgs(args: string): { choice?: DisplayChoice } | { error: string } | null {
+  const words = args.trim().split(/\s+/).filter(w => w !== '')
+  if (words[0] !== 'display') return null
+  if (words.length > 2) return { error: `display takes one value: ${DISPLAYS.join(', ')}` }
+  const value = words[1]
+  if (value === undefined) return {}
+  if (!isDisplayChoice(value)) return { error: `display must be one of ${DISPLAYS.join(', ')} (got "${value}")` }
+  return { choice: value }
+}
+
 export type Asked = { request: ViewRequest; frame?: number; play?: boolean }
 
 function depthOf(value: unknown): number | undefined {
@@ -66,7 +111,8 @@ export function parseRequest(input: Record<string, unknown>, previous: ViewReque
 }
 
 /** /sigil's words as tool input: `FILE`, a view name, `depth N|all`,
- * `sim SCENARIO`, `frame N|last`, `play`, `payloads`, in any order. */
+ * `sim SCENARIO`, `frame N|last`, `play`, `payloads`, in any order. `display
+ * [VALUE]` is a command of its own (parseDisplayArgs), never a file name. */
 export function parseCommandArgs(args: string): Record<string, unknown> {
   const words = args.trim().split(/\s+/).filter(w => w !== '')
   const out: Record<string, unknown> = {}
@@ -76,6 +122,10 @@ export function parseCommandArgs(args: string): Record<string, unknown> {
     if ((VIEWS as readonly string[]).includes(word)) out.view = word
     else if (word === 'play') out.play = true
     else if (word === 'payloads') out.payloads = true
+    else if (word === 'display') {
+      out.display = isDisplayChoice(value) ? value : ''
+      if (isDisplayChoice(value)) i++
+    }
     else if ((word === 'depth' || word === 'sim' || word === 'frame') && value !== undefined) {
       out[word === 'sim' ? 'scenario' : word] = value
       i++

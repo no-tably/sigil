@@ -10,11 +10,11 @@ import type { EngineInterface, Register, UiOpenResult } from 'claude-code'
 import type { Drawing, Playback, Split, ViewRequest } from '../types'
 import {
   COMMAND, DEFAULT_WIDTH, PANE, RASTER_COLUMNS, TOOL, UNASKED_COLUMNS,
-  detectMux, drawArgv, frameIndex, herdrPaneOf, herdrReadyArgv, nextDepth, nextView, parseCommandArgs,
-  parseDrawing, parseRequest, rasterCells, replyText, resolveDisplay, rowsWidth, runLines,
+  detectMux, displayReport, drawArgv, frameIndex, herdrPaneOf, herdrReadyArgv, isDisplayChoice, nextDepth,
+  nextView, parseCommandArgs, parseDisplayArgs, parseDrawing, parseRequest, rasterCells, replyText, resolveDisplay, rowsWidth, runLines,
   shellQuote, slices, splitArgv, statusLine, viewArgv,
 } from './logic'
-import type { Asked, Display } from './logic'
+import type { Asked, Display, DisplayChoice } from './logic'
 
 const request = atom({ plugin: 'sigil', key: 'request' } as const, null)
 const drawing = atom({ plugin: 'sigil', key: 'drawing' } as const, null)
@@ -173,7 +173,9 @@ async function showInSplit($: $, asked: Asked): Promise<string> {
   const req = { ...asked.request, file: path }
   await update($, request, () => req)
   const mux = detectMux(await muxEnv($))
-  if (mux === null) return 'sigil: display is multiplex, but no herdr, tmux or zellij session was found; set display to mod.'
+  if (mux === null) {
+    return `sigil: display is multiplex, but no herdr, tmux or zellij session was found; /${COMMAND} display mod draws in the pane.`
+  }
   const control = JSON.stringify({ argv: viewArgv(req) })
   const held = await read($, split)
   if (held !== null && held.mux === mux && (await isAlive($, held))) {
@@ -226,6 +228,32 @@ async function show($: $, input: Record<string, unknown>, display: Display, isAs
   return display === 'multiplex' ? showInSplit($, asked) : showInPane($, asked, isAsked)
 }
 
+/** The plugin's own `display` row in /config: `<plugin>.display` as the
+ * menu lists it (an inline or marketplace plugin may carry a suffix). */
+async function displayKey($: $): Promise<string> {
+  const name = $.plugin.name
+  const rows = await $.config.list().catch(() => [])
+  const row = rows.find(r => r.key === `${name}.display`)
+    ?? rows.find(r => r.key.endsWith('.display') && (r.key.startsWith(`${name}@`) || r.provider.plugin === name))
+  return row?.key ?? `${name}.display`
+}
+
+/** `/sigil-pane display [VALUE]`: the setting in words, or the row changed.
+ * A change reloads the module with the new options, so the reply is made
+ * before the write and says what the next view does. */
+async function displayCommand($: $, current: unknown, choice: DisplayChoice | undefined): Promise<string> {
+  const key = await displayKey($)
+  const env = await muxEnv($)
+  const source = `/config ${key}`
+  if (choice === undefined) return displayReport(isDisplayChoice(current) ? current : 'auto', source, env)
+  if (choice === current) return `${displayReport(choice, source, env)} (unchanged)`
+  const set = await $.config.set({ key, value: choice })
+    .catch((err: unknown) => ({ deny: err instanceof Error ? err.message : String(err) }))
+  if (set.deny !== undefined) return `sigil: display stays ${String(current)}: ${set.deny}`
+  const resolved = resolveDisplay(choice, env)
+  return `${displayReport(choice, source, env)}\nThe next view draws ${resolved === 'mod' ? 'in the sigil pane' : 'in a split'}.`
+}
+
 /** A key of the pane's: a new request redrawn, or a playback step. */
 async function press($: $, change: (req: ViewRequest) => ViewRequest): Promise<void> {
   const req = await read($, request)
@@ -241,8 +269,8 @@ export const register: Register = (on, options) => {
     await $.tool.register({ name: 'view', description: TOOL_DESCRIPTION, inputSchema: TOOL_SCHEMA })
     await $.command.register({
       name: 'sigil-pane',
-      description: 'Show a Sigil file in the viewer pane (any width), or reopen the last one',
-      argumentHint: '[FILE] [graph|tree|flow] [depth N|all] [sim SCENARIO] [frame N|last] [play]',
+      description: 'Show a Sigil file in the viewer pane (any width), reopen the last one, or set where it draws (display)',
+      argumentHint: '[FILE] [graph|tree|flow] [depth N|all] [sim SCENARIO] [frame N|last] [play] | display [mod|multiplex|auto]',
     })
     return started
   })
@@ -254,6 +282,8 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => ({ result: `sigil: the viewer failed (${next.error.kind}); view.py --once still prints the drawing.` }))
 
   on('command.run', { command: 'sigil-pane' }, async ($, e) => {
+    const asked = parseDisplayArgs(e.args)
+    if (asked !== null) return { text: 'error' in asked ? `sigil: ${asked.error}` : await displayCommand($, options.display, asked.choice) }
     const display = resolveDisplay(options.display, await muxEnv($))
     const input = parseCommandArgs(e.args)
     if (Object.keys(input).length === 0 && display === 'mod' && (await read($, request)) !== null) {

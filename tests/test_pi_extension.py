@@ -10,8 +10,10 @@ Covers:
   - plugin/pi/tests/drive.mjs driving the built extension: registration,
     the 144-column rule for a widget nobody asked for, /sigil-pane opening it at any
     width, a run stepped, close, a missing file, no UI, and a multiplexer split
-    (a fake tmux on PATH) — once with a stand-in API, and again through an
-    installed pi's own loader when `pi` is on PATH.
+    (a fake tmux on PATH), and `/sigil-pane display` (the shared settings
+    file under a temp XDG_CONFIG_HOME, and its precedence: --sigil-display >
+    SIGIL_DISPLAY > the file > auto) — once with a stand-in API, and again
+    through an installed pi's own loader when `pi` is on PATH.
 
 Run:  python3 -m unittest discover tests
 """
@@ -156,8 +158,9 @@ class DriveMixin:
         (fake / "tmux").write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$FAKE_TMUX_LOG"\necho "%9"\n')
         (fake / "tmux").chmod(0o755)
         cls.tmux_log = tmp / "tmux.log"
+        cls.settings = tmp / "xdg" / "sigil" / "viewer.json"
         env = dict(os.environ, PATH=f"{fake}{os.pathsep}{os.environ['PATH']}",
-                   FAKE_TMUX_LOG=str(cls.tmux_log), TMPDIR=str(tmp))
+                   FAKE_TMUX_LOG=str(cls.tmux_log), TMPDIR=str(tmp), XDG_CONFIG_HOME=str(tmp / "xdg"))
         argv = [NODE, str(DRIVE), str(index), str(SHOP.relative_to(ROOT))]
         if cls.pi_dir is not None:
             argv.append(str(cls.pi_dir))
@@ -175,6 +178,8 @@ class DriveMixin:
         self.assertEqual(self.out["tools"], ["sigil_view"])
         self.assertEqual(self.out["commands"], ["sigil-pane"])
         self.assertEqual(self.out["flags"], ["sigil-display"])
+        # no default: an unset flag leaves SIGIL_DISPLAY and the file to speak
+        self.assertEqual(self.out["flagDefaults"], {"sigil-display": None})
 
     def test_an_unasked_widget_waits_below_144_columns(self):
         s = self.steps["narrow tool call"]
@@ -225,6 +230,38 @@ class DriveMixin:
         self.assertEqual(argv[:3], ["split-window", "-h", "-d"])
         self.assertIn("follow", argv)
         self.assertTrue(argv[argv.index("follow") - 1].endswith("skills/sigil/scripts/pane.py"))
+
+    def note(self, name: str) -> list:
+        notes = self.steps[name]["notes"]
+        self.assertEqual(len(notes), 1, notes)
+        return notes[0]
+
+    def test_display_says_the_setting_its_source_and_auto_here(self):
+        self.assertEqual(self.note("display default"),
+                         ["info", "display: auto → multiplex (tmux detected) · from the default"])
+        self.assertEqual(self.note("display from the env"),
+                         ["info", "display: multiplex · from SIGIL_DISPLAY · auto here → multiplex (tmux detected)"])
+        self.assertEqual(self.note("display from the flag"),
+                         ["info", "display: mod · from --sigil-display · auto here → multiplex (tmux detected)"])
+
+    def test_display_value_is_saved_to_the_shared_file_and_used_at_once(self):
+        level, text = self.note("display set mod")
+        self.assertEqual(level, "info")
+        self.assertTrue(text.startswith(f"display: mod · from {self.settings} · auto here"), text)
+        self.assertIn("The next view draws in the sigil widget.", text)
+        level, text = self.note("display from the file")
+        self.assertTrue(text.startswith(f"display: mod · from {self.settings}"), text)
+        after = self.steps["a call after the file says mod"]
+        self.assertIn("Shown in the sigil widget", after["reply"])   # tmux is set, the file says mod
+        self.assertTrue(after["widget"])
+        # the last write (auto, under the flag) is what the file holds
+        self.assertEqual(json.loads(self.settings.read_text()), {"display": "auto"})
+
+    def test_display_under_a_flag_says_the_flag_wins_and_bad_values_are_named(self):
+        level, text = self.note("display set under the flag")
+        self.assertIn("But --sigil-display (mod) wins in this session", text)
+        self.assertEqual(self.note("display bad"),
+                         ["error", 'sigil: display must be one of mod, multiplex, auto (got "side")'])
 
 
 @unittest.skipUnless(STRIPS, "node with TypeScript type stripping not on PATH")

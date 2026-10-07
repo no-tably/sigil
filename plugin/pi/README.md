@@ -19,7 +19,12 @@ The extension imports only `node:` builtins and `./logic.ts`, so it loads in any
 with extensions. That holds whichever name pi's own packages go by, and
 `build.py --check` enforces it. The tool's parameters are plain JSON Schema, not
 TypeBox, for the same reason. The command is `/sigil-pane`, the same name as the
-Claude Code mod's.
+Claude Code mod's, and it follows the same
+[viewer plugin contract](../../docs/tools.md#the-viewer-plugin-contract). pi has no
+plugin settings, so `/sigil-pane display VALUE` saves the display to the shared
+`~/.config/sigil/viewer.json` (under `$XDG_CONFIG_HOME` when set). The flag
+`--sigil-display` wins over `SIGIL_DISPLAY`, which wins over the file; with none
+set it's `auto`.
 
 ## Develop
 
