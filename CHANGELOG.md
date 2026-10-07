@@ -2,7 +2,7 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
-## 0.4.0 — unreleased
+## 0.4.0 — 2026-10-08
 
 Two new views, a viewer inside your coding agent, drawings that fit the window, and
 a simulator you can read.
