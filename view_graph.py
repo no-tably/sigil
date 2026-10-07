@@ -838,6 +838,7 @@ class _Stub(NamedTuple):
 
 
 _TEE = {"┘": "┤", "╯": "┤", "┛": "┩", "╝": "╣", "╜": "╢"}     # a box corner the stubs leave from
+_DOUBLE_BENDS = ("╟", "╙")      # under a ╢ ╣ tee: its double line runs on into the light stubs
 
 
 def _reach(w: int, stubs) -> int:
@@ -854,13 +855,14 @@ def _draw_stubs(cv: kit.Canvas, x, y, w, n, stubs, styles: dict) -> dict:
     if not stubs:
         return {}
     spots = {}
-    corner = _border(n).br
-    cv.put(x + w - 1, y + BOX_H - 1, _TEE.get(corner, "┤"), kit.node_styles(n)[0])
+    tee = _TEE.get(_border(n).br, "┤")
+    cv.put(x + w - 1, y + BOX_H - 1, tee, kit.node_styles(n)[0])
+    mid, last = _DOUBLE_BENDS if tee in "╢╣" else ("├", "└")
     dim = (kit.GREY["dim"], None, False)
     for k, st in enumerate(stubs):
         e = st.wire
         style = styles.get(e.key) or kit.edge_style(e.kind)
-        bend = "└" if k == len(stubs) - 1 else "├"
+        bend = last if k == len(stubs) - 1 else mid
         sx, sy = x + w - 1, y + BOX_H + k
         cv.put(sx, sy, bend + "─" + kit.SOURCE_MARK.get(e.kind, "●"), style)
         spots[e.ident] = (sx + 2, sy)
