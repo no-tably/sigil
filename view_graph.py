@@ -1709,8 +1709,9 @@ def _tags(scn, notes: bool, mods: bool) -> dict:
     key): `⇱` on the far node of an external op call (SceneNode.external), #N
     note tags (notes), then a node's modifiers (mods) and a store's writer
     badges (the Scene's, with the access option); `↩` on the `=>` edge a
-    self-call returns along (Wire.returns_of), a landed event's name, then
-    the #N of the inline notes about its edge's line."""
+    self-call returns along (Wire.returns_of), a landed event's name, a
+    qualified path's prefix (`[Bullet]/`, _path_tags), then the #N of the
+    inline notes about its edge's line."""
     tags = {nid: [(" ⇱", kit.SYNTAX["operator"])] for nid, sn in scn.nodes.items()
             if sn.external}
     note_runs = {}
@@ -1728,7 +1729,7 @@ def _tags(scn, notes: bool, mods: bool) -> dict:
         if sn.badges:
             tags[nid] = tags.get(nid, []) + [(" " + badge, (kit.EDGE_COLOR["access"], None, True))
                                              for badge in sn.badges]
-    heads = [_return_tags(scn), _landed_tags(scn), note_runs]
+    heads = [_return_tags(scn), _landed_tags(scn), _path_tags(scn), note_runs]
     for key in set().union(*heads):
         parts = [h[key] for h in heads if key in h]
         tags[key] = [run for k, runs in enumerate(parts) for run in [(" ", None)][:k] + runs]
@@ -1749,6 +1750,24 @@ def _return_tags(scn) -> dict:
     operator colour like the call marks."""
     return {w.key: [("↩", kit.SYNTAX["operator"])] for w in scn.wires
             if w.returns_of is not None}
+
+
+def _path_tags(scn) -> dict:
+    """{key: runs}: the qualifying path of a flow into a qualified path
+    (`[Homing] -> [Bullet]/{Transform}`, Wire.paths) beside its head — the
+    path's leading glyphs and their slashes (`[Bullet]/`), since the graph has
+    one box per name and the edge would read as reaching every `{Transform}`.
+    A path name with no node of its own shows bare (`Bullet/`)."""
+    labels = {}
+    for sn in scn.nodes.values():
+        labels.setdefault(sn.node.name, kit.node_label(sn.node))
+    out = {}
+    for w in scn.wires:
+        path = w.paths[1]
+        if path and len(path) > 1 and w.key not in out:
+            out[w.key] = [("".join(labels.get(name, name) + "/" for name in path[:-1]),
+                           kit.LABEL_STYLE)]
+    return out
 
 
 def _node_mods(g) -> dict:
@@ -1785,8 +1804,9 @@ def graph_legend(triggers: bool = True, payloads: bool = False, access: bool = F
     """Legend row for the graph view: the stroke and head of each arrow type,
     then the trigger edge, an event drawn where it lands (events "land": the
     event-coloured edge emitter → destination, its name beside the head),
-    structure marks (block frames, joins, branch arms), the call marks (a
-    box's self-call ↺, recursion ↻, host-provided op ⇱), the permission edges,
+    structure marks (block frames, joins, branch arms, a qualified path's
+    `[A]/` beside its head), the call marks (a box's self-call ↺, recursion ↻,
+    host-provided op ⇱), the permission edges,
     payload chips (with a call's `↩` return) and modifier chips when they are
     shown."""
     dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
@@ -1806,7 +1826,8 @@ def graph_legend(triggers: bool = True, payloads: bool = False, access: bool = F
     row += [("╭╌ ↺ ∥ ◇ □", kit.FRAME_STYLE), (" block frame  ", mid),
             ("┄‹arm›┄", (kit.EDGE_COLOR["arm"], None, False)), (" branch arm  ", mid),
             ("━┷━ &", kit.LABEL_STYLE), (" join: all  ", mid), ("&?", kit.LABEL_STYLE),
-            (" race  ", mid), ("/", kit.LABEL_STYLE), (" one of  ", mid)]
+            (" race  ", mid), ("/", kit.LABEL_STYLE), (" one of  ", mid),
+            ("▼ [A]/", kit.LABEL_STYLE), (" in path  ", mid)]
     op = kit.SYNTAX["operator"]
     row += [("↺", op), (" self-call  ", mid), ("↻", op), (" recursion  ", mid),
             ("⇱", op), (" host op  ", mid)]

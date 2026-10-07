@@ -85,7 +85,7 @@ triggers), so a construct reads the same in the graph and the tree. Re-graded fr
 - **Simulation** (`x`, `--sim`): not a drawing grade — see "Simulation over this
   fixture" below.
 
-Still open: block-comment anchoring (85), path chips in the graph (81).
+Still open: block-comment anchoring (85).
 
 ## Construct table
 
@@ -171,7 +171,7 @@ Still open: block-comment anchoring (85), path chips in the graph (81).
 | 78 | `(N)-` weight | `\-(3)-> [ZoneA]`, `\-(1)-> [ZoneB]` | LOST | DRAWN | tree `├─(3)─ [ZoneA]`, `└─(1)─ [ZoneB]` | maybe a share bar `███░` | — |
 | 79 | child count `×N` | `\-*-> [Bullet] ×N` | WEAK | DRAWN | with `m`: tree `├─* [Bullet] ×N`; graph: the `[Bullet] ×N` box (composition itself is not in the graph) | done (view.py) | KEPT: node mod ("×", "N") on `[Bullet]` |
 | 80 | inline branch | `[Log] \-& {Scrollable}` | LOST | DRAWN | tree `[Log]` / `└─& {Scrollable}` | — | — |
-| 81 | qualified path `[A]/{B}` | `[Homing] -> [Bullet]/{Transform}` | WEAK | DRAWN | graph: one `{Transform}` box, Homing's edge indistinguishable from Physics' (path dropped). Tree: `[Physics]` taps both `{Transform}` rows, `[Homing]` only `│  ├─& {Transform} ◀──┼─┐` under `[Bullet]` | graph: path chip `/Bullet` on the edge head | — |
+| 81 | qualified path `[A]/{B}` | `[Homing] -> [Bullet]/{Transform}` | DRAWN | DRAWN | graph: still one `{Transform}` box, but Homing's edge carries the path's prefix beside its head (`▼ [Bullet]/`, `[Ship]/[Bullet]/` for a deeper path; a name with no box of its own shows bare, `Ship/`), Physics' edge none; legend `▼ [A]/ in path`. Tree: `[Physics]` taps both `{Transform}` rows, `[Homing]` only `│  ├─& {Transform} ◀──┼─┐` under `[Bullet]` | done (view.py) | — |
 | 82 | permission `@read(…)` / `@write(…)` | `*\|AuditLog\| @read(Auditor) @write(Api, Worker)`, `\|Directives\| @read(Worker) @write(Boss)` | DRAWN | DRAWN | with `a`: dotted access edges principal → store headed `r` / `w` (graph), lanes whose source is marked `r` / `w` (tree); stores badged `\|Directives\| 1w`, `*\|AuditLog\| 2w` (one writer owns it vs shared) | done (view.py) | KEPT: `Graph.access` read/write, principals resolved to node ids |
 | 83 | generic role | `[Worker<N>]` (`@read(Worker)`) | DRAWN | DRAWN | a generic glyph an `@read`/`@write` list names is a role (Node.is_role): its generics in ‹ › (`[Worker‹N›]`, both views) and, in the graph, a stacked box with a double right side (`┌─────────────╖ │ [Worker‹N›] ║ └─────────────╜`); the tree row `[Worker‹N›]`, `[R‹N›] role: N members` in its legend. `[Cache<K,V>]` (no principal) stays a plain box | done (view.py) | FIXED: `[Worker<N>]` one node; `@read(Worker)` resolves by `base_name` when no exact `[Worker]`; `Node.is_role` marks the role (also when an exact `[Worker]` takes the edge) |
 | 84 | block comment above | `# order lifecycle, driven by events` / `state {Order}` | DRAWN | DRAWN | `{Order} ¶10`; callout `╭ ¶10 order lifecycle, ╮ ──── {Order} ¶10` | — | — |

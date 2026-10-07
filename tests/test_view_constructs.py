@@ -21,6 +21,8 @@ Covers (each in the graph view and the tree + wires view):
      note; a `@borrow(read)`'s ƀ head / lane; an error path's chip led by ✖ (tree).
  11. tree: an expansion's members on dotted rails (├┄┄ ┆), apart from `\\->`'s
      solid ├──; a brace (⎫ ⎪ ⎭) joining a run of `\\-_` one-of siblings.
+ 12. graph: a flow into a qualified path `[Bullet]/{Transform}` carries the
+     path's prefix `[Bullet]/` beside its head; a bare flow to the name none.
 
 Run:  python3 -m unittest discover tests
 """
@@ -525,6 +527,24 @@ class TestInternalsAndOneOf(unittest.TestCase):
         plain = legend("[A] -> [B]\n")
         self.assertNotIn("internals", plain)
         self.assertIn("_ one of", plain)
+
+
+class TestQualifiedPaths(unittest.TestCase):
+    DOC = ("[Ship]\n    \\-*-> [Bullet]\n        \\-& {Transform}\n"
+           "[Physics] -> {Transform}\n[Homing] -> [Bullet]/{Transform}\n")
+
+    def test_path_prefix_sits_beside_the_head(self):
+        out = graph(self.DOC)
+        self.assertRegex(out, r"▼ \[Bullet\]/")
+        self.assertEqual(out.count("[Bullet]/"), 1)         # Physics' edge: no chip
+
+    def test_deeper_paths_and_unknown_names(self):
+        out = graph("[Ship]\n    \\-*-> [Bullet]\n[A] -> [Ship]/[Bullet]/{Transform}\n")
+        self.assertIn("▼ [Ship]/[Bullet]/", out)
+        self.assertIn("▼ Ship/", graph("[A] -> [Ship]/{T}\n"))   # no [Ship] node: bare
+
+    def test_legend_lists_the_path_mark(self):
+        self.assertIn("[A]/ in path", "".join(t for t, _ in view.graph_legend()))
 
 
 class TestCoverageFixture(unittest.TestCase):
