@@ -11,7 +11,9 @@ Covers:
   - sim.failure_analysis (a worklist now, not every activation checked every
     round): a long chain still runs each activation a bounded number of times;
   - check_state's Facts.wires_within (flows indexed by source) against the plain
-    filter over every flow, in flow order.
+    filter over every flow, in flow order;
+  - view_run's per-lane lookups (_by_lane / _of_lanes): the items naming a
+    family of lanes, in their order, each once.
 
 Run:  python3 -m unittest discover tests
 """
@@ -35,7 +37,7 @@ def _load(name: str, fname: str):
 
 
 view = _load("sigil_view_perf", "view.py")
-kit, vgraph, sim = view.kit, view.vgraph, view.simulator
+kit, vgraph, sim, vrun = view.kit, view.vgraph, view.simulator, view.vrun
 ck = _load("sigil_check_perf", "check.py")
 cs = _load("sigil_check_state_perf", "check_state.py")
 
@@ -221,6 +223,13 @@ class IndexedLookups(unittest.TestCase):
                                  [w for w in f.flows if w.src in members
                                   and w.dst in members and pick(w)])
         self.assertTrue(f.wires_within(frozenset(ids), lambda w: True))
+
+    def test_of_lanes_keeps_order_once_each(self):
+        items = [("a", "b"), ("c",), ("b", "b"), ("d",), ("a",)]
+        at = vrun._by_lane(items, lambda it: it)
+        self.assertEqual(vrun._of_lanes(items, at, {"a", "b"}),
+                         [("a", "b"), ("b", "b"), ("a",)])
+        self.assertEqual(vrun._of_lanes(items, at, {"z"}), [])
 
 
 if __name__ == "__main__":

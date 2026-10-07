@@ -560,6 +560,20 @@ class Clause(NamedTuple):
 OUTCOME, ROLE, REPEAT, WHO, ENTRY, MINOR = 9, 6, 5, 4, 3, 1
 
 
+def _by_lane(items: list, lanes_of) -> dict:
+    """{lane key: [the indices of the items that name it]} (lanes_of(item))."""
+    out = {}
+    for i, it in enumerate(items):
+        for k in lanes_of(it):
+            out.setdefault(k, []).append(i)
+    return out
+
+
+def _of_lanes(items: list, at: dict, fam) -> list:
+    """The items naming any lane of fam, in their order, each once."""
+    return [items[i] for i in sorted({i for k in fam for i in at.get(k, ())})]
+
+
 def lane_notes(tl, scn, numbered: set, tick: int, final: bool) -> dict:
     """{lane key: [Clause, …]}: each lane's run in plain words as far as
     `tick` — who (whose instance, who spawned it, a fold's), its role (an
@@ -584,16 +598,24 @@ def lane_notes(tl, scn, numbered: set, tick: int, final: bool) -> dict:
     rows = {}                           # lane key → it and its ∥ sub-rows
     for ln in tl.lanes:
         rows.setdefault(ln.key[:3], set()).add(ln.key)
+    # Each lane's spans, moves (by source, by destination) and marks, by index.
+    span_at = _by_lane(spans, lambda s: (s.lane,))
+    src_at, dst_at = _by_lane(moves, lambda m: m.src), _by_lane(moves, lambda m: m.dst)
+    mark_at = _by_lane(marks, lambda m: (m.lane,))
+    loops_at = {}
+    for it in tl.iterations:
+        loops_at.setdefault(it.act, []).append(it)
     out = {}
     for ln in tl.lanes:
         if ln.born > tick or ln.level > 1 or ln.levels or ln.par > 1:
             continue
         fam = rows[ln.key]
-        mine = [s for s in spans if s.lane in fam]
+        mine = _of_lanes(spans, span_at, fam)
         acts = {s.act for s in mine}
-        into = [m for m in moves if fam & set(m.dst) and not m.back]
-        outof = [m for m in moves if fam & set(m.src) and not m.back]
-        replies = [m for m in moves if fam & set(m.src) and m.back]
+        into = [m for m in _of_lanes(moves, dst_at, fam) if not m.back]
+        from_fam = _of_lanes(moves, src_at, fam)
+        outof = [m for m in from_fam if not m.back]
+        replies = [m for m in from_fam if m.back]
         kind = _kind_of(scn, ln.node)
         cl = []
         if ln.fold:
@@ -653,7 +675,7 @@ def lane_notes(tl, scn, numbered: set, tick: int, final: bool) -> dict:
         returned = [m for m in replies if m.how == "returned" and m.carries]
         if returned:
             cl.append(Clause(f"returns {returned[-1].carries}", ROLE))
-        mine_marks = [m for m in marks if m.lane in fam]
+        mine_marks = _of_lanes(marks, mark_at, fam)
         selfs = [m for m in mine_marks if m.what == "self"]
         hosts = [m for m in mine_marks if m.what == "host"]
         if selfs:
@@ -668,9 +690,10 @@ def lane_notes(tl, scn, numbered: set, tick: int, final: bool) -> dict:
         if len(acts) > 1 and kind != "event":
             cl.append(Clause(f"runs {len(acts)}×{so_far}", REPEAT))
         loops = {}
-        for it in tl.iterations:
-            if it.act in acts and it.t <= tick:
-                loops[it.block] = max(loops.get(it.block, 0), it.k)
+        for act in acts:
+            for it in loops_at.get(act, ()):
+                if it.t <= tick:
+                    loops[it.block] = max(loops.get(it.block, 0), it.k)
         if loops and max(loops.values()) > 1:
             cl.append(Clause(f"loops {max(loops.values())}×{so_far}", REPEAT))
         if ln.key in depth:
@@ -690,7 +713,7 @@ def lane_notes(tl, scn, numbered: set, tick: int, final: bool) -> dict:
             cl.append(Clause("cancelled on the way: lost", OUTCOME, "lost"))
         elif len(attempts) > 1:
             cl.append(Clause(f"{_plural(len(attempts), 'attempt')}{so_far}", REPEAT))
-        fb = [m for m in moves if m.back and m.how == "fallback" and fam & set(m.src)
+        fb = [m for m in replies if m.how == "fallback"
               and m.end is not None and m.end <= tick]
         if fb:
             cl.append(Clause(f"falls back to {fb[-1].carries}", OUTCOME))

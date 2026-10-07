@@ -854,23 +854,24 @@ def path_rows(branches: list, cols: int, hold: bool = False, mono: bool = False)
     def hop(h):
         return [((PATH_NOW if h.now and mono else "") + h.text, bold if h.now else mid)]
 
-    def words(folded: int, cut: int) -> list:
+    def words(folded: int, cut: int):
         """(gap, runs, keep) words, a branch's number and start glued to its first
         hop: the first `folded` branches folded, `cut` hops of the next one left
         out. keep: a branch's width from its first word, to start it on a new row
-        rather than split it when it fits there."""
-        out = []
+        rather than split it when it fits there. Lazy: laid() stops at the
+        first row too many."""
+        any_out = bool(folded)
         if folded:
             span = branch_number(1) + ("" if folded == 1 else "–" + branch_number(folded))
-            out.append(("", [(span + " …", dim)], 0))
+            yield ("", [(span + " …", dim)], 0)
         for i, (start, hs) in enumerate(branches[folded:], folded + 1):
             hs = hs[cut if i == folded + 1 else 0:]
             first = [(branch_number(i) + " ", num), ("…" if cut else start, dim if cut else mid)]
             ws = [first + ([(" ", None)] + hop(hs[0]) if hs else [])] + [hop(h) for h in hs[1:]]
             keep = sum(kit.row_len(w) for w in ws) + len(ws) - 1
-            out.append((PATH_GAP if out else "", ws[0], keep))
-            out += [(" ", w, 0) for w in ws[1:]]
-        return out
+            yield (PATH_GAP if any_out else "", ws[0], keep)
+            any_out = True
+            yield from ((" ", w, 0) for w in ws[1:])
 
     def laid(ws):
         rows, x = [[]], 0
