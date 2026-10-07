@@ -73,7 +73,7 @@ editor, brought forward. All four draw the URL shortener.</p>
   <div class="vsec-text">
     <h2 id="vh-graph"><span class="vsec-n">1</span> graph</h2>
     <p class="vsec-what">The whole design at once: layered boxes coloured by glyph, every arrow its own stroke.</p>
-    <pre class="snippet cmd">view.py shortener.sigil  # key 1</pre>
+    <pre class="snippet cmd">view.py shortener.sigil --graph</pre>
   </div>
 </section>
 <section class="vsec" id="view-tree" data-view="tree" aria-labelledby="vh-tree">
@@ -87,7 +87,7 @@ editor, brought forward. All four draw the URL shortener.</p>
   <div class="vsec-text">
     <h2 id="vh-flow"><span class="vsec-n">3</span> flow</h2>
     <p class="vsec-what">Who calls whom: the call graph left to right, each payload on its wire.</p>
-    <pre class="snippet cmd">view.py shortener.sigil --flow</pre>
+    <pre class="snippet cmd">view.py shortener.sigil  # flow, the default</pre>
   </div>
 </section>
 <section class="vsec" id="view-run" data-view="run" aria-labelledby="vh-run">
@@ -261,7 +261,7 @@ editor, brought forward. All four draw the URL shortener.</p>
       stroke. Payloads ride their edges as chips (<kbd>p</kbd>), events wire with a dashed edge
       to the owners whose state they drive, and
       <code class="hl">:=</code> expansions open as sections below, as deep as you ask.</p>
-      <pre class="snippet cmd">view.py design.sigil --depth all</pre>
+      <pre class="snippet cmd">view.py design.sigil --graph --depth all</pre>
     </article>
     <article class="card">
       <h3>tree view</h3>
@@ -274,7 +274,7 @@ editor, brought forward. All four draw the URL shortener.</p>
       <p>The call graph read left to right, like the toy graphs behind this page: bare glyph
       labels in columns by call depth, bent wires between them, each flow's chip on its wire.
       The quickest way to read who calls whom.</p>
-      <pre class="snippet cmd">view.py design.sigil --flow</pre>
+      <pre class="snippet cmd">view.py design.sigil  # the default view</pre>
     </article>
     <article class="card">
       <h3>run view</h3>
@@ -308,7 +308,7 @@ editor, brought forward. All four draw the URL shortener.</p>
   </div>
   <p class="keys"><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd> graph / tree / flow / run <kbd>t</kbd> next view <kbd>x</kbd> simulate <kbd>d</kbd> depth
   <kbd>u</kbd> unroll <kbd>n</kbd> notes <kbd>e</kbd> triggers <kbd>v</kbd> events <kbd>s</kbd> spacing
-  <kbd>p</kbd> payloads <kbd>m</kbd> modifiers <kbd>a</kbd> access <kbd>f</kbd> fit
+  <kbd>p</kbd> payloads <kbd>m</kbd> modifiers <kbd>a</kbd> access <kbd>o</kbd> layout: wrap / pan <kbd>f</kbd> flip
   <kbd>l</kbd> lint <kbd>q</kbd> quit · drag to pan · <code>--once</code> prints a frame
   for agents and CI · <code>--theme</code> picks the same YAML themes as this page.</p>
 </section>
@@ -329,7 +329,7 @@ editor, brought forward. All four draw the URL shortener.</p>
     is new, which flows changed shape.</p></article>
     <article class="card"><h3>lint &amp; normalise</h3><p>Validate against the spec and
     tighten hand-written sketches into normal form.</p></article>
-    <article class="card"><h3>draw</h3><p>Check the graph with <code>view.py --once</code>,
+    <article class="card"><h3>draw</h3><p>Check the drawing with <code>view.py --once</code>,
     or emit Mermaid for docs with <code>render.py</code>.</p></article>
   </div>
   <p class="small">Commands: <code>sigil-view &lt;file&gt;</code> draws a document;

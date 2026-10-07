@@ -110,13 +110,13 @@ class TestBuild(unittest.TestCase):
         self.assertEqual(list(site.PLANE_VIEWS), list(site.view.VIEWS))
 
     def test_frames_fit_the_plane(self):
-        # the views that wrap draw within PLANE_COLS, so a plane brought forward
-        # is readable rather than scaled down to fit
+        # every view wraps, so each draws within PLANE_COLS and a plane brought
+        # forward is readable rather than scaled down to fit
         def width(i):
             return max((sum(len(t) for t, _s in row) for row in self.frames["frames"][i]), default=0)
         for ex in self.frames["examples"]:
             for step in ex["steps"]:
-                for name in ("tree", "flow", "run"):
+                for name in site.PLANE_VIEWS:
                     self.assertLessEqual(width(step[name]), site.PLANE_COLS, (ex["id"], name))
         for run in self.frames["runs"]:
             for f in run["frames"]:
