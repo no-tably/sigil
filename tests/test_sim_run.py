@@ -364,6 +364,12 @@ class TestTimelineFolds(unittest.TestCase):
         k = got.index("Builder")
         self.assertEqual(got[k:k + 4], ["Builder", "Builder↻2", "Builder↻3‥5", "Builder↻6"])
 
+    def test_unroll_one_folds_from_the_first_level(self):
+        limits = sim.limits_from(["depth=6"])
+        got = names(timeline(EXECUTIONS, limits=limits, show=1))
+        k = got.index("Builder↻1‥5")
+        self.assertEqual(got[k:k + 2], ["Builder↻1‥5", "Builder↻6"])
+
 
 CONCURRENT = """#!spec
 (User) -> [Api]

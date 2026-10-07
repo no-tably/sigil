@@ -3368,12 +3368,12 @@ def _fold_lanes(lanes: list, spans: list, moves: list, marks: list, born_at: dic
     for ln in lanes:                    # a folded instance's levels go with it
         if ln.level > 1 and (ln.node, ln.key[1], 1) in remap:
             remap[ln.key] = (ln.node, remap[(ln.node, ln.key[1], 1)][1], ln.level)
-    deep = {}
+    deep, inst = {}, dict(remap)        # bases by the instance folds only
     for ln in lanes:
-        base = remap.get((ln.node, ln.key[1], 1), (ln.node, ln.key[1], 1))
+        base = inst.get((ln.node, ln.key[1], 1), (ln.node, ln.key[1], 1))
         deep[base] = max(deep.get(base, 1), ln.level)
     for ln in lanes:
-        base = remap.get((ln.node, ln.key[1], 1), (ln.node, ln.key[1], 1))
+        base = inst.get((ln.node, ln.key[1], 1), (ln.node, ln.key[1], 1))
         top = deep[base]
         if top > show + 1 and show <= ln.level < top:
             remap[ln.key] = (base[0], base[1], f"{show}‥{top - 1}")
