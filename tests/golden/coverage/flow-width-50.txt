@@ -27,77 +27,73 @@
       #10
       *{Rows} ────────────────▶⑦
       ^100 err
-      [Cart] ─────────────────▶⑧
-      [Handler] ──────────────▶⑨
-      v┆query => {Rows}
-⑫──l▶ (Customer) ─────────────▶⑩
+⑩──l▶ (Customer) ─────────────▶⑧
       #3
       a┆{Cart} ┆ ! #4
 
-①─────j▶ ~|Counter|
-⑩─a┬─┬─▶ [Api] ───────────────────┬──▶⑪
-⑤──╯ │   #7                       ╰──▶⑫↑
-⑧────╯   @sla p99<100ms, avail>…
-         b┆{creds}
-         e┆#6
-         g┆charge(amount)
-          ┆↩ {Receipt}
-         h┆score({Cart})
-          ┆@timeout 30s ×3
-          ┆@fallback 0
-         i┆⇱ http.get(${url})
-          ┆@timeout 5s
-          ┆@fallback ${cache}
-         u┆#9
-         l┆"ack"
-②──┬──k▶ ~|Opts|
-   ├──m▶ ~|Limits|
-   ├──n▶ ~|Ratio|
-   ├──o▶ ~|Last|
-   ├──r▶ ~|Merged|
-   ╰──s▶ ~|Scaled|
-③──┬──p▶ ~|History|
-   ╰──q▶ ~|Total|
-④─────t▶ ~|Sys|
-⑥━━━━━━▶ *<Raw> ─────────────────────▶⑬
-         ^10k drop
-⑦──────▶ [Sink]
-⑨─────v▶ |Conn|
+①───j▶ ~|Counter|
+⑧─a┬─▶ [Api] ───────────────────┬──▶⑨
+⑤──╯   #7                       ╰──▶⑩↑
+       @sla p99<100ms, avail>…
+       b┆{creds}
+       e┆#6
+       g┆charge(amount)
+        ┆↩ {Receipt}
+       h┆score({Cart})
+        ┆@timeout 30s ×3
+        ┆@fallback 0
+       i┆⇱ http.get(${url})
+        ┆@timeout 5s
+        ┆@fallback ${cache}
+       u┆#9
+       l┆"ack"
+②──┬k▶ ~|Opts|
+   ├m▶ ~|Limits|
+   ├n▶ ~|Ratio|
+   ├o▶ ~|Last|
+   ├r▶ ~|Merged|
+   ╰s▶ ~|Scaled|
+③──┬p▶ ~|History|
+   ╰q▶ ~|Total|
+④───t▶ ~|Sys|
+⑥━━━━▶ *<Raw> ─────────────────────▶⑪
+       ^10k drop
+⑦────▶ [Sink]
 
-⑪━━┳◀▶ [Cache<K,V>]
-   ┃   #2 @loc eu-west
-   ┣b▶ [Auth] ────────────────────▶⑭
-   ┃   c┆@cap read
-   ┃   d┆? #5
-   ┣╌▶ <OrderPlaced> ═════════════▶⑮
-   ┣┄▶ [Fraud]
-   ┣─▶ [PspA]
-   ┣─▶ [PspB]
-   ┣─▶ [Stock]
-   ┣─▶ [Tax]
-   ┣e▶ [Ghost] ───────────────────▶⑯
-   ┃   f┆#6
-   ┣g▶ [Payment]
-   ┃   @inv idempotent(transa…
-   ┣h▶ [Scorer]
-   ┣i▶ (Web) ⇱
-   ┣u▶ [Shard]
-   ┣─▶ [Replica]
-   ┣━▶ {Resp}
-   ┗━▶ {Err}
-⑬────▶ [Parse] ━━━━━━━━━━━━━━━━━━━▶⑰
+⑨━━┳──◀▶ [Cache<K,V>]
+   ┃     #2 @loc eu-west
+   ┣──b▶ [Auth] ────────────────────▶⑫
+   ┃     c┆@cap read
+   ┃     d┆? #5
+   ┣╌╌╌▶ <OrderPlaced> ═════════════▶⑬
+   ┣┄┄┄▶ [Fraud]
+   ┣─&?▶ [PspA]
+   ┣─&?▶ [PspB]
+   ┣──&▶ [Stock]
+   ┣──&▶ [Tax]
+   ┣──e▶ [Ghost] ───────────────────▶⑭
+   ┃     f┆#6
+   ┣──g▶ [Payment]
+   ┃     @inv idempotent(transa…
+   ┣──h▶ [Scorer]
+   ┣──i▶ (Web) ⇱
+   ┣──u▶ [Shard]
+   ┣───▶ [Replica]
+   ┣━━/▶ {Resp}
+   ┗━━/▶ {Err}
+⑪──────▶ [Parse] ━━━━━━━━━━━━━━━━━━━▶⑮
 
-⑭━━┳d▶ ~{Session}
+⑫━━┳d▶ ~{Session}
    ├c▶ |UserDB|
    ╰─✖ <Unauthorized>
-⑮══╦═▶ [Shipping]
+⑬══╦═▶ [Shipping]
    ╠═▶ [Email]
    ╚═▶ |Ledger|
-⑯───f▶ [?]
-⑰━━━━▶ *<Parsed> ───────▶ [Enrich] ━━━▶⑱
+⑭───f▶ [?]
+⑮━━━━▶ *<Parsed> ───────▶ [Enrich] ━━━▶⑯
        ^10k
 
-⑱━━━▶ *<Enriched> ═╦═▶ |Warehouse|
+⑯━━━▶ *<Enriched> ═╦═▶ |Warehouse|
       ^5 latest    ╠═▶ |RealtimeIdx|
                    ╰─✖ |DLQ|
 
@@ -113,55 +109,80 @@
 [Worker‹N›]   (Auditor)   |Directives|   |Results|
 [Helper]   [[walk]] ▾
 
+╭╌ □ checkout ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
+╎ [Cart] ──▶ [Api]                   ╎
+╎            #7                      ╎
+╎            @sla p99<100ms, avail>… ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+
+╭╌ □ [Handler] @owns |Conn| ╌╌╌╮
+╎ [Handler] ─────────a▶ |Conn| ╎
+╎ a┆query => {Rows}            ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+
 ── Control ───────────────────────────────────────
 
-          [Worker] ↺ ───────────────────────▶①
-          ╰─● ┆ ↺ run() ┆ @deadline 2s ┆
-          a┆pop => {Job}
-          [Payments] ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌▶②
-          <Push> ───────────────────────────▶③
-          [Poller] ─────────────────────────▶④
-          [Pinger] ─────────────────────────▶⑤
-          {Request} ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄▶⑥
-          e┆‹read›
-          f┆‹write›
-          g┆‹admin›
-          h┆‹_›
-    ⑪╍╍╍▶ [Checkout] ▾ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌▶⑦
+    [Payments] ╌╌╌╌╌▶ <Paid> ────┬───▶┐{Order} ▾
+                                 ╰╍┬╍▶┘
+                                   ╏   #13
+╭╍▶ [Checkout] ▾ ╌╌╌▶ <Placed> ╍╍╍╍┤
+╏   <Push> ───────┬─▶┐|Queue| ▾    ╏
+╏                 ╰╍▶┘             ╏
+╰╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╯
 
-    ④────▶ [Api] ──────────────────────▶⑧
-           #7
-           @sla p99<100ms, avail>…
-           b┆reserve => {Hold}
-           c┆score
-           d┆release({Hold})
-    ②╌╌╌╌▶ <Paid> ─────────────────────▶⑨
-    ⑦╌╌╌╌▶ <Placed> ╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍┬╍╍▶⑩
-    ③──┬─▶┐|Queue| ▾                ╰╍╍▶⑪↑
-       ╰╍▶┘
-    ①──┬a▶ |Q|
-       ╰╌▶ <metric> ───────────────────▶⑫
-    ⑤────▶ (Peer)
-    ⑥┄┄┬e▶ [Reader] ────────────────╮
-       ├f▶ [Writer] ────────────────│──▶⑬
-       ├g▶ [AdminSvc]               ╰──▶⑭
-       ┆   @cap admin
-       ╰h▶ <Rejected>
+<Signal> ▾   (Courier) ▾
 
-    ⑧──┬c▶ [Fraud]
-       ├b▶┐[Inventory]
-       ├d✖┘
-       ├─▶ [MirrorA]
-       ├─▶ [MirrorB]
-       ╰╌▶ [Metrics]
-    ⑨──┬─▶┐{Order} ▾
-    ⑩╍╍┴╍▶┘
-           #13
-    ⑫────▶ |Obs|
-    ⑭──┬─▶ |DB| ─────────▶ |WAL|
-    ⑬──╯
+╭╌ ↺ loop @each x of {Items} ╌╌╌╌╌╌╌╌╌╌╌╌╮
+╎ [Worker] ↺ ─────────────────────a▶ |Q| ╎
+╎ ╰─● ┆ ↺ run() ┆ @deadline 2s ┆         ╎
+╎ a┆pop => {Job}                         ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
 
-    {Items}   {Job}   <Signal> ▾   (Courier) ▾
+╭╌ ↺ loop @while |Q|.nonempty ╌╌╌╌╌╌╌╌╌╮
+╎ [Worker] ↺ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌▶① ╎
+╎ ╰─● ┆ ↺ run() ┆ @deadline 2s ┆       ╎
+╎                                      ╎
+╎ ①╌╌╌▶ <metric> ──▶ |Obs|             ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+
+╭╌ ↺ loop @until {Job}.state = done ╌╌╌╮
+╎ [Poller] ──▶ [Api]                   ╎
+╎              #7                      ╎
+╎              @sla p99<100ms, avail>… ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+
+╭╌ ↺ loop @times 3 ╌╌╌╮
+╎ [Pinger] ──▶ (Peer) ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+
+╭╌ ∥ parallel @all ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
+╎ [Api] ───────────────────┬a▶┐[Inventory] ╎
+╎ #7                       ├c✖┘            ╎
+╎ @sla p99<100ms, avail>…  ╰b▶ [Fraud]     ╎
+╎ a┆reserve => {Hold}                      ╎
+╎ b┆score                                  ╎
+╎ c┆release({Hold})                        ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+
+╭╌ ∥ parallel @any ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
+╎ [Api] ───────────────────┬─▶ [MirrorA] ╎
+╎ #7                       ╰─▶ [MirrorB] ╎
+╎ @sla p99<100ms, avail>…                ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+
+╭╌ ∥ parallel @none ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
+╎ [Api] ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌▶ [Metrics] ╎
+╎ #7                                    ╎
+╎ @sla p99<100ms, avail>…               ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+
+╭╌ ◇ branch on {Request}.kind #14 ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
+╎ {Request} ┄┬a▶ [Reader] ───┬─▶ |DB| ──▶ |WAL| ╎
+╎ a┆‹read›   ├b▶ [Writer] ───╯                  ╎
+╎ b┆‹write›  ├c▶ [AdminSvc]                     ╎
+╎ c┆‹admin›  ┆   @cap admin                     ╎
+╎ d┆‹_›      ╰d▶ <Rejected>                     ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
 
 ── Composition ───────────────────────────────────
 

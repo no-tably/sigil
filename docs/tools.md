@@ -155,8 +155,9 @@ wire that only crosses another hops it (`─│─`); a wire back to an earlier 
 runs along a return row under the drawing (`╰──╯`). Strokes, heads, colours, chips,
 notes, triggers, the checks overlay and the simulation are the graph view's.
 `--- section ---` dividers and expansions are parts under titles, as in the graph
-view; control blocks are not framed (a branch's arms are dotted wires labelled
-`‹arm›`), and joins are not drawn as bars.
+view; a control block's flows are drawn in its frame under its part, as in the graph
+view (a branch's arms are dotted wires labelled `‹arm›`), and a joined endpoint's
+wire carries its join just before its head (`─&▶`, `─&?▶`, `─/▶`).
 
 When the flow view is wider than its width (the window with the wrap layout, `--width`,
 a pane), it wraps like text, a step at a time and only while it still doesn't fit:

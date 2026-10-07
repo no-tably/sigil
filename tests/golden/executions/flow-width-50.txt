@@ -1,19 +1,17 @@
 ── L1 · crawl ─────────────────────────────────────────
 
-(Operator) ─────────────▶①
+(Operator) ────────────▶①
 #1
 a┆start({Seed})
-[Indexer] ───────────┬──▶②
-#7                   ╰──▶③
+[Indexer] ─────────────▶②
+#7
 j┆reserve(${shard})
  ┆↩ {Lease}
  ┆write({Doc},
  ┆{Lease})
 k┆release({Lease})
-l┆parse({Page})
- ┆↩ {Doc}
 
-①───a▶ [Scheduler] ↺ ─────────────────────▶④
+①───a▶ [Scheduler] ↺ ─────────────────────▶③
        ╰─● ┆ ↺ plan({Seed}) ↩ {Plan} ┆
        #2
        b┆↩
@@ -22,8 +20,8 @@ l┆parse({Page})
 ②──┬j▶┐|Index|
    ╰k✖┘
 
-④━━┳b▶ {Plan}
-   ╰c▶ [Crawler] ↺ ──────────────────────────────────▶⑤
+③━━┳b▶ {Plan}
+   ╰c▶ [Crawler] ↺ ──────────────────────────────────▶④
        ╰─● ┆ ↺ throttle(${host}) ┆ @deadline 2s ┆
        #3
        d┆fetch(${url})
@@ -33,22 +31,29 @@ l┆parse({Page})
        h┆parse({Page})
         ┆↩ {Doc}
 
-⑤──┬d▶ [Fetcher] ────────────╮
+④──┬d▶ [Fetcher] ────────────╮
    │   #4                    │
    │   e┆⇱ http.get(${url})  │
    │    ┆@timeout 5s         │
    │   f┆allowed(${url})     │
    ├g▶ [Metrics]             │
-③─l┴h▶ [Parser] ▾ ───────────│i▶ [Doc.walk] ↻
+   ╰h▶ [Parser] ▾ ───────────│i▶ [Doc.walk] ↻
        #5                    │   ╰─● ┆ ↻ child ┆
        i┆{Doc}               ├e▶ (Web) ⇱
                              ├─✖ <FetchFailed>
                              ╰f▶ |Robots|
 
-{Site}   [Notifier] ⇱
-         ╰─● ┆ ⇱ mail.send(${report}) ┆ @timeout 5s ┆
+[Notifier] ⇱
+╰─● ┆ ⇱ mail.send(${report}) ┆ @timeout 5s ┆
 
 [[follow]] ▾
+
+╭╌ ↺ loop @each page of {Site}.pages #8 ╌╮
+╎     [Indexer] ───────a▶ [Parser] ▾     ╎
+╎     #7                  #5             ╎
+╎     a┆parse({Page})                    ╎
+╎      ┆↩ {Doc}                          ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
 
 ── [Parser] := { … } ──────────────────────────────────
 

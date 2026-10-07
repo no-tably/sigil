@@ -1,6 +1,10 @@
-── walk ───────────────────────────────────────────────────────────────────────
+── walk ──────────────────────────────────────────────────────────────────────────
 
-[Walker] ─────┆@timeout 30s ×3 @fallback ${node}┆───▶ [Planner] ━┳━▶ ~|node|
-[Fetcher] ────┆@timeout 5s @fallback ${cache}┆──────▶ [Web] ⇱    ┗━▶ *|visited|
+            [Fetcher] ────┆@timeout 5s @fallback ${cache}┆───▶ [Web] ⇱
+
+╭╌ ↺ loop @while node ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
+╎ [Walker] ────┆@timeout 30s ×3 @fallback ${node}┆───▶ [Planner] ━┳━▶ ~|node|    ╎
+╎                                                                 ┗━▶ *|visited| ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
 
 examples-15-walk.sigil: 6 nodes, 4 edges, 0 expansions · #!spec

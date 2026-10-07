@@ -2,52 +2,51 @@
 
 ── L1 · Shop ───────────────────────────────────────────────────────────────────────────────────────
 
-╭─▶ (Customer) ──a┬─┬─▶ [Api] ───────────────────┬──▶①
-│   a┆!           │ │   @sla p99<100ms, avail>…  │
-│   [Gateway] ────╯ │   d┆@timeout 30s ×3        │
-│   @loc us-east    │    ┆@fallback 0            │
-│   [Cart] ─────────╯   e┆@timeout 5s            │
-│                        ┆@fallback ${cache}     │
-│   <Stop> ───────────▶ ~|Counter|               │
-│   [Cfg] ────────┬───▶ ~|Opts|                  │
-│                 ├───▶ ~|Limits|                │
-│                 ├───▶ ~|Ratio|                 │
-│                 ├───▶ ~|Last|                  │
-│                 ├───▶ ~|Merged|                │
-│                 ╰───▶ ~|Scaled|                │
-│   <Tick> ───────┬───▶ ~|History|               │
-│                 ╰───▶ ~|Total|                 │
-│   [Grader] ─────────▶ ~|Sys|                   │
-│   [Ingest] ━━━━━━━━━▶ *<Raw> ──────────────────│──▶②
-│                       ^10k drop                │
-│   *{Rows} ──────────▶ [Sink]                   │
-│   ^100 err                                     │
-│   [Handler] ────────▶ |Conn|                   │
-╰────────────────────────────────────────────────╯
+╭─▶ (Customer) ──a┬─▶ [Api] ───────────────────┬──▶①
+│   a┆!           │   @sla p99<100ms, avail>…  │
+│   [Gateway] ────╯   d┆@timeout 30s ×3        │
+│   @loc us-east       ┆@fallback 0            │
+│                     e┆@timeout 5s            │
+│                      ┆@fallback ${cache}     │
+│   <Stop> ─────────▶ ~|Counter|               │
+│   [Cfg] ────────┬─▶ ~|Opts|                  │
+│                 ├─▶ ~|Limits|                │
+│                 ├─▶ ~|Ratio|                 │
+│                 ├─▶ ~|Last|                  │
+│                 ├─▶ ~|Merged|                │
+│                 ╰─▶ ~|Scaled|                │
+│   <Tick> ───────┬─▶ ~|History|               │
+│                 ╰─▶ ~|Total|                 │
+│   [Grader] ───────▶ ~|Sys|                   │
+│   [Ingest] ━━━━━━━▶ *<Raw> ──────────────────│──▶②
+│                     ^10k drop                │
+│   *{Rows} ────────▶ [Sink]                   │
+│   ^100 err                                   │
+╰──────────────────────────────────────────────╯
 
-①━━┳◀▶ [Cache<K,V>]
-   ┃   @loc eu-west
-   ┣─▶ [Auth] ━━━━━━━━━━━━━━━━━━┳b▶ |UserDB|
-   ┃   b┆@cap read              ┣c▶ ~{Session}
-   ┃   c┆?                      ╰─✖ <Unauthorized>
-   ┣╌▶ <OrderPlaced> ═══════════╦═▶ [Shipping]
-   ┣┄▶ [Fraud]                  ╠═▶ [Email]
-   ┣─▶ [PspA]                   ╚═▶ |Ledger|
-   ┣─▶ [PspB]
-   ┣─▶ [Stock]
-   ┣─▶ [Tax]
-   ┣─▶ [Ghost] ───────────────────▶ [?]
-   ┣─▶ [Payment]
-   ┃   @inv idempotent(transa…
-   ┣d▶ [Scorer]
-   ┣e▶ (Web) ⇱
-   ┣─▶ [Shard]
-   ┣─▶ [Replica]
-   ┣━▶ {Resp}
-   ┗━▶ {Err}
-②────▶ [Parse] ━━━━━━━━━━━━━━━━━━━▶ *<Parsed> ───────▶ [Enrich] ━━▶ *<Enriched> ═╦═▶ |Warehouse|
-                                    ^10k                            ^5 latest    ╠═▶ |RealtimeIdx|
-                                                                                 ╰─✖ |DLQ|
+①━━┳──◀▶ [Cache<K,V>]
+   ┃     @loc eu-west
+   ┣───▶ [Auth] ━━━━━━━━━━━━━━━━━━┳b▶ |UserDB|
+   ┃     b┆@cap read              ┣c▶ ~{Session}
+   ┃     c┆?                      ╰─✖ <Unauthorized>
+   ┣╌╌╌▶ <OrderPlaced> ═══════════╦═▶ [Shipping]
+   ┣┄┄┄▶ [Fraud]                  ╠═▶ [Email]
+   ┣─&?▶ [PspA]                   ╚═▶ |Ledger|
+   ┣─&?▶ [PspB]
+   ┣──&▶ [Stock]
+   ┣──&▶ [Tax]
+   ┣───▶ [Ghost] ───────────────────▶ [?]
+   ┣───▶ [Payment]
+   ┃     @inv idempotent(transa…
+   ┣──d▶ [Scorer]
+   ┣──e▶ (Web) ⇱
+   ┣───▶ [Shard]
+   ┣───▶ [Replica]
+   ┣━━/▶ {Resp}
+   ┗━━/▶ {Err}
+②──────▶ [Parse] ━━━━━━━━━━━━━━━━━━━▶ *<Parsed> ───────▶ [Enrich] ━━▶ *<Enriched> ═╦═▶ |Warehouse|
+                                      ^10k                            ^5 latest    ╠═▶ |RealtimeIdx|
+                                                                                   ╰─✖ |DLQ|
 
 {List<T>}   <Msg<T>>   *|AuditLog|   [?]   {?}   <?>   |?|   (?)   {User}
 
@@ -55,29 +54,45 @@
 ╰─● ┆ @deadline 2s ┆
 [Tree.walk] ↻   [Boss]   [Worker‹N›]   (Auditor)   |Directives|   |Results|   [Helper]   [[walk]] ▾
 
+╭╌ □ checkout ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮  ╭╌ □ [Handler] @owns |Conn| ╌╮
+╎ [Cart] ──▶ [Api]                   ╎  ╎    [Handler] ──▶ |Conn|    ╎
+╎            @sla p99<100ms, avail>… ╎  ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+
 ── Control ─────────────────────────────────────────────────────────────────────────────────────────
 
-             [Worker] ↺ ───────────┬─▶ |Q|
-             ╰─● ┆ @deadline 2s ┆  ╰╌▶ <metric> ────────────────────▶ |Obs|
-             [Payments] ╌╌╌╌╌╌╌╌╌╌╌╌╌▶ <Paid> ──────────────────┬───▶┐{Order} ▾
-                                                                ╰╍┬╍▶┘
-         ╭╍▶ [Checkout] ▾ ╌╌╌╌╌╌╌╌╌╌╌▶ <Placed> ╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍┤
-         ╏   <Push> ───────────────┬─▶┐|Queue| ▾                  ╏
-         ╏                         ╰╍▶┘                           ╏
-         ╏   [Poller] ───────────────▶ [Api] ───────────────────┬─╏─▶┐[Inventory]
-         ╏                             @sla p99<100ms, avail>…  ├─╏─✖┘
-         ╏   [Pinger] ───────────────▶ (Peer)                   ├─╏─▶ [Fraud]
-         ╏                                                      ├─╏─▶ [MirrorA]
-         ╏                                                      ├─╏─▶ [MirrorB]
-         ╏                                                      ╰╌╏╌▶ [Metrics]
-         ╏   {Request} ┄┄┄┄┄┄┄┄┄┄┄┄┬a▶ [Reader] ────────────────┬─╏─▶ |DB| ─────────▶ |WAL|
-         ╏   a┆‹read›              ├b▶ [Writer] ────────────────╯ ╏
-         ╏   b┆‹write›             ├c▶ [AdminSvc]                 ╏
-         ╏   c┆‹admin›             ┆   @cap admin                 ╏
-         ╏   d┆‹_›                 ╰d▶ <Rejected>                 ╏
-         ╰╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╯
+                              [Payments] ╌╌╌╌╌▶ <Paid> ────┬───▶┐{Order} ▾
+                                                           ╰╍┬╍▶┘
+                          ╭╍▶ [Checkout] ▾ ╌╌╌▶ <Placed> ╍╍╍╍┤
+                          ╏   <Push> ───────┬─▶┐|Queue| ▾    ╏
+                          ╏                 ╰╍▶┘             ╏
+                          ╰╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╯
 
-         {Items}   {Job}   <Signal> ▾   (Courier) ▾
+                          <Signal> ▾   (Courier) ▾
+
+    ╭╌ ↺ loop @each x of {Items} ╌╌╮  ╭╌ ↺ loop @while |Q|.nonempty ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
+    ╎ [Worker] ↺ ────────────▶ |Q| ╎  ╎ [Worker] ↺ ╌╌╌╌╌╌╌╌╌╌╌╌▶ <metric> ──▶ |Obs| ╎
+    ╎ ╰─● ┆ @deadline 2s ┆         ╎  ╎ ╰─● ┆ @deadline 2s ┆                        ╎
+    ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯  ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+
+    ╭╌ ↺ loop @until {Job}.state = done ╌╌╌╮  ╭╌ ↺ loop @times 3 ╌╌╌╮
+    ╎ [Poller] ──▶ [Api]                   ╎  ╎ [Pinger] ──▶ (Peer) ╎
+    ╎              @sla p99<100ms, avail>… ╎  ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+    ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+
+    ╭╌ ∥ parallel @all ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮  ╭╌ ∥ parallel @any ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
+    ╎ [Api] ───────────────────┬─▶┐[Inventory] ╎  ╎ [Api] ───────────────────┬─▶ [MirrorA] ╎
+    ╎ @sla p99<100ms, avail>…  ├─✖┘            ╎  ╎ @sla p99<100ms, avail>…  ╰─▶ [MirrorB] ╎
+    ╎                          ╰─▶ [Fraud]     ╎  ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+    ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+
+    ╭╌ ∥ parallel @none ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮  ╭╌ ◇ branch on {Request}.kind ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
+    ╎ [Api] ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌▶ [Metrics] ╎  ╎ {Request} ┄┬a▶ [Reader] ───┬─▶ |DB| ──▶ |WAL| ╎
+    ╎ @sla p99<100ms, avail>…               ╎  ╎ a┆‹read›   ├b▶ [Writer] ───╯                  ╎
+    ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯  ╎ b┆‹write›  ├c▶ [AdminSvc]                     ╎
+                                               ╎ c┆‹admin›  ┆   @cap admin                     ╎
+                                               ╎ d┆‹_›      ╰d▶ <Rejected>                     ╎
+                                               ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
 
 ── Composition ─────────────────────────────────────────────────────────────────────────────────────
 

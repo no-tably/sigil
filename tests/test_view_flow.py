@@ -14,6 +14,8 @@ Covers:
     wire, then bands with numbered plugs (fewest bands, then plugs), back plugs
     (↑), a plug skipping a band, the tree-view hint when a band can't fit,
     and a sim run that never reflows, its tokens crossing the plugs;
+  - control blocks framed under their part (nested in their parent's), a
+    joined endpoint's join just before its head (─&▶ ─&?▶ ─/▶);
   - the overlays: a sim frame's tokens and label looks, the checks' numbers;
   - the app: VIEWS and the keys (t steps graph → tree → flow, 1 2 3 select),
     the status bar and legends, --flow on the CLI with --once / --sim / --json;
@@ -212,6 +214,76 @@ RICH = dict(payloads=True, mods=True, notes="markers")
 def widest(rows) -> int:
     """The widest drawing row (title rules are stretched to the width)."""
     return max(len(ln) for ln in plain(rows) if not ln.startswith("── "))
+
+
+BLOCKS = """#!spec
+(User) -> [Api]
+[Api] -> [Inventory] & [Fraud]
+[Inventory] & [Fraud] -> [Ship]
+[Api] -> [MirrorA] &? [MirrorB]
+[Ship] -> [Mail] / [Sms]
+loop @while |Q|.nonempty {
+  [Ship] -> [Packer]
+  [Packer] -> |Q|
+  parallel @all {
+    [Packer] -> [Label]
+    [Packer] -> [Weigh]
+  }
+}
+branch on {Order}.kind {
+  digital  => [Download]
+  physical => [Courier] -> |Tracking|
+}
+"""
+
+
+class TestBlocksAndJoins(unittest.TestCase):
+    def setUp(self):
+        self.rows = flow(BLOCKS)
+        self.text = "\n".join(plain(self.rows))
+
+    def test_a_join_rides_just_before_its_head(self):
+        self.assertIn("&▶ [Inventory]", self.text)
+        self.assertIn("&▶ [Fraud]", self.text)
+        self.assertIn("&?▶ [MirrorA]", self.text)
+        self.assertIn("/▶ [Mail]", self.text)
+        self.assertIn("&▶ [Ship]", self.text)          # `[Inventory] & [Fraud] ->`
+        self.assertNotIn("&▶ [Packer]", self.text)
+        self.assertEqual(style_of(self.rows, "[Mail]", "/"), kit.LABEL_STYLE)
+
+    def test_a_block_is_framed_under_its_part(self):
+        lines = plain(self.rows)
+        top = next(i for i, ln in enumerate(lines) if "╭╌ ↺ loop @while |Q|.nonempty" in ln)
+        self.assertTrue(any("[Api]" in ln for ln in lines[:top]))
+        self.assertIn("╎ [Ship] ──▶ [Packer] ──▶ |Q|", lines[top + 1])
+        self.assertIn("╭╌ ∥ parallel @all", self.text)             # nested in the loop's
+        nested = next(ln for ln in lines if "∥ parallel @all" in ln)
+        self.assertTrue(nested.lstrip().startswith("╎ ╭╌"))
+        self.assertIn("╭╌ ◇ branch on {Order}.kind", self.text)
+        self.assertIn("‹digital›", self.text)
+        main = "\n".join(lines[:top])                    # a block's flows leave the main part
+        self.assertNotIn("[Packer]", main)
+        self.assertNotIn("{Order}", main)
+
+    def test_frames_fit_the_width_and_carry_tokens(self):
+        rows = flow(BLOCKS, width=50)
+        self.assertTrue(all(len(r) <= 50 for r in plain(rows)), "\n".join(plain(rows)))
+        g = view.render.parse_document(BLOCKS)
+        sim = view.simulator
+        scn = view.scene.build_scene(g, depth=1)
+        tr = sim.simulate(scn, sim.scenario(scn, "happy"))
+        seen = set()
+        for t in range(len(tr.frames)):
+            rows, _w = vflow.compose_flow(g, 1, False, trace=tr, tick=t)
+            for ln in plain(rows):
+                if ln.startswith("╎") and "●" in ln:
+                    seen.add(t)
+        self.assertTrue(seen)
+
+    def test_legend_lists_frames_and_joins(self):
+        legend = "".join(t for t, _ in vflow.flow_legend())
+        self.assertIn("block frame", legend)
+        self.assertIn("&?▶ race", legend)
 
 
 class TestWrap(unittest.TestCase):

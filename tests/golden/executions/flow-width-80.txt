@@ -7,17 +7,15 @@ a┆start({Seed})          #2
                          c┆crawl({Plan})
                           ┆↩ {Site}
 [Indexer] ───────────┬j▶┐|Index|
-#7                   ├k✖┘
-j┆reserve(${shard})  ╰──────────────────────────────────────▶②
+#7                   ╰k✖┘
+j┆reserve(${shard})
  ┆↩ {Lease}
  ┆write({Doc},
  ┆{Lease})
 k┆release({Lease})
-l┆parse({Page})
- ┆↩ {Doc}
 
 ①━━┳b▶ {Plan}
-   ╰c▶ [Crawler] ↺ ──────────────────────────────────▶③
+   ╰c▶ [Crawler] ↺ ──────────────────────────────────▶②
        ╰─● ┆ ↺ throttle(${host}) ┆ @deadline 2s ┆
        #3
        d┆fetch(${url})
@@ -27,31 +25,38 @@ l┆parse({Page})
        h┆parse({Page})
         ┆↩ {Doc}
 
-③──┬d▶ [Fetcher] ────────────╮
+②──┬d▶ [Fetcher] ────────────╮
    │   #4                    │
    │   e┆⇱ http.get(${url})  │
    │    ┆@timeout 5s         │
    │   f┆allowed(${url})     │
    ├g▶ [Metrics]             │
-②─l┴h▶ [Parser] ▾ ───────────│i▶ [Doc.walk] ↻
+   ╰h▶ [Parser] ▾ ───────────│i▶ [Doc.walk] ↻
        #5                    │   ╰─● ┆ ↻ child ┆
        i┆{Doc}               ├e▶ (Web) ⇱
                              ├─✖ <FetchFailed>
                              ╰f▶ |Robots|
 
-{Site}   [Notifier] ⇱                                   [[follow]] ▾
-         ╰─● ┆ ⇱ mail.send(${report}) ┆ @timeout 5s ┆
+[Notifier] ⇱                                   [[follow]] ▾
+╰─● ┆ ⇱ mail.send(${report}) ┆ @timeout 5s ┆
+
+╭╌ ↺ loop @each page of {Site}.pages #8 ╌╮
+╎     [Indexer] ───────a▶ [Parser] ▾     ╎
+╎     #7                  #5             ╎
+╎     a┆parse({Page})                    ╎
+╎      ┆↩ {Doc}                          ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
 
 ── [Parser] := { … } ───────────────────────────────────────────────────────────
 
-             [Lexer] ─────────a▶ [Builder] ↻
-             a┆build(tokens)     ╰─● ┆ ↻ nest({Node}) ┆
-              ┆↩ {Doc}           #10
+          [Lexer] ─────────a▶ [Builder] ↻
+          a┆build(tokens)     ╰─● ┆ ↻ nest({Node}) ┆
+           ┆↩ {Doc}           #10
 
 ── [[follow]] := { … } ─────────────────────────────────────────────────────────
 
-                      [Crawler] ↻
-                      ╰─● ┆ ↻ follow(.links) ┆
+                   [Crawler] ↻
+                   ╰─● ┆ ↻ follow(.links) ┆
 
 ── notes ───────────────────────────────────────────────────────────────────────
 

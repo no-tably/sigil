@@ -6,35 +6,38 @@ a┆start({Seed})          ╰─● ┆ ↺ plan({Seed}) ↩ {Plan} ┆
                          c┆crawl({Plan})
                           ┆↩ {Site}
 [Indexer] ───────────┬j▶┐|Index|
-j┆reserve(${shard})  ├k✖┘
- ┆↩ {Lease}          ╰──────────────────────────────────────▶②
+j┆reserve(${shard})  ╰k✖┘
+ ┆↩ {Lease}
  ┆write({Doc},
  ┆{Lease})
 k┆release({Lease})
-l┆parse({Page})
- ┆↩ {Doc}
 
 ①━━┳b▶ {Plan}
-   ╰c▶ [Crawler] ↺ ─────────────────┬──d▶ [Fetcher] ────────────┬e▶ (Web) ⇱
-       ╰─● ┆ ↺ throttle(${host}) ┆  │     e┆⇱ http.get(${url})  ├─✖ <FetchFailed>
-       d┆fetch(${url})              │     f┆allowed(${url})     ╰f▶ |Robots|
-       g┆count(${host})             ├╌╌g▶ [Metrics]
-②──╮   h┆parse({Page})              ╰h┬─▶ [Parser] ▾ ────────────i▶ [Doc.walk] ↻
-   │    ┆↩ {Doc}                      l   i┆{Doc}                   ╰─● ┆ ↻ child ┆
-   ╰──────────────────────────────────╯
+   ╰c▶ [Crawler] ↺ ─────────────────┬d▶ [Fetcher] ────────────┬e▶ (Web) ⇱
+       ╰─● ┆ ↺ throttle(${host}) ┆  │   e┆⇱ http.get(${url})  ├─✖ <FetchFailed>
+       d┆fetch(${url})              │   f┆allowed(${url})     ╰f▶ |Robots|
+       g┆count(${host})             ├g▶ [Metrics]
+       h┆parse({Page})              ╰h▶ [Parser] ▾ ────────────i▶ [Doc.walk] ↻
+        ┆↩ {Doc}                        i┆{Doc}                   ╰─● ┆ ↻ child ┆
 
-{Site}   [Notifier] ⇱                     [[follow]] ▾
-         ╰─● ┆ ⇱ mail.send(${report}) ┆
+[Notifier] ⇱                     [[follow]] ▾
+╰─● ┆ ⇱ mail.send(${report}) ┆
+
+╭╌ ↺ loop @each page of {Site}.pages ╌╮
+╎   [Indexer] ───────a▶ [Parser] ▾    ╎
+╎   a┆parse({Page})                   ╎
+╎    ┆↩ {Doc}                         ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
 
 ── [Parser] := { … } ───────────────────────────────────────────────────────────────────────────────
 
-                    [Lexer] ─────────a▶ [Builder] ↻
-                    a┆build(tokens)     ╰─● ┆ ↻ nest({Node}) ┆
-                     ┆↩ {Doc}
+                   [Lexer] ─────────a▶ [Builder] ↻
+                   a┆build(tokens)     ╰─● ┆ ↻ nest({Node}) ┆
+                    ┆↩ {Doc}
 
 ── [[follow]] := { … } ─────────────────────────────────────────────────────────────────────────────
 
-                             [Crawler] ↻
-                             ╰─● ┆ ↻ follow(.links) ┆
+                            [Crawler] ↻
+                            ╰─● ┆ ↻ follow(.links) ┆
 
 executions.sigil: 16 nodes, 18 edges, 2 expansions · #!spec

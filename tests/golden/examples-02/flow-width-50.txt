@@ -1,25 +1,22 @@
-③──┬f✖┐(User) ─────▶①
-   ╰g▶┘
-       a┆{Cart}
+    ╭b▶ (User) ───a▶ [API] ────────────┬╌╌▶①
+    │   a┆{Cart}     b┆{Confirmation}  │
+    ╰──────────────────────────────────╯
 
-①──a▶ [API] ───────────────────────┬──▶②
-      b┆reserve => {Hold}          ╰──▶③↑
-      c┆charge
-       ┆×3
-       ┆@after exp-backoff, cap=…
-      d┆score
-       ┆@timeout 500ms
-      e┆release({Hold})
-      f┆<CheckoutFailed>
-      g┆{Confirmation}
+    ①╌╌╌▶ <OrderPlaced> ═╦═▶ [Shipping]
+                         ╠═▶ [Email]
+                         ╚═▶ |Ledger|
 
-②──┬b▶┐[Inventory]
-   ├e✖┘
-   ├c▶ [Payment]
-   ├d▶ [Fraud]
-   ╰╌▶ <OrderPlaced> ═╦═▶ [Shipping]
-                      ╠═▶ [Email]
-                      ╚═▶ |Ledger|
+╭╌ ∥ parallel @all ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
+╎ [API] ───────────────────────┬a▶┐[Inventory] ╎
+╎ a┆reserve => {Hold}          ├d✖┘            ╎
+╎ b┆charge                     ├b▶ [Payment]   ╎
+╎  ┆×3                         ├c▶ [Fraud]     ╎
+╎  ┆@after exp-backoff, cap=…  ╰e✖ (User)      ╎
+╎ c┆score                                      ╎
+╎  ┆@timeout 500ms                             ╎
+╎ d┆release({Hold})                            ╎
+╎ e┆<CheckoutFailed>                           ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
 
 examples-02.sigil: 9 nodes, 11 edges, 0 expansions
   · #!spec

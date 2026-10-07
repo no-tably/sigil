@@ -1,13 +1,17 @@
 ── walk ────────────────────────────────────────────────────────────────────────
 
-[Walker] ─────┆a┆───▶ [Planner] ━┳━━━┆b┆━━━▶ ~|node|
-[Fetcher] ────┆d┆───▶ [Web] ⇱    ┗━━━┆c┆━━━▶ *|visited|
+              [Fetcher] ────┆a┆───▶ [Web] ⇱
 
-                                    ┆a┆ next({Node}) ┆ @timeout 30s ×3 @fallback
-                                        ${node}
-                                    ┆b┆ ${out.node}
-                                    ┆c┆ ${state.visited} ++ [${out.node}]
-                                    ┆d┆ ⇱ http.get(${url}) ┆ @timeout 5s
+╭╌ ↺ loop @while node ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
+╎ [Walker] ────┆b┆───▶ [Planner] ━┳━━━┆c┆━━━▶ ~|node|    ╎
+╎                                 ┗━━━┆d┆━━━▶ *|visited| ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+
+                                    ┆a┆ ⇱ http.get(${url}) ┆ @timeout 5s
                                         @fallback ${cache}
+                                    ┆b┆ next({Node}) ┆ @timeout 30s ×3 @fallback
+                                        ${node}
+                                    ┆c┆ ${out.node}
+                                    ┆d┆ ${state.visited} ++ [${out.node}]
 
 examples-15-walk.sigil: 6 nodes, 4 edges, 0 expansions · #!spec

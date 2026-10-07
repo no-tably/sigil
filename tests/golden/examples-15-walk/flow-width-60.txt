@@ -1,7 +1,11 @@
-── walk ───────────────────────────────
+── walk ──────────────────────────────────
 
-[Walker] ───▶ [Planner] ━┳━▶ ~|node|
-[Fetcher] ──▶ [Web] ⇱    ┗━▶ *|visited|
+          [Fetcher] ──▶ [Web] ⇱
+
+╭╌ ↺ loop @while node ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
+╎ [Walker] ──▶ [Planner] ━┳━▶ ~|node|    ╎
+╎                         ┗━▶ *|visited| ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
 
 examples-15-walk.sigil: 6 nodes, 4 edges, 0 expansions
   · #!spec

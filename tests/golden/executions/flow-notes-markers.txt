@@ -3,12 +3,16 @@
 (Operator) ───▶ [Scheduler] ↺ ━┳a▶ {Plan}
 #1              #2             ╰─▶ [Crawler] ↺ ─┬─▶ [Fetcher] ──┬─▶ (Web) ⇱
                 a┆↩                #3           │   #4          ├─✖ <FetchFailed>
-                                                ├╌▶ [Metrics]   ╰◀▶ |Robots|
-[Indexer] ──┬─▶┐|Index|        ╭────────────────┴─▶ [Parser] ▾ ───▶ [Doc.walk] ↻
-#7          ├─✖┘               │                    #5
-            ╰──────────────────╯
+[Indexer] ──┬─▶┐|Index|                         ├╌▶ [Metrics]   ╰◀▶ |Robots|
+#7          ╰─✖┘                                ╰─▶ [Parser] ▾ ───▶ [Doc.walk] ↻
+                                                    #5
 
-{Site}   [Notifier] ⇱   [[follow]] ▾
+[Notifier] ⇱   [[follow]] ▾
+
+╭╌ ↺ loop @each page of {Site}.pages #8 ╌╮
+╎        [Indexer] ──▶ [Parser] ▾        ╎
+╎        #7            #5                ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
 
 ── [Parser] := { … } ───────────────────────────────────────────────────────────────────────────────
 

@@ -2,36 +2,34 @@
 
 ── L1 · Shop ───────────────────────────────────────────────────────────────────────────────────────
 
- ╭h▶ (Customer) ──────────a┬─┬─▶ [Api] ━━━━━━━━━━━━━━━━┳b▶ [Auth] ━━━━━━━━┳─▶ |UserDB|
- │   a┆{Cart}              │ │   b┆{creds}             ┃                  ┣━▶ ~{Session}
- │   [Gateway] ────────────╯ │   c┆charge(amount)      ┃                  ╰─✖ <Unauthorized>
- │   [Cart] ─────────────────╯    ┆↩ {Receipt}         ┣╌▶ <OrderPlaced> ═╦═▶ [Shipping]
- │                               d┆score({Cart})       ┣◀▶ [Cache<K,V>]   ╠═▶ [Email]
- │                               e┆⇱ http.get(${url})  ┣┄▶ [Fraud]        ╚═▶ |Ledger|
- │                               h┆"ack"               ┣─▶ [PspA]
- │   <Stop> ──────────────────f▶ ~|Counter|            ┣─▶ [PspB]
- │   f┆false                                           ┣─▶ [Stock]
- │   [Cfg] ────────────────┬──g▶ ~|Opts|               ┣─▶ [Tax]
- │   g┆{retries: 3, mode:  ├──i▶ ~|Limits|             ┣─▶ [Ghost] ─────────▶ [?]
- │    ┆"x"}                ├──j▶ ~|Ratio|              ┣c▶ [Payment]
- │   i┆[1, 2, 3]           ├──k▶ ~|Last|               ┣d▶ [Scorer]
- │   j┆0.5                 ├──n▶ ~|Merged|             ┣e▶ (Web) ⇱
- │   k┆null                ╰──o▶ ~|Scaled|             ┣─▶ [Shard]
- │   n┆${a} || {b: 1}                                  ┣─▶ [Replica]
- │   o┆${n} * 2 - ${m} /                               ┣━▶ {Resp}
- │    ┆4                                               ┣━▶ {Err}
- │   <Tick> ───────────────┬──l▶ ~|History|            │
- │   l┆${state.history}    ╰──m▶ ~|Total|              │
- │    ┆++ [${out}]                                     │
- │   m┆${state.count} + 1                              │
- │   [Grader] ────────────────p▶ ~|Sys|                │
- │   p┆"""You are a                                    │
- │    ┆strict rubric…"""                               │
- │   [Ingest] ━━━━━━━━━━━━━━━━━▶ *<Raw> ───────────────│─▶ [Parse] ━━━━━━━━━▶ *<Parsed> ────────▶①
- │   *{Rows} ──────────────────▶ [Sink]                │
- │   [Handler] ───────────────q▶ |Conn|                │
- │   q┆query => {Rows}                                 │
- ╰─────────────────────────────────────────────────────╯
+ ╭h▶ (Customer) ──────────a┬─▶ [Api] ━━━━━━━━━━━━━━━━┳──b▶ [Auth] ━━━━━━━━┳─▶ |UserDB|
+ │   a┆{Cart}              │   b┆{creds}             ┃                    ┣━▶ ~{Session}
+ │   [Gateway] ────────────╯   c┆charge(amount)      ┃                    ╰─✖ <Unauthorized>
+ │                              ┆↩ {Receipt}         ┣╌╌╌▶ <OrderPlaced> ═╦═▶ [Shipping]
+ │                             d┆score({Cart})       ┣──◀▶ [Cache<K,V>]   ╠═▶ [Email]
+ │                             e┆⇱ http.get(${url})  ┣┄┄┄▶ [Fraud]        ╚═▶ |Ledger|
+ │                             h┆"ack"               ┣─&?▶ [PspA]
+ │   <Stop> ────────────────f▶ ~|Counter|            ┣─&?▶ [PspB]
+ │   f┆false                                         ┣──&▶ [Stock]
+ │   [Cfg] ────────────────┬g▶ ~|Opts|               ┣──&▶ [Tax]
+ │   g┆{retries: 3, mode:  ├i▶ ~|Limits|             ┣───▶ [Ghost] ─────────▶ [?]
+ │    ┆"x"}                ├j▶ ~|Ratio|              ┣──c▶ [Payment]
+ │   i┆[1, 2, 3]           ├k▶ ~|Last|               ┣──d▶ [Scorer]
+ │   j┆0.5                 ├n▶ ~|Merged|             ┣──e▶ (Web) ⇱
+ │   k┆null                ╰o▶ ~|Scaled|             ┣───▶ [Shard]
+ │   n┆${a} || {b: 1}                                ┣───▶ [Replica]
+ │   o┆${n} * 2 - ${m} /                             ┣━━/▶ {Resp}
+ │    ┆4                                             ┣━━/▶ {Err}
+ │   <Tick> ───────────────┬l▶ ~|History|            │
+ │   l┆${state.history}    ╰m▶ ~|Total|              │
+ │    ┆++ [${out}]                                   │
+ │   m┆${state.count} + 1                            │
+ │   [Grader] ──────────────p▶ ~|Sys|                │
+ │   p┆"""You are a                                  │
+ │    ┆strict rubric…"""                             │
+ │   [Ingest] ━━━━━━━━━━━━━━━▶ *<Raw> ───────────────│───▶ [Parse] ━━━━━━━━━▶ *<Parsed> ────────▶①
+ │   *{Rows} ────────────────▶ [Sink]                │
+ ╰───────────────────────────────────────────────────╯
 
  ①───▶ [Enrich] ━━▶ *<Enriched> ═╦═▶ |Warehouse|
                                  ╠═▶ |RealtimeIdx|
@@ -43,30 +41,46 @@
                                      ╰─● ┆ ↻ child ┆
  |Directives|   |Results|   [Helper]   [[walk]] ▾
 
+ ╭╌ □ checkout ╌╌╌╌╌╮  ╭╌ □ [Handler] @owns |Conn| ╌╌╌╮
+ ╎ [Cart] ──▶ [Api] ╎  ╎ [Handler] ─────────a▶ |Conn| ╎
+ ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯  ╎ a┆query => {Rows}            ╎
+                       ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+
 ── Control ─────────────────────────────────────────────────────────────────────────────────────────
 
-                 [Worker] ↺ ──────┬a▶ |Q|
-                 ╰─● ┆ ↺ run() ┆  ╰╌▶ <metric> ────────────────▶ |Obs|
-                 a┆pop => {Job}
-                 [Payments] ╌╌╌╌╌╌╌╌▶ <Paid> ──────────────┬───▶┐{Order} ▾
-                                                           ╰╍┬╍▶┘
-             ╭╍▶ [Checkout] ▾ ╌╌╌╌╌╌▶ <Placed> ╍╍╍╍╍╍╍╍╍╍╍╍╍╍┤
-             ╏   <Push> ──────────┬─▶┐|Queue| ▾              ╏
-             ╏                    ╰╍▶┘                       ╏
-             ╏   [Poller] ──────────▶ [Api] ───────────────┬─╏b▶┐[Inventory]
-             ╏                        b┆reserve => {Hold}  ├─╏d✖┘
-             ╏                        c┆score              ├─╏c▶ [Fraud]
-             ╏                        d┆release({Hold})    ├─╏─▶ [MirrorA]
-             ╏   [Pinger] ──────────▶ (Peer)               ├─╏─▶ [MirrorB]
-             ╏                                             ╰╌╏╌▶ [Metrics]
-             ╏   {Request} ┄┄┄┄┄┄┄┬e▶ [Reader] ────────────┬─╏─▶ |DB| ─────────▶ |WAL|
-             ╏   e┆‹read›         ├f▶ [Writer] ────────────╯ ╏
-             ╏   f┆‹write›        ├g▶ [AdminSvc]             ╏
-             ╏   g┆‹admin›        ╰h▶ <Rejected>             ╏
-             ╏   h┆‹_›                                       ╏
-             ╰╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╯
+                             [Payments] ╌╌╌╌╌▶ <Paid> ────┬───▶┐{Order} ▾
+                                                          ╰╍┬╍▶┘
+                         ╭╍▶ [Checkout] ▾ ╌╌╌▶ <Placed> ╍╍╍╍┤
+                         ╏   <Push> ───────┬─▶┐|Queue| ▾    ╏
+                         ╏                 ╰╍▶┘             ╏
+                         ╰╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╯
 
-             {Items}   {Job}   <Signal> ▾   (Courier) ▾
+                         <Signal> ▾   (Courier) ▾
+
+    ╭╌ ↺ loop @each x of {Items} ╌╮  ╭╌ ↺ loop @while |Q|.nonempty ╌╌╌╌╌╌╌╌╌╌╌╮
+    ╎   [Worker] ↺ ──────a▶ |Q|   ╎  ╎ [Worker] ↺ ╌╌╌╌╌╌╌▶ <metric> ──▶ |Obs| ╎
+    ╎   ╰─● ┆ ↺ run() ┆           ╎  ╎ ╰─● ┆ ↺ run() ┆                        ╎
+    ╎   a┆pop => {Job}            ╎  ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+    ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+
+    ╭╌ ↺ loop @until {Job}.state = done ╌╮  ╭╌ ↺ loop @times 3 ╌╌╌╮
+    ╎         [Poller] ──▶ [Api]         ╎  ╎ [Pinger] ──▶ (Peer) ╎
+    ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯  ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+
+    ╭╌ ∥ parallel @all ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮  ╭╌ ∥ parallel @any ╌╌╌╌╮  ╭╌ ∥ parallel @none ╌╌╮
+    ╎ [Api] ───────────────┬a▶┐[Inventory] ╎  ╎ [Api] ─┬─▶ [MirrorA] ╎  ╎ [Api] ╌╌▶ [Metrics] ╎
+    ╎ a┆reserve => {Hold}  ├c✖┘            ╎  ╎        ╰─▶ [MirrorB] ╎  ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+    ╎ b┆score              ╰b▶ [Fraud]     ╎  ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+    ╎ c┆release({Hold})                    ╎
+    ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
+
+    ╭╌ ◇ branch on {Request}.kind ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
+    ╎ {Request} ┄┬a▶ [Reader] ───┬─▶ |DB| ──▶ |WAL| ╎
+    ╎ a┆‹read›   ├b▶ [Writer] ───╯                  ╎
+    ╎ b┆‹write›  ├c▶ [AdminSvc]                     ╎
+    ╎ c┆‹admin›  ╰d▶ <Rejected>                     ╎
+    ╎ d┆‹_›                                         ╎
+    ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
 
 ── Composition ─────────────────────────────────────────────────────────────────────────────────────
 

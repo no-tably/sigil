@@ -1,11 +1,14 @@
-╭───✖┐(User) ──▶ [API] ─┬─▶┐[Inventory]
-│ ╭─▶┘                  ├─✖┘
-│ │                     ├─▶ [Payment]
-│ │                     ├─▶ [Fraud]
-│ │                     ├╌▶ <OrderPlaced> ═╦═▶ [Shipping]
-│ │                     │                  ╠═▶ [Email]
-│ │                     │                  ╚═▶ |Ledger|
-│ ╰─────────────────────┤
-╰───────────────────────╯
+╭─▶ (User) ──▶ [API] ─┬╌▶ <OrderPlaced> ═╦═▶ [Shipping]
+│                     │                  ╠═▶ [Email]
+│                     │                  ╚═▶ |Ledger|
+╰─────────────────────╯
+
+╭╌ ∥ parallel @all ╌╌╌╌╌╌╮
+╎ [API] ─┬─▶┐[Inventory] ╎
+╎        ├─✖┘            ╎
+╎        ├─▶ [Payment]   ╎
+╎        ├─▶ [Fraud]     ╎
+╎        ╰─✖ (User)      ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
 
 examples-02.sigil: 9 nodes, 11 edges, 0 expansions · #!spec

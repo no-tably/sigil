@@ -1,14 +1,16 @@
 ── L1 · crawl ───────────────────────────────────────────────────────────────────────────
 
 (Operator) ───▶ [Scheduler] ↺ ━┳━━━ ↩ ━━━▶ {Plan}
-                               ╰─────────▶ [Crawler] ↺ ─┬─▶ [Fetcher] ──┬─▶ (Web) ⇱
-                                                        ├╌▶ [Metrics]   ├─✖ <FetchFailed>
+[Indexer] ──┬─▶┐|Index|        ╰─────────▶ [Crawler] ↺ ─┬─▶ [Fetcher] ──┬─▶ (Web) ⇱
+            ╰─✖┘                                        ├╌▶ [Metrics]   ├─✖ <FetchFailed>
                                                         │               ╰◀▶ |Robots|
-[Indexer] ──┬─▶┐|Index|        ╭────────────────────────┴─▶ [Parser] ▾ ───▶ [Doc.walk] ↻
-            ├─✖┘               │
-            ╰──────────────────╯
+                                                        ╰─▶ [Parser] ▾ ───▶ [Doc.walk] ↻
 
-{Site}   [Notifier] ⇱   [[follow]] ▾
+[Notifier] ⇱   [[follow]] ▾
+
+╭╌ ↺ loop @each page of {Site}.pages ╌╮
+╎      [Indexer] ──▶ [Parser] ▾       ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
 
 ── [Parser] := { … } ────────────────────────────────────────────────────────────────────
 

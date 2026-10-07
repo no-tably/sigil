@@ -1,12 +1,15 @@
-╭───✖┐(User) ────┆{Cart}┆───▶ [API] ─┬───┆reserve => {Hold}┆────▶┐[Inventory]
-│ ╭─▶┘                               │                        ╭─✖┘
-│ │                                  ├───┆charge┆─────────────│─▶ [Payment]
-│ │                                  ├───┆score┆──────────────│─▶ [Fraud]
-│ │                                  ├───┆release({Hold})┆────╯
-│ │                                  ├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌▶ <OrderPlaced> ═╦═▶ [Shipping]
-│ │                                  │                                           ╠═▶ [Email]
-│ │                                  │                                           ╚═▶ |Ledger|
-│ ╰─┆{Confirmation}┆─────────────────┤
-╰─┆<CheckoutFailed>┆─────────────────╯
+╭─▶ (User) ────┆{Cart}┆───▶ [API] ─┬╌▶ <OrderPlaced> ═╦═▶ [Shipping]
+│                                  │                  ╠═▶ [Email]
+│                                  │                  ╚═▶ |Ledger|
+╰─┆{Confirmation}┆─────────────────╯
+
+╭╌ ∥ parallel @all ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
+╎ [API] ─┬───┆reserve => {Hold}┆────▶┐[Inventory] ╎
+╎        │                        ╭─✖┘            ╎
+╎        ├───┆charge┆─────────────│─▶ [Payment]   ╎
+╎        ├───┆score┆──────────────│─▶ [Fraud]     ╎
+╎        ├───┆release({Hold})┆────╯               ╎
+╎        ╰───┆<CheckoutFailed>┆─────✖ (User)      ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
 
 examples-02.sigil: 9 nodes, 11 edges, 0 expansions · #!spec

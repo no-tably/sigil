@@ -1,20 +1,15 @@
-╭───✖┐(User) ────┆a┆───▶ [API] ─┬───┆b┆────▶┐[Inventory]
-│ ╭─▶┘                          │        ╭─✖┘
-│ │                             ├───┆c┆──│─▶ [Payment]
-│ │                             ├───┆d┆──│─▶ [Fraud]
-│ │                             ├───┆e┆──╯
-│ │                             ├╌╌╌╌╌╌╌╌╌╌▶ <OrderPlaced> ═╦═▶ [Shipping]
-│ │                             │                           ╠═▶ [Email]
-│ │                             │                           ╚═▶ |Ledger|
-│ ╰─┆g┆─────────────────────────┤
-╰─┆f┆───────────────────────────╯
+ ╭─▶ (User) ────┆{Cart}┆───▶ [API] ─┬╌▶ <OrderPlaced> ═╦═▶ [Shipping]
+ │                                  │                  ╠═▶ [Email]
+ │                                  │                  ╚═▶ |Ledger|
+ ╰─┆{Confirmation}┆─────────────────╯
 
-                                 ┆a┆ {Cart}
-                                 ┆b┆ reserve => {Hold}
-                                 ┆c┆ charge ┆ ×3 @after exp-backoff, cap=…
-                                 ┆d┆ score ┆ @timeout 500ms
-                                 ┆e┆ release({Hold})
-                                 ┆f┆ <CheckoutFailed>
-                                 ┆g┆ {Confirmation}
+╭╌ ∥ parallel @all ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╮
+╎ [API] ─┬───┆reserve => {Hold}┆────────────────────────▶┐[Inventory] ╎
+╎        │                                            ╭─✖┘            ╎
+╎        ├───┆charge ┆ ×3 @after exp-backoff, cap=…┆──│─▶ [Payment]   ╎
+╎        ├───┆score ┆ @timeout 500ms┆─────────────────│─▶ [Fraud]     ╎
+╎        ├───┆release({Hold})┆────────────────────────╯               ╎
+╎        ╰───┆<CheckoutFailed>┆─────────────────────────✖ (User)      ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
 
 examples-02.sigil: 9 nodes, 11 edges, 0 expansions · #!spec

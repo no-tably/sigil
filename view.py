@@ -165,7 +165,9 @@ return row under the drawing (╰──╯) and comes up into its target. A chip
 on its wire between the columns (─┆{Cart}┆─▶), a transition's or arm's label
 and what the graph writes beside a head as bare text there; a self-call's chip
 hangs on a stub under its subject (╰─● ┆ ↺ plan() ┆). Expansions and state
-machines are parts under the document's; control blocks are not framed.
+machines are parts under the document's; a control block's flows are drawn in
+its frame under them (╭╌ ↺ loop … ╌╮); a joined endpoint's wire carries its
+join before its head (─&▶ ─&?▶ ─/▶).
 
 Simulation (x, --sim): the run's tokens travel the drawn wires — ● out (bold,
 in the wire's colour), ○ a return or fallback, ✕ a failure (edges.fail), a faint

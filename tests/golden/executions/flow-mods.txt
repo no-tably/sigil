@@ -1,22 +1,24 @@
 ── L1 · crawl ──────────────────────────────────────────────────────────────────────────────────────
 
 (Operator) ───▶ [Scheduler] ↺ ━┳a▶ {Plan}
-                a┆↩            ╰─▶ [Crawler] ↺ ───────────┬──b▶ [Fetcher] ─────┬c▶ (Web) ⇱
-                                   ╰─● ┆ @deadline 2s ┆   │     c┆@timeout 5s  ├─✖ <FetchFailed>
-                                   b┆@timeout 10s ×3      ├╌╌╌▶ [Metrics]      ╰◀▶ |Robots|
-[Indexer] ──┬─▶┐|Index|             ┆@fallback ${cached}  ╰─┬─▶ [Parser] ▾ ──────▶ [Doc.walk] ↻
-            ├─✖┘               ╭────────────────────────────╯
-            ╰──────────────────╯
+                a┆↩            ╰─▶ [Crawler] ↺ ───────────┬b▶ [Fetcher] ─────┬c▶ (Web) ⇱
+[Indexer] ──┬─▶┐|Index|            ╰─● ┆ @deadline 2s ┆   │   c┆@timeout 5s  ├─✖ <FetchFailed>
+            ╰─✖┘                   b┆@timeout 10s ×3      ├╌▶ [Metrics]      ╰◀▶ |Robots|
+                                    ┆@fallback ${cached}  ╰─▶ [Parser] ▾ ──────▶ [Doc.walk] ↻
 
-{Site}   [Notifier] ⇱          [[follow]] ▾
-         ╰─● ┆ @timeout 5s ┆
+[Notifier] ⇱          [[follow]] ▾
+╰─● ┆ @timeout 5s ┆
+
+╭╌ ↺ loop @each page of {Site}.pages ╌╮
+╎      [Indexer] ──▶ [Parser] ▾       ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
 
 ── [Parser] := { … } ───────────────────────────────────────────────────────────────────────────────
 
-                                    [Lexer] ──▶ [Builder] ↻
+                                   [Lexer] ──▶ [Builder] ↻
 
 ── [[follow]] := { … } ─────────────────────────────────────────────────────────────────────────────
 
-                                          [Crawler] ↻
+                                         [Crawler] ↻
 
 executions.sigil: 16 nodes, 18 edges, 2 expansions · #!spec

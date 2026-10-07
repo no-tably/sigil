@@ -36,9 +36,11 @@ label's brackets in the finding's style, its number after the label or on the
 wire) and a simulation frame (view_graph's
 sim_look: lit and muted wires, tokens on their cells, labels by status, badges).
 `:=` expansions and state machines are drawn as parts under the document's, like
-the graph view's sections; control blocks are not framed (their flows are drawn
-with the rest; a branch's arms are dotted wires labelled ‹arm›), joins are not
-drawn as bars.
+the graph view's sections. A control block's flows are drawn in its frame under
+its part, as the graph view frames them (`╭╌ ↺ loop @while … ╌╮`, nested blocks
+nested; a branch's arms are dotted wires labelled ‹arm›). A joined endpoint's
+wire carries its join just before its head (`─&▶`, `─&?▶`, `─/▶`, as the tree's
+`◀&`): each target of `-> [A] & [B]`, the target of `[A] & [B] ->`.
 
 Given a width it wraps (compose_flow): chips to letters with a key, then hung
 under their senders (`─a▶` over `a┆{Cart}`), then each part too wide cut between
@@ -119,6 +121,8 @@ class _Part:
     nodes: dict                 # id → render.Node, drawing order
     strokes: list = field(default_factory=list)
     base: object = None         # a band (_band_part): the part it is cut from
+    blocks: list = field(default_factory=list)  # its control blocks' parts, framed under it
+    block: object = None        # a block's part: its render.Block (the frame's title)
 
 
 def flow_parts(scn, depth: int) -> list:
@@ -133,8 +137,9 @@ def flow_parts(scn, depth: int) -> list:
         gone = scn.collapsed if u.level == 0 else frozenset()
         nodes = {nid: n for nid, n in u.graph.nodes.items() if nid not in gone}
         strokes = _unit_strokes(scn, u, nodes)
+        strokes, blocks = _block_parts(u, nodes, strokes)
         if u.level == 0:
-            parts += _split_sections(scn, u, nodes, strokes)
+            parts += _split_sections(scn, u, nodes, strokes, blocks)
             continue
         what = "state machine" if getattr(u.graph, "role", "") == "state" else ":= { … }"
         title = f"{kit.node_label(scn.nodes[u.owner].node)} {what}"
@@ -142,8 +147,44 @@ def flow_parts(scn, depth: int) -> list:
         if parent is not None and parent in titles:
             title = f"{titles[parent]}  ›  {title}"
         titles[u.owner] = title
-        parts.append(_Part(title, u.owner, u.graph, nodes, strokes))
+        parts.append(_Part(title, u.owner, u.graph, nodes, strokes, blocks=blocks))
     return parts
+
+
+def _block_parts(u, nodes: dict, strokes: list):
+    """(the unit's free strokes, its top-level control blocks' parts): a stroke
+    inside a block (its wire's innermost, scene's Wire.block) is drawn in that
+    block's part, not with the unit's — as the graph view frames it. A block's
+    part holds its own strokes' ends and its members outside its nested blocks,
+    whose parts it holds in turn. A node only blocks draw leaves `nodes`."""
+    blocks = getattr(u.graph, "blocks", None) or []
+    if not blocks:
+        return strokes, []
+    held, free = {}, []
+    for st in strokes:
+        w = st.wires[0] if st.wires else None
+        if w is not None and w.owner == u.owner and w.block is not None \
+                and 0 <= w.block < len(blocks):
+            held.setdefault(w.block, []).append(st)
+        else:
+            free.append(st)
+    linked = {st.src for st in free} | {st.dst for st in free}
+
+    def part(bi):
+        b = blocks[bi]
+        kids = [ci for ci, c in enumerate(blocks) if c.parent == bi]
+        nested = {m for ci in kids for m in blocks[ci].members}
+        own = held.get(bi, [])
+        keep = {st.src for st in own} | {st.dst for st in own} | (set(b.members) - nested)
+        return _Part("", u.owner, u.graph, {nid: n for nid, n in nodes.items() if nid in keep},
+                     own, blocks=[part(ci) for ci in kids], block=b)
+
+    inside = {nid for sts in held.values() for st in sts for nid in (st.src, st.dst)}
+    inside |= {m for b in blocks for m in list(b.members) + list(b.refs)}
+    tops = [part(bi) for bi, b in enumerate(blocks) if b.parent is None]
+    for nid in inside - linked:
+        nodes.pop(nid, None)
+    return free, tops
 
 
 def _unit_strokes(scn, u, nodes: dict) -> list:
@@ -189,13 +230,14 @@ def _decision(g, w):
     return kit.render.Node(id=w.src, name=name, kind=kit.DECISION)
 
 
-def _split_sections(scn, u, nodes: dict, strokes: list) -> list:
+def _split_sections(scn, u, nodes: dict, strokes: list, blocks: list) -> list:
     """The document's part, or one per `--- section ---` (titled by a Rule): a
     stroke goes to the section its line is in, a node to every section a
-    stroke of it is in (else the one it is written in)."""
+    stroke of it is in (else the one it is written in), a block's part to the
+    section of its header."""
     secs = scn.sections
     if not secs:
-        return [_Part("", None, u.graph, nodes, strokes)]
+        return [_Part("", None, u.graph, nodes, strokes, blocks=blocks)]
     est = kit.node_lines(u.graph)
     groups = {}
     for st in strokes:
@@ -206,12 +248,16 @@ def _split_sections(scn, u, nodes: dict, strokes: list) -> list:
         for st in sts:
             linked.setdefault(st.src, set()).add(i)
             linked.setdefault(st.dst, set()).add(i)
+    framed = {}
+    for bp in blocks:
+        framed.setdefault(kit.section_of(secs, bp.block.lines[0]), []).append(bp)
     out = []
-    for i in sorted(set(groups) | {_node_section(scn, nid) for nid in nodes if nid not in linked}):
+    for i in sorted(set(groups) | set(framed)
+                    | {_node_section(scn, nid) for nid in nodes if nid not in linked}):
         here = {nid: n for nid, n in nodes.items()
                 if i in linked.get(nid, ()) or (nid not in linked and _node_section(scn, nid) == i)}
         title = kit.Rule(kit.section_name(secs[i])) if i >= 0 else ""
-        out.append(_Part(title, None, u.graph, here, groups.get(i, [])))
+        out.append(_Part(title, None, u.graph, here, groups.get(i, []), blocks=framed.get(i, [])))
     return out
 
 
@@ -347,6 +393,17 @@ def _head(kind: str) -> str:
     if kind.startswith("access:"):
         return kind[-1]
     return "▶"
+
+
+def _join_mark(p: "_Path") -> str:
+    """The join a path's wire enters (`-> [A] & [B]`) or leaves (`[A] & [B] ->`),
+    drawn just before its head (`─&▶`, `─&?▶`, `─/▶`, as the tree's `◀&`); ""
+    when none, or when the path ends at a band's cut end (its target draws it)."""
+    for w in p.stroke.wires:
+        mark = w.join.get("dst") or w.join.get("src")
+        if mark:
+            return mark
+    return ""
 
 
 def _build(part: _Part, ctx: "_Ctx", band: "_BandSpec | None" = None) -> _Layout:
@@ -620,12 +677,18 @@ def _channels(lay: _Layout) -> None:
         for gr in gs:
             lay.groups[gr.gid] = gr
     widths = [max((V[vid].width for vid in column), default=0) for column in lay.cols]
+    room = {}                                   # column → the cells its join marks take
+    for p in paths:
+        dst = V[p.via[-1]]
+        if dst.what == "node":
+            room[dst.col] = max(room.get(dst.col, 0), len(_join_mark(p)))
     first = min(groups, default=0)
     x = 0
     if first < 0:                               # the left margin's tracks
         tracks = _tracks(groups[-1])
         x = _place_tracks(lay, tracks, -1) + 4
     for c, column in enumerate(lay.cols):
+        x += room.get(c, 0)
         lay.colx[c] = x
         start = x + widths[c] + 1               # one blank after the widest label
         tracks = _tracks(groups.get(c, []))
@@ -777,6 +840,8 @@ def _draw(lay: _Layout, ctx: "_Ctx", isolated: bool = True) -> _Canvas:
         dst = lay.V[p.via[-1]]
         if dst.solid and p.cells:
             cv.put(*p.cells[-1], p.head, p.style)
+            if dst.what == "node":
+                _put_join(cv, lay, p)
         if p.stroke.kind == "<->" and len(p.cells) > 1:  # its own first cell, else by its head
             shared = sum(q.via[0] == p.via[0] for q in lay.paths) > 1
             at = p.cells[-2] if shared and len(p.cells) > 2 else p.cells[0]
@@ -830,6 +895,23 @@ def _draw_isolated(cv: _Canvas, lay: _Layout, ctx: "_Ctx", y: int, spots: dict,
 _STRAIGHT = (kit.L | kit.R, kit.U | kit.D)
 
 
+def _put_join(cv: _Canvas, lay: _Layout, p: _Path) -> None:
+    """A path's join mark (_join_mark) in the cells before its head, in the room
+    _channels left there; not where a wire with another mark (or none) shares
+    those cells: the mark would read as that wire's too."""
+    mark = _join_mark(p)
+    n = len(mark)
+    if not mark or len(p.cells) < n + 2:
+        return
+    cells = p.cells[-1 - n:-1]
+    y = p.cells[-1][1]
+    if any(c[1] != y for c in cells) or any(
+            c in q.cells and _join_mark(q) != mark for q in lay.paths if q is not p
+            for c in cells):
+        return
+    cv.put(cells[0][0], y, mark, kit.LABEL_STYLE)
+
+
 def _put_letters(cv: _Canvas, lay: _Layout) -> None:
     """Each hung chip's letter in its wire, on the wire's last own straight cell
     (one no other wire draws or crosses: before a shared last run's junction,
@@ -840,6 +922,8 @@ def _put_letters(cv: _Canvas, lay: _Layout) -> None:
         if p.letter is None or len(p.cells) < 2:
             continue
         end = len(p.cells) - (1 if p.head in ("▶", "✖") else 2)
+        if lay.V[p.via[-1]].what == "node":     # before its join mark
+            end -= len(_join_mark(p))
         way = p.cells[:max(end, 1)]
         own = [c for c in way if used[c] == 1]
         straight = {c for c in own if c in cv.lines and cv.lines[c][0] in _STRAIGHT}
@@ -1520,31 +1604,55 @@ def _part_rows(scn, depth, payloads, mods, notes, look, checks, marks, hang: boo
     part's drawing, the widest band still wider than `width` or 0). `hang`:
     chips hung (_hang), and each part wider than `width` cut into bands."""
     ctx = _Ctx(scn, depth, payloads, mods, notes, look, checks, marks, hang, width)
-    drawn, over = [], 0
+    drawn, every, over = [], [], 0
+
+    def draw(part, fit):
+        """part's _Drawn (None: no nodes), banded to fit; its blocks' after it."""
+        nonlocal over
+        d = None
+        if part.nodes:
+            lay = _build(part, ctx)
+            cv = _draw(lay, ctx)
+            d = _Drawn(cv, lay.spots, lay.marks, _routes(lay))
+            if hang and fit is not None and cv.w > fit:
+                banded = _banded(part, lay, ctx, fit)
+                if banded is not None:
+                    d = banded[0]
+                widest = banded[1] if banded is not None else cv.w
+                if widest > fit:
+                    over = max(over, widest + (width - fit))
+            every.append(d)
+        inner = None if fit is None else max(fit - vgraph.FRAME_PAD, 1)
+        return d, [draw(bp, inner) for bp in part.blocks]
+
     for part in flow_parts(scn, depth):
-        if not part.nodes:
-            continue
-        lay = _build(part, ctx)
-        cv = _draw(lay, ctx)
-        d = _Drawn(cv, lay.spots, lay.marks, _routes(lay))
-        if hang and width is not None and cv.w > width:
-            banded = _banded(part, lay, ctx, width)
-            if banded is not None:
-                d = banded[0]
-            widest = banded[1] if banded is not None else cv.w
-            if widest > width:
-                over = max(over, widest)
-        drawn.append((part, d))
+        if part.nodes or part.blocks:
+            drawn.append((part, draw(part, width)))
     if look is not None:                        # in task order: a later token wins a cell
         for tok in look.tokens:
-            for _p, d in drawn:
+            for d in every:
                 cell = _token_cell(tok, d, d.routes)
                 if cell is not None:
                     d.cv.put(cell[0], cell[1], tok.mark, tok.style)
                     break
-    parts = [(part.title, None, d.cv) for part, d in drawn]
+
+    def framed(part, tree, fit):
+        """part's canvas with its blocks' frames under it (view_graph's _stack)."""
+        d, kids = tree
+        inner = None if fit is None else max(fit - vgraph.FRAME_PAD, 1)
+        frames = [vgraph._framed(framed(bp, kid, inner), _frame_title(ctx, bp.block), _Canvas)
+                  for bp, kid in zip(part.blocks, kids)]
+        return vgraph._stack(d.cv if d is not None else _Canvas(), frames, fit, _Canvas)
+
+    parts = [(part.title, None, framed(part, tree, width)) for part, tree in drawn]
     rows, w = vgraph._section_rows(parts) if parts else ([], 0)
-    return rows, w, max([0] + [d.cv.w for _p, d in drawn]), over
+    return rows, w, max([0] + [cv.w for _t, _n, cv in parts]), over
+
+
+def _frame_title(ctx: "_Ctx", b) -> list:
+    """A block frame's title runs (kit.block_title_runs), then the #N of a
+    comment above its header — as the graph view titles it."""
+    return kit.block_title_runs(b) + ctx.tags.get(kit.block_note_key(b), [])
 
 
 # ---------------------------------------------------------------------------
@@ -1555,7 +1663,8 @@ def flow_legend(triggers: bool = True, payloads: bool = False, access: bool = Fa
                 mods: bool = False, events: str = "nodes"):
     """Legend row for the flow view: each arrow's stroke and head, the trigger
     wire, an event drawn where it lands, the wire shapes (a shared trunk, a hop,
-    stacked heads, a wire back along the return row), the call marks, the
+    stacked heads, a wire back along the return row), a block's frame, a
+    branch's arm, the join marks, the call marks, the
     expansion marks, and the permission wires and chips when they are shown."""
     dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
     row = [("flow   ", dim)]
@@ -1574,7 +1683,10 @@ def flow_legend(triggers: bool = True, payloads: bool = False, access: bool = Fa
     row += [("─┬─", wire), (" one source  ", mid), ("─┴─", wire), (" one target  ", mid),
             ("─│─", wire), (" crossing  ", mid), ("▶┐", wire), (" stacked heads  ", mid),
             ("╰──╯", wire), (" back to an earlier column  ", mid),
-            ("┄‹arm›┄", (kit.EDGE_COLOR["arm"], None, False)), (" branch arm  ", mid)]
+            ("╭╌ ↺ ∥ ◇ □", kit.FRAME_STYLE), (" block frame  ", mid),
+            ("┄‹arm›┄", (kit.EDGE_COLOR["arm"], None, False)), (" branch arm  ", mid),
+            ("&▶", kit.LABEL_STYLE), (" join: all  ", mid), ("&?▶", kit.LABEL_STYLE),
+            (" race  ", mid), ("/▶", kit.LABEL_STYLE), (" one of  ", mid)]
     op = kit.SYNTAX["operator"]
     row += [("↺", op), (" self-call  ", mid), ("↻", op), (" recursion  ", mid),
             ("⇱", op), (" host op  ", mid), ("▾ ▸", mid), (" expansion below / not  ", mid)]

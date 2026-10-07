@@ -1196,12 +1196,13 @@ def _frame_title(b, tags: dict | None) -> list:
     return kit.block_title_runs(b) + (tags or {}).get(kit.block_note_key(b), [])
 
 
-def _framed(content: "kit.Canvas", title_runs: list) -> "kit.Canvas":
-    """A titled frame around a drawing: ╭╌ title ╌╌╮ / ╎ … ╎ / ╰╌╌╌╯ (light dashed)."""
+def _framed(content: "kit.Canvas", title_runs: list, canvas=None) -> "kit.Canvas":
+    """A titled frame around a drawing: ╭╌ title ╌╌╮ / ╎ … ╎ / ╰╌╌╌╯ (light dashed).
+    `canvas`: the Canvas class drawn on (the flow view's rounds its corners)."""
     tw = kit.row_len(title_runs)
     inner = max(content.w, tw + 2)
     w = inner + 4
-    cv = kit.Canvas()
+    cv = (canvas or kit.Canvas)()
     cv.put(0, 0, "╭╌ ", kit.FRAME_STYLE)
     x = kit._put_runs(cv, 3, 0, title_runs)
     cv.put(x, 0, " " + "╌" * (w - 2 - x) + "╮", kit.FRAME_STYLE)
@@ -1217,10 +1218,11 @@ FRAME_GAP = 2                                   # columns between frames in a ro
 FRAME_PAD = 4                                   # columns a frame adds around its content
 
 
-def _stack(main: "kit.Canvas", frames: list, fit: int | None = None) -> "kit.Canvas":
+def _stack(main: "kit.Canvas", frames: list, fit: int | None = None,
+           canvas=None) -> "kit.Canvas":
     """main, with the frames in rows under it (left to right, wrapped at the
     wider of main and ISOLATED_WRAP, or at `fit` when that is narrower); main is
-    centred over a wider frame row."""
+    centred over a wider frame row. `canvas`: as _framed's."""
     if not frames:
         return main
     wrap = max(main.w, ISOLATED_WRAP)
@@ -1234,7 +1236,7 @@ def _stack(main: "kit.Canvas", frames: list, fit: int | None = None) -> "kit.Can
         width = max(width, x + f.w)
         x += f.w + FRAME_GAP
         row_h = max(row_h, f.h)
-    out = kit.Canvas()
+    out = (canvas or kit.Canvas)()
     out.blit(main, max(width - main.w, 0) // 2, 0)
     top = main.h + 1 if main.h else 0
     for f, fx, fy in placed:

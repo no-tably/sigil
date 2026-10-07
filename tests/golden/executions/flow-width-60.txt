@@ -3,17 +3,20 @@
 (Operator) ───▶ [Scheduler] ↺ ━┳a▶ {Plan}
                 a┆↩            ╰─▶ [Crawler] ↺ ───▶①
 [Indexer] ──┬─▶┐|Index|
-            ├─✖┘
-            ╰─────────────────────────────────────▶②
+            ╰─✖┘
 
 ①──┬─▶ [Fetcher] ──╮
    ├╌▶ [Metrics]   │
-②──┴─▶ [Parser] ▾ ─│─▶ [Doc.walk] ↻
+   ╰─▶ [Parser] ▾ ─│─▶ [Doc.walk] ↻
                    ├─▶ (Web) ⇱
                    ├─✖ <FetchFailed>
                    ╰◀▶ |Robots|
 
-{Site}   [Notifier] ⇱   [[follow]] ▾
+[Notifier] ⇱   [[follow]] ▾
+
+╭╌ ↺ loop @each page of {Site}.pages ╌╮
+╎      [Indexer] ──▶ [Parser] ▾       ╎
+╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯
 
 ── [Parser] := { … } ───────────────────────────────────────
 
