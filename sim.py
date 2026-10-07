@@ -70,7 +70,11 @@ view draws (events drawn where they land, a shallower depth).
   machines start in `+` (or the source of their first written transition); an
   event delivers its triggers (a transition written from the machine's state
   beats a `_` one), then runs its body. An expansion is a closer reading of the same node: its entries run first,
-  then the node's body minus its summary wires. An alias runs when called by name.
+  then the node's body minus its summary wires (out-wires to a target the
+  expansion already reaches: the detail carries the traffic, and the summary
+  is lit and taken with it), so `<OrderPlaced>` lands once, not once per level.
+  A node reached in a unit where it has no work of its own runs its home
+  unit's (the shallowest that has some). An alias runs when called by name.
   Composition children are instances: static ones once per parent (×N
   multiplies), dynamic ones Limits.spawn per parent, a `=>` into one spawns
   another. A flow's destination cardinality (`-> [App]×N`, Edge.card) is how
@@ -426,6 +430,8 @@ class Program:
     unit_nodes: dict           # node id → render.Node, first seen over units
     order: dict                # id(wire) → position in Scene.wires
     access: object             # scene.access_index of the document
+    summaries: dict = None     # summary wire ident → its detail wire idents (_summaries)
+    home: dict = None          # node id → the unit its own work is written in (_homes)
 
 
 def canonical(graph):
@@ -465,7 +471,88 @@ def program(sc) -> Program:
         if u.graph.role != "state":
             prog.entries[i] = _unit_entries(prog, i, by_unit.get(i, []))
     prog.triggers = _trigger_refs(sc, prog.machines)
+    prog.summaries = _summaries(prog, flows)
+    prog.home = _homes(prog)
     return prog
+
+
+def _summaries(prog: Program, flows: list) -> dict:
+    """{summary ident: (detail ident, …)}. A work wire out of X whose target X's
+    expansion (or one nested in it) already reaches is X's summary of that
+    detail: an expansion is a closer reading of the same node, so the detail
+    carries the traffic and the summary runs no token of its own
+    (`[Shop] ~> <OrderPlaced>` over `[Checkout] ~> <OrderPlaced>` inside
+    `[Shop] := { … }`). Routes are not summaries: a failure reaching X still
+    takes X's own routes."""
+    by_unit = {}
+    for w in flows:
+        by_unit.setdefault(prog.wire_unit[id(w)], []).append(w)
+
+    def detail(exp, seen):
+        if exp in seen:
+            return []
+        seen.add(exp)
+        out = list(by_unit.get(exp, ()))
+        for (ui, _nid), sub in prog.expansions.items():
+            if ui == exp:
+                out += detail(sub, seen)
+        return out
+
+    out = {}
+    for (ui, nid), exp in prog.expansions.items():
+        inner = detail(exp, set())
+        for w in _flat(prog.bodies.get((ui, nid), ())):
+            if w.src == nid and w.dst != nid:
+                hits = tuple(x.ident for x in inner if x.dst == w.dst)
+                if hits:
+                    out[w.ident] = hits
+    return out
+
+
+def _homes(prog: Program) -> dict:
+    """{node id: its home unit}: the shallowest unit (lowest level, then document
+    order) where it has work of its own — a body, routes, branches or an
+    expansion. A glyph is one entity across levels: reached where it has none,
+    it runs its home's (_home)."""
+    out = {}
+    keys = list(prog.bodies) + list(prog.routes) + list(prog.branches) + list(prog.expansions)
+    for ui, nid in sorted(set(keys), key=lambda k: (prog.units[k[0]].level, k[0])):
+        out.setdefault(nid, ui)
+    return out
+
+
+def _home(prog: Program, ui: int, nid: str) -> int:
+    """The unit nid's activation runs in when reached in unit ui: ui when nid has
+    work of its own there, else its home unit (sim.md §1.1)."""
+    key = (ui, nid)
+    if key in prog.bodies or key in prog.routes or key in prog.branches or key in prog.expansions:
+        return ui
+    return (prog.home or {}).get(nid, ui)
+
+
+def _summed(prog: Program, idents) -> frozenset:
+    """idents plus every summary one of its details is among: a summary is lit,
+    taken or failed exactly while its detail is."""
+    out = frozenset(idents)
+    extra = [k for k, details in (prog.summaries or {}).items()
+             if k not in out and not out.isdisjoint(details)]
+    return out.union(extra) if extra else out
+
+
+def _running(prog: Program, items) -> tuple:
+    """A body's items as a run takes them: without its summary wires (a group
+    goes when every member is one)."""
+    sums = prog.summaries or {}
+    if not sums:
+        return items
+    out = []
+    for it in items:
+        if isinstance(it, Step) and it.wire.ident in sums:
+            continue
+        if isinstance(it, Group) and all(w.ident in sums for w in it.wires):
+            continue
+        out.append(it)
+    return tuple(out)
 
 
 def _fill_unit(prog: Program, ui: int, u, wires: list) -> None:
@@ -1051,10 +1138,12 @@ class _Run:
                 for nid, n in Counter(a.node for a in task.stack).items():
                     if n > 1:
                         depth[nid] = max(depth.get(nid, 0), n)
+        lit = _summed(self.prog, in_flight | open_ | self.lit_now)
         return Frame(
             self.t, self.episode, self.entry, tuple(tokens),
-            frozenset(in_flight | open_ | self.lit_now), frozenset(open_ - in_flight),
-            frozenset(self.taken), frozenset(self.failed_w), dict(self.status), depth,
+            lit, frozenset(open_ - in_flight),
+            _summed(self.prog, self.taken), _summed(self.prog, self.failed_w),
+            dict(self.status), depth,
             dict(self.machines), frozenset(self.changed), self._instances(),
             dict(self.loops), frozenset(k for k, n in self.blocks.items() if n > 0),
             frozenset(k for k, n in self.held.items() if n > 0), tuple(self.lines), self.done)
@@ -1358,7 +1447,7 @@ class _Run:
             for e in self.prog.entries.get(exp, ()):
                 yield from self._entry_gen(task, exp, e)
         items = (self.prog.arm_bodies.get(arm, {}).get(act.node, ()) if arm
-                 else self.prog.bodies.get((act.ui, act.node), ()))
+                 else _running(self.prog, self.prog.bodies.get((act.ui, act.node), ())))
         yield from self._items(task, items, arm)
         if arm is None:
             for bi in self.prog.branches.get((act.ui, act.node), ()):
@@ -1509,7 +1598,8 @@ class _Run:
             self._arrival(task, "base")
             yield ("turn",)
             return
-        yield from self._activate(task, self._ui(w), dst, w.ident, arm, alias)
+        ui = self._ui(w) if arm is not None else _home(self.prog, self._ui(w), dst)
+        yield from self._activate(task, ui, dst, w.ident, arm, alias)
 
     def _return(self, task: _Task, w):
         back = returned(w)
@@ -2088,7 +2178,9 @@ def _land_ctx(prog: Program, w, arm, scopes: frozenset) -> Optional[_Ctx]:
         return None
     if sn is not None and sn.node.kind == "actor":
         return None
-    return _Ctx(prog.wire_unit.get(id(w), 0), w.dst, arm, _alias_of(prog, w), scopes)
+    ui = prog.wire_unit.get(id(w), 0)
+    return _Ctx(ui if arm is not None else _home(prog, ui, w.dst), w.dst, arm,
+                _alias_of(prog, w), scopes)
 
 
 def _failed_call(w, at: _Place) -> _Effect:
@@ -2232,7 +2324,7 @@ def _activation(fl: _Flow, fails: dict, ctx: _Ctx) -> _Effect:
     if exp is not None and ctx.arm is None:
         parts += [_entry_effect(fl, fails, exp, e, ctx.scopes) for e in prog.entries.get(exp, ())]
     items = (prog.arm_bodies.get(ctx.arm, {}).get(ctx.node, ()) if ctx.arm
-             else prog.bodies.get((ctx.ui, ctx.node), ()))
+             else _running(prog, prog.bodies.get((ctx.ui, ctx.node), ())))
     parts.append(_walk(fl, fails, items, at))
     if ctx.arm is None:
         parts += [_branch_effect(fl, fails, ctx.ui, bi, ctx.scopes)
@@ -2527,6 +2619,7 @@ def reachable(prog: Program):
 
     while queue:
         ui, nid = queue.pop(0)
+        ui = _home(prog, ui, nid)
         if (ui, nid) in seen:
             continue
         seen[(ui, nid)] = True
@@ -2535,7 +2628,7 @@ def reachable(prog: Program):
             regions[(dui, bi)] = None
             _take_branch(prog, dui, bi, take, queue)
             continue
-        items = prog.bodies.get((ui, nid), ())
+        items = _running(prog, prog.bodies.get((ui, nid), ()))
         regions_of(items, nid)
         take(_flat(items), ui)
         take([w for w, _g in prog.routes.get((ui, nid), ())], ui)

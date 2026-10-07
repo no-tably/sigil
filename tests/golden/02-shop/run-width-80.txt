@@ -3,29 +3,32 @@
                    0         10        20        30        40        50
   (Shopper)        █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
   [Edge]           ╰──▶██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-  [Shop]                ╰──▶█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░█░░░░░░░░░╮
-    [Cart]                   █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│         ╎
-    [Checkout]               ╰──▶██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░┤         ╎
-    [Payments]                    ╰──▶█░░░░░░░░░░░░░░░░░░░░───↩ │         ╎
-      [Gateway]                        █░░░░░░░░░░░░░░░░░░░     │         ╎
-      [Risk]                           ╰──▶█░░░░░░░░░░───↩      │         ╎
-        [Model]                             █░░░░█░░░░          │         ╎
-        |Features|                          ╰──▶█┃              │         ╎
-        {Verdict}                                ╰━━▶█          │         ╎
-    <OrderPlaced>                                               ├╌╌▶◆     ╰╌╌▶
-  |Catalog|                                                     ╰──▶█───↩
+  [Shop]                ╰──▶█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░█░░░░░░░░░
+    [Cart]                   █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│
+    [Checkout]               ╰──▶██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░┤
+    [Payments]                    ╰──▶█░░░░░░░░░░░░░░░░░░░░───↩ │
+      [Gateway]                        █░░░░░░░░░░░░░░░░░░░     │
+      [Risk]                           ╰──▶█░░░░░░░░░░───↩      │
+        [Model]                             █░░░░█░░░░          │
+        |Features|                          ╰──▶█┃              │
+        {Verdict}                                ╰━━▶█          │
+    <OrderPlaced>                                               ├╌╌▶◆█░░░░░░░░
+  |Catalog|                                                     ╰──▶█┼──↩
+  [Fulfilment]                                                       ├══▶█░░░░
+    [Picker]                                                         ║    █░░░
+    [Packer]                                                         ║    ╰──▶
+  |Ledger|                                                           ╰══▶█
 
-                    60        70    76
-    <OrderPlaced>  ◆█░░░░░░░░░░░░░░░
-  [Fulfilment]      ├══▶█░░░░░░░░░░
-    [Picker]        ║    █░░░░░░░░░
-    [Packer]        ║    ╰──▶██░░░░
-    (Courier)       ║         ╰──▶•
-  |Ledger|          ╰══▶█
+                    60    66
+    <OrderPlaced>  ░░░░░░░
+  [Fulfilment]     ░░░░░░
+    [Picker]       ░░░░░░
+    [Packer]       ██░░░░
+    (Courier)       ╰──▶•
 
   (Shopper)        episode 1's entry; calls [Edge]
   [Edge]           calls [Shop]
-  [Shop]           calls |Catalog|; emits <OrderPlaced>, doesn't wait
+  [Shop]           calls |Catalog|
     [Cart]         calls [Checkout]
     [Checkout]     calls [Payments]; emits <OrderPlaced>, doesn't wait
     [Payments]     returns {Receipt}
@@ -33,13 +36,13 @@
       [Risk]       returns {Verdict}
         [Model]    calls |Features|
         {Verdict}  produced by [Model]
-    <OrderPlaced>  lands 2×; fans out to 2, waits for all
+    <OrderPlaced>  lands; fans out to 2, waits for all
   |Catalog|        returns {Item}
     [Picker]       calls [Packer]
     [Packer]       calls (Courier)
     (Courier)      reached: an actor, no work of its own
 
-happy run (every default) · ok · 77 frames   x plays it   [ ] another scenario
+happy run (every default) · ok · 67 frames   x plays it   [ ] another scenario
 
 run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces
        ╰══▶ broadcast  ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed

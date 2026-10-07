@@ -224,6 +224,10 @@ random; the run is a function of the design and the chosen **scenario**.
   `*>` and `&` fork to all and wait for all, `!>` fires only on failure, retries
   count their attempts, events drive the state machines that name them (each
   machine's current state is marked `◉`), loops and recursion are bounded.
+- **Levels:** an expansion is a closer reading of its node, so an outer flow whose
+  target the expansion also reaches is a summary of that detail — `[Shop] ~>
+  <OrderPlaced>` over `[Checkout] ~> <OrderPlaced>` inside `[Shop] := { … }` — and
+  runs once, as the detail (the summary lights with it).
 - **The marks:** `●` a token going out, `○` a return or fallback, `✕` a failure (in
   the failure colour), `⊘` cancelled; the wire a token is on now bright, the wires
   taken before faded, the ones never taken fainter; `…` waiting, `×n`

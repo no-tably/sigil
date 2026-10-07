@@ -662,6 +662,8 @@ shared").
 
 Any entity can be expanded later; an entity without an expansion is a leaf. Deeper sections go **below** shallower ones — general-to-specific top-down.
 
+The levels describe one system, not two: above, `[Core] -> |DB|` is the summary of `[Handler] -> |DB|` inside `[Core] := { … }` — one write read at two levels (the simulator runs the detail, once). A glyph is the same entity at every level, so a node with no flows of its own where it is reached does what it does where its flows are written.
+
 ---
 
 ## Composition trees

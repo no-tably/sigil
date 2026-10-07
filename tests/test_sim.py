@@ -280,6 +280,58 @@ class TestOrders(unittest.TestCase):
         self.assertTrue(logs(tr, "ignored: <Go>"))
 
 
+class TestShopLevels(unittest.TestCase):
+    """An expansion is a closer reading of the same node (sim.md §3.11, §8.4):
+    `[Shop] ~> <OrderPlaced>` summarises `[Checkout] ~> <OrderPlaced>` inside
+    `[Shop] := { … }`, so the event lands once, and the detail's emit runs the
+    event's home body (`*> [Fulfilment] & |Ledger|`, written at the top level)."""
+
+    def setUp(self):
+        self.sc = load("02-shop.sigil")
+        self.trace = run(self.sc)
+        self.summary = wire(self.sc, "Shop_service", "OrderPlaced_event", "~>")
+
+    def test_the_event_lands_once(self):
+        tr = self.trace
+        self.assertEqual(tr.outcome, "ok")
+        became = [i for i in range(1, len(tr.frames))
+                  if tr.frames[i].nodes.get("OrderPlaced_event") == "active"
+                  and tr.frames[i - 1].nodes.get("OrderPlaced_event") != "active"]
+        self.assertEqual(len(became), 1)
+        self.assertEqual(logs(tr, "[Shop] ~>"), [])
+        self.assertEqual(len(logs(tr, "<OrderPlaced> *> [Fulfilment]")), 1)
+
+    def test_the_summary_carries_no_token_but_is_taken(self):
+        tr = self.trace
+        self.assertFalse(any(t.wire == self.summary for f in tr.frames for t in f.tokens))
+        self.assertIn(self.summary, tr.frames[-1].taken)
+        detail = sim.program(sim.canonical(self.sc.graph)).summaries[self.summary]
+        for f in tr.frames:
+            self.assertEqual(self.summary in f.lit, not f.lit.isdisjoint(detail))
+
+    def test_the_pathway_runs(self):
+        visited = self.trace.end["visited"]
+        for nid in ("Fulfilment_service", "Ledger_store", "Picker_service",
+                    "Packer_service", "Courier_actor", "Catalog_store"):
+            self.assertIn(nid, visited)
+
+    def test_out_wires_the_expansion_never_reaches_still_run(self):
+        sc = build("(U) -> [Core]\n[Core] -> |DB| : put()\n[Core] -> |Log| : add()\n"
+                   "[Core] := {\n  [H] -> |DB| : put()\n}\n")
+        tr = run(sc)
+        self.assertEqual(logs(tr, "[Core] -> |DB|"), [])
+        self.assertTrue(logs(tr, "[H] -> |DB|"))
+        self.assertTrue(logs(tr, "[Core] -> |Log|"))
+
+    def test_a_node_with_no_work_where_reached_runs_its_home_body(self):
+        sc = build("(U) -> [A]\n[A] ~> <E>\n<E> -> |Log| : add()\n"
+                   "[A] := {\n  [B] ~> <E>\n}\n")
+        tr = run(sc)
+        self.assertEqual(logs(tr, "send [A] ~> <E>"), [])        # the summary
+        self.assertEqual(len(logs(tr, "send [B] ~> <E>")), 1)
+        self.assertEqual(len(logs(tr, "<E> -> |Log|")), 1)       # <E>'s top-level body
+
+
 # ---------------------------------------------------------------------------
 # 3. Calls
 # ---------------------------------------------------------------------------

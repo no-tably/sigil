@@ -1,26 +1,26 @@
 ── run · happy — no scenario chosen: the happy run ─────────────────────────────────────────────────────────────────────────────────────────
 
-                   0         10        20        30        40        50        60        70    76
-  (Shopper)        █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░                         episode 1's entry; calls [Edge]
-  [Edge]           ╰──▶██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░                         calls [Shop]
-  [Shop]                ╰──▶█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░█░░░░░░░░░╮                        emits <OrderPlaced>, doesn't wait
-    [Cart]                   █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│         ╎                        calls [Checkout]
-    [Checkout]               ╰──▶██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░┤         ╎                        emits <OrderPlaced>, doesn't wait
-    [Payments]                    ╰──▶█░░░░░░░░░░░░░░░░░░░░───↩ │         ╎                        returns {Receipt}
-      [Gateway]                        █░░░░░░░░░░░░░░░░░░░     │         ╎                        calls [Risk]
-      [Risk]                           ╰──▶█░░░░░░░░░░───↩      │         ╎                        returns {Verdict}
-        [Model]                             █░░░░█░░░░          │         ╎                        calls |Features|
-        |Features|                          ╰──▶█┃              │         ╎
-        {Verdict}                                ╰━━▶█          │         ╎                        produced by [Model]
-    <OrderPlaced>                                               ├╌╌▶◆     ╰╌╌▶◆█░░░░░░░░░░░░░░░    lands 2×; fans out to 2, waits for all
-  |Catalog|                                                     ╰──▶█───↩      ║                   returns {Item}
-  [Fulfilment]                                                                 ├══▶█░░░░░░░░░░
-    [Picker]                                                                   ║    █░░░░░░░░░     calls [Packer]
-    [Packer]                                                                   ║    ╰──▶██░░░░     calls (Courier)
-    (Courier)                                                                  ║         ╰──▶•     reached: an actor, no work of its own
-  |Ledger|                                                                     ╰══▶█
+                   0         10        20        30        40        50        60    66
+  (Shopper)        █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░               episode 1's entry; calls [Edge]
+  [Edge]           ╰──▶██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░               calls [Shop]
+  [Shop]                ╰──▶█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░█░░░░░░░░░               calls |Catalog|
+    [Cart]                   █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│                        calls [Checkout]
+    [Checkout]               ╰──▶██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░┤                        calls [Payments]; emits <OrderPlaced>, doesn't wait
+    [Payments]                    ╰──▶█░░░░░░░░░░░░░░░░░░░░───↩ │                        returns {Receipt}
+      [Gateway]                        █░░░░░░░░░░░░░░░░░░░     │                        calls [Risk]
+      [Risk]                           ╰──▶█░░░░░░░░░░───↩      │                        returns {Verdict}
+        [Model]                             █░░░░█░░░░          │                        calls |Features|
+        |Features|                          ╰──▶█┃              │
+        {Verdict}                                ╰━━▶█          │                        produced by [Model]
+    <OrderPlaced>                                               ├╌╌▶◆█░░░░░░░░░░░░░░░    lands; fans out to 2, waits for all
+  |Catalog|                                                     ╰──▶█┼──↩                returns {Item}
+  [Fulfilment]                                                       ├══▶█░░░░░░░░░░
+    [Picker]                                                         ║    █░░░░░░░░░     calls [Packer]
+    [Packer]                                                         ║    ╰──▶██░░░░     calls (Courier)
+    (Courier)                                                        ║         ╰──▶•     reached: an actor, no work of its own
+  |Ledger|                                                           ╰══▶█
 
-happy run (every default) · ok · 77 frames   x plays it   [ ] another scenario
+happy run (every default) · ok · 67 frames   x plays it   [ ] another scenario
 
 run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  ╰══▶ broadcast
        ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  ⊘ cancelled  ↺ self-call  ↻k depth k
