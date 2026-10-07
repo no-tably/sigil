@@ -60,6 +60,16 @@ as a lane beside it) and the run view (one simulated run as a timeline: a lane p
 participant, instance and recursion level, time left to right). The first three
 draw the design, what can happen; the run view draws what did happen in one run.
 
+Which view reads best depends on the question. The flow view suits request paths,
+call chains and failure routes, and is usually the shortest drawing; it wraps in a
+narrow pane. The tree view suits composition and ownership (has, spawns, `:=`
+internals) and state machines, and is the narrowest for a small design. The graph
+view suits the overall topology of a small design: fan-in, fan-out, where flows
+converge; it never wraps. The run view presents a simulation: order and timing,
+retries, spawned instances and recursion levels; it shows only what ran. An agent
+that opens or presents a view tells the person in one sentence which view it
+picked and why (the skill's "Which view" has the details).
+
 Options:
 
 - `--once` prints the drawing and a lint summary, then exits (1 on a lint error; see

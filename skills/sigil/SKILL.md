@@ -82,9 +82,8 @@ ways to show it. Pick by where you are running:
   again when you want the user to look at something particular, such as a run
   (`scenario`, then `frame` or `play`): under the drawing the user reads the
   run's path (its hops so far, numbered by branch; the reply's `path:`) and
-  its narration line, the same words the reply's `now:` gives you. `view: flow` shows the call graph left to right, often the easiest view
-  to follow a run in; `view: run` draws the run itself as a timeline (who acted
-  when, on which instance, retries, spawns, recursion levels). The viewer redraws on every save, so
+  its narration line, the same words the reply's `now:` gives you. Pick the view
+  as in **Which view** below. The viewer redraws on every save, so
   don't call it after each edit. It draws in a pane (Claude Code) or a widget
   above the editor (pi). Inside herdr, tmux or zellij it opens a split running
   the live view instead. If the reply says the viewer is waiting (the terminal
@@ -105,6 +104,27 @@ ways to show it. Pick by where you are running:
   block when the user asked to see it here, or can't run a live view. It is also
   the way to see a run's frame yourself: the viewer tool never returns the
   drawing.
+
+### Which view
+
+Pick the view that answers the question at hand. Whenever you open or present a
+view, tell the user in one sentence which one you picked and why — e.g. "The flow
+view: it reads the checkout's request path and its failure route left to right."
+
+| View | Reads best for | Weak at |
+| --- | --- | --- |
+| flow (`--flow`) | request paths, call chains, failure routes (`├─✖`), payloads (`--payloads`) and findings (`--checks`) on the wire; usually the shortest drawing, and it wraps into bands in a narrow pane. With a run: the route taken | many back-edges or state triggers tangle it |
+| tree (`--tree`) | composition and ownership (`\-&` has, `\-*` spawns, `:=` internals — the other views draw a parts-only unit with no parts), state machines with their triggers in a few rows; the narrowest drawing of a small design. With a run: `◉` current states, wires taken | lanes multiply on large designs |
+| graph (default) | overall topology: fan-in (several writers into one store), fan-out, where flows converge; state machines as state diagrams; control blocks as frames | never wraps, so a wide design overflows the pane; the tallest drawing |
+| run (`--run`) | presenting a simulation: order and timing, retries (`╰───✖` per attempt), spawned instances (`{Bullet·2}`), recursion levels (`↻2`), async hand-offs, fan-out, episodes, a plain-words note per lane; the happy run without `--sim` | shows only what ran — unreached parts are absent, so it is not a picture of the design |
+
+To show a design, start with flow; switch to tree when the question is what owns
+or contains what, or the pane is narrow, and to graph for the big picture of a
+small design. To present a simulation, use run when the answer is *when*, *how
+many times* or *which instance* (retries, spawns, recursion, waiting); use flow
+(or tree for state machines) when it is *which route* the run took through the
+design. On a large design, `--depth 0` first, then open one expansion at a time;
+keep `--depth all` for small documents.
 
 ## Operations
 
@@ -267,8 +287,8 @@ events and a line saying what is happening now. The view follows the run (`w` tu
 
 ### view / render — show the shape
 For a quick look in the conversation, run `python3 scripts/view.py FILE --once` and show
-the drawing in a plain code block (`--flow` for a call graph read left to right: one
-row per callee, usually the shortest drawing). When the user wants a diagram for docs, run
+the drawing in a plain code block, in the view that fits (see **Which view**) and
+saying which and why. When the user wants a diagram for docs, run
 `python3 scripts/render.py` and present Mermaid. If the graph gets crowded (more than
 ~40 nodes or 3 levels), show one section at a time with a lower `--depth`.
 

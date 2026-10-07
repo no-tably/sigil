@@ -81,6 +81,11 @@ const TOOL_DESCRIPTION = [
   '"last") or played (play: true). Fields left out keep their last value.',
   'The reply says where it is shown, the summary, lint, and the run at that',
   'frame; it does not return the drawing (view.py --once prints that as text).',
+  'Pick the view that fits: flow for request paths and failure routes;',
+  'tree for composition, ownership and state machines, or a narrow pane;',
+  'graph for the overall topology and fan-in of a small design; run to',
+  'present a simulation (timing, retries, spawns, recursion). Tell the',
+  'person in one sentence which view you picked and why.',
 ].join(' ')
 
 // Plain JSON Schema (pi validates with ajv, coercing types): depth and frame
