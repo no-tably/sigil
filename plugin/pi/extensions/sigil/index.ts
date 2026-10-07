@@ -15,19 +15,20 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
-  DEFAULT_WIDTH, DISPLAYS, UNASKED_COLUMNS, VIEWS,
-  detectMux, displayReport, drawArgv, frameIndex, herdrPaneOf, herdrReadyArgv, parseCommandArgs,
-  parseDisplayArgs, parseDrawing, parseRequest, pickDisplay, replyText, resolveDisplay, runLines, shellQuote,
-  splitArgv, statusLine, viewArgv,
+  DEFAULT_WIDTH, DISPLAYS, LAYOUTS, UNASKED_COLUMNS, VIEWS,
+  cropRows, detectMux, displayReport, drawArgv, frameIndex, herdrPaneOf, herdrReadyArgv, layoutReport, panTo,
+  parseCommandArgs, parseDisplayArgs, parseDrawing, parseLayoutArgs, parseRequest, pickDisplay, pickLayout, replyText,
+  resolveDisplay, runLines, shellQuote, splitArgv, statusLine, viewArgv,
 } from './logic.ts'
-import type { Asked, Display, DisplayChoice } from './logic.ts'
+import type { Asked, Display, DisplayChoice, LayoutChoice } from './logic.ts'
 
 // The shapes this file uses (types/index.d.ts in plugin/claude has them all).
 type ViewRequest = { file: string; view: 'graph' | 'tree' | 'flow' | 'run'; depth: number; scenario?: string; payloads?: boolean }
 type PackedRow = [string, number][]
 type Style = [string | null, string | null, boolean]
 type Drawing = {
-  file: string; view: string; width: number | null; styles: Style[]; frames: PackedRow[][]
+  file: string; view: string; width: number | null; layout?: 'wrap' | 'pan'; height?: number
+  styles: Style[]; frames: PackedRow[][]
   legend: PackedRow[]; summary: string; lint: string[]; scenarios: string[]
   status?: string[]; log?: string[]; say?: string[]; trail?: string[]; path?: PackedRow[][]; outcome?: string
 }
@@ -61,12 +62,14 @@ export const TOOL = 'sigil_view'
 export const COMMAND = 'sigil-pane' // matches the Claude Code mod, where /sigil is the skill's
 export const WIDGET = 'sigil'
 export const FLAG = 'sigil-display'
+export const LAYOUT_FLAG = 'sigil-layout'
 const WATCH_MS = 1000 // how often the shown file is looked at
 const PLAY_MS = 125 // a played run's frame time: 8 frames a second, view.py's start
 const ALIVE_MS = 3000 // a split whose follow loop touched its file this recently is up
 const CHROME_ROWS = 14 // the editor, footer and some conversation the widget leaves room for
 const MIN_BODY_ROWS = 10
-const HINT = `/${COMMAND} graph|tree|flow|run · depth N|all · sim NAME · play · pause · back · next · close · display`
+const HINT = `/${COMMAND} graph|tree|flow|run · depth N|all · sim NAME · play · pause · back · next · close · display · layout`
+const PAN_HINT = `/${COMMAND} left · right: pan the drawing`   // while a panned one is wider than the widget
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PANE_PY = join(HERE, '..', '..', 'skills', 'sigil', 'scripts', 'pane.py')
@@ -111,18 +114,19 @@ export function settingsPath(env: Record<string, string | undefined> = process.e
   return join(base, 'sigil', 'viewer.json')
 }
 
-/** The settings file's `display`, or undefined (no file, not JSON, unset). */
-export function savedDisplay(path: string): string | undefined {
+/** A setting in the settings file (`display`, `layout`), or undefined (no
+ * file, not JSON, unset). */
+export function savedSetting(path: string, key: string): string | undefined {
   try {
-    const value = JSON.parse(readFileSync(path, 'utf8'))?.display
+    const value = JSON.parse(readFileSync(path, 'utf8'))?.[key]
     return typeof value === 'string' ? value : undefined
   } catch {
     return undefined
   }
 }
 
-/** Writes `display` into the settings file, keeping any other keys. */
-export async function saveDisplay(path: string, choice: DisplayChoice): Promise<void> {
+/** Writes a setting into the settings file, keeping any other keys. */
+export async function saveSetting(path: string, key: string, value: string): Promise<void> {
   let kept: Record<string, unknown> = {}
   try {
     const got = JSON.parse(await readFile(path, 'utf8'))
@@ -131,7 +135,17 @@ export async function saveDisplay(path: string, choice: DisplayChoice): Promise<
     // a missing or broken file is written afresh
   }
   await mkdir(dirname(path), { recursive: true })
-  await writeFile(path, JSON.stringify({ ...kept, display: choice }, null, 2) + '\n')
+  await writeFile(path, JSON.stringify({ ...kept, [key]: value }, null, 2) + '\n')
+}
+
+/** The settings file's `display`, or undefined. */
+export function savedDisplay(path: string): string | undefined {
+  return savedSetting(path, 'display')
+}
+
+/** Writes `display` into the settings file, keeping any other keys. */
+export async function saveDisplay(path: string, choice: DisplayChoice): Promise<void> {
+  await saveSetting(path, 'display', choice)
 }
 
 /** `#rrggbb` as an SGR colour (38 foreground, 48 background), or null. */
@@ -164,13 +178,31 @@ export function styled(text: string, width: number, sgr?: string): string {
   return sgr === undefined ? cut : `\x1b[${sgr}m${cut}\x1b[0m`
 }
 
+/** Plain text wrapped at `width` cells between words (a continuation indented
+ * two), each line in an SGR style — the summary and lint under the drawing. */
+export function wrapped(text: string, width: number, sgr?: string): string[] {
+  const out: string[] = []
+  let line = ''
+  for (const word of text.split(' ')) {
+    const next = line === '' ? word : `${line} ${word}`
+    if ([...next].length > width && line.trim() !== '') {
+      out.push(line)
+      line = `  ${word}`
+    } else line = next
+  }
+  out.push(line)
+  return out.map(l => styled(l, width, sgr))
+}
+
 /** The widget's lines: the status, the frame (cut to `bodyRows`, saying how
- * many rows are left out), the run's path and narration line (runLines), the
- * legend, summary, lint and the command hint. */
+ * many rows are left out; a panned one from column `panX`), the run's path and
+ * narration line (runLines), the legend, summary, lint and the command hint. */
 export function widgetLines(drawing: Drawing, request: ViewRequest, playback: Playback,
-                            error: string | null, width: number, bodyRows: number): string[] {
+                            error: string | null, width: number, bodyRows: number, panX = 0): string[] {
   const at = frameIndex(drawing as never, playback)
-  const rows = drawing.frames[at] ?? []
+  const drawn = drawing.frames[at] ?? []
+  const isPanned = drawing.layout === 'pan' && drawn.some(r => r.reduce((n, [t]) => n + [...t].length, 0) > width)
+  const rows = isPanned ? cropRows(drawn, panX, width) : drawn
   const lines = [styled(statusLine(drawing as never, request, at, playback.isPlaying), width, '1')]
   if (error !== null) lines.push(styled(`✖ ${error}`, width, '31'))
   const shown = rows.length > bodyRows ? rows.slice(0, Math.max(1, bodyRows - 1)) : rows
@@ -185,17 +217,22 @@ export function widgetLines(drawing: Drawing, request: ViewRequest, playback: Pl
     lines.push(styled(told.now, width, '1'))
   }
   if (shown.length === rows.length) for (const row of drawing.legend) lines.push(ansiRow(row, drawing.styles, width))
-  lines.push(styled(drawing.summary, width, '2'))
-  for (const line of drawing.lint) lines.push(styled(line, width, '2'))
+  lines.push(...wrapped(drawing.summary, width, '2'))
+  for (const line of drawing.lint) lines.push(...wrapped(line, width, '2'))
+  if (isPanned) lines.push(styled(PAN_HINT, width, '2'))
   lines.push(styled(HINT, width, '2'))
   return lines
 }
 
-/** /sigil-pane's own words over the tool's: `close`, `pause`, `back`, `next`. */
-export function commandWords(args: string): { action?: 'close' | 'back' | 'next'; input: Record<string, unknown> } {
+type Action = 'close' | 'back' | 'next' | 'left' | 'right'
+const ACTIONS: readonly string[] = ['close', 'back', 'next', 'left', 'right']
+
+/** /sigil-pane's own words over the tool's: `close`, `pause`, `back`, `next`,
+ * and `left` / `right` (a panned drawing, half a widget across). */
+export function commandWords(args: string): { action?: Action; input: Record<string, unknown> } {
   const words = args.trim().split(/\s+/).filter(w => w !== '')
-  const own = words.find(w => w === 'close' || w === 'back' || w === 'next') as 'close' | 'back' | 'next' | undefined
-  const rest = words.filter(w => !['close', 'back', 'next', 'pause'].includes(w))
+  const own = words.find(w => ACTIONS.includes(w)) as Action | undefined
+  const rest = words.filter(w => ![...ACTIONS, 'pause'].includes(w))
   const input = parseCommandArgs(rest.join(' '))
   if (words.includes('pause')) input.play = false
   return own === undefined ? { input } : { action: own, input }
@@ -212,7 +249,8 @@ export default function sigil(pi: Pi): void {
   let watchTimer: ReturnType<typeof setInterval> | null = null
   let playTimer: ReturnType<typeof setInterval> | null = null
   let seenMtime = 0
-  let drawingFor = '' // the request + width a redraw is under way for
+  let panX = 0 // the first column a panned drawing shows
+  let drawingFor = '' // the request + size a redraw is under way for
 
   const columns = () => process.stdout.columns || DEFAULT_WIDTH
   const bodyRows = () => Math.max(MIN_BODY_ROWS, (process.stdout.rows || 40) - CHROME_ROWS)
@@ -225,6 +263,34 @@ export default function sigil(pi: Pi): void {
     [settingsPath(), savedDisplay(settingsPath())],
   ], 'the default')
   const display = (): Display => resolveDisplay(setting().choice, env())
+  /** The layout setting by the same precedence: --sigil-layout, SIGIL_LAYOUT,
+   * the settings file, else auto. */
+  const layoutSetting = () => pickLayout([
+    [`--${LAYOUT_FLAG}`, pi.getFlag(LAYOUT_FLAG)],
+    ['SIGIL_LAYOUT', process.env.SIGIL_LAYOUT],
+    [settingsPath(), savedSetting(settingsPath(), 'layout')],
+  ], 'the default')
+  /** What a redraw at `width` is for: the request, the layout, and (auto only)
+   * the rows it picks by. */
+  const drawKey = (req: ViewRequest, width: number) => {
+    const layout = layoutSetting().choice
+    return JSON.stringify([req, width, layout, layout === 'auto' ? bodyRows() : 0])
+  }
+
+  /** `/sigil-pane layout [VALUE]`: the setting in words, or saved to the file. */
+  async function layoutCommand(choice: LayoutChoice | undefined): Promise<string> {
+    const now = layoutSetting()
+    if (choice === undefined) return layoutReport(now.choice, now.source, drawing?.layout)
+    const path = settingsPath()
+    await saveSetting(path, 'layout', choice)
+    const after = layoutSetting()
+    const said = layoutReport(choice, path)
+    if (after.source !== path) {
+      return `${said}\nBut ${after.source} (${after.choice}) wins in this session; the file applies once it is unset.`
+    }
+    if (request !== null && tui !== null) await redraw(request, drawing?.width ?? columns())
+    return `${said}\nThe next drawing is laid out ${choice === 'auto' ? 'as fits the widget best' : `to ${choice}`}.`
+  }
 
   /** `/sigil-pane display [VALUE]`: the setting in words, or saved to the file. */
   async function displayCommand(choice: DisplayChoice | undefined): Promise<string> {
@@ -252,7 +318,8 @@ export default function sigil(pi: Pi): void {
   }
 
   async function runPane(req: ViewRequest, width: number): Promise<Drawing | { error: string }> {
-    const argv = drawArgv(PANE_PY, req, width)
+    const layout = layoutSetting().choice
+    const argv = drawArgv(PANE_PY, req, width, { layout, ...(layout === 'auto' ? { height: bodyRows() } : {}) })
     const ran = await pi.exec(argv[0] ?? 'python3', argv.slice(1), { timeout: 60000 })
       .catch((err: unknown) => ({ code: 1, stdout: '', stderr: String(err) }))
     if (ran.code !== 0) return { error: ran.stderr.trim().split('\n').pop() || 'pane.py failed' }
@@ -261,7 +328,7 @@ export default function sigil(pi: Pi): void {
 
   /** Runs pane.py for the request at `width` and stores what it drew. */
   async function redraw(req: ViewRequest, width: number): Promise<Drawing | { error: string }> {
-    const key = JSON.stringify([req, width])
+    const key = drawKey(req, width)
     drawingFor = key
     const got = await runPane(req, width)
     if (drawingFor === key) drawingFor = ''
@@ -323,12 +390,12 @@ export default function sigil(pi: Pi): void {
         if (request === null || drawing === null) {
           return [styled(failure ?? `No Sigil file shown yet: /${COMMAND} FILE, or ask the agent to show one.`, width, '2')]
         }
-        if (drawing.width !== width && drawingFor !== JSON.stringify([request, width])) {
+        if (drawing.width !== width && drawingFor !== drawKey(request, width)) {
           const req = request
-          drawingFor = JSON.stringify([req, width])
+          drawingFor = drawKey(req, width)
           setTimeout(() => void redraw(req, width), 0)
         }
-        return widgetLines(drawing, request, playback, failure, width, bodyRows())
+        return widgetLines(drawing, request, playback, failure, width, bodyRows(), panX)
       },
       invalidate() {},
     }
@@ -363,6 +430,7 @@ export default function sigil(pi: Pi): void {
     const req = { ...asked.request, file: path }
     const isNewRun = req.scenario !== request?.scenario || req.file !== request?.file
     request = req
+    panX = 0
     const width = columns()
     const got = await redraw(req, width)
     if ('error' in got) return `sigil: ${got.error}`
@@ -403,10 +471,11 @@ export default function sigil(pi: Pi): void {
     if (mux === null) {
       return `sigil: display is multiplex, but no herdr, tmux or zellij session was found; /${COMMAND} display mod draws in the widget.`
     }
-    const control = JSON.stringify({ argv: viewArgv(req) })
+    const layout = layoutSetting().choice
+    const control = JSON.stringify({ argv: viewArgv(req, layout) })
     if (split !== null && split.mux === mux && (await isAlive(split))) {
       await writeFile(split.control, control)
-      return about(req, asked, `Shown in the ${mux} split running view.py live: ${shellQuote(viewArgv(req))}.`)
+      return about(req, asked, `Shown in the ${mux} split running view.py live: ${shellQuote(viewArgv(req, layout))}.`)
     }
     const opened: Split = { mux, control: join(tmpdir(), `sigil-view-${randomUUID()}.json`) }
     await writeFile(opened.control, control)
@@ -426,7 +495,7 @@ export default function sigil(pi: Pi): void {
     }
     split = opened
     return about(req, asked, `Opened a ${mux} split running view.py live (it redraws on every save; `
-      + `q closes it): ${shellQuote(viewArgv(req))}.`)
+      + `q closes it): ${shellQuote(viewArgv(req, layout))}.`)
   }
 
   async function show(ctx: Ctx, input: Record<string, unknown>, isAsked: boolean): Promise<string> {
@@ -439,6 +508,12 @@ export default function sigil(pi: Pi): void {
     description: 'Where the sigil viewer draws: mod (a widget above the editor), multiplex '
       + '(a herdr / tmux / zellij split running view.py live) or auto (multiplex inside a multiplexer, else mod). '
       + `Unset: SIGIL_DISPLAY, then ${settingsPath()} (/${COMMAND} display sets it), then auto.`,
+    type: 'string',
+  })
+  pi.registerFlag(LAYOUT_FLAG, {
+    description: 'How the sigil viewer fits a drawing wider than the widget: wrap (fit the width, grow down), '
+      + 'pan (keep the natural layout; /sigil-pane left and right pan it) or auto (whichever overflows less). '
+      + `Unset: SIGIL_LAYOUT, then ${settingsPath()} (/${COMMAND} layout sets it), then auto.`,
     type: 'string',
   })
 
@@ -456,8 +531,8 @@ export default function sigil(pi: Pi): void {
   })
 
   pi.registerCommand(COMMAND, {
-    description: 'Show a Sigil file in the viewer widget (any width), step or play its run, close it, '
-      + `or set where it draws (display ${DISPLAYS.join('|')})`,
+    description: 'Show a Sigil file in the viewer widget (any width), step or play its run, pan it, close it, '
+      + `or set where it draws (display ${DISPLAYS.join('|')}) or how a wide drawing fits (layout ${LAYOUTS.join('|')})`,
     async handler(args, ctx) {
       const asked = parseDisplayArgs(args)
       if (asked !== null) {
@@ -466,8 +541,24 @@ export default function sigil(pi: Pi): void {
           .catch((err: unknown) => `sigil: could not save the display setting (${String(err)})`)
         return ctx.ui.notify(text, text.startsWith('sigil:') ? 'error' : 'info')
       }
+      const laid = parseLayoutArgs(args)
+      if (laid !== null) {
+        if ('error' in laid) return ctx.ui.notify(`sigil: ${laid.error}`, 'error')
+        const text = await layoutCommand(laid.choice)
+          .catch((err: unknown) => `sigil: could not save the layout setting (${String(err)})`)
+        return ctx.ui.notify(text, text.startsWith('sigil:') ? 'error' : 'info')
+      }
       const { action, input } = commandWords(args)
       if (action === 'close') return closeWidget()
+      if (action === 'left' || action === 'right') {
+        if (drawing === null) return ctx.ui.notify(`sigil: nothing shown yet: /${COMMAND} FILE`, 'warning')
+        const width = drawing.width ?? columns()
+        const across = Math.max(0, ...(drawing.frames[frameIndex(drawing as never, playback)] ?? [])
+          .map(r => r.reduce((n, [t]) => n + [...t].length, 0)))
+        panX = panTo(panX, (action === 'right' ? 1 : -1) * Math.floor(width / 2), across, width)
+        tui?.requestRender()
+        return openWidget(ctx.ui)
+      }
       if (action !== undefined) {
         if (drawing === null) return ctx.ui.notify(`sigil: nothing shown yet: /${COMMAND} FILE`, 'warning')
         const step = action === 'next' ? 1 : -1

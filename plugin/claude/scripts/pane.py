@@ -10,8 +10,12 @@ role names, since the mod paints cells, not CSS.
 
 Usage:
     pane.py draw FILE [--view graph|tree|flow|run] [--depth N|all] [--width N]
-                      [--scenario NAME] [--payloads] [--theme NAME]
-        One JSON object on stdout: {"file", "view", "width", "styles":
+                      [--height N] [--layout auto|wrap|pan] [--scenario NAME]
+                      [--payloads] [--theme NAME]
+        One JSON object on stdout: {"file", "view", "width", "layout" (what was
+        drawn: wrap — fitted to --width — or pan — the natural layout; auto picks
+        as view.py does for a --width × --height pane, wrap without --height),
+        "styles":
         [[fg hex|null, bg hex|null, bold]], "frames": [rows], "legend": rows,
         "summary", "lint": [lines], "scenarios": [names], and with --scenario
         "scenario", "status": [a line per frame], "log": [the latest log line
@@ -128,8 +132,22 @@ def lint_summary(diags) -> str:
     return f"lint: {errors} error{'s' * (errors != 1)}, {warns} warning{'s' * (warns != 1)}"
 
 
+def placing(view, g, name: str, layout: str, width: int | None, height: int | None,
+            kw: dict) -> str:
+    """wrap | pan: what `layout` draws in a width × height pane — auto as the
+    live view picks (view.pick_layout on the natural drawing; wrap without a
+    height or a width)."""
+    if layout != "auto":
+        return layout
+    if not width or not height:
+        return "wrap"
+    rows, w = compose(view, g, name, **{**kw, "width": None})
+    return view.pick_layout(w, len(rows), width, height)
+
+
 def draw(path: Path, view_name: str = "flow", depth: int = 1, width: int | None = None,
-         scenario: str | None = None, payloads: bool = False, theme: str | None = None) -> dict:
+         scenario: str | None = None, payloads: bool = False, theme: str | None = None,
+         layout: str = "auto", height: int | None = None) -> dict:
     """The JSON object `pane.py draw` prints (see the module docstring)."""
     view = _load("sigil_view", _TOOLS / "view.py")
     frames = _load("sigil_site_frames", _FRAMES)
@@ -149,6 +167,9 @@ def draw(path: Path, view_name: str = "flow", depth: int = 1, width: int | None 
     styles = hex_styles(frames)
     out: dict = {"file": path.name, "view": view_name, "width": width}
     try:
+        out["layout"] = placing(view, g, view_name, layout, width, height, kw)
+        if out["layout"] == "pan":
+            kw["width"] = None
         sim = None
         if scenario:
             sim = view.SimPlayer(g, scenario)
@@ -289,6 +310,8 @@ def main(argv=None) -> int:
     d.add_argument("--view", choices=VIEWS, default="flow")
     d.add_argument("--depth", type=_depth, default=1)
     d.add_argument("--width", type=int, default=None)
+    d.add_argument("--height", type=int, default=None)
+    d.add_argument("--layout", choices=("auto", "wrap", "pan"), default="auto")
     d.add_argument("--scenario", default=None)
     d.add_argument("--payloads", action="store_true")
     d.add_argument("--theme", default=None)
@@ -297,7 +320,8 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     if a.cmd == "follow":
         return follow(a.control)
-    out = draw(a.file, a.view, a.depth, a.width, a.scenario, a.payloads, a.theme)
+    out = draw(a.file, a.view, a.depth, a.width, a.scenario, a.payloads, a.theme, a.layout,
+               a.height)
     sys.stdout.write(json.dumps(out, ensure_ascii=False) + "\n")
     return 0
 

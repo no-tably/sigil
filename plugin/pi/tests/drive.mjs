@@ -15,7 +15,7 @@ import { execFile } from 'node:child_process'
 import { join } from 'node:path'
 
 const [, , extension, file, piDir] = process.argv
-for (const k of ['HERDR_ENV', 'TMUX', 'ZELLIJ', 'SIGIL_DISPLAY']) delete process.env[k]
+for (const k of ['HERDR_ENV', 'TMUX', 'ZELLIJ', 'SIGIL_DISPLAY', 'SIGIL_LAYOUT']) delete process.env[k]
 
 async function load() {
   if (piDir) {
@@ -107,6 +107,11 @@ if (out.errors.length === 0) {
   await step('display from the flag', () => command.handler('display', ctx))
   await step('display set under the flag', () => command.handler('display auto', ctx))
   await step('display bad', () => command.handler('display side', ctx))
+  // /sigil-pane layout: said, saved to the same file; a panned drawing pans
+  await step('layout default', () => command.handler('layout', ctx), 30)
+  await step('layout set pan', () => command.handler('layout pan', ctx), 30)
+  await step('pan right', () => command.handler('right', ctx), 30)
+  await step('layout bad', () => command.handler('layout side', ctx), 30)
   for (const fn of reg.handlers.session_shutdown ?? []) await fn({}, ctx)
 }
 process.stdout.write(JSON.stringify(out) + '\n')

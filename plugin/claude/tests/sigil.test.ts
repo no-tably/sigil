@@ -162,6 +162,47 @@ describe('multiplex display', () => {
   })
 })
 
+describe('/sigil-pane layout', () => {
+  const run = { origin: { kind: 'composer' as const }, presentation: { isFullscreen: true, columns: 90 } }
+
+  test("it says the setting, and a value writes the plugin's own /config row", { options: { layout: 'auto' } }, async ($, on) => {
+    world(on, { isPlaced: true })
+    const sets: { key: string; value: unknown }[] = []
+    on('config.set', ($, e) => {
+      sets.push({ key: e.key, value: e.value })
+      return { value: e.value }
+    })
+    await $.session.start(START)
+    expect((await $.command.run({ command: 'sigil-pane', args: 'layout', ...run })).text)
+      .toBe('layout: auto · from /config sigil.layout')
+    const { text } = await $.command.run({ command: 'sigil-pane', args: 'layout pan', ...run })
+    expect(sets).toEqual([{ key: 'sigil.layout', value: 'pan' }])
+    expect(text).toContain('layout: pan · from /config sigil.layout')
+    const bad = await $.command.run({ command: 'sigil-pane', args: 'layout side', ...run })
+    expect(bad.text).toBe('sigil: layout must be one of auto, wrap, pan (got "side")')
+  })
+
+  test('pane.py is told the layout; a panned drawing wider than the pane pans with h and l', { options: { display: 'mod', layout: 'pan' } }, async ($, on) => {
+    const wide = (argv: readonly string[]) => (argv.includes('draw')
+      ? JSON.stringify({ ...JSON.parse(drawingOf(argv)), layout: 'pan', frames: [[[['[API]' + '─'.repeat(40) + '[DB]', 0]]]] })
+      : '')
+    const seen = world(on, { isPlaced: true, stdout: wide })
+    await $.session.start(START)
+    await $.tool.call({ tool: 'mcp__sigil__view', file: 'shop.sigil' })
+    expect(seen.runs[0]).toContain('--layout')
+    const props = { title: 'Sigil', isFocused: true, bodyColumns: 20, placement: 'dock' as const,
+      scroll: { offset: 0, bodyRows: 40 }, view: {} }
+    const desk = await $.ui.mount({ plugin: 'sigil', surface: 'desktop', component: 'Pane', props, requestId: 'sigil' })
+    expect(await desk.find({ type: 'Text', text: /shop\.sigil · flow · depth 1 · pan/ })).toBeDefined()
+    expect(await desk.find({ type: 'Text', text: '[API]' + '─'.repeat(15) })).toBeDefined()
+    expect(await desk.find({ key: 'right' })).toMatchObject({ props: { hotkey: 'l' } })
+    await desk.press({ key: 'right' })
+    expect(await desk.find({ type: 'Text', text: '─'.repeat(20) })).toBeDefined()
+    await desk.press({ key: 'left' })
+    expect(await desk.find({ type: 'Text', text: '[API]' + '─'.repeat(15) })).toBeDefined()
+  })
+})
+
 describe('/sigil-pane display', () => {
   const run = { origin: { kind: 'composer' as const }, presentation: { isFullscreen: true, columns: 90 } }
 

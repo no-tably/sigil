@@ -11,16 +11,17 @@ behaves.
 ```
 hooks/hooks.json     names the hooks module
 hooks/sigil.tsx      the tool, /sigil-pane, the pane, the file watch, playback, the split
-hooks/logic.ts       the pure half: requests, argv, the display choice, cell packing
+hooks/logic.ts       the pure half: requests, argv, the display and layout choices, cell packing
 types/index.d.ts     the session state the pane draws from (PluginState)
 scripts/pane.py      `draw`: a document as packed rows (JSON); `follow`: the split's loop
 tests/*.test.ts      run by `claude plugin test`
 ```
 
 `/sigil` is the skill's own command, so the mod's command is `/sigil-pane`.
-`/sigil-pane display [mod|multiplex|auto]` says or sets where it draws: it writes
-the plugin's own `/config` row (`<plugin>.display`) with `$.config.set`, which
-reloads the module with the new option. It follows the
+`/sigil-pane display [mod|multiplex|auto]` says or sets where it draws, and
+`/sigil-pane layout [auto|wrap|pan]` how a wide drawing fits: each writes the
+plugin's own `/config` row (`<plugin>.display`, `<plugin>.layout`) with
+`$.config.set`, which reloads the module with the new option. It follows the
 [viewer plugin contract](../../docs/tools.md#the-viewer-plugin-contract).
 
 ## Develop

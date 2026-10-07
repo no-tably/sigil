@@ -12,6 +12,17 @@
         "multiplex"
       ],
       "default": "auto"
+    },
+    "layout": {
+      "type": "string",
+      "title": "Viewer layout",
+      "description": "How the viewer fits a drawing wider than its pane: wrap (fit the width, grow down), pan (keep the natural layout; the pane's h and l keys pan it) or auto (whichever overflows less).",
+      "options": [
+        "auto",
+        "wrap",
+        "pan"
+      ],
+      "default": "auto"
     }
   }
 }

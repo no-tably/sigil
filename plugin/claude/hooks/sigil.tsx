@@ -10,17 +10,19 @@ import type { EngineInterface, Register, UiOpenResult } from 'claude-code'
 import type { Drawing, Playback, Split, ViewRequest } from '../types'
 import {
   COMMAND, DEFAULT_WIDTH, PANE, VIEWS, RASTER_COLUMNS, TOOL, UNASKED_COLUMNS,
-  detectMux, displayReport, drawArgv, frameIndex, herdrPaneOf, herdrReadyArgv, isDisplayChoice, nextDepth,
-  nextView, parseCommandArgs, parseDisplayArgs, parseDrawing, parseRequest, rasterCells, replyText, resolveDisplay, rowsWidth, runLines,
-  shellQuote, slices, splitArgv, statusLine, viewArgv,
+  cropRows, detectMux, displayReport, drawArgv, frameIndex, herdrPaneOf, herdrReadyArgv, isDisplayChoice, layoutOf,
+  layoutReport, nextDepth, nextView, panTo, parseCommandArgs, parseDisplayArgs, parseDrawing, parseLayoutArgs,
+  parseRequest, rasterCells, replyText, resolveDisplay, rowsWidth, runLines, shellQuote, slices, splitArgv,
+  statusLine, viewArgv,
 } from './logic'
-import type { Asked, Display, DisplayChoice } from './logic'
+import type { Asked, Display, DisplayChoice, LayoutChoice } from './logic'
 
 const request = atom({ plugin: 'sigil', key: 'request' } as const, null)
 const drawing = atom({ plugin: 'sigil', key: 'drawing' } as const, null)
 const failure = atom({ plugin: 'sigil', key: 'error' } as const, null)
 const playback = atom({ plugin: 'sigil', key: 'playback' } as const, { at: 0, isPlaying: false })
 const split = atom({ plugin: 'sigil', key: 'split' } as const, null)
+const panX = atom({ plugin: 'sigil', key: 'panX' } as const, 0)
 
 const WATCH_MS = 1000 // how often the shown file is looked at
 const PLAY_MS = 125 // a played run's frame time: 8 frames a second, view.py's start
@@ -65,7 +67,9 @@ let watchTimer: { cancel: () => void } | null = null
 let playTimer: { cancel: () => void } | null = null
 let seenMtime = 0
 let columns = DEFAULT_WIDTH // the pane body's width as last drawn
-let drawingFor = '' // the request + width a redraw is under way for
+let paneRows = 0 // the pane body's rows as last drawn (auto's layout picks by them; 0: unknown)
+let layout: LayoutChoice = 'auto' // the plugin's `layout` option, set when the module loads
+let drawingFor = '' // the request + size a redraw is under way for
 
 async function scriptPath($: $): Promise<string> {
   const built = `${$.plugin.root}/skills/sigil/scripts/pane.py`
@@ -85,11 +89,18 @@ async function located($: $, file: string): Promise<string | { error: string }> 
   return stat.realPath
 }
 
+/** What a redraw at `width` is for: the request and the pane's size (its rows
+ * count only for auto, which picks by them). */
+function drawKey(req: ViewRequest, width: number): string {
+  return JSON.stringify([req, width, layout === 'auto' ? paneRows : 0])
+}
+
 /** Runs pane.py for the request at `width` and stores what it drew. */
 async function redraw($: $, req: ViewRequest, width: number): Promise<Drawing | { error: string }> {
-  const key = JSON.stringify([req, width])
+  const key = drawKey(req, width)
   drawingFor = key
-  const ran = await $.process.run(drawArgv(await scriptPath($), req, width), { timeoutMs: 60000 })
+  const pane = { layout, ...(layout === 'auto' && paneRows > 0 ? { height: paneRows } : {}) }
+  const ran = await $.process.run(drawArgv(await scriptPath($), req, width, pane), { timeoutMs: 60000 })
     .catch((err: unknown) => ({ exitCode: 1, stdout: '', stderr: String(err) }))
   const got = ran.exitCode === 0 ? parseDrawing(ran.stdout) : { error: ran.stderr.trim().split('\n').pop() ?? 'pane.py failed' }
   if (drawingFor === key) drawingFor = ''
@@ -98,6 +109,7 @@ async function redraw($: $, req: ViewRequest, width: number): Promise<Drawing | 
     return got
   }
   got.width = width
+  got.height = layout === 'auto' ? paneRows : 0
   await update($, drawing, () => got)
   await update($, failure, () => null)
   await update($, playback, p => ({ ...p, at: Math.min(p.at, got.frames.length - 1) }))
@@ -158,6 +170,7 @@ async function showInPane($: $, asked: Asked, isAsked: boolean): Promise<string>
   const req = { ...asked.request, file: path }
   const isNewRun = req.scenario !== before?.scenario || req.file !== before?.file
   await update($, request, () => req)
+  await update($, panX, () => 0)
   const got = await redraw($, req, columns)
   if ('error' in got) return `sigil: ${got.error}`
   const now = playbackFor(asked, got, await read($, playback), isNewRun)
@@ -185,11 +198,11 @@ async function showInSplit($: $, asked: Asked): Promise<string> {
   if (mux === null) {
     return `sigil: display is multiplex, but no herdr, tmux or zellij session was found; /${COMMAND} display mod draws in the pane.`
   }
-  const control = JSON.stringify({ argv: viewArgv(req) })
+  const control = JSON.stringify({ argv: viewArgv(req, layout) })
   const held = await read($, split)
   if (held !== null && held.mux === mux && (await isAlive($, held))) {
     await $.fs.write(held.control, control)
-    return about($, req, asked, `Shown in the ${mux} split running view.py live: ${shellQuote(viewArgv(req))}.`)
+    return about($, req, asked, `Shown in the ${mux} split running view.py live: ${shellQuote(viewArgv(req, layout))}.`)
   }
   const tmp = (await $.env.get('TMPDIR')) ?? '/tmp'
   const opened: Split = { mux, control: `${tmp.replace(/\/$/, '')}/sigil-view-${crypto.randomUUID()}.json` }
@@ -208,7 +221,7 @@ async function showInSplit($: $, asked: Asked): Promise<string> {
   }
   await update($, split, () => opened)
   return about($, req, asked, `Opened a ${mux} split running view.py live (it redraws on every save; `
-    + `q closes it): ${shellQuote(viewArgv(req))}.`)
+    + `q closes it): ${shellQuote(viewArgv(req, layout))}.`)
 }
 
 /** A split's reply: where, then the summary and the run's end as pane.py
@@ -237,21 +250,22 @@ async function show($: $, input: Record<string, unknown>, display: Display, isAs
   return display === 'multiplex' ? showInSplit($, asked) : showInPane($, asked, isAsked)
 }
 
-/** The plugin's own `display` row in /config: `<plugin>.display` as the
- * menu lists it (an inline or marketplace plugin may carry a suffix). */
-async function displayKey($: $): Promise<string> {
+/** The plugin's own row in /config for an option (`display`, `layout`):
+ * `<plugin>.<option>` as the menu lists it (an inline or marketplace plugin may
+ * carry a suffix). */
+async function optionKey($: $, option: string): Promise<string> {
   const name = $.plugin.name
   const rows = await $.config.list().catch(() => [])
-  const row = rows.find(r => r.key === `${name}.display`)
-    ?? rows.find(r => r.key.endsWith('.display') && (r.key.startsWith(`${name}@`) || r.provider.plugin === name))
-  return row?.key ?? `${name}.display`
+  const row = rows.find(r => r.key === `${name}.${option}`)
+    ?? rows.find(r => r.key.endsWith(`.${option}`) && (r.key.startsWith(`${name}@`) || r.provider.plugin === name))
+  return row?.key ?? `${name}.${option}`
 }
 
 /** `/sigil-pane display [VALUE]`: the setting in words, or the row changed.
  * A change reloads the module with the new options, so the reply is made
  * before the write and says what the next view does. */
 async function displayCommand($: $, current: unknown, choice: DisplayChoice | undefined): Promise<string> {
-  const key = await displayKey($)
+  const key = await optionKey($, 'display')
   const env = await muxEnv($)
   const source = `/config ${key}`
   if (choice === undefined) return displayReport(isDisplayChoice(current) ? current : 'auto', source, env)
@@ -263,23 +277,39 @@ async function displayCommand($: $, current: unknown, choice: DisplayChoice | un
   return `${displayReport(choice, source, env)}\nThe next view draws ${resolved === 'mod' ? 'in the sigil pane' : 'in a split'}.`
 }
 
+/** `/sigil-pane layout [VALUE]`: the setting in words, or the row changed (the
+ * module reloads with it, as for display; the next drawing is laid out so). */
+async function layoutCommand($: $, current: unknown, choice: LayoutChoice | undefined): Promise<string> {
+  const key = await optionKey($, 'layout')
+  const source = `/config ${key}`
+  const shown = (await read($, drawing))?.layout
+  if (choice === undefined) return layoutReport(layoutOf(current), source, shown)
+  if (choice === current) return `${layoutReport(choice, source, shown)} (unchanged)`
+  const set = await $.config.set({ key, value: choice })
+    .catch((err: unknown) => ({ deny: err instanceof Error ? err.message : String(err) }))
+  if (set.deny !== undefined) return `sigil: layout stays ${layoutOf(current)}: ${set.deny}`
+  return `${layoutReport(choice, source)}\nThe next drawing is laid out ${choice === 'auto' ? 'as fits the pane best' : `to ${choice}`}.`
+}
+
 /** A key of the pane's: a new request redrawn, or a playback step. */
 async function press($: $, change: (req: ViewRequest) => ViewRequest): Promise<void> {
   const req = await read($, request)
   if (req === null) return
   const next = change(req)
   await update($, request, () => next)
+  await update($, panX, () => 0)
   await redraw($, next, columns)
 }
 
 export const register: Register = (on, options) => {
+  layout = layoutOf(options.layout)
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     await $.tool.register({ name: 'view', description: TOOL_DESCRIPTION, inputSchema: TOOL_SCHEMA })
     await $.command.register({
       name: 'sigil-pane',
-      description: 'Show a Sigil file in the viewer pane (any width), reopen the last one, or set where it draws (display)',
-      argumentHint: '[FILE] [graph|tree|flow|run] [depth N|all] [sim SCENARIO] [frame N|last] [play] | display [mod|multiplex|auto]',
+      description: 'Show a Sigil file in the viewer pane (any width), reopen the last one, or set where it draws (display) or how a wide drawing fits (layout)',
+      argumentHint: '[FILE] [graph|tree|flow|run] [depth N|all] [sim SCENARIO] [frame N|last] [play] | display [mod|multiplex|auto] | layout [auto|wrap|pan]',
     })
     return started
   })
@@ -293,6 +323,8 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'sigil-pane' }, async ($, e) => {
     const asked = parseDisplayArgs(e.args)
     if (asked !== null) return { text: 'error' in asked ? `sigil: ${asked.error}` : await displayCommand($, options.display, asked.choice) }
+    const laid = parseLayoutArgs(e.args)
+    if (laid !== null) return { text: 'error' in laid ? `sigil: ${laid.error}` : await layoutCommand($, options.layout, laid.choice) }
     const display = resolveDisplay(options.display, await muxEnv($))
     const input = parseCommandArgs(e.args)
     if (Object.keys(input).length === 0 && display === 'mod' && (await read($, request)) !== null) {
@@ -317,9 +349,12 @@ export const register: Register = (on, options) => {
     const error = await read($, failure)
     const now = await read($, playback)
     const width = Math.max(20, Math.min(e.props.bodyColumns, RASTER_COLUMNS))
-    if (req !== null && shown !== null && shown.width !== width && drawingFor !== JSON.stringify([req, width])) {
+    const rows = e.props.scroll.bodyRows
+    const resized = shown !== null && (shown.width !== width || (layout === 'auto' && shown.height !== rows))
+    if (req !== null && resized && drawingFor !== JSON.stringify([req, width, layout === 'auto' ? rows : 0])) {
       columns = width
-      drawingFor = JSON.stringify([req, width])
+      paneRows = rows
+      drawingFor = drawKey(req, width)
       $.clock.after(0, () => void redraw($, req, width))
     }
     if (req !== null) startWatch($)
@@ -331,10 +366,14 @@ export const register: Register = (on, options) => {
       )
     }
     const at = frameIndex(shown, now)
-    const rows = shown.frames[at] ?? []
+    const drawn = shown.frames[at] ?? []
+    const across = rowsWidth(drawn)
+    const x = await read($, panX)
+    const isPanned = shown.layout === 'pan' && across > width
+    const frame = isPanned ? cropRows(drawn, x, width) : drawn
     const isRun = shown.status !== undefined
     const told = runLines(shown, at)
-    const body = (cells: typeof rows, key: string) => {
+    const body = (cells: typeof drawn, key: string) => {
       if (e.surface === 'terminal') {
         const { Raster } = $.ui.resolve(e)
         const cols = Math.max(1, Math.min(width, rowsWidth(cells) || 1))
@@ -361,13 +400,13 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column" {...fill}>
         <Text bold wrap="truncate">{statusLine(shown, req, at, now.isPlaying)}</Text>
         {error !== null && <Text color="error" wrap="truncate">✖ {error}</Text>}
-        <Box flexDirection="column" flexGrow={1}>{body(rows, 'frame')}</Box>
+        <Box flexDirection="column" flexGrow={1}>{body(frame, 'frame')}</Box>
         {told !== null && (told.path !== null ? body(told.path, 'path')
           : <Text dimColor wrap="truncate">{told.trail}</Text>)}
         {told !== null && <Text bold wrap="truncate">{told.now}</Text>}
         {shown.legend.length > 0 && body(shown.legend, 'legend')}
-        <Text dimColor wrap="truncate">{shown.summary}</Text>
-        {shown.lint.map(line => <Text dimColor wrap="truncate">{line}</Text>)}
+        <Text dimColor wrap="wrap">{shown.summary}</Text>
+        {shown.lint.map(line => <Text dimColor wrap="wrap">{line}</Text>)}
         <Box flexDirection="row" gap={1}>
           {VIEWS.map((view, i) => (
             <Button key={`view-${view}`} plain hotkey={String(i + 1)}
@@ -384,6 +423,10 @@ export const register: Register = (on, options) => {
             })} />}
           {isRun && <Button key="back" plain hotkey="b" label="back" onPress={step(-1)} />}
           {isRun && <Button key="next" plain hotkey="n" label="next" onPress={step(1)} />}
+          {isPanned && <Button key="left" plain hotkey="h" label="◀"
+            onPress={() => update($, panX, p => panTo(p, -Math.floor(width / 2), across, width))} />}
+          {isPanned && <Button key="right" plain hotkey="l" label="▶"
+            onPress={() => update($, panX, p => panTo(p, Math.floor(width / 2), across, width))} />}
           <Text dimColor>{e.props.isFocused ? '· esc: prompt' : '· ctrl+x tab: keys'}</Text>
         </Box>
       </Box>

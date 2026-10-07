@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import {
-  colourOf, displayReport, frameIndex, herdrPaneOf, herdrReadyArgv, nextView, parseCommandArgs, parseDisplayArgs,
-  parseDrawing, parseRequest, pickDisplay,
+  colourOf, cropRows, displayReport, drawArgv, frameIndex, herdrPaneOf, herdrReadyArgv, layoutOf, layoutReport, nextView,
+  panTo, parseCommandArgs, parseDisplayArgs, parseDrawing, parseLayoutArgs, parseRequest, pickDisplay, pickLayout,
   rasterCells, resolveDisplay, runLines, shellQuote, slices, splitArgv, viewArgv,
 } from '../hooks/logic'
 import type { Drawing } from '../types'
@@ -41,6 +41,45 @@ describe('the display command', () => {
     expect(displayReport('auto', 'X', { herdr: '1' })).toBe('display: auto → multiplex (herdr detected) · from X')
     expect(displayReport('mod', 'X', { zellij: '0' })).toBe('display: mod · from X · auto here → multiplex (zellij detected)')
     expect(displayReport('auto', 'X', {})).toBe('display: auto → mod (no multiplexer detected) · from X')
+  })
+})
+
+describe('the layout command', () => {
+  test('layout and its value are words of their own, never a file', () => {
+    expect(parseLayoutArgs('layout')).toEqual({})
+    expect(parseLayoutArgs(' layout  pan ')).toEqual({ choice: 'pan' })
+    expect(parseLayoutArgs('layout side')).toEqual({ error: 'layout must be one of auto, wrap, pan (got "side")' })
+    expect(parseLayoutArgs('layout pan tree')).toEqual({ error: 'layout takes one value: auto, wrap, pan' })
+    expect(parseLayoutArgs('display mod')).toBeNull()
+    expect(parseCommandArgs('a.sigil layout tree')).toEqual({ file: 'a.sigil', layout: '', view: 'tree' })
+    expect(parseCommandArgs('layout wrap')).toEqual({ layout: 'wrap' })
+  })
+  test('anything but a layout is auto; the reply says what auto drew', () => {
+    expect(layoutOf('pan')).toBe('pan')
+    expect(layoutOf(undefined)).toBe('auto')
+    expect(layoutOf('sideways')).toBe('auto')
+    expect(pickLayout([['--sigil-layout', undefined], ['SIGIL_LAYOUT', 'wrap']], 'default'))
+      .toEqual({ choice: 'wrap', source: 'SIGIL_LAYOUT' })
+    expect(pickLayout([], 'default')).toEqual({ choice: 'auto', source: 'default' })
+    expect(layoutReport('auto', 'X', 'pan')).toBe('layout: auto → pan (the drawing shown) · from X')
+    expect(layoutReport('auto', 'X')).toBe('layout: auto · from X')
+    expect(layoutReport('wrap', 'X', 'wrap')).toBe('layout: wrap · from X')
+  })
+  test('pane.py and view.py are told the layout; auto is their own default', () => {
+    const req = { file: '/d/a.sigil', view: 'flow' as const, depth: 1 }
+    expect(drawArgv('p.py', req, 80, { layout: 'pan' }).slice(-2)).toEqual(['--layout', 'pan'])
+    expect(drawArgv('p.py', req, 80, { layout: 'auto', height: 30 }).slice(-2)).toEqual(['--height', '30'])
+    expect(drawArgv('p.py', req, 80)).not.toContain('--layout')
+    expect(viewArgv(req, 'wrap')).toEqual(['/d/a.sigil', '--depth', '1', '--layout', 'wrap'])
+    expect(viewArgv(req, 'auto')).toEqual(['/d/a.sigil', '--depth', '1'])
+  })
+  test('a panned drawing is cropped to its window, kept within the drawing', () => {
+    const rows = [[['abc', 0], ['defg', 1]], [['xy', 2]]] as [string, number][][]
+    expect(cropRows(rows, 2, 3)).toEqual([[['c', 0], ['de', 1]], []])
+    expect(cropRows(rows, 0, 10)).toEqual(rows)
+    expect(panTo(0, 5, 7, 4)).toBe(3)
+    expect(panTo(3, -5, 7, 4)).toBe(0)
+    expect(panTo(0, 5, 3, 4)).toBe(0)
   })
 })
 

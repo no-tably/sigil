@@ -1,5 +1,6 @@
-// The mod's pure half: requests, argv, the display choice, the multiplexer
-// commands and the cell packing. No `$` here, so the tests drive it directly.
+// The mod's pure half: requests, argv, the display and layout choices, the
+// multiplexer commands and the cell packing. No `$` here, so the tests drive it
+// directly.
 
 import type { Drawing, Mux, PackedRow, Playback, Style, ViewName, ViewRequest } from '../types'
 
@@ -78,6 +79,51 @@ export function parseDisplayArgs(args: string): { choice?: DisplayChoice } | { e
   return { choice: value }
 }
 
+/** The `layout` values a person sets (view.py's --layout): wrap fits the
+ * drawing to the pane and lets it grow down, pan keeps its natural layout and
+ * pans across, auto picks whichever overflows less (view.py's pick_layout). */
+export const LAYOUTS = ['auto', 'wrap', 'pan'] as const
+export type LayoutChoice = (typeof LAYOUTS)[number]
+
+export function isLayoutChoice(value: unknown): value is LayoutChoice {
+  return typeof value === 'string' && (LAYOUTS as readonly string[]).includes(value)
+}
+
+/** The `layout` option as it applies: a choice as set, anything else auto. */
+export function layoutOf(option: unknown): LayoutChoice {
+  return isLayoutChoice(option) ? option : 'auto'
+}
+
+/** Where a layout setting stands, as pickDisplay does for display. */
+export function pickLayout(sources: readonly (readonly [source: string, value: unknown])[], fallback: string):
+  { choice: LayoutChoice; source: string } {
+  for (const [source, value] of sources) {
+    if (typeof value === 'string' && value !== '') return { choice: layoutOf(value), source }
+  }
+  return { choice: 'auto', source: fallback }
+}
+
+/** The layout reply every viewer plugin gives (docs/tools.md, the viewer plugin
+ * contract): `layout: auto → pan (the drawing shown) · from SOURCE`, or for a
+ * value set outright `layout: wrap · from SOURCE`; `shown`: what the drawing on
+ * screen was drawn as, when there is one. */
+export function layoutReport(choice: LayoutChoice, source: string, shown?: string): string {
+  const now = choice === 'auto' && shown ? ` → ${shown} (the drawing shown)` : ''
+  return `layout: ${choice}${now} · from ${source}`
+}
+
+/** `/sigil-pane layout [VALUE]`: null when the words are not that command;
+ * `{}` asks for the setting, `{ choice }` sets it; a bad value is named. */
+export function parseLayoutArgs(args: string): { choice?: LayoutChoice } | { error: string } | null {
+  const words = args.trim().split(/\s+/).filter(w => w !== '')
+  if (words[0] !== 'layout') return null
+  if (words.length > 2) return { error: `layout takes one value: ${LAYOUTS.join(', ')}` }
+  const value = words[1]
+  if (value === undefined) return {}
+  if (!isLayoutChoice(value)) return { error: `layout must be one of ${LAYOUTS.join(', ')} (got "${value}")` }
+  return { choice: value }
+}
+
 export type Asked = { request: ViewRequest; frame?: number; play?: boolean }
 
 function depthOf(value: unknown): number | undefined {
@@ -113,7 +159,8 @@ export function parseRequest(input: Record<string, unknown>, previous: ViewReque
 
 /** /sigil's words as tool input: `FILE`, a view name, `depth N|all`,
  * `sim SCENARIO`, `frame N|last`, `play`, `payloads`, in any order. `display
- * [VALUE]` is a command of its own (parseDisplayArgs), never a file name. */
+ * [VALUE]` and `layout [VALUE]` are commands of their own (parseDisplayArgs,
+ * parseLayoutArgs), never a file name. */
 export function parseCommandArgs(args: string): Record<string, unknown> {
   const words = args.trim().split(/\s+/).filter(w => w !== '')
   const out: Record<string, unknown> = {}
@@ -127,6 +174,10 @@ export function parseCommandArgs(args: string): Record<string, unknown> {
       out.display = isDisplayChoice(value) ? value : ''
       if (isDisplayChoice(value)) i++
     }
+    else if (word === 'layout') {
+      out.layout = isLayoutChoice(value) ? value : ''
+      if (isLayoutChoice(value)) i++
+    }
     else if ((word === 'depth' || word === 'sim' || word === 'frame') && value !== undefined) {
       out[word === 'sim' ? 'scenario' : word] = value
       i++
@@ -135,21 +186,50 @@ export function parseCommandArgs(args: string): Record<string, unknown> {
   return out
 }
 
-/** `python3 pane.py draw …` for a request at a width. */
-export function drawArgv(script: string, request: ViewRequest, width: number): string[] {
+/** `python3 pane.py draw …` for a request at a width; `layout` (auto when
+ * left out) and the pane's `height`, which auto picks by. */
+export function drawArgv(script: string, request: ViewRequest, width: number,
+                         pane: { layout?: LayoutChoice; height?: number } = {}): string[] {
   const argv = ['python3', script, 'draw', request.file, '--view', request.view, '--depth', String(request.depth), '--width', String(width)]
+  if (pane.layout && pane.layout !== 'auto') argv.push('--layout', pane.layout)
+  if (pane.height) argv.push('--height', String(pane.height))
   if (request.scenario) argv.push('--scenario', request.scenario)
   if (request.payloads) argv.push('--payloads')
   return argv
 }
 
-/** view.py's own flags for the live view the split runs. */
-export function viewArgv(request: ViewRequest): string[] {
+/** view.py's own flags for the live view the split runs (`layout`: its
+ * --layout, left out for auto, view.py's own default). */
+export function viewArgv(request: ViewRequest, layout: LayoutChoice = 'auto'): string[] {
   const argv = [request.file, '--depth', request.depth >= ALL_DEPTH ? 'all' : String(request.depth)]
   if (request.view !== DEFAULT_VIEW) argv.push(`--${request.view}`)
+  if (layout !== 'auto') argv.push('--layout', layout)
   if (request.scenario) argv.push('--sim', request.scenario)
   if (request.payloads) argv.push('--payloads')
   return argv
+}
+
+/** Packed rows cut to columns from … from+width-1: a panned drawing's window. */
+export function cropRows(rows: readonly PackedRow[], from: number, width: number): PackedRow[] {
+  if (from <= 0 && rows.every(row => row.reduce((n, [text]) => n + [...text].length, 0) <= width)) return [...rows]
+  return rows.map(row => {
+    const out: PackedRow = []
+    let x = 0
+    for (const [text, id] of row) {
+      const cells = [...text]
+      const lo = Math.max(from - x, 0)
+      const hi = Math.min(from + width - x, cells.length)
+      if (hi > lo) out.push([cells.slice(lo, hi).join(''), id])
+      x += cells.length
+    }
+    return out
+  })
+}
+
+/** Where a pan to the right / left by `step` lands, kept within a drawing
+ * `drawn` wide in a pane `width` wide. */
+export function panTo(at: number, step: number, drawn: number, width: number): number {
+  return Math.max(0, Math.min(at + step, Math.max(drawn - width, 0)))
 }
 
 /** An argv as one POSIX shell line (herdr runs a pane's command as typed). */
@@ -276,7 +356,7 @@ export function slices<T>(rows: readonly T[], size: number = RASTER_ROWS): T[][]
 /** The pane's status line for a frame: file · view · depth, then the run. */
 export function statusLine(drawing: Drawing, request: ViewRequest, at: number, isPlaying: boolean): string {
   const depth = request.depth >= ALL_DEPTH ? 'all' : String(request.depth)
-  const head = `${drawing.file} · ${drawing.view} · depth ${depth}`
+  const head = `${drawing.file} · ${drawing.view} · depth ${depth}${drawing.layout ? ` · ${drawing.layout}` : ''}`
   const run = drawing.status?.[at]
   if (run === undefined) return head
   return `${head} · ${isPlaying ? '▶' : '❚❚'} ${run} · frame ${at + 1}/${drawing.frames.length}`

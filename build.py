@@ -395,7 +395,9 @@ def build_pi(out: Path, meta: dict) -> list[Path]:
           "widget above the editor or in a herdr / tmux / zellij split.\n"
           "`/sigil-pane display auto|mod|multiplex` picks which (saved in\n"
           "~/.config/sigil/viewer.json; `--sigil-display` or `SIGIL_DISPLAY` wins for a\n"
-          "session); auto takes the split inside a multiplexer.\n")
+          "session); auto takes the split inside a multiplexer. `/sigil-pane layout\n"
+          "auto|wrap|pan` says how a drawing wider than the widget fits (`--sigil-layout`,\n"
+          "`SIGIL_LAYOUT`).\n")
     return [root]
 
 
@@ -662,7 +664,7 @@ def check_claude(out: Path, errs: list[str]) -> None:
 
 def check_mod(root: Path, man: dict[str, Any], errs: list[str]) -> None:
     """The viewer mod: hooks.json names modules that are there, the types file the
-    manifest names is there, `display` offers its three values, and pane.py and
+    manifest names is there, `display` and `layout` offer their three values, and pane.py and
     frames.py sit beside the skill's tools."""
     hooks = root / "hooks" / "hooks.json"
     mods = _load_obj(hooks, errs).get("modules")
@@ -675,10 +677,10 @@ def check_mod(root: Path, man: dict[str, Any], errs: list[str]) -> None:
     types = man.get("types")
     if not (isinstance(types, str) and (root / types).is_file()):
         errs.append(f"{root}: plugin.json types {types!r} missing")
-    display = (man.get("userConfig") or {}).get("display")
-    if not (isinstance(display, dict) and display.get("options") == ["auto", "mod", "multiplex"]
-            and display.get("default") == "auto"):
-        errs.append(f"{root}: plugin.json userConfig.display must offer auto / mod / multiplex")
+    for option, values in (("display", ["auto", "mod", "multiplex"]), ("layout", ["auto", "wrap", "pan"])):
+        got = (man.get("userConfig") or {}).get(option)
+        if not (isinstance(got, dict) and got.get("options") == values and got.get("default") == "auto"):
+            errs.append(f"{root}: plugin.json userConfig.{option} must offer {' / '.join(values)}")
     for name in MOD_SCRIPTS:
         p = root / "skills" / SKILL / "scripts" / name
         if not p.is_file():

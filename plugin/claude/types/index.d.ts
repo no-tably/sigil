@@ -22,6 +22,8 @@ export type Drawing = {
   file: string
   view: ViewName
   width: number | null
+  layout?: 'wrap' | 'pan' // what pane.py drew: fitted to the width, or the natural layout
+  height?: number // the pane rows auto picked the layout by (0: not auto)
   styles: Style[]
   frames: PackedRow[][]
   legend: PackedRow[]
@@ -54,6 +56,7 @@ declare module 'claude-code' {
       error: string | null
       playback: Playback
       split: Split | null
+      panX: number // the first column a panned drawing shows
     }
   }
 }

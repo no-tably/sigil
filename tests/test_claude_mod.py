@@ -89,6 +89,22 @@ class DrawTest(unittest.TestCase):
                 for ch in text:
                     self.assertNotIn(unicodedata.east_asian_width(ch), ("W", "F"), ch)
 
+    def test_layout_wrap_fits_pan_keeps_auto_picks_by_the_pane(self):
+        wide = ["draw", str(SHOP), "--view", "graph", "--width", "30"]
+        wrapped, panned = run_pane(*wide, "--layout", "wrap"), run_pane(*wide, "--layout", "pan")
+        self.assertEqual((wrapped["layout"], panned["layout"]), ("wrap", "pan"))
+        widest = lambda out: max(len(ln) for ln in text_of(out["frames"][0]))
+        self.assertLessEqual(widest(wrapped), 30)
+        self.assertGreater(widest(panned), 30)                  # the natural layout
+        self.assertEqual(run_pane(*wide)["layout"], "wrap")     # auto without a height
+        g = view.render.parse_document(SHOP.read_text(encoding="utf-8"))
+        rows, w = view.compose_view(g, "graph", depth=1, payloads=False, notes="off",
+                                    triggers=True, spaced=True, width=None, access=False,
+                                    mods=False, events="nodes")
+        for height in (5, 400):
+            self.assertEqual(run_pane(*wide, "--height", str(height))["layout"],
+                             view.pick_layout(w, len(rows), 30, height))
+
     def test_wide_and_zero_width_characters_become_one_cell(self):
         self.assertEqual(pane.cells("a界́─"), "a??─")
 
@@ -251,10 +267,12 @@ class PackagingTest(unittest.TestCase):
             man_path = root / ".claude-plugin" / "plugin.json"
             man = json.loads(man_path.read_text())
             man["userConfig"]["display"]["options"] = ["mod"]
+            del man["userConfig"]["layout"]
             man_path.write_text(json.dumps(man))
             errs = build.check(out, ["claude"])
             self.assertTrue(any("module './sigil.tsx' missing" in e for e in errs), errs)
             self.assertTrue(any("userConfig.display" in e for e in errs), errs)
+            self.assertTrue(any("userConfig.layout" in e for e in errs), errs)
 
     def test_a_renamed_mod_fails_the_build(self):
         meta = dict(build.load_meta(), name="other")

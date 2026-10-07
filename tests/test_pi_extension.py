@@ -177,9 +177,9 @@ class DriveMixin:
         self.assertEqual(self.out["errors"], [])
         self.assertEqual(self.out["tools"], ["sigil_view"])
         self.assertEqual(self.out["commands"], ["sigil-pane"])
-        self.assertEqual(self.out["flags"], ["sigil-display"])
-        # no default: an unset flag leaves SIGIL_DISPLAY and the file to speak
-        self.assertEqual(self.out["flagDefaults"], {"sigil-display": None})
+        self.assertEqual(self.out["flags"], ["sigil-display", "sigil-layout"])
+        # no default: an unset flag leaves SIGIL_DISPLAY / SIGIL_LAYOUT and the file to speak
+        self.assertEqual(self.out["flagDefaults"], {"sigil-display": None, "sigil-layout": None})
 
     def test_an_unasked_widget_waits_below_144_columns(self):
         s = self.steps["narrow tool call"]
@@ -254,14 +254,27 @@ class DriveMixin:
         after = self.steps["a call after the file says mod"]
         self.assertIn("Shown in the sigil widget", after["reply"])   # tmux is set, the file says mod
         self.assertTrue(after["widget"])
-        # the last write (auto, under the flag) is what the file holds
-        self.assertEqual(json.loads(self.settings.read_text()), {"display": "auto"})
+        # the last writes (display auto under the flag, layout pan) are what the file holds
+        self.assertEqual(json.loads(self.settings.read_text()), {"display": "auto", "layout": "pan"})
 
     def test_display_under_a_flag_says_the_flag_wins_and_bad_values_are_named(self):
         level, text = self.note("display set under the flag")
         self.assertIn("But --sigil-display (mod) wins in this session", text)
         self.assertEqual(self.note("display bad"),
                          ["error", 'sigil: display must be one of mod, multiplex, auto (got "side")'])
+
+    def test_layout_is_said_saved_and_a_panned_drawing_pans(self):
+        level, text = self.note("layout default")
+        self.assertTrue(text.startswith("layout: auto"), text)
+        self.assertTrue(text.endswith("· from the default"), text)
+        level, text = self.note("layout set pan")
+        self.assertTrue(text.startswith(f"layout: pan · from {self.settings}"), text)
+        panned, moved = self.steps["layout set pan"], self.steps["pan right"]
+        self.assertLessEqual(panned["widest"], 30)
+        self.assertTrue(any(ln.startswith("/sigil-pane left · right") for ln in panned["lines"]))
+        self.assertNotEqual(panned["lines"][1:5], moved["lines"][1:5])   # the drawing moved across
+        self.assertEqual(self.note("layout bad"),
+                         ["error", 'sigil: layout must be one of auto, wrap, pan (got "side")'])
 
 
 @unittest.skipUnless(STRIPS, "node with TypeScript type stripping not on PATH")
