@@ -343,6 +343,19 @@ class Access(unittest.TestCase):
         self.assertEqual(list(g.nodes).count("Feed2_store"), 1)
         self.assertEqual(g.nodes["Feed2_store"].kind, "store")
 
+    def test_a_store_only_in_a_sibling_expansion_is_placed_where_borrowed(self):
+        # |Feed| is a node only inside [Feeder]'s expansion; the borrow inside
+        # [App]'s still gets its edge (before: no store, no edge), each borrower
+        # once in its own graph, as a flow naming the store there would
+        g = parse("(U) -> [App]\n(U) -> [Feeder]\n[App] := {\n  [Helper] @borrow(read) |Feed|\n"
+                  "  [Pool] @borrow |Feed|\n}\n[Feeder] := {\n  [Writer] -> |Feed| : add()\n}\n")
+        app = g.expansions["App_service"]
+        self.assertEqual([(a.principal, a.store) for a in app.access],
+                         [("Helper_service", "Feed_store"), ("Pool_service", "Feed_store")])
+        self.assertEqual(list(app.nodes).count("Feed_store"), 1)
+        self.assertNotIn("Feed_store", g.nodes)
+        self.assertIn("Feed_store", g.expansions["Feeder_service"].nodes)
+
     def test_a_borrowed_store_takes_its_borrowers_layer(self):
         g = parse("--- L2: [Core] ---\n[Helper] @borrow |Feed|\n")
         self.assertEqual(g.nodes["Feed_store"].layer, g.nodes["Helper_service"].layer)

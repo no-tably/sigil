@@ -1288,13 +1288,12 @@ def _resolve_access(g: Graph, top: Graph):
 
 
 def _place_borrowed(top: Graph):
-    """A borrowed store named by glyph that is a node nowhere in the document
-    (`[Helper] @borrow(read) |Feed|`, |Feed| in no flow) becomes a node of the
-    graph the borrow is written in, so its access edge has an end to draw to.
-    A store that is a node in some other expansion is left to that expansion."""
-    graphs = [g for g, _o, _l in _walk(top)]
-    known = {nid for g in graphs for nid in g.nodes}
-    for g in graphs:
+    """A borrowed store named by glyph that is no node where the borrow is
+    written, nor at the top level (`[Helper] @borrow(read) |Feed|`, |Feed| in no
+    flow, or a node only in a sibling expansion) becomes a node of the graph the
+    borrow is written in, so its access edge has an end to draw to — as a flow
+    naming it there would."""
+    for g, _o, _l in _walk(top):
         for a in g.access:
             if a.mode != "borrow" or a.store is not None or not a.store_name:
                 continue
@@ -1302,11 +1301,8 @@ def _place_borrowed(top: Graph):
             n = parse_glyph(a.store_name, who.layer if who else "L1")
             if n is None or n.is_hole:
                 continue
-            if n.id not in known:
-                known.add(n.id)
-                g.nodes[n.id] = n
-            if n.id in g.nodes:
-                a.store = n.id
+            g.nodes.setdefault(n.id, n)
+            a.store = n.id
 
 
 def _mark_roles(top: Graph):
