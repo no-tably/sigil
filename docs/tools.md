@@ -275,8 +275,10 @@ The tool's input:
   timeline: the scenario's, else the happy one).
 - `depth` — a number, or `"all"`.
 - `scenario` — a scenario to simulate, as `--sim` names it. `""` ends the run.
-- `frame` — the frame of the run to show: a 0-based number, or `"last"`. A new
-  run starts on its last frame.
+- `frame` — the frame of the run to show: a 0-based number, as view.py's
+  `--frame` counts them, or `"last"`. A new run starts on its last frame. The
+  pane and widget draw a long run at most 400 frames, evenly spread: they show
+  the nearest drawn frame at or before it, numbered as the run's own.
 - `play` — `true` plays the run, `false` pauses it.
 - `payloads` — show flow payloads.
 

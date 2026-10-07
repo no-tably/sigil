@@ -23,7 +23,9 @@ Usage:
         plain words, view.py's `›` line], "trail": [the episode's path so far
         per frame, in notation as text — view.py's path row without its label,
         the hop now marked `▸`], "path": [the same row per frame as view.py
-        draws it, at most two rows, the hop now bold], "outcome"}; a row is
+        draws it, at most two rows, the hop now bold], "outcome", "at": [the
+        run's frame each drawn frame shows: a long run is sampled to at most
+        MAX_FRAMES], "last": the run's last frame}; a row is
         [[text, style id], …].
         The legend is the tree's key, the flow view's or the run view's, then a
         run's marks (the run view: its path's only; without --scenario it draws
@@ -188,7 +190,7 @@ def draw(path: Path, view_name: str = "flow", depth: int = 1, width: int | None 
                 path_rows.append(packed(view.path_rows(sim.path_branches(), cols, hold=True),
                                    styles, frames))
             out.update(scenario=sim.scenario.name, status=status, log=log, say=say, trail=trail,
-                       path=path_rows,
+                       path=path_rows, at=picks, last=sim.last,
                        outcome=sim.trace.outcome, choice=sim.choice())
         else:
             rows, _w = compose(view, g, view_name, **kw)

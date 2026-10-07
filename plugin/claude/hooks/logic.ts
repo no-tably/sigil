@@ -127,12 +127,18 @@ export function parseLayoutArgs(args: string): { choice?: LayoutChoice } | { err
   return { choice: value }
 }
 
+/** frame: a frame of the run (view.py's numbering, -1: the last). */
 export type Asked = { request: ViewRequest; frame?: number; play?: boolean }
+
+function wholeOf(value: unknown): number | undefined {
+  const n = typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value
+  return typeof n === 'number' && Number.isInteger(n) && n >= 0 ? n : undefined
+}
 
 function depthOf(value: unknown): number | undefined {
   if (value === 'all') return ALL_DEPTH
-  const n = typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value
-  return typeof n === 'number' && Number.isInteger(n) && n >= 0 ? Math.min(n, ALL_DEPTH) : undefined
+  const n = wholeOf(value)
+  return n === undefined ? undefined : Math.min(n, ALL_DEPTH)
 }
 
 /** A tool call's (or /sigil's) input over the request shown before: a field
@@ -152,7 +158,7 @@ export function parseRequest(input: Record<string, unknown>, previous: ViewReque
   if (payloads) request.payloads = true
   const asked: Asked = { request }
   if (input.frame !== undefined) {
-    const frame = depthOf(input.frame)
+    const frame = wholeOf(input.frame)
     if (frame === undefined && input.frame !== 'last') return { error: 'frame must be a whole number or "last"' }
     asked.frame = input.frame === 'last' ? -1 : frame
   }
@@ -294,6 +300,25 @@ export function frameIndex(drawing: Drawing, playback: Playback): number {
   return Math.max(0, Math.min(playback.at, drawing.frames.length - 1))
 }
 
+/** The drawn frame that shows a frame of the run (`frame`: view.py's numbering,
+ * as a request and the split take it; -1 or past the end: the last). A long
+ * run is sampled (pane.py's `at`): the latest drawn frame at or before it. */
+export function drawnFrame(drawing: Drawing, frame: number): number {
+  const last = drawing.frames.length - 1
+  if (frame < 0) return last
+  if (drawing.at === undefined) return Math.min(frame, last)
+  let i = 0
+  while (i < last && (drawing.at[i + 1] ?? Infinity) <= frame) i++
+  return i
+}
+
+/** `frame N/M` in the run's own numbering (from 1) for a drawn frame. */
+function frameText(drawing: Drawing, at: number, of: string): string {
+  const n = drawing.at?.[at] ?? at
+  const all = drawing.last !== undefined ? drawing.last + 1 : drawing.frames.length
+  return `frame ${n + 1}${of}${all}`
+}
+
 /** The views in `t` order (the viewer's): graph → tree → flow → run → graph. */
 export function nextView(view: ViewName): ViewName {
   return VIEWS[(VIEWS.indexOf(view) + 1) % VIEWS.length] ?? 'graph'
@@ -394,7 +419,7 @@ export function statusLine(drawing: Drawing, request: ViewRequest, at: number, i
   const head = `${drawing.file} · ${drawing.view} · depth ${depth}${drawing.layout ? ` · ${drawing.layout}` : ''}`
   const run = drawing.status?.[at]
   if (run === undefined) return head
-  return `${head} · ${isPlaying ? '▶' : '❚❚'} ${speedText(speed)} · ${run} · frame ${at + 1}/${drawing.frames.length}`
+  return `${head} · ${isPlaying ? '▶' : '❚❚'} ${speedText(speed)} · ${run} · ${frameText(drawing, at, '/')}`
 }
 
 /** A run's lines under the drawing at a frame, as view.py's rows under its
@@ -412,7 +437,7 @@ export function runLines(drawing: Drawing, at: number): { trail: string; path: P
 export function replyText(drawing: Drawing, at: number, isPlaying: boolean, where: string): string {
   const lines = [where, drawing.summary, ...drawing.lint]
   if (drawing.status !== undefined) {
-    lines.push(`${isPlaying ? 'playing' : 'paused at'} ${drawing.status[at] ?? ''} (frame ${at + 1} of ${drawing.frames.length})`)
+    lines.push(`${isPlaying ? 'playing' : 'paused at'} ${drawing.status[at] ?? ''} (${frameText(drawing, at, ' of ')})`)
     const say = drawing.say?.[at]
     const log = drawing.log?.[at]
     if (say) lines.push(`now: ${say}`)

@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url'
 
 import {
   DEFAULT_WIDTH, DISPLAYS, LAYOUTS, START_SPEED, SUPERSEDED, UNASKED_COLUMNS, VIEWS,
-  cropRows, detectMux, displayReport, drawArgv, frameIndex, frameMs, herdrPaneOf, herdrReadyArgv, layoutReport,
+  cropRows, detectMux, displayReport, drawArgv, drawnFrame, frameIndex, frameMs, herdrPaneOf, herdrReadyArgv, layoutReport,
   nextSpeed, panTo, parseCommandArgs, parseDisplayArgs, parseDrawing, parseLayoutArgs, parseRequest, pickDisplay,
   pickLayout, replyText, resolveDisplay, runLines, shellQuote, splitArgv, splitStart, statusLine, viewArgv,
 } from './logic.ts'
@@ -31,6 +31,7 @@ type Drawing = {
   styles: Style[]; frames: PackedRow[][]
   legend: PackedRow[]; summary: string; lint: string[]; scenarios: string[]
   status?: string[]; log?: string[]; say?: string[]; trail?: string[]; path?: PackedRow[][]; outcome?: string
+  at?: number[]; last?: number
 }
 type Playback = { at: number; isPlaying: boolean }
 type Split = { mux: 'herdr' | 'tmux' | 'zellij'; control: string; pane?: string }
@@ -416,11 +417,13 @@ export default function sigil(pi: Pi): void {
     setPlayback(playback)
   }
 
-  /** The playback a request asks for over the drawing: `frame` (-1: the last),
-   * else the last frame of a new run, else where it stood; `play` from there. */
+  /** The playback a request asks for over the drawing: `frame` (a frame of the
+   * run, drawnFrame; -1: the last), else the last frame of a new run, else
+   * where it stood; `play` from there. */
   function playbackFor(asked: Asked, shown: Drawing, isNewRun: boolean): Playback {
     const last = shown.frames.length - 1
-    let at = asked.frame === undefined ? (isNewRun ? (asked.play ? 0 : last) : playback.at) : asked.frame
+    let at = asked.frame === undefined ? (isNewRun ? (asked.play ? 0 : last) : playback.at)
+      : drawnFrame(shown as never, asked.frame)
     if (at < 0 || at > last) at = last
     const isPlaying = asked.play ?? (isNewRun ? false : playback.isPlaying)
     return { at: isPlaying && at >= last && asked.frame === undefined ? 0 : at, isPlaying: isPlaying && last > 0 }
@@ -504,7 +507,7 @@ export default function sigil(pi: Pi): void {
     if ('error' in got) return `${where}\nsigil: ${got.error}`
     const start = splitStart(asked)
     const last = got.frames.length - 1
-    const at = start.frame < 0 || start.frame > last ? last : start.frame
+    const at = drawnFrame(got as never, start.frame)
     return replyText(got as never, at, start.play && at < last, where)
   }
 

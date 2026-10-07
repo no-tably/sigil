@@ -29,6 +29,7 @@ import types
 import unicodedata
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 MOD = ROOT / "plugin" / "claude"
@@ -123,6 +124,7 @@ class DrawTest(unittest.TestCase):
         self.assertEqual(len(out["say"]), len(out["frames"]))
         self.assertEqual(len(out["trail"]), len(out["frames"]))
         self.assertEqual(len(out["path"]), len(out["frames"]))
+        self.assertEqual((out["at"], out["last"]), (list(range(player.last + 1)), player.last))
         player.at = player.last
         self.assertEqual(out["say"][-1], player.narration())
         self.assertEqual(out["trail"][-1], player.path())
@@ -137,6 +139,14 @@ class DrawTest(unittest.TestCase):
         self.assertEqual(pane.sampled(3), [0, 1, 2, 3])
         picks = pane.sampled(1000, cap=5)
         self.assertEqual(picks, [0, 250, 500, 750, 1000])
+
+    def test_a_sampled_run_names_the_run_frame_of_each_drawn_frame(self):
+        sampled = pane.sampled
+        with mock.patch.object(pane, "sampled", lambda last: sampled(last, cap=5)):
+            out = pane.draw(SHOP, "graph", scenario="happy", width=100)
+        self.assertEqual(len(out["frames"]), 5)
+        self.assertEqual(out["at"], sampled(out["last"], cap=5))
+        self.assertGreater(out["last"], 5)
 
     def test_errors_are_reported_not_raised(self):
         self.assertIn("error", run_pane("draw", str(ROOT / "nope.sigil")))

@@ -38,6 +38,8 @@ export type Drawing = {
   path?: PackedRow[][]
   outcome?: string
   choice?: string
+  at?: number[] // the run's frame each drawn frame shows (a long run is sampled)
+  last?: number // the run's last frame
 }
 
 /** The run's playback: the frame shown and whether it plays. */

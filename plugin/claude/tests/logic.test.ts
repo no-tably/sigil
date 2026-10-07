@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import {
-  colourOf, cropRows, displayReport, drawArgv, frameIndex, herdrPaneOf, herdrReadyArgv, layoutOf, layoutReport, nextView,
+  colourOf, cropRows, displayReport, drawArgv, drawnFrame, frameIndex, herdrPaneOf, herdrReadyArgv, layoutOf, layoutReport, nextView,
   nextSpeed, panTo, parseCommandArgs, parseDisplayArgs, parseDrawing, parseLayoutArgs, parseRequest, pickDisplay, pickLayout,
-  rasterCells, resolveDisplay, runLines, shellQuote, slices, speedText, splitArgv, splitStart, statusLine, viewArgv,
+  rasterCells, replyText, resolveDisplay, runLines, shellQuote, slices, speedText, splitArgv, splitStart, statusLine, viewArgv,
 } from '../hooks/logic'
 import type { Drawing } from '../types'
 
@@ -93,6 +93,8 @@ describe('requests', () => {
     expect(again).toEqual({ request: first.request, frame: 3, play: true })
     expect(parseRequest({ scenario: '' }, first.request)).toEqual({ request: { file: 'a.sigil', view: 'tree', depth: 99 } })
     expect(parseRequest({ frame: 'last' }, first.request)).toEqual({ request: first.request, frame: -1 })
+    expect(parseRequest({ frame: 150 }, first.request)).toMatchObject({ frame: 150 })      // a frame is no depth: never capped at 99
+    expect(parseRequest(parseCommandArgs('frame 840'), first.request)).toMatchObject({ frame: 840 })
   })
   test('another file drops the run; bad values are named', () => {
     const shown = { file: 'a.sigil', view: 'graph' as const, depth: 1, scenario: 'happy' }
@@ -162,6 +164,16 @@ describe('cells', () => {
     const req = { file: '/d/a.sigil', view: 'flow' as const, depth: 1 }
     expect(statusLine(run, req, 0, true)).toBe('a.sigil · flow · depth 1 · ▶ 2 frames/s · sim happy · start · frame 1/2')
     expect(statusLine(run, req, 1, false, 0)).toBe('a.sigil · flow · depth 1 · ❚❚ ¼ frame/s · sim happy · end · ok · frame 2/2')
+  })
+  test("a sampled run's frames are the run's own: asked by them, numbered by them", () => {
+    const run = { file: 'a.sigil', view: 'flow', frames: [[], [], [], []], status: ['a', 'b', 'c', 'd'],
+      at: [0, 280, 559, 838], last: 838, summary: '', lint: [], scenarios: [] } as unknown as Drawing
+    expect([0, 279, 280, 420, 838, 900, -1].map(f => drawnFrame(run, f))).toEqual([0, 0, 1, 1, 3, 3, 3])
+    const req = { file: '/d/a.sigil', view: 'flow' as const, depth: 1 }
+    expect(statusLine(run, req, 1, false)).toMatch(/· b · frame 281\/839$/)
+    expect(replyText(run, 1, false, 'here')).toContain('paused at b (frame 281 of 839)')
+    const whole = { frames: [[], []] } as unknown as Drawing                          // not sampled
+    expect([0, 1, 5, -1].map(f => drawnFrame(whole, f))).toEqual([0, 1, 1, 1])
   })
   test("a run's path and narration line; the log line from an older pane.py", () => {
     const row = [['path   ', 0], ['① (A) -> [B]', 1]]

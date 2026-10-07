@@ -10,7 +10,7 @@ import type { EngineInterface, Register, UiOpenResult } from 'claude-code'
 import type { Drawing, Playback, Split, ViewRequest } from '../types'
 import {
   COMMAND, DEFAULT_WIDTH, PANE, VIEWS, RASTER_COLUMNS, START_SPEED, SUPERSEDED, TOOL, UNASKED_COLUMNS,
-  cropRows, detectMux, displayReport, drawArgv, frameIndex, frameMs, herdrPaneOf, herdrReadyArgv, isDisplayChoice,
+  cropRows, detectMux, displayReport, drawArgv, drawnFrame, frameIndex, frameMs, herdrPaneOf, herdrReadyArgv, isDisplayChoice,
   layoutOf, layoutReport, nextDepth, nextSpeed, nextView, panTo, parseCommandArgs, parseDisplayArgs, parseDrawing,
   parseLayoutArgs, parseRequest, rasterCells, replyText, resolveDisplay, rowsWidth, runLines, shellQuote, slices,
   splitArgv, splitStart, statusLine, viewArgv,
@@ -167,11 +167,12 @@ async function setSpeed($: $, delta: number): Promise<void> {
   if ((await read($, playback)).isPlaying) await startPlay($)
 }
 
-/** The playback a request asks for over the drawing: `frame` (-1: the last),
- * else the last frame of a new run, else where it stood; `play` from there. */
+/** The playback a request asks for over the drawing: `frame` (a frame of the
+ * run, drawnFrame; -1: the last), else the last frame of a new run, else where
+ * it stood; `play` from there. */
 function playbackFor(asked: Asked, shown: Drawing, before: Playback, isNewRun: boolean): Playback {
   const last = shown.frames.length - 1
-  let at = asked.frame === undefined ? (isNewRun ? (asked.play ? 0 : last) : before.at) : asked.frame
+  let at = asked.frame === undefined ? (isNewRun ? (asked.play ? 0 : last) : before.at) : drawnFrame(shown, asked.frame)
   if (at < 0 || at > last) at = last
   const isPlaying = asked.play ?? (isNewRun ? false : before.isPlaying)
   return { at: isPlaying && at >= last && asked.frame === undefined ? 0 : at, isPlaying: isPlaying && last > 0 }
@@ -250,7 +251,7 @@ async function about($: $, req: ViewRequest, asked: Asked, where: string): Promi
   if ('error' in got) return `${where}\nsigil: ${got.error}`
   const start = splitStart(asked)
   const last = got.frames.length - 1
-  const at = start.frame < 0 || start.frame > last ? last : start.frame
+  const at = drawnFrame(got, start.frame)
   return replyText(got, at, start.play && at < last, where)
 }
 
