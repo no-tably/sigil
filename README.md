@@ -145,6 +145,22 @@ claude --plugin-dir ./sigil-claude-<version>
 
 Commands appear as `/sigil:sigil-view <file>` and `/sigil:sigil-lint <file>`.
 
+The Claude Code plugin also carries a viewer mod. The agent gets a `view` tool
+that shows a design to you while you design it together: the graph, tree or flow
+view, redrawn on every save, and a simulated run stepped or played. Where it draws
+is the plugin's `display` option:
+
+- `mod` draws in a pane beside the conversation, in the theme's colours. A pane
+  you didn't ask for needs a terminal at least 144 columns wide. When it's
+  narrower, the agent's reply says the pane is waiting. `/sigil-pane [FILE]` opens
+  it at any width.
+- `multiplex` opens a herdr, tmux or zellij split that runs `view.py` live, and
+  the agent's later calls update it. Nothing draws in Claude Code.
+- `auto` (the default) picks `multiplex` when `HERDR_ENV`, `TMUX` or `ZELLIJ` is
+  set, and `mod` otherwise.
+
+Set it in `/config`, or under `pluginConfigs` in settings.
+
 ### Codex
 
 Unzip `sigil-codex-marketplace-<version>.zip` and add it as a local plugin
@@ -356,6 +372,9 @@ Canonical packaging sources — edit these, never `dist/`:
 - `plugin/meta.json` — name, version, description, author, keywords.
 - `plugin/commands/*.md` — commands, using `$1` / `$ARGUMENTS` and the
   `@SCRIPTS@` placeholder for the skill's scripts directory.
+- `plugin/claude/` — the Claude Code viewer mod: `hooks/` (the TypeScript hooks
+  module), `types/`, `scripts/pane.py` (its Python half) and its own `tests/`
+  (`claude plugin test plugin/claude`). See [`plugin/claude/README.md`](plugin/claude/README.md).
 
 `build.py` copies `lint.py`, `render.py`, the viewer (`view.py` with `viewkit.py`,
 `view_graph.py`, `view_tree.py`, `scene.py` and `sim.py`), the checker (`check.py` with `check_flow.py`,

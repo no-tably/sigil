@@ -63,6 +63,7 @@ All scripts are Python 3 standard library only. Write the document to a file
 | Run every pathway | `python3 scripts/view.py FILE --sim all [--json]` | no drawing: per scenario `NAME outcome N frames label`, then indented facts — `states:` each machine's end state, `failed:` what failed (`↩ fallback`, `critical`), `routes:` failure routes taken, `ignored:` events a state had no transition for, `waiting:` nodes left blocked, `open:` joins left open, `bounds:` a base case, visit limit, spawn cap, loop at the cap or cut — then `N scenarios: a ok, b failed, c cut`; always exit 0. `--sim list`: the scenario names and labels |
 | Walk one pathway | `python3 scripts/view.py FILE --once --tree --sim SCENARIO` | the run's last frame over the drawing (`✕` failed, `◉` a machine's state, wires taken vs never taken), then `sim NAME (label): ok\|failed\|cut · N frames` and the run in plain words, one `tNNN …` line per step (`[API] calls [Payments] with charge(total) — attempt 2 of 4`, `[API] routes the failure to <PaymentFailed>`); exit 2 for an unknown scenario, listing the known ones. `--sim SCENARIO --json` (no drawing): the run's facts, `steps` [{frame, tick, text}] and the raw `log` |
 | Mark the findings | `python3 scripts/view.py FILE --once --checks [--tree]` | the check findings marked on the drawing, a checks legend, then each finding's question after lint |
+| Show it to the user (Claude Code) | the plugin's `view` tool (`mcp__sigil__view`): `file`, `view` graph\|tree\|flow, `depth`, `scenario`, `frame` N\|last, `play` | a live viewer the user watches (a pane, or a herdr / tmux / zellij split) that redraws on every save; the reply gives the summary, lint and the run's step at that frame, never the drawing. If it says the pane is waiting, tell the user `/sigil-pane` opens it |
 | Mermaid diagram | `python3 scripts/render.py FILE [--depth N\|all] [--composition subgraphs\|edges\|none]` | `flowchart TD` source; present it in a fenced `mermaid` block. Composition trees draw as subgraphs by default |
 
 `--depth 0` shows the top level only, `1` (default) opens direct `:=` expansions,
@@ -128,7 +129,10 @@ propose promotion to `#!sketch` / `#!spec` once holes are resolved. Do not
 produce a finished-looking spec prematurely or drop into algorithm internals.
 
 Keep the craft document in a file and rewrite that file after every change: a user
-running `python3 scripts/view.py FILE` in a side pane sees the graph redraw live.
+running `python3 scripts/view.py FILE` in a side pane sees the graph redraw live. In
+Claude Code, call the plugin's `view` tool on the file once at the start, and again to
+show the user a run you are discussing (`scenario`, `frame`). Use `--once` output only
+when the drawing itself belongs in your reply.
 After each substantive change, test-drive it before replying:
 1. `python3 scripts/lint.py FILE --deep` — lint plus the composition checks (see
    **check**); put the findings' questions to the user alongside your next step.

@@ -153,6 +153,47 @@ Live keys:
 | `z` `g` | centre · home |
 | `r` `q` | reload · quit |
 
+## The Claude Code viewer
+
+The Claude Code plugin's mod (`plugin/claude`) gives the agent a `view` tool and
+gives the person a `/sigil-pane` command. Both show a document in a live viewer,
+redrawn on every save.
+
+The tool's input:
+
+- `file` — the `.sigil` file.
+- `view` — `graph`, `tree` or `flow`.
+- `depth` — a number, or `"all"`.
+- `scenario` — a scenario to simulate, as `--sim` names it. `""` ends the run.
+- `frame` — the frame of the run to show: a 0-based number, or `"last"`. A new
+  run starts on its last frame.
+- `play` — `true` plays the run, `false` pauses it.
+- `payloads` — show flow payloads.
+
+A field you leave out keeps its last value. The reply says where the document is
+shown, then gives the summary line, lint, the run's step and log line at that
+frame, its outcome, and the scenario names. It never returns the drawing:
+`view.py --once` prints that.
+
+`/sigil-pane` takes the same fields as words, in any order: `FILE`, a view name,
+`depth N|all`, `sim SCENARIO`, `frame N|last`, `play` and `payloads`. With no
+words it reopens the pane.
+
+The plugin option `display` picks where the viewer draws:
+
+- `mod` draws in a pane. `t` cycles the view, `d` the depth; with a run, `p` plays
+  or pauses it and `b` and `n` step it. The pane draws the cells that `pane.py
+  draw` packs (frames.py's packing, with hex colours), not ANSI. A pane opened
+  without being asked needs 144 columns. Below that, the reply says it's waiting
+  and names `/sigil-pane`, which opens it at any width.
+- `multiplex` opens a split to the right in herdr, tmux or zellij, running
+  `pane.py follow CONTROL`. That loop runs `view.py` live with the flags in the
+  control file and restarts it each time the agent's next call rewrites the file.
+  Pressing `q` in the split closes it. Frame and play are driven from the split's
+  own keys.
+- `auto`, the default, picks `multiplex` when `HERDR_ENV`, `TMUX` or `ZELLIJ` is
+  set, and `mod` otherwise.
+
 ## `render.py FILE|-`
 
 Emits a Mermaid `flowchart TD` for docs (GitHub, Obsidian, mermaid.live, …).
