@@ -127,7 +127,8 @@ Trace(scenario, frames, outcome, end, scene)
                           unknown: a failed attempt)
               choice      cid, option, default (bool): a choice point consulted
               fail        origin (("call", ident) | ("node", id)), node; for a call
-                          fallback, critical (bool)
+                          fallback, critical (bool), tries (the attempts it made),
+                          callee (bool: it arrived and its callee's work failed)
               route       node, wire, guard        transition  owner, label, src, dst
               stop        how (entry | unawaited | fallback | route-failed |
                           abort), node, guard
@@ -147,6 +148,14 @@ Frame — a full, immutable snapshot (a view draws frame i alone)
 
 Token(wire, at, dir, task, state, carries, reach, attempt)
   dir "out" | "back"; state "moving" | "failed" | "cancelled" | "fallback"
+
+NARRATION (pure, over a Trace and the scene it names)
+
+  narrate(trace)  (Beat(frame, tick, text), …): the run in plain words, one Beat
+                  per frame where something happens ("[API] calls [Payments] with
+                  charge(total) — attempt 2 of 4"), read from the frames and the
+                  events, never from the log's text
+  hops(trace)     (Hop(frame, src, kind, dst), …): every hop set out on, in order
 """
 
 from __future__ import annotations
@@ -1217,7 +1226,7 @@ class _Run:
             yield from self._failing(task, w, self.limits.hop)
             self.failed_w.add(w.ident)
             self._event("fail", task, origin=("call", w.ident), node=w.src, fallback=False,
-                        critical=False)
+                        critical=False, tries=attempts(w, self.limits), callee=False)
             self._log(self._failure_text(w))
             self._unawaited(task, w.dst, ("call", w.ident))
             return
@@ -1333,7 +1342,9 @@ class _Run:
         fb = mod(w, "fallback")
         critical = fb is None and mod(w, "!") is not None
         self._event("fail", task, origin=("call", w.ident), node=w.src,
-                    fallback=fb is not None, critical=critical)
+                    fallback=fb is not None, critical=critical,
+                    tries=1 if callee_failed else attempts(w, self.limits),
+                    callee=callee_failed)
         if fb is not None:
             yield from self._guarded_routes(task, ("call", w.ident))
             self._event("stop", task, how="fallback", node=w.src, guard=("call", w.ident))
@@ -2741,3 +2752,267 @@ def project(trace: Trace, view) -> Trace:
     hosts = host_map(trace.scene, view)
     frames = tuple(_project_frame(f, idmap, hosts) for f in trace.frames)
     return trace._replace(frames=frames, scene=view)
+
+
+# ---------------------------------------------------------------------------
+# Narration — a run in plain words, one Beat per frame where something happens
+# (the views' narration line and recent-events log, the playground, --sim's
+# text and JSON). Pure: read from the frames and the structured events, never
+# from the log's text.
+# ---------------------------------------------------------------------------
+
+class Beat(NamedTuple):
+    frame: int                 # index into Trace.frames
+    tick: int
+    text: str                  # the frame's sentences, joined with "; "
+
+
+class Hop(NamedTuple):
+    frame: int
+    src: str                   # node ids, as the trace's scene names them
+    kind: str                  # the arrow as written (`->`, `~>`, `!>`, `trigger`, …)
+    dst: str
+
+
+_PSEUDO_STATE = {"start": "+", "end": "$", "any": "_"}
+
+
+class _Words:
+    """Names as a reader reads them, over the Scene a trace names (a node's label,
+    a machine state as a transition writes it)."""
+
+    def __init__(self, scn):
+        self.scn = scn
+        self.wires = {w.ident: w for w in scn.wires}
+
+    def name(self, nid) -> str:
+        sn = self.scn.nodes.get(nid)
+        return kit.node_label(sn.node) if sn is not None else str(nid)
+
+    def state(self, nid) -> str:
+        sn = self.scn.nodes.get(nid)
+        if sn is None:
+            return str(nid)
+        return _PSEUDO_STATE.get(sn.node.attrs.get("pseudo"), sn.node.name)
+
+    def kind(self, nid) -> str:
+        sn = self.scn.nodes.get(nid)
+        return sn.node.kind if sn is not None else ""
+
+
+def _listed(names: list) -> str:
+    """`A`, `A and B`, `A, B and C`."""
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def _attempt(tok) -> str:
+    k = tok.attempt
+    return f" — attempt {k[0]} of {k[1]}" if k and k[1] > 1 else ""
+
+
+def _self_call_text(wd: _Words, w, tok, frame) -> str:
+    src, what = wd.name(w.src), tok.carries or (w.call.op if w.call is not None else "")
+    call = w.call
+    if call is not None and call.external:
+        return f"{src} calls the host: {what}"
+    if call is not None and not call.recursive and w.edge is not None and w.edge.target_op:
+        return f"{src} runs {what} itself"
+    depth = frame.depth.get(w.src, 1) + 1
+    return f"{src} calls itself" + (f" with {what}" if what else "") + f" — depth {depth}"
+
+
+def _departures(wd: _Words, tokens: list, frame) -> list:
+    """The sentences of the tokens setting out in a frame: one per wire, a fan-out
+    (several wires of one kind out of one source, one payload) as one."""
+    groups: dict = {}
+    for tok in tokens:
+        w = wd.wires[tok.wire]
+        groups.setdefault((w.src, w.kind, tok.carries, tok.attempt), []).append((w, tok))
+    out = []
+    for (src, kind, what, _a), members in groups.items():
+        w, tok = members[0]
+        dsts = _listed(list(dict.fromkeys(wd.name(m.dst) for m, _t in members)))
+        who = wd.name(src)
+        with_ = f" with {what}" if what else ""
+        if w.role == "trigger":
+            owners = _listed(list(dict.fromkeys(wd.name(m.machine or m.dst)
+                                                for m, _t in members)))
+            out.append(f"{who} drives {owners}")
+        elif w.src == w.dst or (w.call is not None and w.call.self_call):
+            out.append(_self_call_text(wd, w, tok, frame))
+        elif kind == "~>":
+            if all(wd.kind(m.dst) == "event" for m, _t in members):
+                out.append(f"{who} emits {dsts}")
+            else:
+                out.append(f"{who} sends {what + ' ' if what else ''}to {dsts} without waiting")
+        elif kind == "*>":
+            out.append(f"{who} fans out to {dsts}")
+        elif kind == "=>":
+            out.append(f"{who} produces {dsts}" if all(wd.kind(m.dst) == "data"
+                                                      for m, _t in members)
+                       else f"{who} produces {what + ' ' if what else ''}into {dsts}")
+        elif kind == "?>":
+            out.append(f"{who} takes the optional path to {dsts}")
+        elif kind in ("->", "→") and all(wd.kind(m.dst) == "data" for m, _t in members):
+            out.append(f"{who} produces {dsts}")
+        elif kind in ("->", "→", "<->"):
+            out.append(f"{who} calls {dsts}{with_}{_attempt(tok)}")
+        else:
+            out.append(f"{who} {kind} {dsts}{with_}")
+    return out
+
+
+def _token_sentences(wd: _Words, frame) -> list:
+    """What a frame's tokens say: hops setting out (a `!>` route is said by its
+    route event, a branch arm by its choice), replies and fallbacks setting
+    back, attempts failing on arrival, calls cancelled."""
+    leaving, out = [], []
+    for tok in frame.tokens:
+        w = wd.wires.get(tok.wire)
+        if w is None or w.kind == "!>" or w.role == "arm":
+            continue
+        if tok.state == "cancelled":
+            out.append(f"the call to {wd.name(w.dst)} is cancelled")
+        elif tok.dir == "out" and tok.at == 0.0 and tok.state == "moving":
+            leaving.append(tok)
+        elif tok.dir == "out" and tok.at == 1.0 and tok.state == "failed":
+            if w.src == w.dst or (w.call is not None and w.call.self_call):
+                out.append(f"{wd.name(w.src)}'s {tok.carries or 'call'} fails{_attempt(tok)}")
+            else:
+                out.append(f"{tok.carries or 'the call'} to {wd.name(w.dst)} fails"
+                           f"{_attempt(tok)}")
+        elif tok.dir == "back" and tok.at == 1.0 and tok.state == "fallback":
+            out.append(f"{wd.name(w.src)} falls back to {tok.carries}")
+        elif tok.dir == "back" and tok.at == 1.0:
+            out.append(f"{wd.name(w.dst)} returns {tok.carries} to {wd.name(w.src)}"
+                       if tok.carries else f"{wd.name(w.dst)} replies to {wd.name(w.src)}")
+    return _departures(wd, leaving, frame) + out
+
+
+def _fail_text(wd: _Words, ev: dict) -> str:
+    what, at = ev["origin"]
+    if what == "node":
+        return f"{wd.name(at)} fails"
+    w = wd.wires.get(at)
+    if w is None:
+        return f"{wd.name(ev['node'])}'s call fails"
+    tries = ev.get("tries", 1)
+    after = (f" after {tries} attempts" if tries > 1
+             else " — its callee failed" if ev.get("callee") else "")
+    if w.src == w.dst or (w.call is not None and w.call.self_call):
+        text = f"{wd.name(w.src)}'s {carried(w) or 'call'} fails{after}"
+    else:
+        text = f"{wd.name(w.src)}'s call to {wd.name(w.dst)} fails{after}"
+    return text + (" (a critical call)" if ev.get("critical") else "")
+
+
+_LIMIT_TEXT = {"depth": "{n} stops at the base case",
+               "visits": "{n} reached its visit limit: it does not run again",
+               "spawns": "{n} reached the spawn cap",
+               "iterations": "the loop is capped"}
+_STOP_TEXT = {"entry": "episode {ep} fails",
+              "unawaited": "{n}'s failure stops there: nothing waits for it",
+              "route-failed": "the route to {n} fails too",
+              "abort": "a critical call failed: the run ends"}
+
+
+def _event_sentence(wd: _Words, ev: dict, scn) -> Optional[str]:
+    kind = ev["kind"]
+    n = wd.name(ev.get("node"))
+    if kind == "fail":
+        return _fail_text(wd, ev)
+    if kind == "route":
+        w = wd.wires.get(ev["wire"])
+        return f"{n} routes the failure to {wd.name(w.dst) if w else '?'}"
+    if kind == "transition":
+        return (f"{wd.name(ev['owner'])} moves {wd.state(ev['src'])} → "
+                f"{wd.state(ev['dst'])} on {ev['label']}")
+    if kind == "ignored":
+        return (f"{wd.name(ev['owner'])} ignores {ev['label']} in "
+                f"{wd.state(ev['state'])}: no transition leaves it")
+    if kind == "stop" and ev["how"] in _STOP_TEXT:
+        return _STOP_TEXT[ev["how"]].format(n=n, ep=ev["episode"])
+    if kind == "limit":
+        text = _LIMIT_TEXT.get(ev["name"])
+        return text.format(n=n) if text else f"the run is cut: the {ev['name']} limit"
+    if kind == "gate-arrive":
+        return f"{n} reaches the join into {wd.name(ev['key'][2])}"
+    if kind == "gate-fire":
+        return f"the join is complete: {n} runs"
+    if kind == "gate-drop":
+        return f"{n} arrives after the winner at {wd.name(ev['key'][2])}: dropped"
+    if kind == "choice" and ev["cid"][0] == "branch":
+        ui, bi = ev["cid"][1]
+        header = scn.units[ui].graph.blocks[bi].header if ui < len(scn.units) else None
+        return f"branch{' ' + header if header else ''} takes ‹{ev['option']}›"
+    return None
+
+
+def _changes(wd: _Words, prev, f) -> list:
+    """What changed from the previous frame that no event says: a loop's
+    iteration, a store held or let go by an `owns` block, another instance, a
+    node cancelled (a race lost, a waiter's other members)."""
+    out = []
+    for nid, st in f.nodes.items():
+        if st == "cancelled" and (prev is None or prev.nodes.get(nid) != st):
+            out.append(f"{wd.name(nid)} is cancelled")
+    for key, k in f.loops.items():
+        if prev is None or prev.loops.get(key) != k:
+            where = f" in {wd.name(key[0])}" if key[0] is not None else ""
+            out.append(f"loop{where}: iteration {k}")
+    if prev is not None:
+        for nid in sorted(f.held_resources - prev.held_resources, key=str):
+            out.append(f"{wd.name(nid)} is held")
+        for nid in sorted(prev.held_resources - f.held_resources, key=str):
+            out.append(f"{wd.name(nid)} is released")
+        for nid, k in f.instances.items():
+            if k > prev.instances.get(nid, k):
+                out.append(f"{wd.name(nid)} gets another instance ({k} now)")
+    return out
+
+
+def narrate(trace: Trace) -> tuple:
+    """(Beat, …): the run in plain words, a Beat for every frame where something
+    happens — an episode beginning, a hop setting out (`[API] calls [Payments]
+    with charge(total) — attempt 2 of 4`), a reply or fallback, an attempt
+    failing, a call giving up, a route, a transition, a join, a bound, the end.
+    Over the scene the trace names (the canonical one, or project()'s). Pure."""
+    scn = trace.scene
+    wd = _Words(scn)
+    by_tick: dict = {}
+    for ev in trace.end.get("events", ()):
+        by_tick.setdefault(ev["t"], []).append(ev)
+    beats, prev, episode = [], None, 0
+    for i, f in enumerate(trace.frames):
+        said = []
+        events = by_tick.get(f.tick, ())
+        if f.episode != episode and f.entry is not None:
+            episode = f.episode
+            said.append(f"episode {f.episode} begins at {wd.name(f.entry)}")
+        said += _changes(wd, prev, f)
+        said += [s for s in (_event_sentence(wd, ev, scn) for ev in events) if s]
+        said += _token_sentences(wd, f)
+        if f.done:
+            said.append(f"the run ends: {trace.outcome}")
+            stalled = trace.end.get("stalled") or []
+            if stalled:
+                said.append("left waiting: " + _listed([wd.name(n) for n in stalled]))
+        said = list(dict.fromkeys(said))
+        if said:
+            beats.append(Beat(i, f.tick, "; ".join(said)))
+        prev = f
+    return tuple(beats)
+
+
+def hops(trace: Trace) -> tuple:
+    """(Hop, …): every hop the run sets out on, in order (the frame it leaves in,
+    the wire's ends and arrow) — the trail a view writes out. A reply going back
+    is no hop; a `!>` route is."""
+    wires = {w.ident: w for w in trace.scene.wires}
+    out = []
+    for i, f in enumerate(trace.frames):
+        for tok in f.tokens:
+            w = wires.get(tok.wire)
+            if w is not None and tok.dir == "out" and tok.at == 0.0 and tok.state != "cancelled":
+                out.append(Hop(i, w.src, w.kind, w.dst))
+    return tuple(out)

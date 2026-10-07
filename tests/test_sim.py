@@ -1450,5 +1450,104 @@ class TestStaticHelpers(unittest.TestCase):
         self.assertEqual(guard[0], "calls")
 
 
+# ---------------------------------------------------------------------------
+# Narration — the run in plain words (narrate) and the hops it takes (hops)
+# ---------------------------------------------------------------------------
+
+def told(trace) -> list:
+    return [b.text for b in sim.narrate(trace)]
+
+
+class TestNarration(unittest.TestCase):
+    def test_checkout_happy_reads_as_prose(self):
+        tr = run(load("01-checkout.sigil"))
+        self.assertEqual(told(tr), [
+            "episode 1 begins at (Shopper); (Shopper) calls [API] with {Cart}",
+            "[API] calls [Payments] with charge(total) — attempt 1 of 4",
+            "[API] calls |Orders| with insert",
+            "|Orders| returns {Order} to [API]",
+            "[API] emits <OrderPlaced>",
+            "<OrderPlaced> fans out to [Email], [Shipping] and |Ledger|",
+            "the run ends: ok"])
+
+    def test_a_beat_per_frame_where_something_happens(self):
+        tr = run(load("01-checkout.sigil"))
+        beats = sim.narrate(tr)
+        self.assertEqual([b.frame for b in beats], sorted({b.frame for b in beats}))
+        for b in beats:
+            self.assertEqual(tr.frames[b.frame].tick, b.tick)
+        self.assertEqual(beats[-1].frame, len(tr.frames) - 1)
+
+    def test_retries_give_up_and_route(self):
+        text = told(run(load("01-checkout.sigil"), "API.charge:fails"))
+        self.assertIn("charge(total) to [Payments] fails — attempt 2 of 4", text)
+        self.assertIn("[API]'s call to [Payments] fails after 4 attempts; "
+                      "[API] routes the failure to <PaymentFailed>", text)
+        self.assertEqual(text[-1], "(Shopper)'s call to [API] fails — its callee failed; "
+                                   "episode 1 fails; the run ends: failed")
+
+    def test_fail_events_count_the_attempts_made(self):
+        tr = run(load("01-checkout.sigil"), "API.charge:fails")
+        fails = [(e["tries"], e["callee"]) for e in events(tr, "fail")]
+        self.assertEqual(fails, [(4, False), (1, True)])
+
+    def test_machines_triggers_and_transitions(self):
+        text = told(run(load("04-orders.sigil")))
+        self.assertIn("[Checkout] produces {Order}", text)
+        self.assertIn("<Placed> drives {Order} and [Checkout]", text)
+        self.assertIn("{Order} moves + → Open on <Placed>; [Checkout] moves Idle → Busy "
+                      "on <Placed>", text)
+
+    def test_calls_of_every_shape(self):
+        sc = load("executions.sigil")
+        joined = "\n".join(told(run(sc)))
+        for said in ("[Scheduler] runs plan({Seed}) itself",
+                     "[Scheduler] produces {Plan}",
+                     "|Robots| replies to [Fetcher]",
+                     "[Crawler] sends count(${host}) to [Metrics] without waiting",
+                     "[Builder] calls itself with nest({Node}) — depth 2",
+                     "[Builder] stops at the base case",
+                     "loop: iteration 2",
+                     "[Notifier] calls the host: mail.send(${report})"):
+            self.assertIn(said, joined)
+        self.assertIn("[Crawler] falls back to ${cached}",
+                      "\n".join(told(run(sc, "Crawler.fetch:fallback"))))
+
+    def test_races_branches_locks_and_bounds(self):
+        joined = "\n".join(told(run(load("coverage.sigil"))))
+        for said in ("[PspB] is cancelled", "branch {Request}.kind takes ‹read›",
+                     "|Conn| is held", "|Conn| is released",
+                     "{Order} ignores <Paid> in +: no transition leaves it",
+                     "the loop is capped"):
+            self.assertIn(said, joined)
+
+    def test_never_reads_the_log(self):
+        """The words come from frames and events: a trace with its log emptied
+        narrates the same."""
+        tr = run(load("01-checkout.sigil"), "API.charge:fails")
+        bare = tr._replace(frames=tuple(f._replace(log=()) for f in tr.frames),
+                           end={**tr.end, "log": []})
+        self.assertEqual(sim.narrate(bare), sim.narrate(tr))
+
+    def test_every_input_narrates(self):
+        for path in EXAMPLES + FIXTURES:
+            sc = build(path.read_text())
+            for s in sim.scenarios(sc)[:4]:
+                with self.subTest(file=path.name, scenario=s.name):
+                    tr = sim.simulate(sc, s)
+                    beats = sim.narrate(tr)
+                    self.assertTrue(beats[-1].text.endswith(f"the run ends: {tr.outcome}"))
+                    self.assertNotIn("None", " ".join(b.text for b in beats))
+
+    def test_hops_in_order(self):
+        tr = run(load("01-checkout.sigil"), "API.charge:fails")
+        hops = [(h.src, h.kind, h.dst) for h in sim.hops(tr)]
+        self.assertEqual(hops[0], ("Shopper_actor", "->", "API_service"))
+        self.assertEqual(hops.count(("API_service", "->", "Payments_service")), 4)
+        self.assertEqual(hops[-1], ("API_service", "!>", "PaymentFailed_event"))
+        self.assertEqual([h.frame for h in sim.hops(tr)],
+                         sorted(h.frame for h in sim.hops(tr)))
+
+
 if __name__ == "__main__":
     unittest.main()
