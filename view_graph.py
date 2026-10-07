@@ -178,7 +178,7 @@ def _prepare(g, expanded, collapsed, tags, styles, selfs, sim) -> _Layout:
     labels, marked = {}, set()
     for nid in g.nodes:
         lab = "".join(text for text, _style in sim.lead.get(nid, ())) if sim else ""
-        lab += kit.node_label(g.nodes[nid])
+        lab += kit.node_label(g.nodes[nid]) + _stream_mark(g.nodes[nid])
         if tags and nid in tags:
             lab += "".join(text for text, _style in tags[nid])
         if nid in expanded:
@@ -706,11 +706,18 @@ def _colour_tags(cv: kit.Canvas, x, y, n, runs):
     """Re-colour a box's #N note tags (drawn in the label's colour) by note kind."""
     if not runs:
         return
-    tx = x + 2 + len(kit.node_label(n))
+    tx = x + 2 + len(kit.node_label(n) + _stream_mark(n))
     for text, style in runs:
         if style:
             cv.put(tx, y + 1, text, style)
         tx += len(text)
+
+
+def _stream_mark(n) -> str:
+    """` ≋` after a mutable stream's label (`~*<Raw> ≋`): its heavy `~` box has
+    no shadowed form (no glyph set is both heavy and shadowed), so the mark the
+    tree draws after a stream says stream instead; "" for any other node."""
+    return " " + kit.STREAM_MARK if n.is_mutable and n.is_stream else ""
 
 
 class _Border(NamedTuple):
@@ -728,7 +735,8 @@ class _Border(NamedTuple):
 
 def _border(n) -> _Border:
     """A node box's border glyphs, by kind: a mutable `~` box heavy, a stream
-    `*` box shadowed (heavy right side and bottom, ┒┃┛), a generic role stacked
+    `*` box shadowed (heavy right side and bottom, ┒┃┛; a mutable stream stays
+    heavy, its label marked ` ≋`: _stream_mark), a generic role stacked
     (a double right side ╖║╜: more members behind it)."""
     if n.kind == kit.DECISION:                      # a branch's choice: ╱──╲ ◇ … ╲──╱
         return _Border("╱", "╲", "╲", "╱", "─", "│")
@@ -1793,7 +1801,7 @@ def graph_legend(triggers: bool = True, payloads: bool = False, access: bool = F
     event-coloured edge emitter → destination, its name beside the head),
     structure marks (block frames, joins, branch arms, a qualified path's
     `[A]/` beside its head), the box shapes the tree marks apart (a stream's
-    shadow ┒┃┛, a generic role's stack ╖║╜), the call marks (a box's self-call ↺, recursion ↻,
+    shadow ┒┃┛, or ≋ in a mutable stream's heavy box, a generic role's stack ╖║╜), the call marks (a box's self-call ↺, recursion ↻,
     host-provided op ⇱), the permission edges,
     payload chips (with a call's `↩` return) and modifier chips when they are
     shown."""
@@ -1817,7 +1825,7 @@ def graph_legend(triggers: bool = True, payloads: bool = False, access: bool = F
             ("━┷━ &", kit.LABEL_STYLE), (" join: all  ", mid), ("&?", kit.LABEL_STYLE),
             (" race  ", mid), ("/", kit.LABEL_STYLE), (" one of  ", mid),
             ("▼ [A]/", kit.LABEL_STYLE), (" in path  ", mid),
-            ("┒┃┛", box), (" stream  ", mid), ("╖║╜", box), (" role  ", mid)]
+            ("┒┃┛", box), (" ", mid), (kit.STREAM_MARK, box), (" stream  ", mid), ("╖║╜", box), (" role  ", mid)]
     op = kit.SYNTAX["operator"]
     row += [("↺", op), (" self-call  ", mid), ("↻", op), (" recursion  ", mid),
             ("⇱", op), (" host op  ", mid)]

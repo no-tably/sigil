@@ -86,6 +86,11 @@ class TestShape(unittest.TestCase):
         for corner in ("┌", "┐", "└", "┘", "│ [", "╭───"):
             self.assertNotIn(corner, self.text)
 
+    def test_labels_keep_their_stream_and_mutable_leads(self):
+        text = drawn("[Src] -> ~*<Raw>\n~*<Raw> -> [Sink]\n[Src] -> *<Plain>\n")
+        self.assertIn("~*<Raw> ───▶ [Sink]", text)       # no box to shape: the label says it
+        self.assertIn("─▶ *<Plain>", text)
+
     def test_fan_out_shares_a_trunk(self):
         x = line(self.rows, "[Payments]").index("┬")
         self.assertEqual(line(self.rows, "<PaymentFailed>")[x], "├")

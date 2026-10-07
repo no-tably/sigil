@@ -15,7 +15,8 @@ Covers (each in the graph view and the tree + wires view):
   6. `--- section ---` dividers and the `#!mode` in the status bar;
   7. alias nodes drawn `[[name]]` in their own theme colour;
   8. Mermaid ids unique per expansion path.
-  9. a stream's shadowed box (┒┃┛) and ` ≋` tree mark; a generic role's stacked
+  9. a stream's shadowed box (┒┃┛) and ` ≋` tree mark (a mutable stream `~*`:
+     a heavy box, ` ≋` after its label); a generic role's stacked
      box (╖║╜) and its generics in ‹ › — told apart from `~`'s heavy box.
  10. a block-string payload's chip (its first line + `…`) and its text as a
      note; a `@borrow(read)`'s ƀ head / lane; an error path's chip led by ✖ (tree).
@@ -408,6 +409,17 @@ class TestStreamsAndRoles(unittest.TestCase):
         self.assertEqual(self.box(out, "*<Raw>"), ["┌────────┒", "│ *<Raw> ┃", "┕━━━━━━━━┛"])
         self.assertEqual(self.box(out, "~{Session}")[1], "┃ ~{Session} ┃")   # `~` stays heavy
 
+    def test_graph_marks_a_mutable_stream_in_its_heavy_box(self):
+        out = graph("[Src] -> ~*<Raw>\n~*<Raw> -> [Sink]\n[Src] -> *<Plain>\n")
+        self.assertEqual(self.box(out, "~*<Raw> ≋"),
+                         ["┏━━━━━━━━━━━┓", "┃ ~*<Raw> ≋ ┃", "┗━━━━━━━━━━━┛"])
+        self.assertIn("│ *<Plain> ┃", out)              # a plain stream: shadowed, no mark
+        self.assertNotIn("<Plain> ≋", out)
+
+    def test_mutable_stream_mark_comes_before_its_tags(self):
+        out = graph("[Src] -> ~*<Raw>\n# fed\n~*<Raw>\n", notes="markers")
+        self.assertIn("┃ ~*<Raw> ≋ #1 ┃", out)
+
     def test_graph_stacks_a_role_box(self):
         out = graph(self.DOC)
         self.assertEqual(self.box(out, "[Worker‹N›]"),
@@ -551,7 +563,7 @@ class TestQualifiedPaths(unittest.TestCase):
 
     def test_graph_legend_lists_the_stream_and_role_boxes(self):
         legend = "".join(t for t, _ in view.graph_legend())
-        self.assertIn("┒┃┛ stream", legend)
+        self.assertIn("┒┃┛ ≋ stream", legend)
         self.assertIn("╖║╜ role", legend)
 
 
