@@ -1587,7 +1587,7 @@ def compose_flow(g, depth: int, payloads: bool, notes: str = "off", triggers: bo
         if marks:
             side = [(kit._chip_marker(letter), [(text, "code")]) for letter, text in marks]
             fitted = kit.stretch_rules(fitted, max(fitted_w, width))   # a title row is taken
-            fitted = kit._fit_panel(fitted, lambda tw: kit._panel_rows(side, tw), width, "br",
+            fitted = kit._fit_panel(fitted, lambda tw, most=None: kit._panel_rows(side, tw, most), width, "br",
                                     kit.CALLOUT_MAX)
             if max(kit.row_len(r) for r in fitted if not isinstance(r, kit.RuleRow)) <= width:
                 return done(fitted)

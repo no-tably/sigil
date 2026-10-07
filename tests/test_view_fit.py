@@ -115,7 +115,7 @@ class TestCalloutWidth(unittest.TestCase):
         entries = [(1, "a fairly long note about the thing it sits on", "block")]
         for width in (5, 30, 60, 300):
             rows = view._fit_panel([[("x" * 10, None)]],
-                                   lambda t: view._callout_panel(entries, t), width, "tl", 24)
+                                   lambda t, _most=None: view._callout_panel(entries, t), width, "tl", 24)
             (tw,) = box_text_widths(text_rows(rows))
             self.assertTrue(view.CALLOUT_MIN <= tw <= view.CALLOUT_MAX, (width, tw))
 

@@ -1849,9 +1849,9 @@ def _compose(g, depth, payloads, notes, triggers, width, access, mods, events,
             + [([(f"#{num}", kit.NOTE_STYLE[kind])], [(text, kind)])
                for num, text, kind, _e in listed if kind != "block"])
     if block:
-        rows = kit._fit_panel(rows, lambda tw: kit._panel_rows(block, tw), width, "tl", kit.CALLOUT_MAX)
+        rows = kit._fit_panel(rows, lambda tw, most=None: kit._panel_rows(block, tw, most), width, "tl", kit.CALLOUT_MAX)
     if side:
-        rows = kit._fit_panel(rows, lambda tw: kit._panel_rows(side, tw), width, "br", kit.CALLOUT_MAX)
+        rows = kit._fit_panel(rows, lambda tw, most=None: kit._panel_rows(side, tw, most), width, "br", kit.CALLOUT_MAX)
     w = max([0] + [kit.row_len(r) for r in rows if not isinstance(r, kit.RuleRow)])
     if drawing_w > width:                                           # (c)
         rows = list(rows) + [[]] + kit.wide_hint("graph", "a row", drawing_w, width)

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
@@ -342,7 +343,7 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     choice = (False, False, kit.CALLOUT_TEXT)
     if width is not None:
         out_rows, w = assemble(*choice)
-        extra = _extras(g, idx, notes, payloads, base(False, False)[3])
+        extra = _extras(g, idx, notes, payloads, base(False, False)[3], width=width)
         fits = max([w] + [kit.row_len(r) for r in extra]) <= width
         if fits and need > kit.CALLOUT_TEXT and assemble(False, False, need)[1] <= width:
             choice = (False, False, need)           # room to show every callout whole
@@ -373,17 +374,17 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     _r, _w, out, drawn, moved, _lanes, _gutter = base(left, right, keep)
     # (A list that already fits rewraps to the same lines at the narrower width.)
     extra = _extras(g, idx, notes, payloads, drawn,
-                    kit.NOTE_WIDTH if width is None else min(kit.NOTE_WIDTH, width))
+                    kit.NOTE_WIDTH if width is None else min(kit.NOTE_WIDTH, width), width)
     if width is not None and right and moved:
         items = [(kit._chip_marker(letter), [(text, "code") for text in chips]
                   + [(f"# {text}", "inline") for _num, text in notes_])
                  for letter, chips, notes_ in moved]
-        out_rows = kit._fit_panel(out_rows, lambda t: kit._panel_rows(items, t), width, "br",
+        out_rows = kit._fit_panel(out_rows, lambda t, most=None: kit._panel_rows(items, t, most), width, "br",
                               kit.CALLOUT_MAX)
     if width is not None and left and out.tagged:
         entries = [(num, text, kind) for nid, _y in sorted(out.tagged.items(), key=lambda kv: kv[1])
                    for num, text, kind, _e in blocks[nid]]
-        out_rows = kit._fit_panel(out_rows, lambda t: kit._callout_panel(entries, t), width, "tl", need)
+        out_rows = kit._fit_panel(out_rows, lambda t, _most=None: kit._callout_panel(entries, t), width, "tl", need)
     if (left, right) != (False, False):
         w = max([0] + [kit.row_len(r) for r in out_rows])
     if width is not None and w > width:         # nothing left to give way
@@ -1350,13 +1351,17 @@ def _draw_right_margin(cv: kit.Canvas, lanes, out: _Outline, chips: dict,
 
 
 def _extras(g, idx: dict, notes: str, payloads: bool, drawn: frozenset = frozenset(),
-            note_width: int = kit.NOTE_WIDTH):
-    """The lists under the tree: payloads not drawn as chips (when shown), then
-    notes (markers mode, wrapped at note_width; in callouts mode the document's
-    own notes, which no row could call out)."""
+            note_width: int = kit.NOTE_WIDTH, width: int | None = None):
+    """The lists under the tree: payloads not drawn as chips (when shown; a line
+    wider than `width` wrapped under itself), then notes (markers mode, wrapped
+    at note_width; in callouts mode the document's own notes, which no row could
+    call out)."""
     extra = []
     pl = [f"  {kit.edge_text(sub, e)} : {e.payload}" for sub in kit._walk(g) for e in sub.edges
           if e.payload and (e.src, e.dst, e.kind) not in drawn] if payloads else []
+    if width is not None:
+        pl = [ln for p in pl for ln in (textwrap.wrap(p, width, subsequent_indent="    ",
+                                                      break_on_hyphens=False) if len(p) > width else [p])]
     if pl:
         extra += [[], kit.section_rule("payloads"), []] + [[(p, kit.PAYLOAD_STYLE)] for p in pl]
     if notes == "markers" and idx:

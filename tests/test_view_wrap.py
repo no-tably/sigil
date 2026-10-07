@@ -8,6 +8,8 @@ Covers:
   - part titles (graph and flow): cut to the width, a nested expansion's
     oldest ancestors first, so a title never widens the drawing; a control
     block's frame title too, its note tag kept;
+  - panels and lists: a chip panel's code wraps when it alone is wider than
+    the width, the tree's payload list wraps under itself;
   - tree view: lanes past the gutter columns that fit fold into numbered plugs
     (`●①` on a source row, `◀───①` on a target row), packed in a run per row; a
     token on a folded lane sits on its plugs; a tree that fits is untouched;
@@ -168,6 +170,35 @@ class TestFrameTitlesFit(unittest.TestCase):
         rows = text_rows(view.vflow.compose_flow(g, 1, False, notes="markers", width=40)[0])
         self.assertLessEqual(max(len(r) for r in rows), 40)
         self.assertIn("╭╌ ↺ loop @each page of {Site}.pa… #8 ╌╮", rows)
+
+
+class TestPanelsFit(unittest.TestCase):
+    EXEC = _DIR / "site" / "examples" / "05-executions.sigil"
+    SHOP = _DIR / "site" / "examples" / "02-shop.sigil"
+
+    def test_a_chip_panel_wraps_its_code_when_the_width_is_narrower(self):
+        # `┆a┆ @timeout 5s ×3 @fallback ${cached}` (38) once kept whole at --width 32
+        g = parse(self.EXEC.read_text())
+        rows = text_rows(vgraph.compose(g, 1, False, width=32, mods=True, access=True)[0])
+        self.assertLessEqual(max(len(r) for r in rows), 32, "\n".join(rows))
+        at = next(i for i, r in enumerate(rows) if "┆a┆ @timeout 5s ×3" in r)
+        self.assertIn("${cached}", rows[at + 1])
+
+    def test_panel_rows_keep_code_whole_unless_too_wide(self):
+        items = [(kit._chip_marker("a"), [("@timeout 5s ×3 @fallback ${cached}", "code")])]
+        rows, w = kit._panel_rows(items, 16)
+        self.assertEqual(len(rows), 1)                  # code: at least its own length
+        rows, w = kit._panel_rows(items, 16, most=32)
+        self.assertLessEqual(w, 32)
+        self.assertEqual(len(rows), 2)
+
+    def test_the_tree_payload_list_wraps(self):
+        g = parse(self.SHOP.read_text())
+        rows = text_rows(vtree.compose_tree(g, 1, payloads=True, width=32)[0])
+        at = rows.index("  [Gateway] -> [Risk] :")
+        listed = rows[at:at + 4]
+        self.assertLessEqual(max(len(r) for r in listed), 32, "\n".join(listed))
+        self.assertEqual(rows[at + 1], "    score(card) => {Verdict}")
 
 
 class TestTreeFolds(unittest.TestCase):

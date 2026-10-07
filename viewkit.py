@@ -1067,7 +1067,7 @@ def fit_title(name: str, room: int) -> str:
         steps = steps[1:]
         out = "…" + TITLE_STEP + TITLE_STEP.join(steps)
     if len(out) > room:
-        out = out[:max(room - 1, 0)] + "…"
+        out = out[:max(room - 1, 0)].rstrip(" …") + "…"
     return type(name)(out) if isinstance(name, Rule) else out
 
 
@@ -1183,17 +1183,20 @@ def _callout_panel(entries, tw: int):
     return rows, tag_w + tw + 4
 
 
-def _panel_rows(items, tw: int):
+def _panel_rows(items, tw: int, most: int | None = None):
     """A panel: each item is (marker runs, [(text, kind)]); kind "code" is a
     payload (drawn as code), else a note kind. Each text wraps at tw under its
     marker (a payload, being code, at no less than its own length up to
-    CALLOUT_MAX). Returns (rows, width)."""
+    CALLOUT_MAX — unless that would make the panel wider than `most`).
+    Returns (rows, width)."""
     mark_w = max(row_len(m) for m, _ in items) + 1
     rows = []
     for marker, texts in items:
         first = True
         for text, kind in texts:
             wrap = max(tw, min(len(text), CALLOUT_MAX)) if kind == "code" else tw
+            if most is not None:
+                wrap = max(min(wrap, most - mark_w), 1)
             for ln in textwrap.wrap(text, wrap) or [""]:
                 lead = (marker + [(" " * (mark_w - row_len(marker)), None)] if first
                         else [(" " * mark_w, None)])
@@ -1254,10 +1257,11 @@ def _splice(row, x: int, runs, w: int):
 
 
 def _fit_panel(rows, make, width: int, corner: str, pref: int):
-    """Place a panel (make(text width) → (rows, width)) in the drawing: in an empty
-    region of its corner if one is big enough at some text width (pref first, then
-    CALLOUT_MAX down to CALLOUT_MIN), else above the drawing (tl) or below it,
-    right-aligned (br), at the widest text width within `width`."""
+    """Place a panel (make(text width, most=None) → (rows, width)) in the drawing:
+    in an empty region of its corner if one is big enough at some text width (pref
+    first, then CALLOUT_MAX down to CALLOUT_MIN), else above the drawing (tl) or
+    below it, right-aligned (br), at the widest text width within `width` (made
+    with most=width when even CALLOUT_MIN is wider: code wraps too)."""
     acc = _occupancy(rows, width)
     tries = [pref] + [t for t in range(CALLOUT_MAX, CALLOUT_MIN - 1, -4) if t != pref]
     for tw in tries:
@@ -1274,6 +1278,8 @@ def _fit_panel(rows, make, width: int, corner: str, pref: int):
     while pw > width and tw > CALLOUT_MIN:
         tw -= 1
         panel, pw = make(tw)
+    if pw > width:
+        panel, pw = make(tw, width)
     if corner == "tl":
         return panel + [[]] + list(rows)
     right = min(width, max([pw] + [row_len(r) for r in rows]))
