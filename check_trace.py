@@ -331,13 +331,14 @@ class Access(NamedTuple):
     wire: tuple
     held: frozenset
     clock: dict
+    t: int = 0               # its tick
 
 
 def accesses(events: list, clocks: list) -> list:
     """The run's store accesses with a known mode (a rule that needs a write
     never fires on `unknown`), in event order. A failed attempt counts (RFC 0003 Q13)."""
     return [Access(e["task"], e["episode"], e["store"], e["mode"], e["wire"],
-                   frozenset(e["held"]), clocks[i])
+                   frozenset(e["held"]), clocks[i], e["t"])
             for i, e in enumerate(events)
             if e["kind"] == "access" and e["mode"] != "unknown"]
 
@@ -449,7 +450,18 @@ def in_run(run: Run) -> str:
 
 
 def trace_hit(ck, run: Run, line: int, statement: str, ask: str, **kw):
+    """A trace Hit witnessed by `run` (`at`: the tick in it where it shows)."""
     return ck.Hit(line, statement, ask, k=run.k, witness=run.scenario.name, trace=True, **kw)
+
+
+def tick_of(run: Run, index: int) -> Optional[int]:
+    """The tick of the run's event at `index`."""
+    events = run.events
+    return events[index]["t"] if 0 <= index < len(events) else None
+
+
+def last_tick(run: Run) -> Optional[int]:
+    return run.events[-1]["t"] if run.events else None
 
 
 # ---------------------------------------------------------------------------
@@ -489,7 +501,7 @@ def ignored_hit(ck, st, m, run: Run, d: Delivery):
         f"`{d.label}` reaches `{o}` while it is `{s}` and is dropped {in_run(run)}",
         f"`{d.label}` reaches `{o}` while it is `{s}`. Should it be ignored, or is a "
         "transition missing?",
-        anchor=("machine", m.owner), scopes=st.machine_scopes(m, d.state),
+        anchor=("machine", m.owner), scopes=st.machine_scopes(m, d.state), at=tick_of(run, d.index),
         fix=f"a transition `{s} -{d.label}-> …`, a `_ -{d.label}-> …` wildcard, or the "
             f"self-loop `{s} -{d.label}-> {s}` to ignore it on purpose")
 
@@ -558,8 +570,10 @@ def ordering_hits(ck, doc):
         seen.add(m.owner)
         statement, ask = (reorder_text(m, run, pairs[0]) if pairs
                           else early_text(m, run, early[0]))
+        shows = pairs[0].second if pairs else early[0]
         yield trace_hit(ck, run, machine_line(m), statement, ask,
                         anchor=("machine", m.owner), scopes=st.machine_scopes(m),
+                        at=tick_of(run, shows.index),
                         fix=f"`@inv ordered(key)` on `{m.owner_glyph}` or its events, or "
                             "transitions for both orders")
 
@@ -619,6 +633,7 @@ def race_hits(ck, doc):
                           if a.mode in WRITES)
             yield trace_hit(ck, run, w.line, statement, ask, anchor=("wire", w.ident),
                             scopes=st.store_scopes(c.writer.store, tf.principal(w)), fix=fix,
+                            at=max(c.writer.t, c.other.t),
                             guess="the write is read off its op verb" if guessed else "")
 
 
@@ -717,7 +732,7 @@ def stall_text(oj: OpenJoin, run: Run, label) -> tuple:
 def stall_hit(ck, oj: OpenJoin, run: Run, label):
     statement, ask = stall_text(oj, run, label)
     return trace_hit(ck, run, oj.line, statement, ask, anchor=("node", oj.waiter),
-                     scopes=(("join", ":".join(map(str, oj.key))),))
+                     scopes=(("join", ":".join(map(str, oj.key))),), at=last_tick(run))
 
 
 def node_namer(sc, node_label):
@@ -913,7 +928,7 @@ def cut_cause(ck):
                                 f"{in_run(run)} ({limits})",
                                 f"The simulator stopped {in_run(run)} at its {e['name']} "
                                 "limit. Is what it ran enough evidence?",
-                                anchor=("limit", e["name"]),
+                                anchor=("limit", e["name"]), at=e["t"],
                                 fix="run with larger limits")
     return match
 
@@ -933,7 +948,7 @@ def spawn_cause(ck):
                                     f"{in_run(run)} ({limits})",
                                     f"The simulator stopped spawning `{g}` at its ceiling. "
                                     "Are that many instances enough evidence?",
-                                    anchor=("node", e["node"]),
+                                    anchor=("node", e["node"]), at=e["t"],
                                     fix="run with a larger spawns limit")
     return match
 
@@ -976,7 +991,7 @@ def bound_cause(ck):
                                     f"early ({limits_text(tf.explored.limits, (limit,))})",
                                     f"The simulator ran `{g}` to {limit} {sim_n} of its "
                                     f"declared {n}. Is that enough evidence?",
-                                    anchor=("node", e["node"]),
+                                    anchor=("node", e["node"]), at=e["t"],
                                     fix=f"run with a larger {limit} limit")
     return match
 

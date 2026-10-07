@@ -239,6 +239,7 @@ class Hit:
     tier: str = ""                   # override the rule's tier (e.g. op vs actor)
     k: Optional[int] = None          # deviations the witness needs (trace hits)
     witness: Optional[str] = None    # scenario name
+    at: Optional[int] = None         # the tick in the witness run where it shows
     trace: bool = False              # evidence comes from a simulator trace
     scopes: tuple = ()
     acknowledgeable: Optional[bool] = None   # None: the rule's
@@ -299,6 +300,7 @@ class Finding:
             "mode": self.mode, "anchor": {"kind": h.anchor[0], "id": str(h.anchor[1])},
             "why": self.rule.why, "fix": self.fix, "guess": bool(h.guess),
             "guessed": h.guess or None, "k": h.k, "witness": h.witness,
+            "at": h.at,
             "hidden": self.hidden,
             "acknowledged": self.ack.reason if self.ack else None,
             "ack_line": self.ack.line if self.ack else None,

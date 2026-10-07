@@ -279,6 +279,8 @@ class Machines(unittest.TestCase):
         self.assertEqual((f.line, f.severity, f.hit.witness, f.hit.k, f.hit.trace),
                          (5, "error", "happy", 0, True))
         self.assertEqual(f.hit.anchor, ("machine", "Order_data"))
+        drop = events(by_name(runs_of(IGNORED), "happy"), "ignored")[0]
+        self.assertEqual(f.hit.at, drop["t"])             # the tick the run shows it
         (f,) = of(check(IGNORED, mode="craft"), "SGC203")
         self.assertEqual(f.message, "`<Paid>` reaches `{Order}` while it is `Settled`. "
                                     "Should it be ignored, or is a transition missing?")

@@ -1301,9 +1301,12 @@ class CheckMark(NamedTuple):
 
 class CheckMarks(NamedTuple):
     """The findings a drawing marks, named as its Scene names things:
-    {node id: (CheckMark, …)} and {wire ident: (CheckMark, …)}, number order."""
+    {node id: (CheckMark, …)} and {wire ident: (CheckMark, …)}, number order;
+    `witnesses`: ((scenario name, tick, CheckMark), …) — where a behavioural
+    finding shows in its witness run (the run view's ruler)."""
     nodes: dict
     wires: dict
+    witnesses: tuple = ()
 
     def by_key(self) -> dict:
         """{wire key: (CheckMark, …)}: the wires' marks gathered by the stroke

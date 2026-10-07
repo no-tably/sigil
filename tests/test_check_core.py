@@ -775,7 +775,7 @@ class Cli(unittest.TestCase):
         self.assertIn("budget", data["limits"])
         f = data["findings"][0]
         for key in ("severity", "line", "rule", "message", "name", "tier", "mode",
-                    "anchor", "why", "fix", "guess", "k", "witness", "acknowledged",
+                    "anchor", "why", "fix", "guess", "k", "witness", "at", "acknowledged",
                     "also"):
             self.assertIn(key, f)
         self.assertEqual(data["acknowledged"], [])

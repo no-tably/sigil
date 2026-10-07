@@ -253,10 +253,12 @@ class _Frame(NamedTuple):
     final: bool                # the run's last frame
 
 
-def _paint(tl, scn, tick: int, final: bool, probe: bool = False) -> _Frame:
+def _paint(tl, scn, tick: int, final: bool, probe: bool = False,
+           keep: frozenset = frozenset()) -> _Frame:
     """The grid of the timeline clipped at `tick`: bars, transits and their
-    verticals, marks, the episode boundaries, the playhead and the tokens."""
-    cols = _columns(tl, _busy_ticks(tl) | ({tick} if not final else set()))
+    verticals, marks, the episode boundaries, the playhead and the tokens.
+    `keep`: ticks never folded into ≈ (where the ruler marks a finding)."""
+    cols = _columns(tl, _busy_ticks(tl) | ({tick} if not final else set()) | keep)
     lanes = tuple(ln for ln in tl.lanes if ln.born <= tick)
     rows = {ln.key: r for r, ln in enumerate(lanes)}
     g = _Grid()
@@ -490,15 +492,19 @@ def _label_runs(ln, scn, numbered: set, tick: int, marks) -> list:
     return runs
 
 
-def _ruler(fr: _Frame, tl, lo: int, hi: int, x0: int) -> list:
-    """The ruler over columns lo … hi - 1: the playhead `▼t`, `ep2` where an
-    episode starts, `↺k` where a loop's k-th iteration starts (k ≥ 2), the last
-    tick, ticks at multiples of 10, ≈ on a folded stretch — each only where it
-    touches no label placed before it, and nothing right of the playhead."""
+def _ruler(fr: _Frame, tl, lo: int, hi: int, x0: int, witnessed: tuple = ()) -> list:
+    """The ruler over columns lo … hi - 1: the playhead `▼t`, a finding's
+    number where this run shows it (`witnessed`: ((tick, CheckMark), …)), `ep2`
+    where an episode starts, `↺k` where a loop's k-th iteration starts (k ≥ 2),
+    the last tick, ticks at multiples of 10, ≈ on a folded stretch — each only
+    where it touches no label placed before it, and nothing right of the
+    playhead."""
     st = _styles()
     want = []
     if not fr.final:
         want.append((fr.cols.of[fr.tick], NOW + str(fr.tick), st["now"]))
+    want += [(fr.cols.of[t], kit.check_glyph(m), kit.check_mark_style(m))
+             for t, m in witnessed if t in fr.cols.of and t <= fr.tick]
     want += [(fr.cols.of[t], f"ep{k}", st["section"]) for k, t, _n in tl.episodes[1:]
              if t in fr.cols.of]
     want += [(fr.cols.of[it.t], f"{ITERATION}{it.k}", st["op"]) for it in tl.iterations
@@ -781,7 +787,8 @@ def compose_run(g, trace=None, tick: Optional[int] = None, width: Optional[int] 
     line under the drawing say this is the happy run). `width`: the columns to
     fit — notes beside (clauses dropped to fit), then below, then bands, then
     labels cut. `notes`: run | design | off. `checks`: kit.CheckMarks named as
-    the canonical scene names things. `show`: instances per group before
+    the canonical scene names things (a finding this run witnesses also puts
+    its number on the ruler at the tick it shows). `show`: instances per group before
     folding (sim.RUN_SHOW; 0: never fold). `probe`: the playhead's cells in
     kit.Probe styles (sim_focus)."""
     if trace is None:
@@ -793,7 +800,10 @@ def compose_run(g, trace=None, tick: Optional[int] = None, width: Optional[int] 
     i = last_i if tick is None else max(0, min(tick, last_i))
     t = trace.frames[i].tick if trace.frames else 0
     final = i == last_i
-    fr = _paint(tl, scn, t, final, probe)
+    witnessed = tuple(sorted(((at, m) for name, at, m in getattr(checks, "witnesses", ())
+                              if name == trace.scenario.name and at <= tl.last),
+                             key=lambda x: (x[1].number, x[0])))
+    fr = _paint(tl, scn, t, final, probe, frozenset(at for at, _m in witnessed))
     numbered = _shows_ordinal(tl, prog)
     st = _styles()
     node_marks = checks.nodes if checks is not None else {}
@@ -838,7 +848,7 @@ def compose_run(g, trace=None, tick: Optional[int] = None, width: Optional[int] 
     for k, (lo, hi) in enumerate(bands):
         if k:
             rows.append([])
-        rows.append(_ruler(fr, tl, lo, hi, x0))
+        rows.append(_ruler(fr, tl, lo, hi, x0, witnessed))
         for ln in fr.lanes:
             r = fr.rows[ln.key]
             cells = [fr.grid.glyph(r, c) for c in range(lo, min(hi, shown_cols))]

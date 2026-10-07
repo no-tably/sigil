@@ -8,7 +8,7 @@ Covers:
     fan-out sharing one vertical (├══▶ ╰══▶), a race's loser (⊘);
   - recursion levels as ↻k sub-rows ending ┤, self-calls ↺, host ops ⇱;
   - a lane's activations at once on ∥k sub-rows; a loop's iterations (↺2 on
-    the ruler, "loops 2×");
+    the ruler, "loops 2×"); a finding the run witnesses on the ruler;
   - spawned lanes (◌ while the spawn hop flies) and folds (`{…×4 more}`);
   - the playhead: nothing right of the tick, lanes appear when born, ▼ on the
     ruler, ┊ down the blank cells, tokens on the transits, ▸ running;
@@ -357,6 +357,19 @@ class TestApp(unittest.TestCase):
         self.assertIn("↺2", ruler)
         self.assertIn("loops 2×", row(lines, "[Api]"))
         self.assertIn("↺k iteration k", "".join(t for t, _ in vrun.run_legend()))
+
+    def test_a_finding_this_run_witnesses_is_on_the_ruler(self):
+        path = _DIR / "tests" / "fixtures" / "checks" / "trace-204-fanout.sigil"
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            view.main([str(path), "--run", "--once", "--checks", "--no-lint", "--color",
+                       "never", "--width", "120"])
+        lines = out.getvalue().splitlines()
+        ruler = next(ln for ln in lines if ln.strip().startswith("0"))
+        x0 = ruler.index("0")
+        doc = next(ln for ln in lines if ln.lstrip(" ▸").startswith("|Doc|"))
+        self.assertIn("▲2", ruler)
+        self.assertEqual(ruler.index("▲2") - x0, doc.index("█") - x0)   # at the write
 
     def test_legend_lines_end_without_blanks(self):
         for flag in ("--run", "--tree", "--flow"):

@@ -212,11 +212,13 @@ Checks (c, --checks): check.py's findings, as the document's mode shows them,
 marked on the drawing in the theme's ui.error / ui.warn colours — a box's
 border, a wire's stroke (graph) or lane (tree) in its worst finding's colour,
 and each finding's number after the label (◆ error, ▲ warning, △ info; a
-wire's beside its head in the graph, on its target's row in the tree).
-Acknowledged findings (`# accepts: rule — reason`) are drawn dimmed, numbered
-✓N. The panel under the drawing lists each finding's line, rule and the
-question it asks (an acknowledged one: its reason). A finding anchored on no
-drawn node or wire (a block, the document) is listed only.
+wire's beside its head in the graph, on its target's row in the tree; in the
+run view also on the ruler at the tick a behavioural finding shows, when the
+run drawn is its witness). Acknowledged findings (`# accepts: rule — reason`)
+are drawn dimmed, numbered ✓N. The panel under the drawing lists each
+finding's line, rule and the question it asks (an acknowledged one: its
+reason). A finding anchored on no drawn node or wire (a block, the document)
+is listed only.
 
 Modules: this file is the app (the --once printer, the live view, the CLI). The
 drawing lives beside it — viewkit.py (styles, canvas, runs, notes, fit panels),
@@ -1188,18 +1190,22 @@ def finding_targets(anchor: tuple, view, idmap: dict, hosts: dict) -> tuple:
 
 def check_marks(entries: list, canon, view):
     """kit.CheckMarks: every entry's mark on what its anchor names in `view`
-    (finding_targets), from the canonical Scene `canon`."""
+    (finding_targets), from the canonical Scene `canon`, and the witness tick
+    of each one a run shows (check's Hit.at)."""
     idmap = simulator.ident_map(canon, view)
     hosts = simulator.host_map(canon, view)
-    nodes, wires = {}, {}
+    nodes, wires, seen = {}, {}, []
     for e in entries:
-        ns, ws = finding_targets(e.finding.hit.anchor, view, idmap, hosts)
+        hit = e.finding.hit
+        ns, ws = finding_targets(hit.anchor, view, idmap, hosts)
         for nid in sorted(ns):
             nodes.setdefault(nid, []).append(e.mark)
         for ident in sorted(ws):
             wires.setdefault(ident, []).append(e.mark)
+        if hit.witness is not None and getattr(hit, "at", None) is not None:
+            seen.append((hit.witness, hit.at, e.mark))
     return kit.CheckMarks({k: tuple(v) for k, v in nodes.items()},
-                          {k: tuple(v) for k, v in wires.items()})
+                          {k: tuple(v) for k, v in wires.items()}, tuple(seen))
 
 
 def finding_question(f) -> str:

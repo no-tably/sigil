@@ -44,7 +44,8 @@ binding rules errors. The line format and [exit codes](#exit-codes) match lint.
 - `--budget N` caps the runs one exploration may make; `--limit NAME=N` raises one
   simulator limit (repeatable, e.g. `depth=5`).
 - `--all` also shows hidden findings.
-- `--json` prints one object per run: rule, tier, why, how to satisfy, witness.
+- `--json` prints one object per run: rule, tier, why, how to satisfy, witness (and
+  `at`, the tick in the witness run where a behavioural finding shows).
 - `--rules` lists the rules and exits.
 - `--dialect NAME` adds a dialect's rule pack.
 
@@ -209,7 +210,9 @@ no bar, and retries repeat the segment; a race's loser ends `⊘`; a reply runs 
 callee's lane to `↩`. `↺` is a self-call's pulse, `┤` where the depth limit stopped
 a recursion, `⇱` a host op, `•` an actor reached with no work of its own, `┆` the
 boundary between episodes, `↺2` on the ruler where a loop's next iteration starts
-("loops 2×" in the note of the lane running it). A spawned lane carries `◌` while its spawn hop flies;
+("loops 2×" in the note of the lane running it), and with the checks overlay (`c`)
+a finding's number at the tick this run shows it, when the run is its witness. A
+spawned lane carries `◌` while its spawn hop flies;
 many instances fold into `{…×k more}` (`u` / `--unroll`). Each lane has a note in
 plain words ("4 attempts, each fails", "spawned by [Spawner] for [Asteroid]"); `n`
 cycles run notes, the design's own notes on the node, and none. In sim mode the
