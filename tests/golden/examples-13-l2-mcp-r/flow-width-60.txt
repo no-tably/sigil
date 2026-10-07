@@ -1,0 +1,11 @@
+         [MCP.r] ▾   [MCP.w] ▾
+
+── [MCP.r] := { … } ───────────────────
+
+[Surface]   [Hydrator]   [Materializer]
+
+── [MCP.w] := { … } ───────────────────
+
+        [Surface]   [Validator]
+
+examples-13-l2-mcp-r.sigil: 2 nodes, 0 edges, 2 expansions

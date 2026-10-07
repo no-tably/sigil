@@ -1,0 +1,47 @@
+── L1 · crawl ───────────────────────────────────────────────────────────────────────────────────────
+
+(Operator) #1 ───▶ [Scheduler] #2 ↺ ━┳━━━ ↩ ━━━▶ {Plan}
+                                     ╰─────────▶ [Crawler] #3 ↺ ─┬─▶ [Fetcher] #4 ──┬─▶ (Web) ⇱
+                                                                 ├╌▶ [Metrics]      ├─✖ <FetchFailed>
+                                                                 │                  ╰◀▶ |Robots|
+[Indexer] #7 ──┬─▶┐|Index|           ╭───────────────────────────┴─▶ [Parser] #5 ▾ ───▶ [Doc.walk] ↻
+               ├─✖┘                  │
+               ╰─────────────────────╯
+
+{Site}   [Notifier] #9 ⇱   [[follow]] #6 ▾
+
+── [Parser] := { … } ────────────────────────────────────────────────────────────────────────────────
+
+                                     [Lexer] ──▶ [Builder] #10 ↻
+
+── [[follow]] := { … } ──────────────────────────────────────────────────────────────────────────────
+
+                                           [Crawler] #3 ↻
+
+── notes ────────────────────────────────────────────────────────────────────────────────────────────
+
+¶ executions — every call-like construct in one realistic design: a site
+  crawler. Design note: .claude/campaigns/scene-sim/executions.md (one row
+  per construct, E1–E12).
+#1 E1 a call carrying an internal op-call: the scheduler asks, the target
+   runs start()
+#2 E2 an op-call as the TARGET: the scheduler runs plan() itself and gets
+   {Plan} back · E3 a call that returns: the scheduler waits until the
+   crawler hands back {Site}
+#3 E4 a self-call bounded as a whole: every attempt of throttle() fits in 2s
+   · E5 call resilience: bound one attempt, retry, then recover with the
+   cached page · E8 fire-and-forget: the crawler does not wait for the count
+#4 E6 an external op: the far side is host-provided and opaque; it may fail
+   · E7 a request and its reply in one stroke
+#5 E9 recursion through a method-style glyph: one call per child, depth
+   unstated
+#6 E10 recursion through an alias: follow() calls itself on every outgoing
+   link
+#7 E11 several calls into one target: reserve, then write; on failure
+   release
+#8 a call repeated once per page
+#9 E12 an external op as the target: the notifier reaches the host, far side
+   unnamed
+#10 the builder recurses into nested blocks
+
+executions.sigil: 16 nodes, 18 edges, 2 expansions · #!spec

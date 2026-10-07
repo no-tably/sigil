@@ -24,12 +24,17 @@ Options:
                      to each destination in the event's colour (tree: the › emit
                      marker, the event named on the destination row; graph: the
                      event named beside the edge's head). nodes: as a row / box of
-                     its own (a hub). Default: tree land, graph nodes; given, it
-                     sets both views.
+                     its own (a hub). Default: tree land, graph and flow nodes;
+                     given, it sets every view.
     --tree           Tree + wires: the composition tree (`\\-` branches and `:=`
                      expansions) as an outline, every flow as a lane in a gutter —
                      ● marks a lane's source, ◀ each target; a row's run hops a lane
                      it only crosses (─│─) and joins (┤ ┴ ┬ ┼) only a lane it taps.
+    --flow           Flow: a call graph read left to right — bare glyph labels (no
+                     boxes) in columns by call depth, a node's first callee on its
+                     row and the rest below, wires bending between the columns
+                     (─┬─▶ ├─▶ ╰─▶), each flow's chip on its wire. Graph (no flag)
+                     stays the default; --tree and --flow pick one of the others.
     --compact        Tree view without the blank row between top-level units.
     --no-triggers    Start without event → state triggers (lanes / wires).
     --notes MODE     off | markers (#N tags + a notes list) | callouts (tree view:
@@ -63,14 +68,15 @@ Options:
 Keys (live view):
     d  cycle depth (0 → 1 → all)   p  payloads   m  modifiers   a  access
     l  lint panel   r  reload
-    t  toggle graph / tree + wires   e  triggers (event ⇢ the state it drives)
+    1 2 3  the view: graph / flow / tree   t  the next view (graph → flow → tree → …)
+    e  triggers (event ⇢ the state it drives)
     s  spacing between units      v  events: where they land / as nodes (per view)
     n  notes: off → #N markers + list → margin callouts (tree view)
     f  fit to the window (rearranged, centred) / the natural layout, free to pan
     c  checks: the composition checks overlay (check.py) and the findings panel
     arrows / h j k L pan   pgup / pgdn / space page   g home   z  re-centre   q  quit
     mouse: drag to pan; wheel scrolls (shift+wheel or a sideways wheel: across)
-    x  sim mode: play the chosen scenario's run over the drawing (both views play
+    x  sim mode: play the chosen scenario's run over the drawing (every view plays
        the same run). In sim mode: space play / pause   , .  step back / on
        [ ]  previous / next scenario (named in the status bar; which of how many
        and what it is in the sim keys row)   - +  speed (frames a second; a slow
@@ -118,6 +124,19 @@ Structure:     ── L2 · Payments ──── a `--- section ---`: its flows
                divider row, `<->` lanes ◀──▶.
 The status bar shows the document's `#!mode`.
 
+Flow view (--flow, 2): the call graph left to right, as the page's toy graphs
+draw it. A node sits in the column of its call depth, its first callee on its
+row; wires from one source share a trunk (─┬─▶ ├─▶ ╰─▶), wires into one target
+with one head share its last run (─┴─▶), a target fed by several kinds of
+arrow takes their heads stacked (▶┐ ✖┘). Strokes and heads are the graph's
+(━ =>, ╌ ~>, ═ *>, ┄ ?>, ✖ !>, ◀─▶ <->, ╍ a trigger); a wire that only
+crosses another hops it (─│─); a wire back to an earlier column runs along a
+return row under the drawing (╰──╯) and comes up into its target. A chip sits
+on its wire between the columns (─┆{Cart}┆─▶), a transition's or arm's label
+and what the graph writes beside a head as bare text there; a self-call's chip
+hangs on a stub under its subject (╰─● ┆ ↺ plan() ┆). Expansions and state
+machines are parts under the document's; control blocks are not framed.
+
 Simulation (x, --sim): the run's tokens travel the drawn wires — ● out (bold,
 in the wire's colour), ○ a return or fallback, ✕ a failure (edges.fail), a muted
 ⊘ cancelled; lit wires in full colour, untouched boxes and wires muted; a node
@@ -139,8 +158,9 @@ drawn node or wire (a block, the document) is listed only.
 
 Modules: this file is the app (the --once printer, the live view, the CLI). The
 drawing lives beside it — viewkit.py (styles, canvas, runs, notes, fit panels),
-view_graph.py (the graph view) and view_tree.py (the tree view) — and every name
-of those three is also reachable here as view.NAME.
+view_graph.py (the graph view), view_tree.py (the tree view) and view_flow.py
+(the flow view) — and every name of those four is also reachable here as
+view.NAME.
 """
 
 from __future__ import annotations
@@ -170,8 +190,9 @@ def _sibling(name: str, fname: str):
     applied through any of them (apply_theme rebinds viewkit's style globals)
     reaches them all, while a view.py loaded from another directory (a packaged
     copy) gets modules, theme and dialect state of its own. The cache key names
-    the directory, never the bare name. view.py, view_graph.py, view_tree.py and
-    scene.py each carry a copy of this function: keep the copies identical."""
+    the directory, never the bare name. view.py, view_graph.py, view_tree.py,
+    view_flow.py and scene.py each carry a copy of this function: keep the copies
+    identical."""
     key = f"{name}@{_HERE}"
     if key not in sys.modules:
         spec = importlib.util.spec_from_file_location(key, _HERE / fname)
@@ -188,15 +209,17 @@ def _sibling(name: str, fname: str):
 kit = _sibling("sigil_viewkit", "viewkit.py")
 vgraph = _sibling("sigil_view_graph", "view_graph.py")
 vtree = _sibling("sigil_view_tree", "view_tree.py")
+vflow = _sibling("sigil_view_flow", "view_flow.py")
 scene = _sibling("sigil_scene", "scene.py")
 simulator = _sibling("sigil_sim", "sim.py")
 
 
 def __getattr__(name: str):
-    """view.NAME for every name of viewkit, view_graph and view_tree (tests, the
-    site and dialects use view.render, view.compose, view.KINDS, …). Looked up at
-    access time, so a themed style (view.GREY) is always the one in use."""
-    for mod in (kit, vgraph, vtree):
+    """view.NAME for every name of viewkit, view_graph, view_tree and view_flow
+    (tests, the site and dialects use view.render, view.compose, view.KINDS, …).
+    Looked up at access time, so a themed style (view.GREY) is always the one in
+    use."""
+    for mod in (kit, vgraph, vtree, vflow):
         if name in vars(mod):
             return vars(mod)[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
@@ -212,16 +235,30 @@ dialects = (kit._load("sigil_dialects", "dialects.py") if (_HERE / "dialects.py"
 
 NOTE_MODES = ("off", "markers", "callouts")
 EVENT_MODES = scene.EVENTS                       # --events / v: "land" | "nodes"
-DEFAULT_EVENTS = {"tree": "land", "graph": "nodes"}   # each view's own default
+# The views, in the order `t` steps through them and keys 1, 2, 3 … select them;
+# the first is the default. A new view goes at the end (its key the next digit).
+VIEWS = ("graph", "flow", "tree")
+DEFAULT_EVENTS = {"graph": "nodes", "flow": "nodes", "tree": "land"}   # each view's own
 
 
-def view_name(tree: bool) -> str:
-    """The key of a view in DEFAULT_EVENTS / ViewState.events."""
-    return "tree" if tree else "graph"
+def view_name(view) -> str:
+    """The name of a view (a key of DEFAULT_EVENTS / ViewState.events): a name in
+    VIEWS as it is, or a bool as the old tree flag (True: tree, False: graph).
+    Raises ValueError for an unknown name."""
+    if isinstance(view, bool):
+        return "tree" if view else "graph"
+    if view not in VIEWS:
+        raise ValueError(f"view must be one of {', '.join(VIEWS)}, not {view!r}")
+    return view
+
+
+def view_keys() -> str:
+    """The keys that select a view, as the legend writes them (`1 2 3`)."""
+    return " ".join(str(k) for k in range(1, len(VIEWS) + 1))
 
 
 def events_by_view(events: str | None) -> dict:
-    """{view: events mode} to start with: `events` (--events) for both views when
+    """{view: events mode} to start with: `events` (--events) for every view when
     given, else each view's default."""
     return {v: events or d for v, d in DEFAULT_EVENTS.items()}
 
@@ -245,8 +282,8 @@ def wrap_legend(row, cols: int):
     return out
 
 
-KEY_LEGEND = (("t", "tree/graph"), ("x", "sim"), ("c", "checks"), ("n", "notes"),
-              ("e", "triggers"), ("v", "events"), ("s", "spacing"), ("f", "fit"),
+KEY_LEGEND = (("views", "view"), ("t", "next"), ("x", "sim"), ("c", "checks"),
+              ("n", "notes"), ("e", "triggers"), ("v", "events"), ("s", "spacing"), ("f", "fit"),
               ("d", "depth"), ("p", "payloads"), ("m", "mods"), ("a", "access"),
               ("l", "lint"), ("z", "centre"), ("g", "home"), ("r", "reload"), ("q", "quit"))
 
@@ -283,18 +320,21 @@ def keys_legend(state):
     """The hotkeys row for a ViewState; toggles that are on are shown bright (the
     events mode: when the active view's differs from its default)."""
     dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
-    on = {"t": state.tree, "x": state.sim_on, "c": state.show_checks,
+    on = {"x": state.sim_on, "c": state.show_checks,
           "e": state.show_triggers, "s": state.spaced,
           "p": state.payloads, "l": state.show_lint, "n": state.notes != "off",
           "m": state.show_mods, "a": state.show_access, "f": state.fit}
     row = [("keys   ", dim)]
     for key, word in KEY_LEGEND:
         bright = on.get(key)
-        if key == "n":
+        if key == "views":                     # 1 2 3 …: one key per view
+            key, word = view_keys(), f"view:{state.view}"
+            bright = state.view != VIEWS[0]
+        elif key == "n":
             word = f"notes:{state.notes}"
         elif key == "v":
             word = f"events:{state.events_mode}"
-            bright = state.events_mode != DEFAULT_EVENTS[view_name(state.tree)]
+            bright = state.events_mode != DEFAULT_EVENTS[state.view]
         elif key == "d":
             word = f"depth:{'all' if state.depth >= kit.ALL_DEPTH else state.depth}"
             bright = state.depth > 0
@@ -319,13 +359,14 @@ def sim_keys_legend(player=None):
 
 
 def sim_legend(tree: bool = False) -> list:
-    """The legend row of the simulation overlay's marks, one row for both views so
-    the two can't drift apart: tokens (● out in its wire's colour, ○ a return or
-    fallback, ✕ failed, a muted ⊘ cancelled — view_graph.sim_look and
-    view_tree's lanes draw them alike; a failed node's badge shares the token's ✕
-    and its meaning, so it is listed once, here), wires lit or untouched, the other
-    badges after a label (… waiting, ×n, ↻k) and the drawn machine's current
-    state. `tree`: adds the tree view's own entry, `▸` an active row."""
+    """The legend row of the simulation overlay's marks, one row for every view so
+    they can't drift apart: tokens (● out in its wire's colour, ○ a return or
+    fallback, ✕ failed, a muted ⊘ cancelled — view_graph.sim_look, which the flow
+    view draws with too, and view_tree's lanes draw them alike; a failed node's
+    badge shares the token's ✕ and its meaning, so it is listed once, here), wires
+    lit or untouched, the other badges after a label (… waiting, ×n, ↻k) and the
+    drawn machine's current state. `tree`: adds the tree view's own entry, `▸` an
+    active row."""
     dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
     wire = (kit.EDGE_DEFAULT, None, True)
     quiet = (kit.muted(kit.EDGE_DEFAULT), None, False)
@@ -805,7 +846,7 @@ def checks_panel(summary: str, entries: list, cols: int, limit: int | None = Non
 
 
 def checks_legend() -> list:
-    """The legend row of the checks overlay's marks, one row for both views."""
+    """The legend row of the checks overlay's marks, one row for every view."""
     dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
     error, warn = kit.CheckMark(0, "error"), kit.CheckMark(0, "warn")
     acked = kit.CheckMark(0, "warn", True)
@@ -850,18 +891,23 @@ class ChecksOverlay:
 # --once
 # ---------------------------------------------------------------------------
 
-def compose_view(g, tree: bool, *, depth: int, payloads: bool, notes: str, triggers: bool,
+def compose_view(g, view, *, depth: int, payloads: bool, notes: str, triggers: bool,
                  spaced: bool, width: int | None, access: bool, mods: bool, events: str,
                  trace=None, tick: int = 0, checks=None):
-    """(rows, width): the drawing of `g` in the tree or the graph view (see
-    compose_tree / compose). `trace`, `tick`: a simulation run drawn over it at
+    """(rows, width): the drawing of `g` in a view — a name in VIEWS, or a bool
+    as the old tree flag (view_name) — see compose / compose_flow /
+    compose_tree. `trace`, `tick`: a simulation run drawn over it at
     frame `tick`, named as this view's scene names it (SimPlayer.shown — the same
     Trace object for every frame, so the graph view's per-trace badge slots are
     worked out once), or None. `checks`: the checks overlay's kit.CheckMarks,
     named as this view's scene names things (ChecksOverlay.marks), or None."""
-    if tree:
+    view = view_name(view)
+    if view == "tree":
         return vtree.compose_tree(g, depth, triggers, spaced, notes, payloads, width, access,
                                   mods, events, trace=trace, tick=tick, checks=checks)
+    if view == "flow":
+        return vflow.compose_flow(g, depth, payloads, notes, triggers, width, access, mods,
+                                  events, trace=trace, tick=tick, checks=checks)
     return vgraph.compose(g, depth, payloads, notes, triggers, width, access, mods, events,
                           trace=trace, tick=tick, checks=checks)
 
@@ -871,8 +917,9 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
          triggers: bool = True, spaced: bool = True, notes: str = "off",
          width: int | None = None, access: bool = False, mods: bool = False,
          events: str | None = None, sim: str | None = None, checks: bool = False,
-         limits=None) -> int:
-    """Print the drawing once. `width`: the columns to fit it to (None: its
+         limits=None, view: str | None = None) -> int:
+    """Print the drawing once, in `view` (a name in VIEWS; None: the tree view
+    when `tree`, else the graph view). `width`: the columns to fit it to (None: its
     natural width); the legend wraps at the narrower of that and LEGEND_WIDTH.
     `events`: "land" | "nodes" (None: the view's default, DEFAULT_EVENTS).
     `sim`: a scenario name — the run's final frame is drawn over the view and its
@@ -884,7 +931,9 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
     kit.use_dialect(dialect)
     text = path.read_text()
     g = kit._call(kit.render.parse_document, text, dialect)
-    events = events or DEFAULT_EVENTS[view_name(tree)]
+    view = view_name(view or tree)
+    tree = view == "tree"
+    events = events or DEFAULT_EVENTS[view]
     options = scene.SceneOptions(events, triggers, access, depth)
     player = shown = None
     if sim is not None:
@@ -898,7 +947,7 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
             overlay = ChecksOverlay(g, report, checks_summary(report))
         except Exception as exc:       # the drawing still prints
             check_failed = f"checks failed: {type(exc).__name__}: {exc}"
-    rows, _w = compose_view(g, tree, depth=depth, payloads=payloads, notes=notes,
+    rows, _w = compose_view(g, view, depth=depth, payloads=payloads, notes=notes,
                             triggers=triggers, spaced=spaced, width=width, access=access,
                             mods=mods, events=events, trace=shown,
                             tick=player.at if player else 0,
@@ -1002,9 +1051,12 @@ class ViewState:
                  do_lint: bool = True, dialect=None, tree: bool = False,
                  triggers: bool = True, spaced: bool = True, notes: str = "off",
                  access: bool = False, mods: bool = False, events: str | None = None,
-                 sim: str | None = None, checks: bool = False, limits=None):
-        """`events`: the events mode both views start in (None: each view's
-        default, DEFAULT_EVENTS); each view then keeps its own (key v). `sim`: a
+                 sim: str | None = None, checks: bool = False, limits=None,
+                 view: str | None = None):
+        """`view`: the view to start in (a name in VIEWS; None: the tree view when
+        `tree`, else the graph view). `events`: the events mode every view starts
+        in (None: each view's default, DEFAULT_EVENTS); each view then keeps its
+        own (key v). `sim`: a
         scenario to start in sim mode on (None: sim mode off until x).
         `checks`: start with the checks overlay on (key c)."""
         self.path = path
@@ -1012,7 +1064,7 @@ class ViewState:
         self.show_access = access
         self.show_mods = mods
         self.mode = ""
-        self.tree = tree
+        self.view = view_name(view or tree)
         self.events = events_by_view(events)   # {view: "land" | "nodes"}
         self.notes = notes
         self.show_triggers = triggers
@@ -1045,9 +1097,18 @@ class ViewState:
         self.check_error = None        # why the checker could not run (a footer row)
 
     @property
+    def tree(self) -> bool:
+        """Whether the tree view is shown (setting it: the tree, else the graph)."""
+        return self.view == "tree"
+
+    @tree.setter
+    def tree(self, on: bool) -> None:
+        self.view = view_name(bool(on))
+
+    @property
     def events_mode(self) -> str:
         """The active view's events mode."""
-        return self.events[view_name(self.tree)]
+        return self.events[self.view]
 
     # -- model ---------------------------------------------------------------
 
@@ -1164,7 +1225,7 @@ class ViewState:
     def _compose(self, width: int | None):
         if self.graph is None:
             return [], 0
-        return compose_view(self.graph, self.tree, depth=self.depth, payloads=self.payloads,
+        return compose_view(self.graph, self.view, depth=self.depth, payloads=self.payloads,
                             notes=self.notes, triggers=self.show_triggers, spaced=self.spaced,
                             width=width, access=self.show_access, mods=self.show_mods,
                             events=self.events_mode, trace=self.sim_trace(),
@@ -1198,15 +1259,20 @@ class ViewState:
         elif k == "d":                 # the next larger depth, wrapping to the first
             self.depth = next((d for d in DEPTHS if d > self.depth), DEPTHS[0])
             self._recompose()
-        elif k == "t":
-            self.tree = not self.tree
+        elif k == "t" or (k.isdigit() and 1 <= int(k) <= len(VIEWS)):
+            # t: the next view; a digit: that view (1 the first in VIEWS)
+            at = VIEWS.index(self.view)
+            to = VIEWS[(at + 1) % len(VIEWS)] if k == "t" else VIEWS[int(k) - 1]
+            if to == self.view:
+                return False
+            self.view = to
             self._place = "home"
             self._recompose()
         elif k == "n":
             self.notes = NOTE_MODES[(NOTE_MODES.index(self.notes) + 1) % len(NOTE_MODES)]
             self._recompose()
         elif k == "v":                 # flips the active view's mode only
-            view = view_name(self.tree)
+            view = self.view
             self.events[view] = EVENT_MODES[(EVENT_MODES.index(self.events[view]) + 1)
                                             % len(EVENT_MODES)]
             self._recompose()
@@ -1332,6 +1398,9 @@ class ViewState:
                                        self.show_mods, self.events_mode,
                                        calls=drawn_call_marks(self.graph, self.depth,
                                                               self.payloads))
+        elif self.view == "flow":
+            legend = [vflow.flow_legend(self.show_triggers, self.payloads, self.show_access,
+                                        self.show_mods, self.events_mode)]
         else:
             legend = [vgraph.graph_legend(self.show_triggers, self.payloads, self.show_access,
                                           self.show_mods, self.events_mode)]
@@ -1366,7 +1435,7 @@ class ViewState:
         if self.mode:
             left.append((f"{self.mode} ", kit.MODE_STYLE))
         placing = "fit" if self.fit else "pan"     # before the title: never clipped off
-        left.append((f"· {view_name(self.tree)} · {placing} ·", kit.BAR_STYLE))
+        left.append((f"· {self.view} · {placing} ·", kit.BAR_STYLE))
         if self.sim_on and self.player is not None:   # before the title: never clipped off
             left.append((f" {self.player.status()} ·", kit.BAR_NAME_STYLE))
         if self.title:
@@ -1560,9 +1629,13 @@ def main(argv=None) -> int:
     ap.add_argument("--events", choices=EVENT_MODES, default=None,
                     help="land: a pass-through event drawn where it lands (emitter wired "
                          "to each destination); nodes: as a row / box of its own "
-                         "(default: tree land, graph nodes)")
-    ap.add_argument("--tree", action="store_true",
-                    help="tree + wires: the composition tree as an outline, flows as lanes")
+                         "(default: tree land, graph and flow nodes)")
+    views = ap.add_mutually_exclusive_group()
+    views.add_argument("--tree", action="store_true",
+                       help="tree + wires: the composition tree as an outline, flows as lanes")
+    views.add_argument("--flow", action="store_true",
+                       help="flow: a call graph read left to right, bare labels in columns "
+                            "by call depth")
     ap.add_argument("--width", type=_width_arg, default=None, metavar="N",
                     help="--once: fit the drawing to N columns (default: the terminal's "
                          f"width, or {ONCE_WIDTH} when stdout is not a terminal)")
@@ -1605,6 +1678,7 @@ def main(argv=None) -> int:
     if a.json and a.sim not in SIM_BATCH:
         print("view.py: --json needs --sim list or --sim all", file=sys.stderr)
         return 2
+    view = "tree" if a.tree else "flow" if a.flow else VIEWS[0]
     batch = a.sim in SIM_BATCH             # never drawn: the same live or --once
     tty_out = sys.stdout.isatty()
     once_out = a.once or not tty_out or not sys.stdin.isatty()
@@ -1618,13 +1692,13 @@ def main(argv=None) -> int:
         try:
             return once(a.file, a.depth, a.payloads, not a.no_lint, dialect, colour, a.tree,
                         not a.no_triggers, not a.compact, a.notes, width, a.access, a.mods,
-                        a.events, a.sim, a.checks, limits)
+                        a.events, a.sim, a.checks, limits, view)
         except UnknownScenario as exc:     # the message lists the known ones
             print(f"view.py: --sim: {exc}", file=sys.stderr)
             return 2
     tui(ViewState(a.file, a.depth, a.payloads, not a.no_lint, dialect, a.tree,
                   not a.no_triggers, not a.compact, a.notes, a.access, a.mods, a.events,
-                  a.sim, a.checks, limits))
+                  a.sim, a.checks, limits, view))
     return 0
 
 

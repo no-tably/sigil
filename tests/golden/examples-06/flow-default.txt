@@ -1,0 +1,6 @@
+(User) ──▶ [?]
+[?] ─────▶ |?|
+[?] ╌╌╌╌╌▶ <?> ──▶ [?]
+
+examples-06.sigil: 7 nodes, 4 edges, 0 expansions · #!sketch
+info:5:SGL070: glyph [?] appears twice on one flow line. If it plays two roles, consider role-qualified names (e.g. [?.read] / [?.write]) or expand at L2 with `:= { ... }`.

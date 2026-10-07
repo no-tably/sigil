@@ -13,8 +13,8 @@ block of examples.md (each fenced block that isn't a ```text drawing), named
 
 Each input gets a directory `tests/golden/<input>/` with one file per variant:
 
-- `graph-<v>.txt` / `tree-<v>.txt` — exactly what
-  `view.py <input>.sigil --once --color never --no-lint --width 100 [--tree] <flags>`
+- `graph-<v>.txt` / `tree-<v>.txt` / `flow-<v>.txt` — exactly what
+  `view.py <input>.sigil --once --color never --no-lint --width 100 [--tree|--flow] <flags>`
   prints, for <v> in: default (lint on: the summary line ends in the lint result),
   payloads (--payloads), notes-markers (--notes markers), notes-callouts
   (--notes callouts), depth-all (--depth all), access (--access), mods (--mods),
@@ -64,7 +64,7 @@ FIXTURES = ("coverage.sigil", "executions.sigil")
 class Variant:
     """One way of drawing an input: the view.once() options (and their CLI flags)."""
     name: str
-    tree: bool = False
+    view: str = "graph"         # "graph" | "tree" | "flow"
     depth: int | str = 1        # a number, or ALL_DEPTH
     payloads: bool = False
     notes: str = "off"
@@ -87,8 +87,8 @@ def _variants() -> tuple[Variant, ...]:
         Variant("width-60", width=NARROW),
         Variant("color", colour=True),
     )
-    return tuple(replace(v, name=f"{view}-{v.name}", tree=view == "tree")
-                 for view in ("graph", "tree") for v in flavours)
+    return tuple(replace(v, name=f"{view}-{v.name}", view=view)
+                 for view in ("graph", "tree", "flow") for v in flavours)
 
 
 VARIANTS = _variants()
@@ -159,8 +159,8 @@ def draw(view, path: Path, v: Variant) -> str:
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         view.once(path, depth, v.payloads, v.lint, dialect=None, colour=v.colour,
-                  tree=v.tree, notes=v.notes, width=v.width, access=v.access,
-                  mods=v.mods)
+                  notes=v.notes, width=v.width, access=v.access, mods=v.mods,
+                  view=v.view)
     return buf.getvalue()
 
 

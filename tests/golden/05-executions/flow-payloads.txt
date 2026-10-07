@@ -1,0 +1,20 @@
+── crawler ─────────────────────────────────────────────────────────────────────────────────────────
+
+(Operator) ────┆c┆───▶ [Scheduler] ↺ ━┳━━━ ↩ ━━━▶ {Plan}
+                       ╰─● ┆ a ┆      ╰───┆d┆───▶ [Crawler] ─┬───┆e┆────▶ (Web) ⇱
+                                                             ├──────────✖ <FetchFailed>
+                                                             ├───┆f┆────▶ [Crawler.follow] ↻
+                                                             │            ╰─● ┆ b ┆
+                                                             ├───┆g┆──┬─▶ |Index|
+                                                             ╰───┆h┆──╯
+
+                                                                        ┆a┆ ↺ plan({Seed}) ↩ {Plan}
+                                                                        ┆b┆ ↻ link
+                                                                        ┆c┆ start({Seed})
+                                                                        ┆d┆ crawl({Plan}) ↩ {Site}
+                                                                        ┆e┆ ⇱ http.get(${url})
+                                                                        ┆f┆ {Page}
+                                                                        ┆g┆ reserve(shard) ↩ {Lease}
+                                                                        ┆h┆ write({Page}, {Lease})
+
+05-executions.sigil: 8 nodes, 10 edges, 0 expansions · #!sketch

@@ -1,0 +1,3 @@
+[_] ╌╌▶ <_> ──▶ |_|
+
+examples-09.sigil: 3 nodes, 2 edges, 0 expansions

@@ -1,0 +1,5 @@
+[Ingest] ━━▶ *<Raw> ^10k drop ──▶ [Parse] ━━▶ *<Parsed> ^10k ──▶ [Enrich] ━━━━┆a┆━━━▶ *<Enriched> ^10k ═╦═▶ |Warehouse|
+                                                                                                        ╠═▶ |RealtimeIdx|
+                                                                                   ┆a┆ @sla p99<50ms    ╰─✖ |DLQ|
+
+examples-04.sigil: 9 nodes, 8 edges, 0 expansions · #!spec

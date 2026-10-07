@@ -1,0 +1,23 @@
+── judge-loop ─────────────────────────────────────────────────────────────
+
+[Loop] #1 ────────────┬─▶ ~|running|
+<stop> ───────────────╯
+[Judge] #2 ─┬───────────▶ [Scorer] ━━━━▶ <rated> #3 ──▶ ~|history|
+            ├───────────▶ |Scores| ⇱
+            ╰───────────▶ [Index] ⇱
+[Cfg] ──────┬───────────▶ ~|rubric|
+            ├───────────▶ ~|opts|
+            ╰─── #4 ────▶ ~|policy|
+
+~|total|
+
+── notes ──────────────────────────────────────────────────────────────────
+
+#1 control values written to a mutable store
+#2 an internal op-call (structural) — no `op` keyword, no namespace ·
+   external op-calls: a host-provided reach (far side opaque), each bounded
+#3 store writes using the closed value operators
+#4 """Rate the draft 1-10 on ${state.rubric}.
+   Return only the integer."""
+
+examples-14-judge-loop.sigil: 14 nodes, 10 edges, 0 expansions · #!spec

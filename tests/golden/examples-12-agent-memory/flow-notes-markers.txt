@@ -1,0 +1,38 @@
+── agent-memory ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+╭─┬─▶ |PROV| #3 ─┬─▶ [MCP.r] #4 ──── #5 ───▶ {Payload} ───▶ [Agent] #1 ╌╌╌┬╌╌╌╌╌╌╌╌╌╌╌▶ <Activity> ──────▶ [MCP.w] ───────╮
+│ │              ╰╌▶ <ΔHash> ──────────────▶ [Renderer] ━━▶ {Summary} ──╮ ├╌╌╌ #6 ╌╌╌╌▶ <Unroll>                          │
+│ │                                                                     │ ├╌╌╌ #7 ╌╌╌╌▶ <Verify>                          │
+│ │                                                                     │ ├╌╌╌ #8 ╌╌╌╌▶ <Dispute> ╍╍╍┬╍┬╍▶ {Entity} #2 ▾  │
+│ │                                                                     │ ├╌╌╌ #9 ╌╌╌╌▶ <Supersede> ╍╯ ╏                  │
+│ │                                                                     │ ╰╌╌╌ #10 ╌╌╌▶ <Retract> ╍╍╍╍╍╯                  │
+│ ╰─────────────────────────────────────────────────────────────────────╯                                                 │
+╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+{Fact}   {Concept}
+
+── {Entity} state machine ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+                        ● ──── <assert> ──┬─▶ live ────────┬─▶┐disputed ───╮
+                                          │   <Dispute> ╍╍╍│╍▶┘            │
+                                          │                ├─▶┐superseded ─│───── <archive> ──┬─▶ ◉
+                                          │   <Supersede> ╍│╍▶┘            │ ╭─── <archive> ──╯
+                                          │                ╰─▶┐retracted ──│─╯
+                                          │   <Retract> ╍╍╍╍╍▶┘            │
+                                          ╰─ <resolve> ────────────────────╯
+
+── notes ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+#1 aliases · mutation surface (agent-visible events)
+#2 entity lifecycle
+#3 core read/write loop · summary materialization (out-of-loop) · global
+   invariants
+#4 hydration policy (on [MCP.r])
+#5 staged delivery
+#6 walk wasDerivedFrom backward
+#7 unroll + re-check antecedents
+#8 reversible flag
+#9 new entity + wasRevisionOf
+#10 withdraw, no replacement
+
+examples-12-agent-memory.sigil: 17 nodes, 16 edges, 1 expansions · #!spec

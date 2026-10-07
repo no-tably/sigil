@@ -42,39 +42,43 @@ class TestEventsToggle(unittest.TestCase):
 
     def test_defaults_per_view(self):
         st = self.state()
-        self.assertEqual(st.events, {"tree": "land", "graph": "nodes"})
+        self.assertEqual(st.events, {"tree": "land", "graph": "nodes", "flow": "nodes"})
         self.assertEqual(st.events_mode, "nodes")
         self.assertEqual(self.state(tree=True).events_mode, "land")
+        self.assertEqual(self.state(view="flow").events_mode, "nodes")
 
     def test_flag_sets_both_views(self):
         st = self.state(events="land")
-        self.assertEqual(st.events, {"tree": "land", "graph": "land"})
+        self.assertEqual(st.events, {"tree": "land", "graph": "land", "flow": "land"})
 
     def test_v_flips_only_the_active_view(self):
         st = self.state()
         before = text(st._rows)
         self.assertTrue(st.key("v"))
-        self.assertEqual(st.events, {"tree": "land", "graph": "land"})
+        self.assertEqual(st.events, {"tree": "land", "graph": "land", "flow": "nodes"})
         self.assertNotEqual(before, text(st._rows))
-        st.key("t")                                  # the tree keeps its own mode
+        st.key("3")                                  # the tree keeps its own mode
         self.assertEqual(st.events_mode, "land")
         st.key("v")
-        self.assertEqual(st.events, {"tree": "nodes", "graph": "land"})
-        st.key("t")
+        self.assertEqual(st.events, {"tree": "nodes", "graph": "land", "flow": "nodes"})
+        st.key("2")                                  # and so does the flow view
         st.key("v")
-        self.assertEqual(st.events, {"tree": "nodes", "graph": "nodes"})
+        self.assertEqual(st.events, {"tree": "nodes", "graph": "land", "flow": "land"})
+        st.key("1")
+        st.key("v")
+        self.assertEqual(st.events, {"tree": "nodes", "graph": "nodes", "flow": "land"})
 
     def test_mode_reaches_the_drawing(self):
-        for tree in (False, True):
-            drawn = {m: text(self.state(tree=tree, events=m)._rows) for m in view.EVENT_MODES}
-            self.assertNotEqual(drawn["land"], drawn["nodes"], f"tree={tree}")
+        for name in view.VIEWS:
+            drawn = {m: text(self.state(view=name, events=m)._rows) for m in view.EVENT_MODES}
+            self.assertNotEqual(drawn["land"], drawn["nodes"], name)
 
     def test_keys_row_names_the_mode(self):
         st = self.state()
         self.assertIn("v events:nodes", keys(st))
         st.key("v")
         self.assertIn("v events:land", keys(st))
-        st.key("t")
+        st.key("3")
         self.assertIn("v events:land", keys(st))
 
     def test_frame_stays_terminal_sized(self):
@@ -112,7 +116,7 @@ class TestEventsToggle(unittest.TestCase):
         self.assertNotIn("emits", footer(st))
         st.key("v")                                  # graph, land
         self.assertIn("<E> emits", footer(st))
-        st.key("t")                                  # tree, land
+        st.key("3")                                  # tree, land
         self.assertIn("›─ emits", footer(st))
         st.key("v")                                  # tree, nodes
         self.assertNotIn("emits", footer(st))

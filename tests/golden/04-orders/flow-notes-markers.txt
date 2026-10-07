@@ -1,0 +1,31 @@
+── orders ──────────────────────────────────────────────────────────────────────────────────────
+
+                         (Shopper) ────────▶┐[Checkout] #3 ▾ ─┬───────────────────▶┐{Order} #2 ▾
+                                     ╭╍┬╍┬╍▶┘                 ╎             ╭╍┬╍┬╍▶┘
+                                     ╏ ╏ ╏                    ╰╌▶ <Placed> ╍╏╍╏╍┤
+[Payments] ─┬╌╌╌╌╌╌╌╌╌╌▶ <Paid> ╍╍╍╍╍┴╍╏╍╏╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╯ ╏ ╏
+            ╰─── #1 ───✖ <Declined> ╍╍╍┴╍╏╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╯ ╏
+                                         ╰╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╯
+
+── [Checkout] state machine ────────────────────────────────────────────────────────────────────
+
+                            <Paid> ╍╍╍╍╍┬╍╍╍▶┐Idle ───────▶┐Busy ─╮
+                            <Declined> ╍╯ ╭─▶┘          ╭╍▶┘      │
+                                          │   <Placed> ╍╯         │
+                                          ╰───────────────────────╯
+
+── {Order} state machine ───────────────────────────────────────────────────────────────────────
+
+                            ● ─────────▶┐Open ─────────┬─▶┐Settled
+                            <Placed> ╍╍▶┘            ╭╍│╍▶┘
+                                         <Paid> ╍╍╍╍╍╯ ╰─▶┐Cancelled
+                                         <Declined> ╍╍╍╍╍▶┘
+
+── notes ───────────────────────────────────────────────────────────────────────────────────────
+
+¶ events drive state: an order's lifecycle and the checkout's modes
+#1 card refused or timed out
+#2 an order settles or is cancelled, never both
+#3 the checkout is busy while a payment is in flight
+
+04-orders.sigil: 7 nodes, 5 edges, 2 expansions · #!sketch

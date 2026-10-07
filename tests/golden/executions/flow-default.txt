@@ -1,0 +1,23 @@
+── L1 · crawl ───────────────────────────────────────────────────────────────────────────
+
+(Operator) ───▶ [Scheduler] ↺ ━┳━━━ ↩ ━━━▶ {Plan}
+                               ╰─────────▶ [Crawler] ↺ ─┬─▶ [Fetcher] ──┬─▶ (Web) ⇱
+                                                        ├╌▶ [Metrics]   ├─✖ <FetchFailed>
+                                                        │               ╰◀▶ |Robots|
+[Indexer] ──┬─▶┐|Index|        ╭────────────────────────┴─▶ [Parser] ▾ ───▶ [Doc.walk] ↻
+            ├─✖┘               │
+            ╰──────────────────╯
+
+{Site}   [Notifier] ⇱   [[follow]] ▾
+
+── [Parser] := { … } ────────────────────────────────────────────────────────────────────
+
+                                 [Lexer] ──▶ [Builder] ↻
+
+── [[follow]] := { … } ──────────────────────────────────────────────────────────────────
+
+                                       [Crawler] ↻
+
+executions.sigil: 16 nodes, 18 edges, 2 expansions · #!spec
+info:28:SGL070: glyph [Doc.walk] appears twice on one flow line. If it plays two roles, consider role-qualified names (e.g. [Doc.walk.read] / [Doc.walk.write]) or expand at L2 with `:= { ... }`.
+info:47:SGL070: glyph [Builder] appears twice on one flow line. If it plays two roles, consider role-qualified names (e.g. [Builder.read] / [Builder.write]) or expand at L2 with `:= { ... }`.

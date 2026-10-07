@@ -1,0 +1,11 @@
+── hierarchical ───────────────
+
+[Boss] ───┬───▶┐|Directives| 1w
+          ├┄┄┄w┤
+[Worker] ─┆─┬┄r┤
+          ┆ ├┄ƀ┘
+          ╰┄│┄r┐|Results| 1w
+            ├─▶┤
+            ╰┄w┘
+
+examples-20-hierarchical.sigil: 4 nodes, 2 edges, 0 expansions · #!spec

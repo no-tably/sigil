@@ -1,0 +1,7 @@
+── audit-mesh ─────────────────────────────
+
+[ServiceA] ────┆<Event>┆──┬─┬─▶ *|EventLog|
+[ServiceB] ────┆<Event>┆──╯ │
+(Auditor) ──────────────────╯
+
+examples-22-audit-mesh.sigil: 4 nodes, 3 edges, 0 expansions · #!spec

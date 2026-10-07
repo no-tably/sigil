@@ -1,0 +1,4 @@
+(Customer) ──▶ [StorefrontAPI] ──▶ [LoginService] ─┬─▶ |Users| ━━━▶ {SessionToken}
+                                                   ╰╌▶ <SignIn> ──▶ |Audit|
+
+examples-07.sigil: 7 nodes, 6 edges, 0 expansions

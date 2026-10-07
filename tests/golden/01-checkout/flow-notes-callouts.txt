@@ -1,0 +1,17 @@
+── checkout ───────────────────────────────────────────────────────────
+
+(Shopper) #1 ──▶ [API] #3 ─┬─── #2 ───▶ [Payments]
+                           ├──────────✖ <PaymentFailed>
+                           ├──────────▶ |Orders|
+                           ╰╌╌╌╌╌╌╌╌╌╌▶ <OrderPlaced> ═══╦═▶ [Email]
+                                                         ╠═▶ [Shipping]
+                                                         ╚═▶ |Ledger|
+
+── notes ──────────────────────────────────────────────────────────────
+
+¶ a checkout, one flow at a time
+#1 guests and signed-in shoppers share one path
+#2 retried, idempotent
+#3 fan-out: each consumer keeps its own pace
+
+01-checkout.sigil: 9 nodes, 8 edges, 0 expansions · #!sketch

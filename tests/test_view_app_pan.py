@@ -177,7 +177,7 @@ class TestPan(_Doc):
         for _ in range(10):
             st.key("down")
         st.frame(60, 20)
-        st.key("t")
+        st.key("3")
         st.frame(60, 20)
         self.assertEqual(st.sy, 0)
 

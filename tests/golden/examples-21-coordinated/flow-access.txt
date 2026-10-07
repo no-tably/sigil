@@ -1,0 +1,10 @@
+── coordinated ─────────────────────
+
+[Coordinator] ─┬───▶┐|Directives| 1w
+               ├┄┄┄w┤
+[Worker‹N›] ───┆─┬┄r┘
+               ╰┄│┄r┐|Reports| 1w
+                 ├─▶┤
+                 ╰┄w┘
+
+examples-21-coordinated.sigil: 4 nodes, 2 edges, 0 expansions · #!spec

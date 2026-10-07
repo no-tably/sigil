@@ -1,0 +1,12 @@
+╭───✖┐(User) ────┆{Cart}┆───▶ [API] ─┬───┆reserve => {Hold}┆────▶┐[Inventory]
+│ ╭─▶┘                               │                        ╭─✖┘
+│ │                                  ├───┆charge┆─────────────│─▶ [Payment]
+│ │                                  ├───┆score┆──────────────│─▶ [Fraud]
+│ │                                  ├───┆release({Hold})┆────╯
+│ │                                  ├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌▶ <OrderPlaced> ═╦═▶ [Shipping]
+│ │                                  │                                           ╠═▶ [Email]
+│ │                                  │                                           ╚═▶ |Ledger|
+│ ╰─┆{Confirmation}┆─────────────────┤
+╰─┆<CheckoutFailed>┆─────────────────╯
+
+examples-02.sigil: 9 nodes, 11 edges, 0 expansions · #!spec

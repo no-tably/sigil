@@ -1,0 +1,11 @@
+── crawler ─────────────────────────────────────────────────────────────────────────────────────────
+
+(Operator) ──▶ [Scheduler] ↺ ━┳━━━ ↩ ━━━▶ {Plan}
+                              ╰─────────▶ [Crawler] ─┬───┆a┆───▶ (Web) ⇱
+                                                     ├─────────✖ <FetchFailed>
+                                                     ├─────────▶ [Crawler.follow] ↻
+                                                     ╰─────────▶ |Index|
+
+                                                              ┆a┆ @timeout 5s ×3 @fallback ${cached}
+
+05-executions.sigil: 8 nodes, 10 edges, 0 expansions · #!sketch

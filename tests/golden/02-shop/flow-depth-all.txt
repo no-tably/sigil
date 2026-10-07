@@ -1,0 +1,27 @@
+── shop ────────────────────────────────────────────────────────────────
+
+(Shopper) ──▶ [Edge] ──▶ [Shop] ▾ ─┬─▶ |Catalog|
+                                   ╰╌▶ <OrderPlaced> ═╦═▶ [Fulfilment] ▾
+                                                      ╚═▶ |Ledger|
+
+── [Shop] := { … } ─────────────────────────────────────────────────────
+
+                [Cart] ──▶ [Checkout] ─┬─▶ [Payments] ▾
+                                       ╰╌▶ <OrderPlaced>
+
+── [Shop] := { … }  ›  [Payments] := { … } ─────────────────────────────
+
+                  [Gateway] ──▶ [Risk] ▾ ┄┄▶ [Review]
+
+                  [StripePSP]   [AdyenPSP]
+
+── [Shop] := { … }  ›  [Payments] := { … }  ›  [Risk] := { … } ─────────
+
+                        [Model] ━┳─▶ |Features|
+                                 ┗━▶ {Verdict}
+
+── [Fulfilment] := { … } ───────────────────────────────────────────────
+
+                  [Picker] ──▶ [Packer] ──▶ (Courier)
+
+02-shop.sigil: 7 nodes, 6 edges, 2 expansions · #!sketch

@@ -1,0 +1,10 @@
+── checkout ────────────────────────────────────────────
+
+(Shopper) ──▶ [API] ─┬─▶ [Payments]
+                     ├─✖ <PaymentFailed>
+                     ├─▶ |Orders|
+                     ╰╌▶ <OrderPlaced> ═══╦═▶ [Email]
+                                          ╠═▶ [Shipping]
+                                          ╚═▶ |Ledger|
+
+01-checkout.sigil: 9 nodes, 8 edges, 0 expansions · #!sketch

@@ -1,0 +1,106 @@
+                                                       [[retry]]
+
+── L1 · Shop ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+╭─▶ (Customer) ─┬─┬─▶ [Api] ━━━━━━┳─▶ [Auth] ━━━━━━━━┳─▶ |UserDB|
+│   [Gateway] ──╯ │               ┃                  ┣━▶ ~{Session}
+│   [Cart] ───────╯               ┃                  ╰─✖ <Unauthorized>
+│   <Stop> ─────────▶ ~|Counter|  ┣╌▶ <OrderPlaced> ═╦═▶ [Shipping]
+│   [Cfg] ──────┬───▶ ~|Opts|     ┣◀▶ [Cache<K,V>]   ╠═▶ [Email]
+│               ├───▶ ~|Limits|   ┣┄▶ [Fraud]        ╚═▶ |Ledger|
+│               ├───▶ ~|Ratio|    ┣─▶ [PspA]
+│               ├───▶ ~|Last|     ┣─▶ [PspB]
+│               ├───▶ ~|Merged|   ┣─▶ [Stock]
+│               ╰───▶ ~|Scaled|   ┣─▶ [Tax]
+│   <Tick> ─────┬───▶ ~|History|  ┣─▶ [Ghost] ─────────▶ [?]
+│               ╰───▶ ~|Total|    ┣─▶ [Payment]
+│   [Grader] ───────▶ ~|Sys|      ┣─▶ [Scorer]
+│                                 ┣─▶ (Web) ⇱
+│                                 ┣─▶ [Shard]
+│                                 ┣─▶ [Replica]
+│                                 ┣━▶ {Resp}
+│                                 ┣━▶ {Err}
+│   [Ingest] ━━━━━━━▶ *<Raw> ─────│─▶ [Parse] ━━━━━━━━━▶ *<Parsed> ───────▶ [Enrich] ━━▶ *<Enriched> ═╦═▶ |Warehouse|
+│   *{Rows} ────────▶ [Sink]      │                                                                   ╠═▶ |RealtimeIdx|
+│   [Handler] ──────▶ |Conn|      │                                                                   ╰─✖ |DLQ|
+╰─────────────────────────────────╯
+
+{List<T>}   <Msg<T>>   *|AuditLog|   [?]   {?}   <?>   |?|   (?)   {User}   [Worker] ↺   [Retry]   [AuthSvc]
+|PaymentDB|   [Tree.walk] ↻   [Boss]   [Worker‹N›]   (Auditor)   |Directives|   |Results|   [Helper]   [[walk]] ▾
+
+── Control ────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+                          [Worker] ↺ ───┬───────────────▶ |Q|
+                                        ╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌▶ <metric> ───────▶ |Obs|
+                          [Payments] ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌▶ <Paid> ─────┬───▶┐{Order} ▾
+                                                                      ╰╍┬╍▶┘
+                      ╭╍▶ [Checkout] ▾ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌▶ <Placed> ╍╍╍╍╍┤
+                      ╏   <Push> ───────┬───────────────▶┐|Queue| ▾     ╏
+                      ╏                 ╰╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍▶┘              ╏
+                      ╏   [Poller] ─────────────────────▶ [Api] ──────┬─╏─▶┐[Inventory]
+                      ╏   [Pinger] ─────────────────────▶ (Peer)      ├─╏─✖┘
+                      ╏                                               ├─╏─▶ [Fraud]
+                      ╏                                               ├─╏─▶ [MirrorA]
+                      ╏                                               ├─╏─▶ [MirrorB]
+                      ╏                                               ╰╌╏╌▶ [Metrics]
+                      ╏   {Request} ┄┄┄┄┬┄┄┄ ‹read› ┄┄┄┄▶ [Reader] ───┬─╏─▶ |DB| ─────────▶ |WAL|
+                      ╏                 ├┄┄┄ ‹write› ┄┄┄▶ [Writer] ───╯ ╏
+                      ╏                 ├┄┄┄ ‹admin› ┄┄┄▶ [AdminSvc]    ╏
+                      ╏                 ╰┄┄┄ ‹_› ┄┄┄┄┄┄┄▶ <Rejected>    ╏
+                      ╰╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╯
+
+                      {Items}   {Job}   <Signal> ▾   (Courier) ▾
+
+── Composition ────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+         {Damage} ─────────────────────▶ [Combat] ─────▶ {Health}
+         [Asteroid] ┄┄┄┄ lagging ┄┄┄┄┄┄▶ <LagAlarm>
+         [Physics] ──────────────────┬─▶ {Transform}
+         [Homing] ────── [Bullet]/ ──╯
+
+         [Ship]   [Hull]   [Bullet]   [ShardQuery]   [Drone]   [Row]   [Tracer]   [PrimaryPsp]   [StandbyPsp]
+         [ZoneA]   [ZoneB]   [Log]   {Scrollable}
+
+── L2 · [Core] ────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+                                     (Client) ──▶ [Gateway] ──▶ [Core] ▾ ──▶ |DB|
+
+── [Checkout] state machine ───────────────────────────────────────────────────────────────────────────────────────────
+
+                                               ╭─▶ Idle ──────▶┐Busy ─╮
+                                               │   <Placed> ╍╍▶┘      │
+                                               ╰─ <Paid> ─────────────╯
+
+── {Order} state machine ──────────────────────────────────────────────────────────────────────────────────────────────
+
+                         ● ────────────────────────▶┐Open ────────▶┐Settled ──── <ship> ───▶ ◉
+                         <Placed> ╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍▶┘           ╭╍▶┘
+                                                     <Paid> ╍╍╍╍╯
+                         ∗ any ─────── <cancel> ───▶ Cancelled
+
+── |Queue| state machine ──────────────────────────────────────────────────────────────────────────────────────────────
+
+                                                    Empty ───▶┐Full
+                                                    <Push> ╍╍▶┘
+
+── [Core] := { … } ────────────────────────────────────────────────────────────────────────────────────────────────────
+
+                                  [Router] ──▶ [Handler] ▸ ─┬◀▶ |Cache|
+                                                            ╰╌▶ <AuditEvt> ──▶ |Log|
+
+── [[walk]] := { … } ──────────────────────────────────────────────────────────────────────────────────────────────────
+
+                                                       [Node] ↻
+
+── <Signal> state machine ─────────────────────────────────────────────────────────────────────────────────────────────
+
+                                               Up ──── <drop> ───▶ Down
+
+── (Courier) state machine ────────────────────────────────────────────────────────────────────────────────────────────
+
+                                             Free ──── <assign> ───▶ Away
+
+coverage.sigil: 127 nodes, 75 edges, 7 expansions · #!sketch
+info:83:SGL070: glyph [Tree.walk] appears twice on one flow line. If it plays two roles, consider role-qualified names (e.g. [Tree.walk.read] / [Tree.walk.write]) or expand at L2 with `:= { ... }`.
+info:63:SGL187: trailing `×4` on a flow with no payload reads as cardinality; write `[Shard]×4` to say so, or put it after a call payload (`: op() ×3`) for retries.
+info:64:SGL187: trailing `x2` on a flow with no payload reads as cardinality; write `[Replica]x2` to say so, or put it after a call payload (`: op() ×3`) for retries.

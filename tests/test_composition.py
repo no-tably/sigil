@@ -175,11 +175,12 @@ class TestTreeView(unittest.TestCase):
             self.assertIn("& has", text)
             self.assertIn("◀ target", text)
             self.assertIn("keys", text)
-            st.key("t")                                    # graph mode: arrows legend instead
+            st.key("t")                                    # tree → graph: arrows legend instead
             text = "\n".join("".join(t for t, _ in r) for r in st.frame(140, 40))
             self.assertNotIn("◀ target", text)
             self.assertIn("arrows", text)
-            self.assertIn("t tree/graph", text)
+            self.assertIn("1 2 3 view:graph", text)
+            self.assertIn("t next", text)
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):
                 view.once(p, 1, False, False, tree=True)
@@ -334,7 +335,7 @@ class TestTreeView(unittest.TestCase):
             p.write_text(ECS)
             st = view.ViewState(p, do_lint=False)
             st.reload(force=True)
-            st.key("t")
+            st.key("3")
             text = "\n".join("".join(t for t, _ in r) for r in st.frame(120, 40))
             self.assertIn("├─& {Transform}", text)
             self.assertIn("· tree ·", text)

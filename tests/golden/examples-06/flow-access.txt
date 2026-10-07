@@ -1,0 +1,5 @@
+(User) ──▶ [?]
+[?] ─────▶ |?|
+[?] ╌╌╌╌╌▶ <?> ──▶ [?]
+
+examples-06.sigil: 7 nodes, 4 edges, 0 expansions · #!sketch

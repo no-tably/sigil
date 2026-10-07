@@ -1,0 +1,22 @@
+── shop ────────────────────────────────────────────────────────────────────────────────────────────
+
+(Shopper) ──▶ [Edge] ────┆a┆───▶ [Shop] ▾ ─┬───┆b┆───▶ |Catalog|
+                                           ╰╌╌╌╌╌╌╌╌╌▶ <OrderPlaced> ═╦═▶ [Fulfilment] ▾
+                                                                      ╚═▶ |Ledger|
+
+── [Shop] := { … } ─────────────────────────────────────────────────────────────────────────────────
+
+                [Cart] ────┆c┆───▶ [Checkout] ─┬───┆d┆───▶ [Payments] ▸
+                                               ╰╌╌╌╌╌╌╌╌╌▶ <OrderPlaced>
+
+── [Fulfilment] := { … } ───────────────────────────────────────────────────────────────────────────
+
+                      [Picker] ──▶ [Packer] ────┆e┆───▶ (Courier)
+
+                                                                       ┆a┆ {Request}
+                                                                       ┆b┆ lookup(sku) ↩ {Item}
+                                                                       ┆c┆ {Cart}
+                                                                       ┆d┆ charge(total) ↩ {Receipt}
+                                                                       ┆e┆ {Parcel}
+
+02-shop.sigil: 7 nodes, 6 edges, 2 expansions · #!sketch

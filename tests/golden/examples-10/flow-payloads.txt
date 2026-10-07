@@ -1,0 +1,10 @@
+╭─▶ [API] ─┬───┆charge┆─────────────┬─▶ [Payment]
+│          ├───┆charge┆─────────────╯
+│          ├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌▶ <OrderPlaced> ───▶ [Shipping]
+│          ├───┆reserve => {Hold}┆────▶ [Inventory]
+│          ╰───┆<Failed>┆─────────────✖ (User) ────────╮
+╰─┆{Cart}┆─────────────────────────────────────────────╯
+
+[[Retry]]
+
+examples-10.sigil: 7 nodes, 7 edges, 0 expansions

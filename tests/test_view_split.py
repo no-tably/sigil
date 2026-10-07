@@ -1,4 +1,4 @@
-"""view.py loads viewkit / view_graph / view_tree from its own directory: the view
+"""view.py loads viewkit / view_graph / view_tree / view_flow from its own directory: the view
 modules of one directory share one viewkit (one theme), while a view.py loaded from
 another directory (a packaged copy) gets modules and theme state of its own.
 """
@@ -50,6 +50,7 @@ class SiblingsPerDirectory(unittest.TestCase):
         for view in (self.repo, self.copy):
             self.assertIs(view.vgraph.kit, view.kit)
             self.assertIs(view.vtree.kit, view.kit)
+            self.assertIs(view.vflow.kit, view.kit)
 
     def test_loader_copies_identical(self):
         def loader(fname: str) -> str:
@@ -58,6 +59,7 @@ class SiblingsPerDirectory(unittest.TestCase):
             return text[start:text.index("\n\n\n", start)]
         self.assertEqual(loader("view_graph.py"), loader("view.py"))
         self.assertEqual(loader("view_tree.py"), loader("view.py"))
+        self.assertEqual(loader("view_flow.py"), loader("view.py"))
         self.assertEqual(loader("scene.py"), loader("view.py"))
 
     def test_theme_stays_in_its_directory(self):

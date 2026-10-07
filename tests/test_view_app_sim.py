@@ -253,7 +253,7 @@ class TestSimMode(_Doc):
         st.key(".")
         st.key(".")
         graph_run = st.sim_trace()
-        st.key("t")
+        st.key("3")
         tree_run = st.sim_trace()
         self.assertEqual(st.player.at, 2)
         self.assertEqual(graph_run.scenario, tree_run.scenario)
@@ -278,7 +278,7 @@ class TestSimMode(_Doc):
             self.assertEqual(row.count("✕ failed"), 1, row)
         self.assertIn("⊘ cancelled", text)
         self.assertIn("◉ State its owner's", text)
-        st.key("t")                                     # the tree: its own row of marks
+        st.key("3")                                     # the tree: its own row of marks
         text = "\n".join(plain(st.frame(160, 40)))
         self.assertIn("▸ active", text)
 

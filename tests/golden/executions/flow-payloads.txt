@@ -1,0 +1,45 @@
+── L1 · crawl ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+(Operator) ─────┆e┆────────▶ [Scheduler] ↺ ━┳━━━ ↩ ━━━▶ {Plan}
+                             ╰─● ┆ a ┆      ╰───┆f┆───▶ [Crawler] ↺ ─┬───┆g┆────▶ [Fetcher] ──┬───┆h┆───▶ (Web) ⇱
+                                                        ╰─● ┆ b ┆    ├╌╌╌┆j┆╌╌╌╌▶ [Metrics]   ├─────────✖ <FetchFailed>
+                                                                     │                        ╰───┆i┆──◀▶ |Robots|
+[Indexer] ──┬───┆m┆──┬─────▶┐|Index|                                 ╰───┆k┆──┬─▶ [Parser] ▾ ─────┆l┆───▶ [Doc.walk] ↻
+            ├───┆n┆──╯ ╭───✖┘               ╭─────────────────────────────────╯                           ╰─● ┆ c ┆
+            ├───┆o┆────╯ ╭──────────────────╯
+            ╰───┆p┆──────╯
+
+{Site}   [Notifier] ⇱   [[follow]] ▾
+         ╰─● ┆ d ┆
+
+── [Parser] := { … } ──────────────────────────────────────────────────────────────────────────────────────────────────
+
+                                            [Lexer] ────┆r┆───▶ [Builder] ↻
+                                                                ╰─● ┆ q ┆
+
+── [[follow]] := { … } ────────────────────────────────────────────────────────────────────────────────────────────────
+
+                                                      [Crawler] ↻
+                                                      ╰─● ┆ s ┆
+
+                                                                     ┆a┆ ↺ plan({Seed}) ↩ {Plan}
+                                                                     ┆b┆ ↺ throttle(${host})
+                                                                     ┆c┆ ↻ child
+                                                                     ┆d┆ ⇱ mail.send(${report})
+                                                                     ┆e┆ start({Seed})
+                                                                     ┆f┆ crawl({Plan}) ↩ {Site}
+                                                                     ┆g┆ fetch(${url})
+                                                                     ┆h┆ ⇱ http.get(${url})
+                                                                     ┆i┆ allowed(${url})
+                                                                     ┆j┆ count(${host})
+                                                                     ┆k┆ parse({Page}) ↩ {Doc}
+                                                                     ┆l┆ {Doc}
+                                                                     ┆m┆ reserve(${shard}) ↩ {Lease}
+                                                                     ┆n┆ write({Doc}, {Lease})
+                                                                     ┆o┆ release({Lease})
+                                                                     ┆p┆ parse({Page}) ↩ {Doc}
+                                                                     ┆q┆ ↻ nest({Node})
+                                                                     ┆r┆ build(tokens) ↩ {Doc}
+                                                                     ┆s┆ ↻ follow(.links)
+
+executions.sigil: 16 nodes, 18 edges, 2 expansions · #!spec

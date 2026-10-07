@@ -1,0 +1,7 @@
+── booking ──────────────────────────────────────
+
+(User) ──▶ [Booking] ─┬─▶ ~|Seats|
+                      ├─▶ [Payments] ──▶ [Card] ⇱
+                      ╰╌▶ <Booked>
+
+examples-23-booking.sigil: 6 nodes, 5 edges, 0 expansions · #!spec

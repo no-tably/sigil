@@ -1,0 +1,11 @@
+── booking-declared ────────────────────────────────────────────────────────────────────────────────
+
+╭─▶ [Booking] ─┬───┆c┆────▶┐~|Seats|
+│              │        ╭─✖┘                                             ┆a┆ ↻ <BookingFailed>
+│              ├───┆d┆──│─▶ [Payments] ────┆f┆───▶ [Card] ⇱              ┆b┆ book({Seat})
+│              ├───┆e┆──╯                                                ┆c┆ ${state.Seats} - 1
+│              ╰╌╌╌╌╌╌╌╌╌╌▶ <Booked> ────────────▶ (User) ↻ ──╮          ┆d┆ charge({Seat})
+│                                                  ╰─✖ ┆ a ┆  │          ┆e┆ ${state.Seats} + 1
+╰─┆b┆─────────────────────────────────────────────────────────╯          ┆f┆ ⇱ card.charge(${total})
+
+examples-24-booking-declared.sigil: 6 nodes, 8 edges, 0 expansions · #!spec
