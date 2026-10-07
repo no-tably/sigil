@@ -90,9 +90,7 @@ def _tree_rows(g, depth: int, level: int = 0, base: int = 0, rows=None):
     def rel_text(t):
         if t.parent is None:
             return ""
-        r = {None: "─", ">": "─"}.get(t.rel, t.rel)
-        if t.spawn:
-            r = "*" if r in ("─", "*") else "*" + r
+        r = scene.rel_mark(t)
         pre = f"{{{t.cond}}}" if t.cond else ""
         if getattr(t, "weight", None) is not None:
             pre = f"({t.weight})"

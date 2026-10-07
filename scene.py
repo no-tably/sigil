@@ -501,6 +501,19 @@ def access_wires(g) -> list:
     return out
 
 
+def rel_mark(t) -> str:
+    """A composition entry's relation as the tree view writes it before the
+    child (render.TreeEntry): `─` contains, `&` has, `?` when, `$` from data,
+    `@` attached, `!` alerts, `=` gathers, `_` one of, `*` spawns (`*=` spawns
+    and gathers); "" for a root. Without its condition or weight."""
+    if t.parent is None:
+        return ""
+    r = {None: "─", ">": "─"}.get(t.rel, t.rel)
+    if t.spawn:
+        r = "*" if r in ("─", "*") else "*" + r
+    return r
+
+
 def decision_id(owner: Optional[str], index: int) -> str:
     """The id an arm wire starts at when its branch names no glyph in its header."""
     return f"\0b{index}" if owner is None else f"\0b{owner}.{index}"
