@@ -193,10 +193,12 @@ the new value and the next view draws there.
   inline above the prompt. Its keys work while it holds the keyboard: a pane you
   open with `/sigil-pane` takes it at once, one the agent opens never does
   (ctrl+x then Tab, or a click, gives it the keys; Esc hands them back, and the
-  footer says which). `t` cycles the view, `d` the depth; with a run, `p` plays
-  or pauses it and `b` and `n` step it, and under the drawing the pane shows the
-  run's trail and, after `›`, its narration line, as the live view's rows under
-  its footer. The flow view draws with its own legend. The pane draws the cells that `pane.py
+  footer says which). `1` `2` `3` pick graph, tree and flow (the current one in
+  brackets), `t` cycles them, `d` the depth; with a run, `p` plays or pauses it
+  and `b` and `n` step it, and under the drawing the pane shows, after `›`, its
+  narration line (colour shows the wires taken, so the pane leaves out the live
+  view's notation trail row). Docked, the drawing fills the pane and the legend,
+  summary and keys sit at its bottom. The flow view draws with its own legend. The pane draws the cells that `pane.py
   draw` packs (frames.py's packing, with hex colours), not ANSI. A pane opened
   without being asked needs 144 columns. Below that, the reply says it's waiting
   and names `/sigil-pane`, which opens it at any width.

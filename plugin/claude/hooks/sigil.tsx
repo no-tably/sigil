@@ -9,7 +9,7 @@ import type { EngineInterface, Register, UiOpenResult } from 'claude-code'
 
 import type { Drawing, Playback, Split, ViewRequest } from '../types'
 import {
-  COMMAND, DEFAULT_WIDTH, PANE, RASTER_COLUMNS, TOOL, UNASKED_COLUMNS,
+  COMMAND, DEFAULT_WIDTH, PANE, VIEWS, RASTER_COLUMNS, TOOL, UNASKED_COLUMNS,
   detectMux, displayReport, drawArgv, frameIndex, herdrPaneOf, herdrReadyArgv, isDisplayChoice, nextDepth,
   nextView, parseCommandArgs, parseDisplayArgs, parseDrawing, parseRequest, rasterCells, replyText, resolveDisplay, rowsWidth, runLines,
   shellQuote, slices, splitArgv, statusLine, viewArgv,
@@ -347,18 +347,25 @@ export const register: Register = (on, options) => {
     }
     const step = (delta: number) => () =>
       setPlayback($, { at: Math.max(0, Math.min(at + delta, shown.frames.length - 1)), isPlaying: false })
+    // Docked, the drawing takes the room the info rows leave and they sit at the
+    // bottom; inline, the pane is as tall as what it holds.
+    const fill = e.props.placement === 'dock' ? { height: e.props.scroll.bodyRows } : {}
     return (
-      <Box flexDirection="column">
+      <Box flexDirection="column" {...fill}>
         <Text bold wrap="truncate">{statusLine(shown, req, at, now.isPlaying)}</Text>
         {error !== null && <Text color="error" wrap="truncate">✖ {error}</Text>}
-        {body(rows, 'frame')}
-        {told !== null && <Text dimColor wrap="truncate">{told.trail}</Text>}
+        <Box flexDirection="column" flexGrow={1}>{body(rows, 'frame')}</Box>
         {told !== null && <Text bold wrap="truncate">{told.now}</Text>}
         {shown.legend.length > 0 && body(shown.legend, 'legend')}
         <Text dimColor wrap="truncate">{shown.summary}</Text>
         {shown.lint.map(line => <Text dimColor wrap="truncate">{line}</Text>)}
         <Box flexDirection="row" gap={1}>
-          <Button key="view" plain hotkey="t" label={`view ${nextView(req.view)}`}
+          {VIEWS.map((view, i) => (
+            <Button key={`view-${view}`} plain hotkey={String(i + 1)}
+              label={view === req.view ? `[${view}]` : view}
+              onPress={() => press($, r => ({ ...r, view }))} />
+          ))}
+          <Button key="view" plain hotkey="t" label="cycle"
             onPress={() => press($, r => ({ ...r, view: nextView(r.view) }))} />
           <Button key="depth" plain hotkey="d" label="depth"
             onPress={() => press($, r => ({ ...r, depth: nextDepth(r.depth) }))} />
