@@ -12,11 +12,14 @@
 // write the settings file under $XDG_CONFIG_HOME (the test's own folder). The
 // script's stdout is a pipe, so a terminal is claimed (process.stdout.isTTY)
 // except for the RPC steps, where text widgets (string arrays) are recorded.
+// Under the stand-in API only, `exec` can be slowed or made to fail (`hooks`)
+// for the redraw steps: a slow draw overtaken, a failing redraw at a new width.
 
 import { execFile } from 'node:child_process'
 import { join } from 'node:path'
 
 const [, , extension, file, piDir] = process.argv
+const hooks = { delay: () => 0, fails: () => false, draws: 0 }
 for (const k of ['HERDR_ENV', 'TMUX', 'ZELLIJ', 'SIGIL_DISPLAY', 'SIGIL_LAYOUT']) delete process.env[k]
 
 async function load() {
@@ -47,8 +50,13 @@ async function load() {
     },
     getFlag: name => reg.flagValues[name],
     on: (event, fn) => { (reg.handlers[event] ??= []).push(fn) },
-    exec: (cmd, args, o) => new Promise(done => execFile(cmd, args, { timeout: o?.timeout, maxBuffer: 1 << 26 },
-      (err, stdout, stderr) => done({ stdout, stderr, code: err ? (typeof err.code === 'number' ? err.code : 1) : 0 }))),
+    exec: async (cmd, args, o) => {
+      if (args.includes('draw')) hooks.draws++
+      if (hooks.fails(args)) return { stdout: JSON.stringify({ error: 'boom' }), stderr: '', code: 0 }
+      await new Promise(r => setTimeout(r, hooks.delay(args)))
+      return new Promise(done => execFile(cmd, args, { timeout: o?.timeout, maxBuffer: 1 << 26 },
+        (err, stdout, stderr) => done({ stdout, stderr, code: err ? (typeof err.code === 'number' ? err.code : 1) : 0 })))
+    },
   })
   return reg
 }
@@ -131,6 +139,23 @@ if (out.errors.length === 0) {
   await step('layout set pan', () => command.handler('layout pan', ctx), 30)
   await step('pan right', () => command.handler('right', ctx), 30)
   await step('layout bad', () => command.handler('layout side', ctx), 30)
+  if (!piDir) {
+    hooks.delay = args => (args.includes('graph') ? 1500 : 0)
+    await step('a slow draw overtaken', async () => {
+      const graph = call({ file, view: 'graph' })
+      await pause(100)
+      const tree = call({ view: 'tree' })
+      return [await graph, await tree]
+    }, 30)
+    hooks.delay = () => 0
+    hooks.fails = args => args.includes('draw')
+    hooks.draws = 0
+    await step('a failing redraw at a new width', async () => {
+      for (let i = 0; i < 20; i++) { lines(90); await pause(50) }
+      return String(hooks.draws)
+    }, 90)
+    hooks.fails = () => false
+  }
   for (const fn of reg.handlers.session_shutdown ?? []) await fn({}, ctx)
 }
 process.stdout.write(JSON.stringify(out) + '\n')

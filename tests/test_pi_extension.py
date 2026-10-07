@@ -16,7 +16,9 @@ Covers:
     `/sigil-pane display` (the shared settings
     file under a temp XDG_CONFIG_HOME, and its precedence: --sigil-display >
     SIGIL_DISPLAY > the file > auto) — once with a stand-in API, and again
-    through an installed pi's own loader when `pi` is on PATH.
+    through an installed pi's own loader when `pi` is on PATH; under the
+    stand-in only, an older draw finishing last and a redraw that fails at a
+    new width (asked once, not again and again).
 
 Run:  python3 -m unittest discover tests
 """
@@ -319,6 +321,17 @@ class DriveMixin:
 @unittest.skipUnless(STRIPS, "node with TypeScript type stripping not on PATH")
 class DriveTest(DriveMixin, unittest.TestCase):
     """The extension under a stand-in API."""
+
+    def test_an_older_draw_finishing_last_never_wins(self):
+        s = self.steps["a slow draw overtaken"]
+        graph, tree = s["reply"]
+        self.assertIn("replaced this one", graph)
+        self.assertIn("Shown in the sigil widget", tree)
+        self.assertIn(" · tree · ", s["lines"][0])
+
+    def test_a_failing_redraw_is_not_asked_again_and_again(self):
+        s = self.steps["a failing redraw at a new width"]
+        self.assertEqual(s["reply"], "1")                    # one try at 90 columns
 
 
 @unittest.skipUnless(NODE and PI, "pi not on PATH")

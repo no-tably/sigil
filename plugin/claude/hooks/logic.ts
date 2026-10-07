@@ -12,6 +12,7 @@ export const DEFAULT_VIEW: ViewName = 'flow' // view.py's DEFAULT_VIEW: the view
 export const ALL_DEPTH = 99
 export const UNASKED_COLUMNS = 144 // the engine's floor for a pane opened unasked
 export const DEFAULT_WIDTH = 100 // the width drawn for before the pane has measured
+export const SUPERSEDED = 'a later view request replaced this one before it drew'
 export const RASTER_ROWS = 256 // a Raster's tallest; a taller drawing is several
 export const RASTER_COLUMNS = 512
 export const DEFAULT_COLOUR = 0x01000000 // the terminal's own colour

@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
+import type { MockClock } from 'claude-code/testing'
 
 // The world beneath the mod: one file, pane.py answering with a two-frame run
 // (or a still drawing), and a pane the test seats or leaves waiting.
@@ -20,12 +21,12 @@ function drawingOf(argv: readonly string[]): string {
   })
 }
 
-type World = { runs: string[][]; writes: { path: string; text: string }[]; opens: number; focused: boolean[] }
+type World = { runs: string[][]; writes: { path: string; text: string }[]; opens: number; focused: boolean[]; clock: MockClock }
 
-function world(on: On, opts: { isPlaced: boolean; env?: Record<string, string>; stdout?: (argv: readonly string[]) => string }): World {
-  const seen: World = { runs: [], writes: [], opens: 0, focused: [] }
+function world(on: On, opts: { isPlaced: boolean; env?: Record<string, string>; stdout?: (argv: readonly string[]) => string;
+                               delay?: (argv: readonly string[]) => number }): World {
   mock.env(on, opts.env ?? {})
-  mock.clock(on, { now: 10_000 })
+  const seen: World = { runs: [], writes: [], opens: 0, focused: [], clock: mock.clock(on, { now: 10_000 }) }
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('tool.register', ($, e) => ({ value: { tool: `mcp__sigil__${e.name}` } }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
@@ -37,8 +38,10 @@ function world(on: On, opts: { isPlaced: boolean; env?: Record<string, string>; 
     seen.writes.push({ path: e.path, text: e.text })
     return { value: undefined }
   })
-  on('process.run', ($, e) => {
+  on('process.run', async ($, e) => {
     seen.runs.push([...e.argv])
+    const ms = opts.delay?.(e.argv) ?? 0
+    if (ms > 0) await seen.clock.sleep(ms)
     const stdout = opts.stdout?.(e.argv) ?? (e.argv.includes('draw') ? drawingOf(e.argv) : e.argv[0] === 'tmux' ? '%7\n' : '')
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
@@ -129,6 +132,37 @@ describe('mod display', () => {
     const pane = await $.ui.mount({ plugin: 'sigil', surface: 'desktop', component: 'Pane', props, requestId: 'sigil' })
     expect(await pane.find({ type: 'Text', text: '› [API] returns to (Shopper)' })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: '① (Shopper) -> [API]' })).toBeDefined()
+  })
+
+  test('an older draw that finishes last never replaces the newer one', { options: { display: 'mod' } }, async ($, on) => {
+    const seen = world(on, { isPlaced: true, delay: argv => (argv.includes('graph') ? 200 : 0) })
+    await $.session.start(START)
+    const first = $.tool.call({ tool: 'mcp__sigil__view', file: 'shop.sigil', view: 'graph' })
+    await seen.clock.advance(20)
+    const second = $.tool.call({ tool: 'mcp__sigil__view', view: 'tree' })
+    await seen.clock.advance(300)
+    const [graph, tree] = await Promise.all([first, second])
+    expect(String(graph.result)).toContain('replaced this one')
+    expect(String(tree.result)).toContain('Shown in the sigil pane')
+    const props = { title: 'Sigil', isFocused: false, bodyColumns: 100, placement: 'dock' as const,
+      scroll: { offset: 0, bodyRows: 40 }, view: {} }
+    const desk = await $.ui.mount({ plugin: 'sigil', surface: 'desktop', component: 'Pane', props, requestId: 'sigil' })
+    expect(await desk.find({ type: 'Text', text: /shop\.sigil · tree · depth 1/ })).toBeDefined()
+  })
+
+  test('a redraw for a new pane size that fails is not asked again and again', { options: { display: 'mod' } }, async ($, on) => {
+    let draws = 0
+    const seen = world(on, { isPlaced: true,
+      stdout: argv => (argv.includes('draw') ? (draws++ === 0 ? drawingOf(argv) : JSON.stringify({ error: 'boom' })) : '') })
+    await $.session.start(START)
+    await $.tool.call({ tool: 'mcp__sigil__view', file: 'shop.sigil' })
+    const props = { title: 'Sigil', isFocused: false, bodyColumns: 80, placement: 'dock' as const,
+      scroll: { offset: 0, bodyRows: 40 }, view: {} }
+    const desk = await $.ui.mount({ plugin: 'sigil', surface: 'desktop', component: 'Pane', props, requestId: 'sigil' })
+    await seen.clock.advance(10)
+    await seen.clock.advance(2000)
+    expect(draws).toBe(2)                                   // the first, then one try at 80 columns
+    expect(await desk.find({ type: 'Text', text: '✖ boom' })).toBeDefined()
   })
 
   test("a run's speed steps as view.py's (- / + there, s / f here) and shows in the status", { options: { display: 'mod' } }, async ($, on) => {

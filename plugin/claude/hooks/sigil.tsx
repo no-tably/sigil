@@ -9,7 +9,7 @@ import type { EngineInterface, Register, UiOpenResult } from 'claude-code'
 
 import type { Drawing, Playback, Split, ViewRequest } from '../types'
 import {
-  COMMAND, DEFAULT_WIDTH, PANE, VIEWS, RASTER_COLUMNS, START_SPEED, TOOL, UNASKED_COLUMNS,
+  COMMAND, DEFAULT_WIDTH, PANE, VIEWS, RASTER_COLUMNS, START_SPEED, SUPERSEDED, TOOL, UNASKED_COLUMNS,
   cropRows, detectMux, displayReport, drawArgv, frameIndex, frameMs, herdrPaneOf, herdrReadyArgv, isDisplayChoice,
   layoutOf, layoutReport, nextDepth, nextSpeed, nextView, panTo, parseCommandArgs, parseDisplayArgs, parseDrawing,
   parseLayoutArgs, parseRequest, rasterCells, replyText, resolveDisplay, rowsWidth, runLines, shellQuote, slices,
@@ -69,7 +69,8 @@ let seenMtime = 0
 let columns = DEFAULT_WIDTH // the pane body's width as last drawn
 let paneRows = 0 // the pane body's rows as last drawn (auto's layout picks by them; 0: unknown)
 let layout: LayoutChoice = 'auto' // the plugin's `layout` option, set when the module loads
-let drawingFor = '' // the request + size a redraw is under way for
+let drawingFor = '' // the request + size the latest redraw is for ('' once it drew; kept when it failed)
+let drawSeq = 0 // counts redraws: only the latest stores what it drew
 
 async function scriptPath($: $): Promise<string> {
   const built = `${$.plugin.root}/skills/sigil/scripts/pane.py`
@@ -95,19 +96,24 @@ function drawKey(req: ViewRequest, width: number): string {
   return JSON.stringify([req, width, layout === 'auto' ? paneRows : 0])
 }
 
-/** Runs pane.py for the request at `width` and stores what it drew. */
+/** Runs pane.py for the request at `width` and stores what it drew, unless a
+ * later redraw started meanwhile (an older run finishing last never wins). A
+ * failure keeps `drawingFor`, so the pane does not ask for the same size again
+ * until the request or the size changes (or a save redraws). */
 async function redraw($: $, req: ViewRequest, width: number): Promise<Drawing | { error: string }> {
   const key = drawKey(req, width)
+  const seq = ++drawSeq
   drawingFor = key
   const pane = { layout, ...(layout === 'auto' && paneRows > 0 ? { height: paneRows } : {}) }
   const ran = await $.process.run(drawArgv(await scriptPath($), req, width, pane), { timeoutMs: 60000 })
     .catch((err: unknown) => ({ exitCode: 1, stdout: '', stderr: String(err) }))
   const got = ran.exitCode === 0 ? parseDrawing(ran.stdout) : { error: ran.stderr.trim().split('\n').pop() ?? 'pane.py failed' }
-  if (drawingFor === key) drawingFor = ''
+  if (seq !== drawSeq) return { error: SUPERSEDED }
   if ('error' in got) {
     await update($, failure, () => got.error)
     return got
   }
+  drawingFor = ''
   got.width = width
   got.height = layout === 'auto' ? paneRows : 0
   await update($, drawing, () => got)

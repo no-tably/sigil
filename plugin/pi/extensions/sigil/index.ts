@@ -15,7 +15,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
-  DEFAULT_WIDTH, DISPLAYS, LAYOUTS, START_SPEED, UNASKED_COLUMNS, VIEWS,
+  DEFAULT_WIDTH, DISPLAYS, LAYOUTS, START_SPEED, SUPERSEDED, UNASKED_COLUMNS, VIEWS,
   cropRows, detectMux, displayReport, drawArgv, frameIndex, frameMs, herdrPaneOf, herdrReadyArgv, layoutReport,
   nextSpeed, panTo, parseCommandArgs, parseDisplayArgs, parseDrawing, parseLayoutArgs, parseRequest, pickDisplay,
   pickLayout, replyText, resolveDisplay, runLines, shellQuote, splitArgv, splitStart, statusLine, viewArgv,
@@ -262,7 +262,8 @@ export default function sigil(pi: Pi): void {
   let playTimer: ReturnType<typeof setInterval> | null = null
   let seenMtime = 0
   let panX = 0 // the first column a panned drawing shows
-  let drawingFor = '' // the request + size a redraw is under way for
+  let drawingFor = '' // the request + size the latest redraw is for ('' once it drew; kept when it failed)
+  let drawSeq = 0 // counts redraws: only the latest stores what it drew
 
   const columns = () => process.stdout.columns || DEFAULT_WIDTH
   const bodyRows = () => Math.max(MIN_BODY_ROWS, (process.stdout.rows || 40) - CHROME_ROWS)
@@ -355,14 +356,19 @@ export default function sigil(pi: Pi): void {
     return parseDrawing(ran.stdout) as Drawing | { error: string }
   }
 
-  /** Runs pane.py for the request at `width` and stores what it drew. */
+  /** Runs pane.py for the request at `width` and stores what it drew, unless a
+   * later redraw started meanwhile (an older run finishing last never wins). A
+   * failure keeps `drawingFor`, so the widget does not ask for the same width
+   * again until the request or the width changes (or a save redraws). */
   async function redraw(req: ViewRequest, width: number): Promise<Drawing | { error: string }> {
     const key = drawKey(req, width)
+    const seq = ++drawSeq
     drawingFor = key
     const got = await runPane(req, width)
-    if (drawingFor === key) drawingFor = ''
+    if (seq !== drawSeq) return { error: SUPERSEDED }
     if ('error' in got) failure = got.error
     else {
+      drawingFor = ''
       got.width = width
       drawing = got
       failure = null
