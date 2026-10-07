@@ -87,7 +87,7 @@ ways to show it. Pick by where you are running:
   above the editor (pi). Inside herdr, tmux or zellij it opens a split running
   the live view instead. If the reply says the viewer is waiting (the terminal
   is narrower than 144 columns), tell the user they can open it with
-  `/sigil-pane` in Claude Code or `/sigil` in pi. If it says there is no UI, or
+  `/sigil-pane` in Claude Code or pi. If it says there is no UI, or
   the tool fails, use `--once`.
 - **A multiplexer split**, everywhere else (Codex, OpenCode), or when the user
   prefers it. Ask the user to run `python3 scripts/view.py FILE` in a split or a

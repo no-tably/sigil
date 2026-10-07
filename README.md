@@ -185,7 +185,7 @@ pi install ./sigil-pi-<version>        # add -l to install for this project only
 Provides the `sigil` skill and the `/sigil-view` and `/sigil-lint` prompts.
 
 The pi package also carries a viewer extension, which works like the Claude Code
-mod. The agent gets a `sigil_view` tool, and you get a `/sigil` command. With
+mod. The agent gets a `sigil_view` tool, and you get a `/sigil-pane` command. With
 `mod` display it draws in a widget above the editor, and a widget you didn't ask
 for needs 144 columns. With `multiplex` it opens a herdr, tmux or zellij split.
 `auto` picks between them the same way. Choose with `pi --sigil-display

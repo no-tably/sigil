@@ -57,7 +57,7 @@ if (out.errors.length === 0) {
   }
   const ctx = { cwd: process.cwd(), hasUI: true, ui }
   const tool = reg.tools.sigil_view
-  const command = reg.commands.sigil
+  const command = reg.commands['sigil-pane']
   const pause = ms => new Promise(r => setTimeout(r, ms))
   const strip = s => s.replace(/\x1b\[[0-9;]*m/g, '')
   const lines = width => (rendered ? rendered.render(width) : null)

@@ -5,10 +5,10 @@ Covers:
     Claude Code mod's logic.ts beside it, pane.py and frames.py beside the
     tools, no test shipped); --check catches a missing logic.ts, a foreign
     import and a manifest that does not name the extension;
-  - the extension's widget helpers (truecolour rows cut to the width, /sigil's
+  - the extension's widget helpers (truecolour rows cut to the width, /sigil-pane's
     own words), through node's type stripping;
   - plugin/pi/tests/drive.mjs driving the built extension: registration,
-    the 144-column rule for a widget nobody asked for, /sigil opening it at any
+    the 144-column rule for a widget nobody asked for, /sigil-pane opening it at any
     width, a run stepped, close, a missing file, no UI, and a multiplexer split
     (a fake tmux on PATH) — once with a stand-in API, and again through an
     installed pi's own loader when `pi` is on PATH.
@@ -173,7 +173,7 @@ class DriveMixin:
     def test_registers_the_tool_the_command_and_the_flag(self):
         self.assertEqual(self.out["errors"], [])
         self.assertEqual(self.out["tools"], ["sigil_view"])
-        self.assertEqual(self.out["commands"], ["sigil"])
+        self.assertEqual(self.out["commands"], ["sigil-pane"])
         self.assertEqual(self.out["flags"], ["sigil-display"])
 
     def test_an_unasked_widget_waits_below_144_columns(self):
@@ -181,7 +181,7 @@ class DriveMixin:
         self.assertFalse(s["widget"])
         self.assertIn("waiting", s["reply"])
         self.assertIn("this terminal has 100", s["reply"])
-        self.assertIn("/sigil", s["reply"])
+        self.assertIn("/sigil-pane", s["reply"])
         self.assertIn("lint: OK", s["reply"])
 
     def test_the_command_opens_it_at_any_width(self):

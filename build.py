@@ -391,7 +391,7 @@ def build_pi(out: Path, meta: dict) -> list[Path]:
     write(root / "README.md", f"# {meta['name']} (pi package)\n\n{meta['description']}\n\n"
           "Install: `pi install ./` from this directory (add `-l` for project-local).\n"
           f"Provides the `{SKILL}` skill, the prompts {prompts}, and a viewer: the\n"
-          "agent's `sigil_view` tool and the `/sigil` command show a design live, in a\n"
+          "agent's `sigil_view` tool and the `/sigil-pane` command show a design live, in a\n"
           "widget above the editor or in a herdr / tmux / zellij split. `--sigil-display\n"
           "auto|mod|multiplex` (or `SIGIL_DISPLAY`) picks which; auto takes the split\n"
           "inside a multiplexer.\n")

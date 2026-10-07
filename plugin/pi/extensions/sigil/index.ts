@@ -1,5 +1,5 @@
 // The Sigil viewer inside pi: a `sigil_view` tool the agent calls and a
-// /sigil command, drawing a document in a widget above the editor (pane.py's
+// /sigil-pane command, drawing a document in a widget above the editor (pane.py's
 // theme-coloured rows as truecolour text, redrawn on every save, a simulated
 // run stepped or played) or, in a multiplexer, in a split running view.py
 // live. The display rule, the requests and the split commands are the Claude
@@ -56,7 +56,7 @@ type Pi = {
 }
 
 export const TOOL = 'sigil_view'
-export const COMMAND = 'sigil' // pi names skills /skill:NAME, so /sigil is free
+export const COMMAND = 'sigil-pane' // matches the Claude Code mod, where /sigil is the skill's
 export const WIDGET = 'sigil'
 export const FLAG = 'sigil-display'
 const WATCH_MS = 1000 // how often the shown file is looked at
@@ -147,7 +147,7 @@ export function widgetLines(drawing: Drawing, request: ViewRequest, playback: Pl
   return lines
 }
 
-/** /sigil's own words over the tool's: `close`, `pause`, `back`, `next`. */
+/** /sigil-pane's own words over the tool's: `close`, `pause`, `back`, `next`. */
 export function commandWords(args: string): { action?: 'close' | 'back' | 'next'; input: Record<string, unknown> } {
   const words = args.trim().split(/\s+/).filter(w => w !== '')
   const own = words.find(w => w === 'close' || w === 'back' || w === 'next') as 'close' | 'back' | 'next' | undefined
@@ -288,7 +288,7 @@ export default function sigil(pi: Pi): void {
     tui = null
   }
 
-  /** Shows `asked` in the widget; `isAsked`: the person's /sigil (any width). */
+  /** Shows `asked` in the widget; `isAsked`: the person's /sigil-pane (any width). */
   async function showInWidget(ctx: Ctx, asked: Asked, isAsked: boolean): Promise<string> {
     if (!ctx.hasUI) {
       return 'sigil: this pi session has no terminal UI (print or json mode); view.py --once prints the drawing.'

@@ -203,7 +203,7 @@ The plugin option `display` picks where the viewer draws:
 ## The pi viewer
 
 The pi package's extension (`plugin/pi`) does the same job in pi. The agent gets a
-`sigil_view` tool and the person gets a `/sigil` command. Both work as they do in
+`sigil_view` tool and the person gets a `/sigil-pane` command. Both work as they do in
 Claude Code, with these differences:
 
 - The tool takes the same fields. `depth` and `frame` are strings: `"2"`, `"all"`,
@@ -212,9 +212,9 @@ Claude Code, with these differences:
   text. A tall drawing is cut to fit the terminal, and the last row says how
   many rows were left out. A run's trail and narration line (`›`) follow the
   drawing, as in the pane. A widget opened without being asked needs 144 columns.
-  Below that, the reply says it's waiting and names `/sigil`, which opens it at
+  Below that, the reply says it's waiting and names `/sigil-pane`, which opens it at
   any width.
-- The widget takes no keys, since it never has focus. `/sigil` takes the tool's
+- The widget takes no keys, since it never has focus. `/sigil-pane` takes the tool's
   words (`FILE`, a view name, `depth N|all`, `sim SCENARIO`, `frame N|last`,
   `play`, `payloads`) plus `pause`, `back`, `next` and `close`. With no words it
   reopens the widget.
