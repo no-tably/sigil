@@ -7,7 +7,9 @@ Covers:
   - Canvas.path and Canvas.run (link inlined) against link() one step at a time,
     stroke ranks, `fixed` cells and hops included;
   - view_graph's shared-cell colour rule (_nearest_owners, direction bitmasks,
-    distances only where chains share a cell) against the set-based rule.
+    distances only where chains share a cell) against the set-based rule;
+  - sim.failure_analysis (a worklist now, not every activation checked every
+    round): a long chain still runs each activation a bounded number of times.
 
 Run:  python3 -m unittest discover tests
 """
@@ -31,7 +33,7 @@ def _load(name: str, fname: str):
 
 
 view = _load("sigil_view_perf", "view.py")
-kit, vgraph = view.kit, view.vgraph
+kit, vgraph, sim = view.kit, view.vgraph, view.simulator
 
 KINDS = ["->", "=>", "*>", "~>", "?>", "trigger", "access:r"]
 STYLES = [None, (1, None, False), (2, None, True), kit.Probe((1, None, False))]
@@ -178,6 +180,28 @@ class OwnersMatchSetRule(unittest.TestCase):
                     traces.append(tr)
             self.assertEqual(vgraph._nearest_owners(traces, cv.lines),
                              set_owners(traces, cv.lines))
+
+
+class FailureAnalysisWorklist(unittest.TestCase):
+    def prog(self, text):
+        return sim.program(sim.canonical(view.render.parse_document(text)))
+
+    def test_a_long_chain_runs_each_activation_a_few_times(self):
+        n = 300
+        prog = self.prog("--- chain ---\n" + "\n".join(
+            f"[N{i}] -> [N{i + 1}] : go ×2" for i in range(n)) + "\n")
+        runs, real = [], sim._activation
+        def counted(fl, fails, ctx):
+            runs.append(ctx)
+            return real(fl, fails, ctx)
+        sim._activation = counted
+        try:
+            flow = sim.failure_analysis(prog)
+        finally:
+            sim._activation = real
+        self.assertGreater(len(set(runs)), n)
+        self.assertLessEqual(len(runs), 3 * len(set(runs)))
+        self.assertTrue(flow.arriving)
 
 
 if __name__ == "__main__":

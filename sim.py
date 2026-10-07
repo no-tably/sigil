@@ -228,6 +228,7 @@ NARRATION (pure, over a Trace and the scene it names)
 
 from __future__ import annotations
 
+import heapq
 import importlib.util
 import re
 import sys
@@ -2371,29 +2372,49 @@ def failure_analysis(prog: Program, limits: Limits = Limits(), *,
         for ctx in _entry_effect(fl, {}, 0, nid, frozenset()).started:
             known.setdefault(ctx, None)
     fails, effects = _Asked(), {}
-    # ctx → the contexts its activation asked about / the step it last ran at /
-    # the step its fails last changed at: a round skips an activation none of
-    # whose reads changed since it ran (it would give the same effect).
-    asked, ran, moved, step = {}, {}, {}, 0
-    changed = True
-    while changed:
-        changed = False
-        for ctx in list(known):
-            if ctx in ran and all(moved.get(c, -1) < ran[ctx] for c in asked[ctx]):
-                continue
-            step += 1
+    # Rounds over the known activations in discovery order, each re-running only
+    # those whose reads changed since they ran (an activation is a pure function
+    # of them): `dirty` holds them by discovery index — a round runs the ones
+    # below its start's count in order, one dirtied ahead of the round's place
+    # still this round, else the next. readers: ctx → the activations whose
+    # last run asked about it.
+    order = list(known)
+    index = {ctx: i for i, ctx in enumerate(order)}
+    asked, readers = {}, {}
+    dirty = set(range(len(order)))      # never ran, or a read changed since
+    while dirty:
+        limit = len(order)
+        todo = [i for i in dirty if i < limit]
+        heapq.heapify(todo)
+        queued = set(todo)
+        dirty -= queued
+        while todo:
+            i = heapq.heappop(todo)
+            ctx = order[i]
+            for c in asked.get(ctx, ()):
+                readers[c].discard(ctx)
             fails.asked = asked[ctx] = set()
             e = _activation(fl, fails, ctx)
-            fails.asked, ran[ctx] = None, step
+            fails.asked = None
+            for c in asked[ctx]:
+                readers.setdefault(c, set()).add(ctx)
             effects[ctx] = e
             if e.raises != fails.get(ctx, frozenset()):
                 fails[ctx] = e.raises
-                moved[ctx] = step
-                changed = True
+                for r in readers.get(ctx, ()):
+                    k = index[r]
+                    if i < k < limit:
+                        if k not in queued:
+                            queued.add(k)
+                            heapq.heappush(todo, k)
+                    else:
+                        dirty.add(k)
             for c in _started(prog, ctx, e):
                 if c not in known:
                     known[c] = None
-                    changed = True
+                    index[c] = len(order)
+                    dirty.add(len(order))
+                    order.append(c)
     arriving, absorbed, live = {}, {}, set()
     for ctx, e in effects.items():
         key = (ctx.ui, ctx.node)
