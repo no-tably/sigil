@@ -16,12 +16,12 @@ import { fileURLToPath } from 'node:url'
 
 import {
   DEFAULT_WIDTH, DISPLAYS, LAYOUTS, START_SPEED, SUPERSEDED, UNASKED_COLUMNS, VIEWS,
-  askedFrame, cellWidth, cropRows, cutCells, detectMux, displayReport, drawArgv, drawnFrame, frameIndex, frameMs, herdrPaneOf, herdrReadyArgv,
+  aheadFrom, askedFrame, cellWidth, cropRows, cutCells, glyphs, heldBy, detectMux, displayReport, drawArgv, drawnFrame, frameIndex, frameMs, herdrPaneOf, herdrReadyArgv,
   lastFrame, layoutReport, nextSpeed, panTo, parseCommandArgs, parseDisplayArgs, parseDrawing, parseLayoutArgs, parseRequest,
   pickDisplay, pickLayout, playbackFor, playTick, replyText, resolveDisplay, runLines, shellQuote, slot, splitArgv,
   splitStart, statusLine, viewArgv, windowFor, windowStart,
 } from './logic.ts'
-import type { Asked, Display, DisplayChoice, LayoutChoice } from './logic.ts'
+import type { Ahead, Asked, Display, DisplayChoice, LayoutChoice } from './logic.ts'
 
 // The shapes this file uses (types/index.d.ts in plugin/claude has them all).
 type ViewRequest = { file: string; view: 'graph' | 'tree' | 'flow' | 'run'; depth: number; scenario?: string; payloads?: boolean }
@@ -158,14 +158,16 @@ export function sgrColour(hex: string | null, base: 38 | 48): string | null {
 }
 
 /** A packed row as one terminal line, at most `width` cells (pane.py makes
- * every character one cell), each run in its style's colours. */
+ * every character one cell, a wide one itself and its WIDE_TAIL: drawn as the
+ * one glyph, glyphs), each run in its style's colours. */
 export function ansiRow(row: PackedRow, styles: readonly Style[], width: number): string {
   let out = ''
   let left = width
   for (const [text, id] of row) {
     if (left <= 0) break
-    const cut = [...text].slice(0, left).join('')
-    left -= [...cut].length
+    const cells = [...text].slice(0, left)
+    left -= cells.length
+    const cut = glyphs(cells.join(''))
     const [fg, bg, bold] = styles[id] ?? [null, null, false]
     const codes = [bold ? '1' : null, sgrColour(fg, 38), sgrColour(bg, 48)].filter(c => c !== null)
     out += codes.length > 0 ? `\x1b[${codes.join(';')}m${cut}\x1b[0m` : cut
@@ -267,6 +269,8 @@ export default function sigil(pi: Pi): void {
   let drawingFor = '' // the request + size the latest redraw is for ('' once it drew; kept when it failed)
   let drawSeq = 0 // counts redraws: only the latest stores what it drew
   let isWindowing = false // a run window is being drawn (fetchWindow asks for one at a time)
+  let ahead: Ahead | null = null // the window after the shown one, drawn while a run plays (aheadFrom)
+  let isDrawingAhead = false // that window is being drawn
 
   const columns = () => process.stdout.columns || DEFAULT_WIDTH
   const bodyRows = () => Math.max(MIN_BODY_ROWS, (process.stdout.rows || 40) - CHROME_ROWS)
@@ -370,6 +374,7 @@ export default function sigil(pi: Pi): void {
     const key = drawKey(req, width)
     const seq = ++drawSeq
     drawingFor = key
+    ahead = null
     const got = await runPane(req, width, from ?? windowStart(playback.at))
     if (seq !== drawSeq) return { error: SUPERSEDED }
     if ('error' in got) failure = got.error
@@ -385,13 +390,39 @@ export default function sigil(pi: Pi): void {
   }
 
   /** Draws the run's window for showing `at` when the drawing does not hold it
-   * (or, playing, will soon run out of it): windowFor, one window at a time. */
+   * (windowFor, one window at a time), and while it plays the window after it
+   * (drawAhead). */
   function fetchWindow(at: number, isPlaying: boolean): void {
-    if (request === null || drawing === null || isWindowing) return
-    const from = windowFor(drawing as never, at, isPlaying)
-    if (from === null) return
+    if (request === null || drawing === null) return
+    drawAhead(request, drawing, isPlaying)
+    const from = windowFor(drawing as never, at)
+    const key = drawKey(request, drawing.width ?? columns())
+    if (from === null || isWindowing || heldBy(drawing as never, ahead as never, key, at) !== (drawing as never)) return
     isWindowing = true
     void redraw(request, drawing.width ?? columns(), from).finally(() => { isWindowing = false })
+  }
+
+  /** Draws the window after the shown one while a run plays (aheadFrom), kept
+   * in `ahead` until the run plays into it; a redraw meanwhile drops it. */
+  function drawAhead(req: ViewRequest, shown: Drawing, isPlaying: boolean): void {
+    const from = aheadFrom(shown as never, isPlaying)
+    const width = shown.width ?? columns()
+    const key = drawKey(req, width)
+    if (from === null || isDrawingAhead || (ahead !== null && ahead.key === key && ahead.drawing.first === from)) return
+    isDrawingAhead = true
+    const seq = drawSeq
+    void runPane(req, width, from).then(got => {
+      if (seq === drawSeq && !('error' in got)) ahead = { key, drawing: { ...got, width } as never }
+    }).finally(() => { isDrawingAhead = false })
+  }
+
+  /** Shows the window drawn ahead once the run plays into it (frame `at`). */
+  function playInto(at: number): void {
+    if (request === null || drawing === null) return
+    const held = heldBy(drawing as never, ahead as never, drawKey(request, drawing.width ?? columns()), at)
+    if (held === (drawing as never)) return
+    drawing = held as never
+    ahead = null
   }
 
   function startWatch(): void {
@@ -417,6 +448,7 @@ export default function sigil(pi: Pi): void {
     if (playTimer !== null) return
     playTimer = setInterval(() => {
       if (drawing === null || !playback.isPlaying) return stopPlay()
+      playInto(frameIndex(drawing as never, playback) + 1)
       playback = playTick(drawing as never, playback)
       fetchWindow(playback.at + 1, playback.isPlaying)
       refresh()

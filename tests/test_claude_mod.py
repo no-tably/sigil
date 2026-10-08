@@ -106,7 +106,7 @@ class DrawTest(unittest.TestCase):
                              view.pick_layout(w, len(rows), 30, height))
 
     def test_wide_and_zero_width_characters_become_one_cell(self):
-        self.assertEqual(pane.cells("a界́─"), "a??─")
+        self.assertEqual(pane.cells("a界́─"), "a界\0─")   # a wide one itself, then its second cell
 
     def test_a_run_has_a_frame_and_a_status_per_step(self):
         out = run_pane("draw", str(SHOP), "--scenario", "happy")

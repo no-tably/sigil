@@ -21,7 +21,8 @@ export const START_SPEED = 3 // 2 frames a second, view.py's start (an index int
 // A run is drawn a window at a time (pane.py's --from / --count), every frame of it.
 export const WINDOW = 120 // run frames one draw holds: pane.py's WINDOW
 export const WINDOW_BACK = 8 // frames a window keeps before the one it is drawn for (a step back stays in it)
-export const WINDOW_AHEAD = 30 // a playing run asks for the next window this many frames before its window ends
+// A playing run draws the window after its own as soon as it plays (`ahead`),
+// so the run goes on from it without waiting at the window's end.
 
 export type Display = 'mod' | 'multiplex'
 export type MuxEnv = { herdr?: string; tmux?: string; zellij?: string }
@@ -339,14 +340,36 @@ export function windowStart(frame: number): number {
   return frame < 0 ? -1 : Math.max(0, frame - WINDOW_BACK)
 }
 
-/** The window to draw next for showing `frame` (windowStart), or null when the
- * drawing holds it — and, playing, holds WINDOW_AHEAD frames past it or the
- * run's end. */
-export function windowFor(drawing: Drawing, frame: number, isPlaying: boolean): number | null {
-  if (drawing.status === undefined) return null
-  const end = (drawing.first ?? 0) + drawing.frames.length - 1
-  const isShort = isPlaying && end < lastFrame(drawing) && frame > end - WINDOW_AHEAD
-  return holds(drawing, frame) && !isShort ? null : windowStart(frame)
+/** The last frame of the run the drawing's window holds. */
+function windowEnd(drawing: Drawing): number {
+  return (drawing.first ?? 0) + drawing.frames.length - 1
+}
+
+/** The window to draw for showing `frame` (windowStart), or null when the
+ * drawing holds it (or is a still). */
+export function windowFor(drawing: Drawing, frame: number): number | null {
+  if (drawing.status === undefined || holds(drawing, frame)) return null
+  return windowStart(frame)
+}
+
+/** The window a playing run draws ahead, while it plays its own: the one
+ * after the drawing's (windowStart of the frame past its end), or null —
+ * paused, a still, or a window that ends the run. */
+export function aheadFrom(drawing: Drawing, isPlaying: boolean): number | null {
+  if (!isPlaying || drawing.status === undefined) return null
+  const end = windowEnd(drawing)
+  return end < lastFrame(drawing) ? windowStart(end + 1) : null
+}
+
+/** A window drawn ahead, with the drawKey it was drawn for. */
+export type Ahead = { key: string; drawing: Drawing }
+
+/** The drawing to show `frame` from: `shown`, or the window drawn ahead once
+ * the frame has left shown's window and ahead (drawn for `key`, what shown is
+ * drawn for now) holds it. */
+export function heldBy(shown: Drawing, ahead: Ahead | null, key: string, frame: number): Drawing {
+  if (holds(shown, frame) || ahead === null || ahead.key !== key || !holds(ahead.drawing, frame)) return shown
+  return ahead.drawing
 }
 
 /** A playing run's next tick: a frame on, or held where it is while the next
@@ -417,9 +440,9 @@ export function colourOf(hex: string | null): number {
 // Drawn width, the rule of view.py's viewkit.char_cells: a wide character
 // (East Asian Width W or F) takes two terminal columns, a combining mark or a
 // zero-width character none, any other one. Packed rows need none of this —
-// pane.py already draws every character in them one column wide (a wide one
-// as `??`) — but plain text (a status, narration, summary or lint line) keeps
-// its names as written and is measured by it.
+// pane.py already makes every character in them one cell (a wide one itself
+// then WIDE_TAIL) — but plain text (a status, narration, summary or lint line)
+// keeps its names as written and is measured by it.
 
 /** Inclusive [first, last] code point pairs that are W or F (combining marks
  * left out), from Python's unicodedata (tests/test_plugin_cells.py checks it). */
@@ -486,6 +509,29 @@ export function cutCells(text: string, width: number): string {
   return out
 }
 
+/** A wide character's second cell in a packed row: pane.py writes a wide
+ * character as itself then this, so every character of a packed row is one
+ * cell and cutting, panning and measuring count characters. */
+export const WIDE_TAIL = '\u0000'
+
+/** A packed row's text (a run of it) as terminal text: each wide character
+ * with its WIDE_TAIL as the one glyph; a tail whose glyph was cut off (a pan:
+ * the run's first cell) and a glyph whose tail was (the edge: its last) as a
+ * blank, so the text keeps its cells. */
+export function glyphs(text: string): string {
+  const cells = [...text]
+  if (cells[0] === WIDE_TAIL) cells[0] = ' '
+  const last = cells.length - 1
+  if (last >= 0 && charCells(cells[last]!) === 2) cells[last] = ' '
+  return cells.join('').replaceAll(WIDE_TAIL, '')
+}
+
+/** Whether packed rows hold a wide character (a Raster cell is one column:
+ * such rows are drawn as text). */
+export function holdsWide(rows: readonly PackedRow[]): boolean {
+  return rows.some(row => row.some(([text]) => text.includes(WIDE_TAIL)))
+}
+
 /** The widest row of packed rows, in cells. */
 export function rowsWidth(rows: readonly PackedRow[]): number {
   let widest = 0
@@ -514,7 +560,9 @@ export function base64(bytes: Uint8Array): string {
 }
 
 /** Packed rows as a Raster's `cells` over `columns` × rows.length: each
- * character one cell in its style's colours, short rows padded blank. */
+ * character one cell in its style's colours, short rows padded blank. A
+ * Raster cell takes one-column BMP characters only: a wide character's two
+ * cells (holdsWide rows are drawn as text instead) would be `?` and blank. */
 export function rasterCells(rows: readonly PackedRow[], styles: readonly Style[], columns: number): string {
   const words = new Uint32Array(columns * rows.length * 3)
   const space = 0x20
@@ -528,7 +576,8 @@ export function rasterCells(rows: readonly PackedRow[], styles: readonly Style[]
       for (const ch of text) {
         if (x >= columns) break
         const code = ch.codePointAt(0) ?? space
-        words.set([code > 0xffff || code < 0x20 ? 0x3f : code, fore, back], (y * columns + x) * 3)
+        const glyph = ch === WIDE_TAIL ? space : code > 0xffff || code < 0x20 || charCells(ch) !== 1 ? 0x3f : code
+        words.set([glyph, fore, back], (y * columns + x) * 3)
         x++
       }
     }

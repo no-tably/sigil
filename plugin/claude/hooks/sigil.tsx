@@ -10,13 +10,13 @@ import type { EngineInterface, Register, UiOpenResult } from 'claude-code'
 import type { Drawing, Playback, Split, ViewRequest } from '../types'
 import {
   COMMAND, DEFAULT_WIDTH, PANE, VIEWS, RASTER_COLUMNS, START_SPEED, SUPERSEDED, TOOL, UNASKED_COLUMNS,
-  askedFrame, cropRows, detectMux, displayReport, drawArgv, drawnFrame, frameIndex, frameMs, herdrPaneOf, herdrReadyArgv,
+  aheadFrom, askedFrame, cropRows, detectMux, glyphs, heldBy, holdsWide, displayReport, drawArgv, drawnFrame, frameIndex, frameMs, herdrPaneOf, herdrReadyArgv,
   isDisplayChoice, lastFrame, layoutOf, layoutReport, nextDepth, nextSpeed, nextView, panTo, parseCommandArgs,
   parseDisplayArgs, parseDrawing, parseLayoutArgs, parseRequest, playbackFor, playTick, rasterCells, replyText,
   resolveDisplay, rowsWidth, runLines, shellQuote, slices, slot, splitArgv, splitStart, statusLine, viewArgv,
   windowFor, windowStart,
 } from './logic'
-import type { Asked, Display, DisplayChoice, LayoutChoice } from './logic'
+import type { Ahead, Asked, Display, DisplayChoice, LayoutChoice } from './logic'
 
 const request = atom({ plugin: 'sigil', key: 'request' } as const, null)
 const drawing = atom({ plugin: 'sigil', key: 'drawing' } as const, null)
@@ -73,6 +73,8 @@ let layout: LayoutChoice = 'auto' // the plugin's `layout` option, set when the 
 let drawingFor = '' // the request + size the latest redraw is for ('' once it drew; kept when it failed)
 let drawSeq = 0 // counts redraws: only the latest stores what it drew
 let isWindowing = false // a run window is being drawn (fetchWindow asks for one at a time)
+let ahead: Ahead | null = null // the window after the shown one, drawn while a run plays (aheadFrom)
+let isDrawingAhead = false // that window is being drawn
 
 async function scriptPath($: $): Promise<string> {
   const built = `${$.plugin.root}/skills/sigil/scripts/pane.py`
@@ -98,6 +100,14 @@ function drawKey(req: ViewRequest, width: number): string {
   return JSON.stringify([req, width, layout === 'auto' ? paneRows : 0])
 }
 
+/** pane.py's drawing of the request at `width`; a run's window from `from` (windowStart). */
+async function runPane($: $, req: ViewRequest, width: number, from: number): Promise<Drawing | { error: string }> {
+  const pane = { layout, from, ...(layout === 'auto' && paneRows > 0 ? { height: paneRows } : {}) }
+  const ran = await $.process.run(drawArgv(await scriptPath($), req, width, pane), { timeoutMs: 60000 })
+    .catch((err: unknown) => ({ exitCode: 1, stdout: '', stderr: String(err) }))
+  return ran.exitCode === 0 ? parseDrawing(ran.stdout) : { error: ran.stderr.trim().split('\n').pop() ?? 'pane.py failed' }
+}
+
 /** Runs pane.py for the request at `width` and stores what it drew, unless a
  * later redraw started meanwhile (an older run finishing last never wins). A
  * run is drawn a window at a time: the one starting at `from` (windowStart),
@@ -108,11 +118,8 @@ async function redraw($: $, req: ViewRequest, width: number, from?: number): Pro
   const key = drawKey(req, width)
   const seq = ++drawSeq
   drawingFor = key
-  const start = from ?? windowStart((await read($, playback)).at)
-  const pane = { layout, from: start, ...(layout === 'auto' && paneRows > 0 ? { height: paneRows } : {}) }
-  const ran = await $.process.run(drawArgv(await scriptPath($), req, width, pane), { timeoutMs: 60000 })
-    .catch((err: unknown) => ({ exitCode: 1, stdout: '', stderr: String(err) }))
-  const got = ran.exitCode === 0 ? parseDrawing(ran.stdout) : { error: ran.stderr.trim().split('\n').pop() ?? 'pane.py failed' }
+  ahead = null
+  const got = await runPane($, req, width, from ?? windowStart((await read($, playback)).at))
   if (seq !== drawSeq) return { error: SUPERSEDED }
   if ('error' in got) {
     await update($, failure, () => got.error)
@@ -128,12 +135,37 @@ async function redraw($: $, req: ViewRequest, width: number, from?: number): Pro
 }
 
 /** Draws the run's window for showing `at` when the drawing does not hold it
- * (or, playing, will soon run out of it): windowFor, one window at a time. */
+ * (windowFor, one window at a time), and while it plays the window after it
+ * (drawAhead). */
 function fetchWindow($: $, req: ViewRequest, shown: Drawing, at: number, isPlaying: boolean): void {
-  const from = windowFor(shown, at, isPlaying)
-  if (from === null || isWindowing) return
+  drawAhead($, req, shown, isPlaying)
+  const from = windowFor(shown, at)
+  if (from === null || isWindowing || heldBy(shown, ahead, drawKey(req, columns), at) !== shown) return
   isWindowing = true
   $.clock.after(0, () => void redraw($, req, columns, from).finally(() => { isWindowing = false }))
+}
+
+/** Draws the window after the shown one while a run plays (aheadFrom), kept
+ * in `ahead` until the run plays into it; a redraw meanwhile drops it. */
+function drawAhead($: $, req: ViewRequest, shown: Drawing, isPlaying: boolean): void {
+  const from = aheadFrom(shown, isPlaying)
+  const key = drawKey(req, columns)
+  if (from === null || isDrawingAhead || (ahead !== null && ahead.key === key && ahead.drawing.first === from)) return
+  isDrawingAhead = true
+  const seq = drawSeq
+  $.clock.after(0, () => void runPane($, req, columns, from).then(got => {
+    if (seq === drawSeq && !('error' in got)) ahead = { key, drawing: { ...got, width: columns, height: layout === 'auto' ? paneRows : 0 } }
+  }).finally(() => { isDrawingAhead = false }))
+}
+
+/** The drawing to play frame `at` from: the shown one, or the window drawn
+ * ahead once the run has played into it (then shown, and no longer ahead). */
+async function playedFrom($: $, req: ViewRequest, shown: Drawing, at: number): Promise<Drawing> {
+  const held = heldBy(shown, ahead, drawKey(req, columns), at)
+  if (held === shown) return shown
+  ahead = null
+  await update($, drawing, () => held)
+  return held
 }
 
 function startWatch($: $): void {
@@ -158,10 +190,11 @@ async function startPlay($: $): Promise<void> {
   const ms = frameMs(await read($, speed))
   if (playTimer !== null) return
   playTimer = $.clock.every(ms, async () => {
-    const shown = await read($, drawing)
+    const was = await read($, drawing)
     const now = await read($, playback)
     const req = await read($, request)
-    if (shown === null || req === null || !now.isPlaying) return stopPlay()
+    if (was === null || req === null || !now.isPlaying) return stopPlay()
+    const shown = await playedFrom($, req, was, frameIndex(was, now) + 1)
     const next = playTick(shown, now)
     fetchWindow($, req, shown, next.at + 1, next.isPlaying)
     await update($, playback, () => next)
@@ -401,7 +434,7 @@ export const register: Register = (on, options) => {
     const isRun = shown.status !== undefined
     const told = runLines(shown, at)
     const body = (cells: typeof drawn, key: string) => {
-      if (e.surface === 'terminal') {
+      if (e.surface === 'terminal' && !holdsWide(cells)) {
         const { Raster } = $.ui.resolve(e)
         const cols = Math.max(1, Math.min(width, rowsWidth(cells) || 1))
         return slices(cells).map((part, i) => (
@@ -413,7 +446,7 @@ export const register: Register = (on, options) => {
         <Text wrap="truncate">
           {row.map(([text, id]) => {
             const [fg, bg, bold] = shown.styles[id] ?? [null, null, false]
-            return <Text color={fg ?? undefined} backgroundColor={bg ?? undefined} bold={bold}>{text}</Text>
+            return <Text color={fg ?? undefined} backgroundColor={bg ?? undefined} bold={bold}>{glyphs(text)}</Text>
           })}
         </Text>
       ))

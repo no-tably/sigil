@@ -41,9 +41,12 @@ Usage:
         split closes — removing both files. A view.py that fails (a bad flag,
         an unreadable file) leaves its message on screen and the loop waiting.
 
-Every character is one terminal column, so the mod's grid keeps the drawing's
-columns: a wide character becomes `??` (the two columns view.py gives it), a
-combining mark or zero-width character nothing. Standard library only.
+Every character of a packed row is one terminal cell, so the mod's grid keeps
+the drawing's columns: a wide character is itself and then WIDE_TAIL, the
+continuation cell of the two columns view.py gives it (the mod and pi draw the
+pair as the one wide glyph), and a combining mark or zero-width character is
+nothing — viewkit.char_cells's rule, read from the bundled viewkit. Standard
+library only.
 """
 
 from __future__ import annotations
@@ -88,26 +91,34 @@ def _load(name: str, path: Path):
 # draw
 # ---------------------------------------------------------------------------
 
-_ZERO_WIDTH = {"\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"}   # ZWSP ZWNJ ZWJ WJ BOM
+WIDE_TAIL = "\0"   # a wide character's second cell (logic.ts's WIDE_TAIL): draws nothing
+
+
+@functools.cache
+def _kit():
+    """The bundled viewkit, as view.py loads it (one module per directory): the
+    width rule lives there alone."""
+    return _load(f"sigil_viewkit@{_TOOLS}", _TOOLS / "viewkit.py")
 
 
 def cell(ch: str) -> str:
-    """`ch` as the columns view.py draws it in (viewkit.char_cells), each one a
-    one-column character: a wide character `??`, a combining mark or zero-width
-    character nothing, any other that is not a printable BMP character `?`."""
-    kind = unicodedata.category(ch)
-    if kind in ("Mn", "Me") or ch in _ZERO_WIDTH:
+    """`ch` as the cells view.py draws it in (viewkit.char_cells), one
+    character a cell: a wide character itself then WIDE_TAIL, a combining mark
+    or zero-width character nothing, any other one-column character that is not
+    a printable BMP character `?`."""
+    n = _kit().char_cells(ch)
+    if n == 2:
+        return ch + WIDE_TAIL
+    if n == 0:
         return ""
-    if unicodedata.east_asian_width(ch) in ("W", "F"):
-        return "??"
-    if ord(ch) > 0xFFFF or kind[0] in "MC":
+    if ord(ch) > 0xFFFF or unicodedata.category(ch)[0] in "MC":
         return "?"
     return ch
 
 
 @functools.lru_cache(maxsize=4096)
 def cells(text: str) -> str:
-    """text as cell() draws each character, one column a character (a run's
+    """text as cell() draws each character, one cell a character (a run's
     text recurs frame after frame)."""
     if text.isascii() and text.isprintable():
         return text
@@ -134,7 +145,7 @@ def hex_styles(frames):
 
 
 def packed(rows, styles, frames) -> list:
-    """view.py rows → frames.py's packed rows, every cell one column wide."""
+    """view.py rows → frames.py's packed rows, one character a cell (cells())."""
     return frames.pack_rows([[(cells(t), st) for t, st in row] for row in rows], styles)
 
 

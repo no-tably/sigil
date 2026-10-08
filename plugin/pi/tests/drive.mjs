@@ -12,14 +12,30 @@
 // write the settings file under $XDG_CONFIG_HOME (the test's own folder). The
 // script's stdout is a pipe, so a terminal is claimed (process.stdout.isTTY)
 // except for the RPC steps, where text widgets (string arrays) are recorded.
-// Under the stand-in API only, `exec` can be slowed or made to fail (`hooks`)
-// for the redraw steps: a slow draw overtaken, a failing redraw at a new width.
+// Under the stand-in API only, `exec` can be held back or made to fail
+// (`hooks`) for the redraw steps: a draw overtaken, a failing redraw at a new
+// width.
+//
+// No step waits a fixed time: after each one the script waits until no draw
+// is running (`settle`) — the stand-in's exec counts its calls, and under pi's
+// API every child process is counted (node:child_process's spawn, wrapped
+// before pi loads; syncBuiltinESMExports hands the wrapper to its import).
 
-import { execFile } from 'node:child_process'
+import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { join } from 'node:path'
 
+const childProcess = createRequire(import.meta.url)('node:child_process')
+const { execFile } = childProcess
 const [, , extension, file, piDir] = process.argv
-const hooks = { delay: () => 0, fails: () => false, draws: 0 }
+const hooks = { hold: () => null, fails: () => false, draws: 0, busy: 0, held: 0 }
+const spawn = childProcess.spawn
+childProcess.spawn = function counted(...args) {
+  const child = spawn.apply(this, args)
+  hooks.busy++
+  child.once('close', () => { hooks.busy-- })
+  return child
+}
+syncBuiltinESMExports()
 for (const k of ['HERDR_ENV', 'TMUX', 'ZELLIJ', 'SIGIL_DISPLAY', 'SIGIL_LAYOUT']) delete process.env[k]
 
 async function load() {
@@ -53,9 +69,18 @@ async function load() {
     exec: async (cmd, args, o) => {
       if (args.includes('draw')) hooks.draws++
       if (hooks.fails(args)) return { stdout: JSON.stringify({ error: 'boom' }), stderr: '', code: 0 }
-      await new Promise(r => setTimeout(r, hooks.delay(args)))
-      return new Promise(done => execFile(cmd, args, { timeout: o?.timeout, maxBuffer: 1 << 26 },
-        (err, stdout, stderr) => done({ stdout, stderr, code: err ? (typeof err.code === 'number' ? err.code : 1) : 0 })))
+      hooks.busy++
+      try {
+        const gate = hooks.hold(args)
+        if (gate !== null) {
+          hooks.held++
+          await gate
+        }
+        return await new Promise(done => execFile(cmd, args, { timeout: o?.timeout, maxBuffer: 1 << 26 },
+          (err, stdout, stderr) => done({ stdout, stderr, code: err ? (typeof err.code === 'number' ? err.code : 1) : 0 })))
+      } finally {
+        hooks.busy--
+      }
     },
   })
   return reg
@@ -82,13 +107,23 @@ if (out.errors.length === 0) {
   const tool = reg.tools.sigil_view
   const command = reg.commands['sigil-pane']
   const pause = ms => new Promise(r => setTimeout(r, ms))
+  /** Waits until `ready()` holds over a few turns of the event loop (a redraw a
+   * render asked for starts on a timer of 0), whatever the machine's speed. */
+  async function until(ready, what) {
+    for (let idle = 0, turns = 0; idle < 3; turns++) {
+      if (turns > 60000) throw new Error(`drive.mjs: still waiting for ${what}`)
+      await pause(idle === 0 ? 5 : 0)
+      idle = ready() ? idle + 1 : 0
+    }
+  }
+  const settle = () => until(() => hooks.busy === 0, 'the draws to finish')
   const strip = s => s.replace(/\x1b\[[0-9;]*m/g, '')
   const lines = width => (rendered ? rendered.render(width) : null)
 
   async function step(name, run, width = 120) {
     const reply = await run()
     let drawn = lines(width)
-    if (drawn !== null) { await pause(1500); drawn = lines(width) } // after a redraw at this width
+    if (drawn !== null) { await settle(); drawn = lines(width) } // after a redraw at this width
     out.steps.push({
       name, reply: reply ?? null, widget: factory !== null,
       lines: drawn && drawn.map(strip), coloured: drawn !== null && drawn.some(l => /\x1b\[[0-9;]*38;2;/.test(l)),
@@ -141,18 +176,23 @@ if (out.errors.length === 0) {
   await step('pan right', () => command.handler('right', ctx), 30)
   await step('layout bad', () => command.handler('layout side', ctx), 30)
   if (!piDir) {
-    hooks.delay = args => (args.includes('graph') ? 1500 : 0)
+    // the graph's draw is held until the tree's has finished: it finishes last
+    let release = () => {}
+    const gate = new Promise(r => { release = r })
+    hooks.hold = args => (args.includes('graph') ? gate : null)
+    hooks.held = 0
     await step('a slow draw overtaken', async () => {
       const graph = call({ file, view: 'graph' })
-      await pause(100)
-      const tree = call({ view: 'tree' })
-      return [await graph, await tree]
+      await until(() => hooks.held > 0, "the graph's draw")
+      const tree = await call({ view: 'tree' })
+      release()
+      return [await graph, tree]
     }, 30)
-    hooks.delay = () => 0
+    hooks.hold = () => null
     hooks.fails = args => args.includes('draw')
     hooks.draws = 0
     await step('a failing redraw at a new width', async () => {
-      for (let i = 0; i < 20; i++) { lines(90); await pause(50) }
+      for (let i = 0; i < 20; i++) { lines(90); await settle() }
       return String(hooks.draws)
     }, 90)
     hooks.fails = () => false

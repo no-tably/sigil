@@ -1,7 +1,9 @@
-"""Wide (CJK) characters in the plugins: pane.py draws every character one column
-wide, a wide one as `??` and a combining mark as nothing, so a packed row is as
-many characters as view.py's row is columns; logic.ts measures plain text by
-viewkit.char_cells's rule (a wide character 2, a combining mark 0)."""
+"""Wide (CJK) characters in the plugins: pane.py makes every character of a
+packed row one cell by viewkit.char_cells's rule (the bundled viewkit's, not a
+copy) — a wide one itself then WIDE_TAIL, its continuation cell, and a
+combining mark nothing — so a packed row is as many characters as view.py's row
+is columns; logic.ts measures plain text by the same rule (a wide character 2,
+a combining mark 0)."""
 
 from __future__ import annotations
 
@@ -66,14 +68,29 @@ def _assigned() -> list[int]:
 
 
 class PaneCells(unittest.TestCase):
-    def test_each_character_as_many_one_column_characters_as_its_columns(self):
+    def test_each_character_as_many_cells_as_its_columns(self):
         for ch in ["a", "─", "界", "ア", "́", "​", "😀", "\U0001d400", "\x07"]:
             with self.subTest(ch=hex(ord(ch))):
                 drawn = pane.cells(ch)
                 self.assertEqual(len(drawn), kit.char_cells(ch))
+                if kit.char_cells(ch) == 2:
+                    self.assertEqual(drawn, ch + pane.WIDE_TAIL)    # itself, then its second cell
+                    continue
                 for c in drawn:
                     self.assertTrue(" " <= c and ord(c) <= 0xFFFF)
                     self.assertNotIn(unicodedata.east_asian_width(c), ("W", "F"))
+
+    def test_a_wide_character_is_itself_not_question_marks(self):
+        self.assertEqual(pane.cells("a界́─"), "a界\0─")
+        self.assertEqual(pane.cells("(利用者)"), "(利\0用\0者\0)")
+        self.assertEqual(pane.WIDE_TAIL, "\0")    # logic.ts's WIDE_TAIL
+        self.assertIn("export const WIDE_TAIL = '\\u0000'", LOGIC.read_text(encoding="utf-8"))
+
+    def test_the_width_rule_is_the_bundled_viewkits(self):
+        self.assertIs(pane._kit(), kit)
+        source = PANE.read_text(encoding="utf-8")
+        self.assertNotIn("east_asian_width", source)
+        self.assertNotIn("_ZERO_WIDTH", source)
 
     def test_a_cjk_design_keeps_view_pys_columns_in_every_view(self):
         g = view.render.parse_document(CJK.read_text(encoding="utf-8"))
@@ -84,7 +101,10 @@ class PaneCells(unittest.TestCase):
                     spaced=True, width=None, access=False, mods=False, events="nodes")
                 for row in rows:
                     text = "".join(t for t, _ in row)
-                    self.assertEqual(len(pane.cells(text)), kit.cell_width(text), text)
+                    drawn = pane.cells(text)
+                    self.assertEqual(len(drawn), kit.cell_width(text), text)
+                    self.assertEqual(drawn.replace(pane.WIDE_TAIL, ""),
+                                     "".join(c for c in text if kit.char_cells(c)), text)
 
 
 @unittest.skipUnless(_strips_types(), "node with TypeScript type stripping not on PATH")

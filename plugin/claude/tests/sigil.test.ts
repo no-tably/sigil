@@ -152,6 +152,19 @@ describe('mod display', () => {
     expect(await desk.find({ type: 'Box', props: { height: 40 } })).toBeDefined()   // docked: fills, info at the bottom
   })
 
+  test('a wide character in the drawing is itself over its two cells: such rows are text, not a Raster', { options: { display: 'mod' } }, async ($, on) => {
+    const wide = JSON.stringify({ file: 'cjk.sigil', view: 'flow', width: null, styles: [[null, null, false]],
+      frames: [[[['(利\u0000用\u0000)', 0]]]], legend: [], summary: 'cjk.sigil', lint: [], scenarios: [] })
+    world(on, { isPlaced: true, stdout: argv => (argv.includes('draw') ? wide : '') })
+    await $.session.start(START)
+    await $.tool.call({ tool: 'mcp__sigil__view', file: 'cjk.sigil' })
+    const props = { title: 'Sigil', isFocused: false, bodyColumns: 100, placement: 'dock' as const,
+      scroll: { offset: 0, bodyRows: 40 }, view: {} }
+    const term = await $.ui.mount({ plugin: 'sigil', surface: 'terminal', component: 'Pane', props, requestId: 'sigil' })
+    expect(await term.find({ type: 'Raster' })).toBeUndefined()
+    expect(await term.find({ type: 'Text', text: '(利用)' })).toBeDefined()
+  })
+
   test('a run in the pane carries its path and narration line, as the live view does', { options: { display: 'mod' } }, async ($, on) => {
     world(on, { isPlaced: true })
     await $.session.start(START)
@@ -235,6 +248,27 @@ describe('a long run', () => {
     expect(shown).toEqual(Array.from({ length: 300 }, (_, i) => i + 1))  // every frame, none skipped
     const windows = seen.runs.filter(r => r.includes('--from')).map(r => r[r.indexOf('--from') + 1])
     expect(windows.length).toBeGreaterThan(2)                            // asked for window by window
+  })
+
+  test('a playing run never waits at a window\'s end: the next window is drawn while it plays', { options: { display: 'mod' }, timeoutMs: 30000 }, async ($, on) => {
+    // each draw takes 1.5 s of the clock: longer than the old 30 frames' notice at 32 frames a second
+    const seen = world(on, { isPlaced: true, stdout: longRunOf(300), delay: argv => (argv.includes('--from') ? 1500 : 0) })
+    await $.session.start(START)
+    await $.tool.call({ tool: 'mcp__sigil__view', file: 'long.sigil', scenario: 'happy', frame: 0 })
+    const props = { title: 'Sigil', isFocused: true, bodyColumns: 100, placement: 'dock' as const,
+      scroll: { offset: 0, bodyRows: 40 }, view: {} }
+    const pane = await $.ui.mount({ plugin: 'sigil', surface: 'desktop', component: 'Pane', props, requestId: 'sigil' })
+    for (let i = 0; i < 4; i++) await pane.press({ key: 'faster' })    // 32 frames a second
+    await pane.press({ key: 'play' })
+    const looks = new Map<number, number>()                                  // frame → looks it stayed shown
+    for (let tick = 0; tick < 2000 && !looks.has(300); tick++) {
+      const status = await pane.find({ type: 'Text', text: /frame \d+\/300/ })
+      const n = Number(/frame (\d+)\/300/.exec(String(status?.props?.text ?? status?.text ?? ''))?.[1])
+      looks.set(n, (looks.get(n) ?? 0) + 1)
+      await seen.clock.advance(16)
+    }
+    expect([...looks.keys()]).toEqual(Array.from({ length: 300 }, (_, i) => i + 1))   // every frame, in order
+    expect(Math.max(...[...looks.entries()].filter(([n]) => n > 1).map(([, k]) => k))).toBeLessThan(5)  // none held
   })
 })
 

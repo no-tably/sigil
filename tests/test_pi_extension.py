@@ -140,6 +140,18 @@ class HelpersTest(unittest.TestCase):
                         "m.sgrColour('#0a0b0c', 48), m.sgrColour('ocean', 38)]))")
         self.assertEqual(got, ["\x1b[1;38;2;255;128;0mabc\x1b[0md", "48;2;10;11;12", None])
 
+    def test_a_wide_character_is_drawn_as_itself_over_its_two_cells(self):
+        # pane.py's `(利用)`: each wide character then its WIDE_TAIL, one character a cell
+        got = self.node("const t = '\\u0000';"
+                        "const st = [[null, null, false]];"
+                        "console.log(JSON.stringify(["
+                        "m.ansiRow([[`(利${t}用${t})`, 0]], st, 6),"
+                        "m.ansiRow([[`(利${t}用${t})`, 0]], st, 4),"     # the edge cuts 用 in half: a blank
+                        "m.widgetLines({file: 'a.sigil', view: 'flow', width: 9, layout: 'pan', styles: st,"
+                        " frames: [[[[`(利${t}用${t})`, 0]]]], legend: [], summary: 's', lint: [], scenarios: []},"
+                        " {file: '/a.sigil', view: 'flow', depth: 1}, {at: 0, isPlaying: false}, null, 3, 20, 2)[1]]))")
+        self.assertEqual(got, ["(利用)", "(利 ", " 用"])   # panned past 利: its tail a blank
+
     def test_command_words(self):
         got = self.node("console.log(JSON.stringify(["
                         "m.commandWords('close'), m.commandWords('next tree'),"

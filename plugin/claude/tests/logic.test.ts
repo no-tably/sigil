@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import {
-  WINDOW, WINDOW_AHEAD, WINDOW_BACK, askedFrame, cellWidth, charCells, colourOf, cropRows, cutCells, displayReport, drawArgv, drawnFrame, frameIndex,
+  WIDE_TAIL, WINDOW, WINDOW_BACK, aheadFrom, askedFrame, cellWidth, charCells, colourOf, cropRows, cutCells, displayReport, drawArgv, drawnFrame, frameIndex,
   herdrPaneOf, herdrReadyArgv, holds, layoutOf, layoutReport, nextView, nextSpeed, panTo, parseCommandArgs, parseDisplayArgs,
-  parseDrawing, parseLayoutArgs, parseRequest, pickDisplay, pickLayout, playbackFor, playTick, rasterCells, replyText,
+  glyphs, heldBy, holdsWide, parseDrawing, parseLayoutArgs, parseRequest, pickDisplay, pickLayout, playbackFor, playTick, rasterCells, replyText,
   resolveDisplay, runLines, shellQuote, slices, slot, speedText, splitArgv, splitStart, statusLine, viewArgv, windowFor,
   windowStart,
 } from '../hooks/logic'
@@ -151,6 +151,20 @@ describe('cells', () => {
     expect(colourOf('#fff')).toBe(0xffffff)
     expect(colourOf(null)).toBe(0x01000000)
     expect(rasterCells([[['A', 0]]], [['#8b7aad', null, false]], 2)).toBe('QQAAAK16iwAAAAABIAAAAAAAAAEAAAAB')
+    // a wide character's two cells: never a wide glyph in a Raster (its rows go as text): `?` and blank
+    expect(rasterCells([[[`界${WIDE_TAIL}`, 0]]], [[null, null, false]], 2)).toBe('PwAAAAAAAAEAAAABIAAAAAAAAAEAAAAB')
+  })
+  test('a wide character is itself over two cells: the glyph, then WIDE_TAIL', () => {
+    const T = WIDE_TAIL
+    expect(glyphs(`a界${T}b`)).toBe('a界b')
+    expect(glyphs(`${T}b`)).toBe(' b')                     // panned past the glyph: its tail a blank
+    expect(glyphs('a界')).toBe('a ')                       // cut before the tail: a blank, not half a glyph
+    expect(glyphs('plain')).toBe('plain')
+    expect(holdsWide([[['ab', 0]], [[`界${T}`, 1]]])).toBe(true)
+    expect(holdsWide([[['ab', 0]]])).toBe(false)
+    const row = [['(', 0], [`利${T}用${T}`, 1], [')', 0]] as [string, number][]
+    expect(cropRows([row], 2, 4).map(r => r.map(([t]) => glyphs(t)).join(''))).toEqual([' 用)'])
+    expect(cropRows([row], 0, 4).map(r => r.map(([t]) => glyphs(t)).join(''))).toEqual(['(利 '])
   })
   test('slices and frames', () => {
     expect(slices([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]])
@@ -190,18 +204,32 @@ describe('cells', () => {
     expect([-1, 0, 3, 100].map(windowStart)).toEqual([-1, 0, 0, 100 - WINDOW_BACK])
     const frames = Array.from({ length: WINDOW }, () => [])
     const run = { frames, status: frames.map(() => 's'), first: 0, last: 1000 } as unknown as Drawing
-    expect(windowFor(run, 10, false)).toBeNull()
-    expect(windowFor(run, WINDOW - 1, false)).toBeNull()                       // held; paused, no need
-    expect(windowFor(run, WINDOW - WINDOW_AHEAD + 1, true)).toBe(WINDOW - WINDOW_AHEAD + 1 - WINDOW_BACK)
-    expect(windowFor(run, 500, false)).toBe(500 - WINDOW_BACK)                 // a step far off
+    expect(windowFor(run, 10)).toBeNull()
+    expect(windowFor(run, WINDOW - 1)).toBeNull()                              // held
+    expect(windowFor(run, 500)).toBe(500 - WINDOW_BACK)                        // a step far off
+    expect(windowFor({ frames: [[]] } as unknown as Drawing, 5)).toBeNull()      // a still
+    // playing, the window after this one is drawn at once, a step back kept in it
+    expect(aheadFrom(run, true)).toBe(WINDOW - WINDOW_BACK)
+    expect(aheadFrom(run, false)).toBeNull()                                   // paused
     const end = { frames, status: frames.map(() => 's'), first: 1001 - WINDOW, last: 1000 } as unknown as Drawing
-    expect(windowFor(end, 999, true)).toBeNull()                               // the window ends the run
-    expect(windowFor({ frames: [[]] } as unknown as Drawing, 5, true)).toBeNull()  // a still
+    expect(aheadFrom(end, true)).toBeNull()                                    // the window ends the run
+    expect(aheadFrom({ frames: [[]] } as unknown as Drawing, true)).toBeNull()   // a still
     expect(drawArgv('p.py', { file: 'a', view: 'flow', depth: 1, scenario: 'happy' }, 80, { from: 92 }).slice(-4))
       .toEqual(['--from', '92', '--count', String(WINDOW)])
     expect(drawArgv('p.py', { file: 'a', view: 'flow', depth: 1, scenario: 'happy' }, 80, { from: -1 }))
       .toContain('last')
     expect(drawArgv('p.py', { file: 'a', view: 'flow', depth: 1 }, 80, { from: 92 })).not.toContain('--from')
+  })
+  test('a run plays on into the window drawn ahead, for the same request and size only', () => {
+    const shown = { frames: [[], []], status: ['a', 'b'], first: 0, last: 9 } as unknown as Drawing
+    const next = { frames: [[], [], []], status: ['b', 'c', 'd'], first: 1, last: 9 } as unknown as Drawing
+    const ahead = { key: 'k', drawing: next }
+    expect(heldBy(shown, ahead, 'k', 1)).toBe(shown)          // shown still holds it
+    expect(heldBy(shown, ahead, 'k', 2)).toBe(next)           // played into the next window
+    expect(heldBy(shown, ahead, 'other', 2)).toBe(shown)      // drawn for another request or size
+    expect(heldBy(shown, null, 'k', 2)).toBe(shown)
+    expect(heldBy(shown, ahead, 'k', 7)).toBe(shown)          // neither holds it: a redraw's job
+    expect(playTick(heldBy(shown, ahead, 'k', 2), { at: 1, isPlaying: true })).toEqual({ at: 2, isPlaying: true })
   })
   test('a playing run plays every frame, waits at its window\'s end, stops at the last', () => {
     const run = { frames: [[], [], []], status: ['a', 'b', 'c'], first: 10, last: 20 } as unknown as Drawing
