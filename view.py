@@ -63,7 +63,7 @@ Options:
     --sim SCENARIO   Simulate a pathway of the design (sim.py): `happy` (every
                      default), a scenario's name (an unknown one lists them all),
                      or `a+b` to combine two. With --once: the final frame of the
-                     run drawn over the view, the sim legend, then the outcome and
+                     run (or --frame's) drawn over the view, the sim legend, then the outcome and
                      the run in plain words, one `tNNN …` line per step (sim.narrate).
                      Live: start in sim mode on that scenario.
                      `list`: the scenarios, one a line with its label. `all`: run
@@ -72,8 +72,11 @@ Options:
                      states, what failed, routes taken, ignored events, nodes left
                      waiting, open joins, bounds hit) and a summary line; diff
                      two versions' tables to see what changed. Exit status 0.
-    --frame N|last   Live, with --sim: start the run at frame N (0-based) or its
-                     last frame (past the end: the last), paused unless --play.
+    --frame N|last   With --sim: frame N of the run (0-based) or its last frame
+                     (past the end: the last). --once draws that frame instead of
+                     the final one, in any view (the run view: its playhead at
+                     it), and the path under the outcome is the path so far.
+                     Live: the run starts there, paused unless --play.
     --play           Live, with --sim: start the run playing (from --frame, else
                      from the first frame).
     --json           With --sim list / all: the same as JSON. With a scenario: that
@@ -560,6 +563,14 @@ def speed_text(fps: float) -> str:
     return f"{n} frame{'s' if fps > 1 else ''}/s"
 
 
+def frame_index(frame: int | None, last: int, default: int = 0) -> int:
+    """The frame a --frame N|last value shows in a run whose final frame is
+    `last`: N itself, the last for -1 or past the end, `default` for None."""
+    if frame is None:
+        return default
+    return frame if 0 <= frame <= last else last
+
+
 class UnknownScenario(LookupError):
     """A scenario name the document doesn't have; the message lists the known ones."""
 
@@ -676,7 +687,7 @@ class SimPlayer:
         """Where the run starts (--frame / --play): at `frame` (None: the first;
         -1 or past the end: the last), playing from there when `play` and it is
         not the last."""
-        self.at = 0 if frame is None else self.last if not 0 <= frame <= self.last else frame
+        self.at = frame_index(frame, self.last)
         self.playing = play and self.at < self.last
         self.due = now + self.interval
 
@@ -927,10 +938,13 @@ def sim_report(player: SimPlayer, cols: int = LEGEND_WIDTH, colour: bool = False
     and length, the run's path at the shown frame (path_rows, as the live view's
     row under its footer: the hop now bold, or `▸` without colour), the
     simulator's reading conventions, then the run in plain words — one `tNNN …`
-    line per beat (sim.narrate). The raw log is in --json."""
+    line per beat (sim.narrate). The raw log is in --json. A frame before the
+    final one (--frame) is named in the head: `· drawn at frame N (tT)`."""
     sc, trace = player.scenario, player.trace
     head = f"sim {sc.name}" + (f" ({sc.label})" if sc.label else "")
     head += f": {trace.outcome} · {len(trace.frames)} frames"
+    if player.at != player.last:
+        head += f" · drawn at frame {player.at} (t{trace.frames[player.at].tick:03d})"
     path = [kit.ansi(r, colour).rstrip()
             for r in path_rows(player.path_branches(), cols, mono=not colour)]
     conventions = simulator.Beat(0, 0, simulator.CONVENTIONS)
@@ -1398,7 +1412,7 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
          width: int | None = None, access: bool = False, mods: bool = False,
          events: str | None = None, sim: str | None = None, checks: bool = False,
          limits=None, view: str | None = None, unroll: int | None = None,
-         layout: str = LAYOUTS[0]) -> int:
+         layout: str = LAYOUTS[0], frame: int | None = None) -> int:
     """Print the drawing once, in `view` (a name in VIEWS; None: start_view —
     the tree view when `tree`, else DEFAULT_VIEW). The run view draws `sim`'s run as a
     timeline, or the happy run when no scenario is given (`unroll`: the
@@ -1408,9 +1422,10 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
     `layout` (LAYOUTS): pan draws the drawing at its natural width whatever
     `width` (the legend and the lines under it still wrap at it); wrap and auto
     fit it — a printout grows down freely, so auto always wraps here.
-    `sim`: a scenario name — the run's final frame is drawn over the view and its
-    legend, outcome and log printed after the summary (raises UnknownScenario
-    for an unknown one). `checks`: the checks overlay over the drawing, its
+    `sim`: a scenario name — the run's frame `frame` (--frame N|last, as
+    frame_index reads it; None: the final frame) is drawn over the view (the
+    run view: its playhead there) and its legend, outcome and log printed after
+    the summary (raises UnknownScenario for an unknown one). `checks`: the checks overlay over the drawing, its
     legend, and the findings panel after lint (the checker failing: why, in
     its place; the exit status stays lint's).
     The summary line ends with the document's `#!mode`, when it has one."""
@@ -1424,7 +1439,7 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
     player = shown = None
     if sim is not None:
         player = SimPlayer(g, sim, limits)
-        player.at = player.last
+        player.at = frame_index(frame, player.last, default=player.last)
         shown = player.shown(options)
     overlay = check_failed = None
     if checks:
@@ -2338,12 +2353,14 @@ def main(argv=None) -> int:
                          f"width, or {ONCE_WIDTH} when the output is not a terminal)")
     ap.add_argument("--sim", default=None, metavar="SCENARIO",
                     help="simulate a run: happy (every default), a scenario's name, or "
-                         "a+b to combine two scenarios. --once prints the run's last frame, outcome "
-                         "and log; live, it starts with the run shown. list: the scenarios; "
+                         "a+b to combine two scenarios. --once prints the run's last frame "
+                         "(or --frame's), outcome and log; live, it starts with the run shown. list: the scenarios; "
                          "all: run every one and print a table of outcomes")
     ap.add_argument("--frame", type=_frame_arg, default=None, metavar="N|last",
-                    help="live, with --sim: start at frame N of the run (counting from 0) "
-                         "or at its last")
+                    help="with --sim: the frame of the run to show (counting from 0) or "
+                         "its last (past the end: the last). --once draws that frame in "
+                         "any view (the run view: its playhead there); live, the run "
+                         "starts there, paused unless --play")
     ap.add_argument("--play", action="store_true",
                     help="live, with --sim: start with the run playing")
     ap.add_argument("--limit", action="append", default=[], metavar="NAME=N",
@@ -2414,7 +2431,8 @@ def main(argv=None) -> int:
         try:
             return once(a.file, a.depth, a.payloads, not a.no_lint, dialect, colour, a.tree,
                         not a.no_triggers, not a.compact, a.notes, width, a.access, a.mods,
-                        a.events, a.sim, a.checks, limits, view, a.unroll, a.layout)
+                        a.events, a.sim, a.checks, limits, view, a.unroll, a.layout,
+                        a.frame)
         except UnknownScenario as exc:     # the message lists the known ones
             print(f"view.py: --sim: {exc}", file=sys.stderr)
             return 2
