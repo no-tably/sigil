@@ -6,6 +6,7 @@ node's lane below depth N."""
 from __future__ import annotations
 
 import contextlib
+import json
 import io
 import sys
 import unittest
@@ -72,6 +73,24 @@ class RunViewDepth(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             view.once(SHOP, 1, False, False, width=WIDTH, view="run")
         self.assertNotIn("[Risk]", out.getvalue())
+
+
+def json_lanes(argv: list[str]) -> list[str]:
+    """The lane labels `view.py SHOP --run --json <argv>` prints."""
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        view.main([str(SHOP), "--run", "--json", *argv])
+    return [lane["label"] for lane in json.loads(out.getvalue())["lanes"]]
+
+
+class RunJsonDepth(unittest.TestCase):
+    def test_run_json_folds_lanes_at_the_given_depth(self):
+        every, zero = json_lanes([]), json_lanes(["--depth", "0"])
+        self.assertIn("[Risk]", every)
+        self.assertNotIn("[Risk]", zero)
+        self.assertNotIn("[Payments]", zero)
+        self.assertIn("[Shop]", zero)
+        self.assertEqual(json_lanes(["--depth", "all"]), every)
 
 
 if __name__ == "__main__":
