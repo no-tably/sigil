@@ -33,6 +33,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import unittest
 import urllib.parse
 from pathlib import Path
@@ -51,6 +52,7 @@ def _load(name: str, path: Path):
 
 site = _load("sigil_build_site_t", SITE / "build_site.py")
 themes = _load("sigil_themes_site_t", _DIR / "themes.py")
+viewkit = _load("sigil_viewkit_site_t", _DIR / "viewkit.py")
 YAML_CASES = json.loads((_DIR / "tests" / "fixtures" / "yaml_cases.json").read_text(encoding="utf-8"))
 VAR_RE = re.compile(r"var\(--([\w-]+)")
 
@@ -484,6 +486,41 @@ class TestSiteJs(unittest.TestCase):
             with self.subTest(theme=path.name):
                 self.assertNotIn("error", res)
                 self.assertEqual(res["ok"], themes.parse(path.read_text(encoding="utf-8")))
+
+    CELL_JS = ("// ------------------------------------------------------------------ cell width",
+               "// ------------------------------------------------------------------ YAML subset")
+
+    def test_cell_width_matches_viewkit(self):
+        """cellWidth counts every character Python's unicodedata knows (bar private
+        use) as viewkit.char_cells does, so the run section sizes a CJK frame right.
+        Marks are the browser's own Mn / Me: a character node's newer Unicode
+        re-categorised is left out."""
+        known = [c for c in range(0x110000) if unicodedata.category(chr(c)) not in ("Cn", "Cs", "Co")]
+        sample = "名前[支払い]é"
+        runs = []                      # known as [first, last] runs: a short node argument
+        for c in known:
+            if runs and runs[-1][1] == c - 1:
+                runs[-1][1] = c
+            else:
+                runs.append([c, c])
+        body = (_js_section(*self.CELL_JS)
+                + f"\nconst runs = {json.dumps(runs)}, sample = {json.dumps(sample)};\n"
+                + r"const mark = /[\p{Mn}\p{Me}]/u, got = [];"
+                + "for (const [a, b] of runs) for (let c = a; c <= b; c++) {"
+                  " const ch = String.fromCodePoint(c); got.push([charCells(ch), mark.test(ch)]); }"
+                  "process.stdout.write(JSON.stringify({ sample: cellWidth(sample), got }));")
+        out = json.loads(self._run(body))
+        wrong = [hex(c) for c, (cells, is_mark) in zip(known, out["got"])
+                 if is_mark == (unicodedata.category(chr(c)) in ("Mn", "Me"))
+                 and cells != viewkit.char_cells(chr(c))]
+        self.assertEqual(wrong[:20], [], f"{len(wrong)} characters disagree "
+                         f"(regenerate WIDE in site.js from unicodedata {unicodedata.unidata_version})")
+        self.assertEqual(out["sample"], viewkit.cell_width(sample))
+
+    def test_run_frame_width_counts_cells(self):
+        code = _js_section("  function runLoop", "  function currentSection")
+        self.assertIn("cellWidth(t)", code)
+        self.assertNotIn("[...String(t)].length", code)
 
     def test_highlighter_roles(self):
         code = _js_section("const RULES", "// ------------------------------------------------------------------ frames")
