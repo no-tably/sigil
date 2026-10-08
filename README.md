@@ -40,13 +40,12 @@ A line that starts with an arrow continues from the subject above.
 view, its default):
 
 ```
-── URL shortener ─────────────────────────────────────────
+── URL shortener ───────────────────────────────────────
 
-      (User) ─────▶ [Shortener] ─┬─▶ |Links|
-╭───✖┐(Visitor) ──▶ [Redirect] ──┼╌▶ <Clicked> ──▶ [Stats]
-│ ╭─▶┘                           │
-│ ╰──────────────────────────────┤
-╰────────────────────────────────╯
+    (User) ─────▶ [Shortener] ─┬─▶ |Links|
+╭─✖┐(Visitor) ──▶ [Redirect] ──┼╌▶ <Clicked> ──▶ [Stats]
+├─▶┘                           │
+╰──────────────────────────────╯
 
 shortener.sigil: 7 nodes, 8 edges, 0 expansions · #!sketch
 lint: OK
