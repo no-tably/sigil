@@ -56,7 +56,7 @@ scene = _sibling("sigil_scene", "scene.py")
 
 # ---------------------------------------------------------------------------
 # Layout — layered, top-down: _prepare → _layer → _order → _place_x → _ports →
-# _route → _draw, each phase filling in more of a _Layout.
+# _route → _paint, each phase filling in more of a _Layout.
 # ---------------------------------------------------------------------------
 
 BOX_H = 3
@@ -154,7 +154,7 @@ def _break_cycles(ids, succ):
 def layout(g, expanded: set, collapsed: set, tags: dict | None = None,
            styles: dict | None = None, selfs: dict | None = None,
            sim: Optional["SimLook"] = None, borders: dict | None = None,
-           wrap: int | None = None) -> kit.Canvas:
+           wrap: int | None = None, keep: dict | None = None) -> kit.Canvas:
     """g drawn as boxes and edges. `tags`: runs after a box's label (node id) or
     beside an edge's head (its wire key); `styles`: each wire key's stroke style
     (_wire_styles), an edge without one drawn in its arrow's style; `selfs`:
@@ -166,16 +166,50 @@ def layout(g, expanded: set, collapsed: set, tags: dict | None = None,
     border drawn in that style whatever its look (the checks overlay). `wrap`:
     the columns to fit — a layer wider than that wraps onto the layers below it
     (_wrap_layers), each row's boxes are kept inside it, and the unconnected
-    nodes' grid wraps at it; None: the natural layout."""
+    nodes' grid wraps at it; None: the natural layout.
+
+    `keep` (a kit.Plan slot: {} the first time): this drawing kept from frame
+    to frame of a run — laid out once (while its labels keep their widths),
+    then only the rows of the boxes, edges and tokens that look different
+    are drawn again (kit.Retained); the canvas returned is the kept one."""
     lay = _prepare(g, expanded, collapsed, tags, styles, selfs or {}, sim)
     lay.borders = borders or {}
     lay.wrap = wrap
+    shape = _shape(lay) if keep is not None else None
+    if keep and keep["shape"] == shape:
+        _laid_out_as(lay, keep["lay"])
+        sketch = keep["sketch"]
+        return keep["drawn"].repaint(_looks(lay, sketch),
+                                     lambda rows: _paint(lay, rows, sketch)[0])
     _layer(lay)
     _order(lay)
     _place_x(lay)
     _ports(lay)
     _route(lay)
-    return _draw(lay)
+    cv, sketch = _paint(lay)
+    if keep is not None:
+        keep.update(shape=shape, lay=lay, sketch=sketch,
+                    drawn=kit.Retained(cv, _looks(lay, sketch)))
+    return cv
+
+
+def _shape(lay: "_Layout") -> tuple:
+    """What a layout's places depend on beyond its graph: each label's width,
+    the edges, the self-call stubs' widths, the wrap — equal from frame to
+    frame of a run (badges are padded to their widest)."""
+    return (lay.wrap, tuple((nid, len(lab)) for nid, lab in lay.labels.items()),
+            tuple((e.src, e.dst, e.kind) for e in lay.edges),
+            tuple((nid, tuple(st.width() for st in sts)) for nid, sts in lay.stubs.items()))
+
+
+_PLACES = ("V", "chains", "layers", "out_port", "in_port", "tracks", "top", "dup",
+           "dup_track", "drops")       # what _layer … _route fill in
+
+
+def _laid_out_as(lay: "_Layout", done: "_Layout") -> None:
+    """lay placed as `done` (a layout of the same shape, _shape) was."""
+    for name in _PLACES:
+        setattr(lay, name, getattr(done, name))
 
 
 def _prepare(g, expanded, collapsed, tags, styles, selfs, sim) -> _Layout:
@@ -566,11 +600,35 @@ def _port_users(lay: _Layout) -> Counter:
     return users
 
 
-def _draw(lay: _Layout) -> kit.Canvas:
-    """Edges, then boxes over them, then edge labels where they fit, then the
-    grid of unconnected nodes, then a sim frame's tokens over it all."""
+class _Sketch(NamedTuple):
+    """What a layout's whole drawing (_paint) leaves for drawing it again row
+    by row: the rows each chain and each box (with its stubs) take, and what
+    is worked out over the whole drawing — the chains as tokens travel them,
+    the self-calls' token cells, each port's users, the size of the drawing
+    before the unconnected nodes' grid under it."""
+    chains: list                # per chain: the rows its cells take
+    boxes: dict                 # node id → the rows its box and stubs take
+    routes: list                # [_Route]
+    spots: "_SelfSpots"
+    ports: Counter              # _port_users
+    above: tuple                # (w, h) before the unconnected nodes
+
+
+def _paint(lay: _Layout, only: frozenset | None = None, sketch: _Sketch | None = None):
+    """(canvas, _Sketch): edges, then boxes over them, then edge labels where
+    they fit, then the grid of unconnected nodes, then a sim frame's tokens
+    over it all. `only` (rows) with the `sketch` of the layout's whole
+    drawing: just the chains and boxes taking any of those rows (so those rows
+    come out as the whole drawing draws them — everything drawn on a row takes
+    it — the rest of the canvas partial), the tokens placed by the sketch's
+    routes; the sketch is returned as given."""
     V, top, g = lay.V, lay.top, lay.g
     cv = kit.Canvas()
+    whole = only is None
+    chain_rows, box_rows = [], {}
+
+    def hit(rows) -> bool:
+        return whole or not only.isdisjoint(rows)
 
     def is_join(vid):
         return lay.kind(vid) == kit.JOIN
@@ -580,8 +638,10 @@ def _draw(lay: _Layout) -> kit.Canvas:
     edge_labels = []   # (x, y, runs) beside an arrowhead
     bar_style = {}     # join bar → the style of the edges it joins
     traces = []        # per chain: _Trace, for the shared-cell colour rule
-    ports = _port_users(lay)
+    ports = _port_users(lay) if whole else sketch.ports
     for ci, (e, rev, chain) in enumerate(lay.chains):
+        if not whole and not hit(sketch.chains[ci]):
+            continue
         key = _wire_key(g, e)
         style = lay.styles.get(key) or _unkeyed_style(e.kind, lay.sim is not None)
         trace = _Trace(style, rev, e.kind == "<->", edge=e)
@@ -659,6 +719,8 @@ def _draw(lay: _Layout) -> kit.Canvas:
                     heads.append((sx, y0, "▲", style))
                 if last and rev:
                     heads.append((dx, y1, "▼", style))
+    if whole:
+        chain_rows = [frozenset(y for _x, y in tr.cells) for tr in traces]
     for cell, st in _nearest_owners(traces, cv.lines).items():
         cv.lines[cell][2] = st
     for x, y, ch, st in heads:
@@ -668,11 +730,16 @@ def _draw(lay: _Layout) -> kit.Canvas:
     for vid, v in V.items():
         if v.dummy:
             continue
+        y = top[v.layer]
+        rows = box_rows[vid] = (range(y, y + BOX_H) if is_join(vid)
+                                else range(y, y + BOX_H + len(lay.stubs.get(vid, ()))))
+        if not hit(rows):
+            continue
         if is_join(vid):
-            _draw_join(cv, v, top[v.layer], lay.labels[vid], set(lay.in_port[vid].values()),
+            _draw_join(cv, v, y, lay.labels[vid], set(lay.in_port[vid].values()),
                        set(lay.out_port[vid].values()), *bar_style.get(vid, (None, "->")))
             continue
-        _place_box(cv, lay, vid, v.x, top[v.layer], v.w, spots)
+        _place_box(cv, lay, vid, v.x, y, v.w, spots)
 
     # Edge labels (e.g. state-machine triggers) beside their arrowhead, right side
     # first, then left; skipped where they would overwrite anything. A label
@@ -694,23 +761,61 @@ def _draw(lay: _Layout) -> kit.Canvas:
                 kit._put_runs(cv, x0, y, runs)
                 break
 
+    above = (cv.w, cv.h) if whole else sketch.above
     if lay.isolated:
-        wrap = max(cv.w, ISOLATED_WRAP)
+        wrap = max(above[0], ISOLATED_WRAP)
         if lay.wrap is not None:
             wrap = min(wrap, lay.wrap)
-        x, y = 0, cv.h + 1 if cv.h else 0
+        x, y = 0, above[1] + 1 if above[1] else 0
         row_h = BOX_H
         for vid in lay.isolated:
             w = len(lay.labels[vid]) + 4
             stubs = lay.stubs.get(vid, ())
             if x and x + _reach(w, stubs) > wrap:
                 x, y, row_h = 0, y + row_h, BOX_H
-            _place_box(cv, lay, vid, x, y, w, spots)
+            rows = box_rows[vid] = range(y, y + BOX_H + len(stubs))
+            if hit(rows):
+                _place_box(cv, lay, vid, x, y, w, spots)
             row_h = max(row_h, BOX_H + len(stubs))
             x += _reach(w, stubs) + 1
+    if whole:
+        sketch = _Sketch(chain_rows, box_rows, [tr.route() for tr in traces], spots, ports,
+                         above)
     if lay.sim is not None:
-        _draw_tokens(cv, lay.sim.tokens, [tr.route() for tr in traces], spots)
-    return cv
+        _draw_tokens(cv, lay.sim.tokens, sketch.routes, sketch.spots)
+    return cv, sketch
+
+
+def _looks(lay: _Layout, sketch: _Sketch) -> dict:
+    """{element: (its rows, its look)} of a layout drawn under its sim frame,
+    for kit.Retained: each chain's stroke style, each box's label, lead, look
+    and stub strokes (what _place_box reads), the tokens' cells."""
+    sim, styles, g = lay.sim, lay.styles, lay.g
+    out = {}
+    for ci, (e, _rev, _chain) in enumerate(lay.chains):
+        out[ci] = (sketch.chains[ci], styles.get(_wire_key(g, e))
+                   or _unkeyed_style(e.kind, sim is not None))
+    for vid, rows in sketch.boxes.items():
+        out[vid] = (rows, _box_inputs(lay, vid))
+    if sim is not None:
+        cells = tuple((_token_cell(tok, sketch.routes, sketch.spots), tok.mark, tok.style)
+                      for tok in sim.tokens)
+        out[("tokens",)] = (frozenset(c[1] for c, _m, _s in cells if c is not None), cells)
+    return out
+
+
+def _box_inputs(lay: _Layout, vid) -> tuple:
+    """What a box's drawing reads that a sim frame changes (_place_box,
+    _box_look, _draw_stubs): its label, lead, look, probe, tags and stubs'
+    strokes."""
+    sim, n = lay.sim, lay.g.nodes[vid]
+    stubs = tuple(lay.styles.get(st.wire.key) for st in lay.stubs.get(vid, ()))
+    if sim is None:
+        return lay.labels[vid], lay.tags.get(vid), stubs
+    key = n.attrs.get("key") if n.kind == kit.CHIP else None
+    return (lay.labels[vid], lay.tags.get(vid), stubs, sim.lead.get(vid),
+            sim.looks.get(vid), sim.states.get(key) if key is not None else None,
+            vid in sim.probe)
 
 
 def _place_box(cv: kit.Canvas, lay: _Layout, vid, x, y, w, spots: "_SelfSpots") -> None:
@@ -1312,7 +1417,8 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
              payloads: bool = False, scn=None, fit: int | None = None,
              marks: list | None = None, mods: bool = False, _secs=None, _level=None,
              _owner: Optional[str] = None, sim: Optional[SimLook] = None,
-             checks: Optional["kit.CheckMarks"] = None, wrap: int | None = None):
+             checks: Optional["kit.CheckMarks"] = None, wrap: int | None = None,
+             plan: Optional["kit.Plan"] = None):
     """Yield (title, graph, canvas) for the graph and its expansions up to depth.
     `scn`: the document's Scene (scene.build_scene; None: built without triggers
     or permissions) — what drives each machine draws as a dashed edge into it,
@@ -1331,7 +1437,9 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
     (kit.CheckMarks named as scn names things): each marked wire's stroke and
     marked box's border in its worst finding's style, over the sim's (the
     findings' numbers come in `tags`, check_tags). `wrap`: the columns each
-    part is laid out to fit (layout's; a frame's content FRAME_PAD fewer)."""
+    part is laid out to fit (layout's; a frame's content FRAME_PAD fewer).
+    `plan` (kit.Plan): each drawing kept in the plan's next slot (layout's
+    `keep`), for the next frame of a run."""
     if scn is None:
         scn = scene.build_scene(g, triggers=False, depth=depth)
     g = _landed(g, scn, _owner)
@@ -1357,7 +1465,8 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
         def draw(sub, fit):
             gc = with_chips(sub, payloads, scn, chip_marks, mods, chips)
             return layout(gc, show, collapsed, tags, styles,
-                          _self_calls(sub, calls, payloads, mods, chip_marks), sim, borders, fit)
+                          _self_calls(sub, calls, payloads, mods, chip_marks), sim, borders, fit,
+                          kit.slot(plan))
         main = draw(part.graph, within) if part.graph.nodes else kit.Canvas()
         inner = None if within is None else max(within - FRAME_PAD, 1)
         frames = [_framed(_frame_content(g, bi, eb, draw, tags, inner),
@@ -1398,7 +1507,8 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
             if getattr(sub, "role", "") == "state":
                 sub = scene.with_trigger_sources(scn, sub, nid)
             yield from sections(sub, depth, sub_title, level + 1, tags, payloads, scn,
-                                fit, marks, mods, secs, zoom or _level, nid, sim, checks, wrap)
+                                fit, marks, mods, secs, zoom or _level, nid, sim, checks, wrap,
+                                plan)
 
 
 def _drivers(scn) -> dict:
@@ -1790,7 +1900,8 @@ def all_payload_lines(g):
 
 def compose(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = True,
             width: int | None = None, access: bool = False, mods: bool = False,
-            events: str = "nodes", trace=None, tick: int = 0, checks=None):
+            events: str = "nodes", trace=None, tick: int = 0, checks=None,
+            memo: Optional["kit.FrameMemo"] = None):
     """The whole drawing as rows of (text, style) runs, plus its width. Each
     section's canvas is centred within the widest section. `payloads` draws each
     flow's payload as a chip on its edge; `triggers` wires each event to the owner
@@ -1831,22 +1942,27 @@ def compose(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = 
     checks overlay — a marked box's border and a marked wire's stroke in its
     worst finding's style (ui.error / ui.warn; an acknowledged one muted), each
     finding's number (`▲1`, `◆2`, `✓3`) after the box's label or beside the
-    wire's head; None: no overlay."""
+    wire's head; None: no overlay.
+
+    `memo` (kit.FrameMemo): kept by a caller drawing a run frame after frame —
+    the drawing is laid out once and each frame repaints what changed (the
+    same rows as without it); None: drawn from scratch."""
     return _compose(g, depth, payloads, notes, triggers, width, access, mods, events,
-                    trace, tick, probe=False, checks=checks)
+                    trace, tick, probe=False, checks=checks, memo=memo)
 
 
 def sim_focus(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = True,
               width: int | None = None, access: bool = False, mods: bool = False,
-              events: str = "nodes", trace=None, tick: int = 0):
+              events: str = "nodes", trace=None, tick: int = 0,
+              memo: Optional["kit.FrameMemo"] = None):
     """(x, y, w, h): the cells of compose's rows (same arguments) that frame
     `tick` of `trace` acts in — its tokens and its active boxes; None without a
     trace, or when the frame has nothing drawn in motion. Draws the frame once
-    more, as a probe (sim_look's `probe`)."""
+    more, as a probe (sim_look's `probe`; `memo` as compose's)."""
     if trace is None:
         return None
     rows, _w = _compose(g, depth, payloads, notes, triggers, width, access, mods, events,
-                        trace, tick, probe=True)
+                        trace, tick, probe=True, memo=memo)
     return _probed_box(rows)
 
 
@@ -1854,20 +1970,24 @@ _probed_box = kit.probed_box
 
 
 def _compose(g, depth, payloads, notes, triggers, width, access, mods, events,
-             trace, tick, probe: bool, checks=None):
+             trace, tick, probe: bool, checks=None, memo=None):
     """compose, with the frame's tokens and active boxes in _Probe styles when
     `probe` (sim_focus)."""
-    scn = scene.build_scene(g, events=events, triggers=triggers, access=access, depth=depth)
+    plan = (memo.plan(("graph", depth, payloads, notes, triggers, width, access, mods, events,
+                       probe), (g, trace, checks)) if memo is not None else None)
+    scn = kit.held(plan, "scene", lambda: scene.build_scene(g, events=events, triggers=triggers,
+                                                            access=access, depth=depth))
     idx = scn.notes if notes != "off" else {}
-    tags = _tags(scn, notes != "off", mods)
+    tags = dict(kit.held(plan, "tags", lambda: _tags(scn, notes != "off", mods)))
     look = (sim_look(scn, trace.frames[tick], _trace_slots(trace), probe)
             if trace is not None else None)
     for nid, runs in (look.badges if look else {}).items():
         tags[nid] = tags.get(nid, []) + runs
-    for at, runs in (check_tags(checks) if checks is not None else {}).items():
-        tags[at] = tags.get(at, []) + runs
+    if checks is not None:
+        for at, runs in kit.held(plan, "check tags", lambda: check_tags(checks)).items():
+            tags[at] = tags.get(at, []) + runs
     parts = list(sections(g, depth, tags=tags, payloads=payloads, scn=scn, mods=mods, sim=look,
-                          checks=checks))
+                          checks=checks, plan=plan))
     rows, drawing_w = _section_rows(parts, width)
     natural = rows + ([[], kit.section_rule("notes"), []] + kit.note_rows(idx) if idx else [])
     natural_w = max([drawing_w] + [kit.row_len(r) for r in natural])
@@ -1878,13 +1998,14 @@ def _compose(g, depth, payloads, notes, triggers, width, access, mods, events,
     chipped = payloads or mods
     if chipped and drawing_w > width:                               # (a)
         parts = list(sections(g, depth, tags=tags, payloads=payloads, scn=scn,
-                              fit=width, marks=marks, mods=mods, sim=look, checks=checks))
+                              fit=width, marks=marks, mods=mods, sim=look, checks=checks,
+                              plan=plan))
         rows, drawing_w = _section_rows(parts, width)
     if drawing_w > width:                                           # (b)
         marks = []
         parts = list(sections(g, depth, tags=tags, payloads=payloads, scn=scn,
                               fit=width if chipped else None, marks=marks if chipped else None,
-                              mods=mods, sim=look, checks=checks, wrap=width))
+                              mods=mods, sim=look, checks=checks, wrap=width, plan=plan))
         rows, drawing_w = _section_rows(parts, width)
     listed = sorted(e for entries in idx.values() for e in entries)
     block = [([(kit.note_label(num), kit.NOTE_STYLE[kind])], [(text, kind)])

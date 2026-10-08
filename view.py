@@ -1338,7 +1338,7 @@ def run_notes_of(notes: str) -> str:
 def compose_view(g, view, *, depth: int, payloads: bool, notes: str, triggers: bool,
                  spaced: bool, width: int | None, access: bool, mods: bool, events: str,
                  trace=None, tick: int = 0, checks=None, limits=None, unroll=None,
-                 run_notes: str | None = None):
+                 run_notes: str | None = None, memo=None):
     """(rows, width): the drawing of `g` in a view — a name in VIEWS, or a bool
     as the old tree flag (view_name) — see compose / compose_flow /
     compose_tree / compose_run. `trace`, `tick`: a simulation run drawn over it at
@@ -1349,7 +1349,9 @@ def compose_view(g, view, *, depth: int, payloads: bool, notes: str, triggers: b
     ChecksOverlay.run_marks), or None. The run view draws `trace` as a timeline
     (None: the happy run, said so; `limits` its bounds), its notes `run_notes`
     (a RUN_NOTES mode; None: run_notes_of(notes)), `unroll` the instances it
-    shows before folding (None: sim.RUN_SHOW, 0: all)."""
+    shows before folding (None: sim.RUN_SHOW, 0: all). `memo` (kit.FrameMemo):
+    kept by a caller that draws a run frame after frame, so each frame repaints
+    only what changed (the drawing is the same); None: from scratch."""
     view = view_name(view)
     if view == "run":
         return vrun.compose_run(g, trace, tick if trace is not None else None, width,
@@ -1357,17 +1359,19 @@ def compose_view(g, view, *, depth: int, payloads: bool, notes: str, triggers: b
                                 trace is not None)
     if view == "tree":
         return vtree.compose_tree(g, depth, triggers, spaced, notes, payloads, width, access,
-                                  mods, events, trace=trace, tick=tick, checks=checks)
+                                  mods, events, trace=trace, tick=tick, checks=checks,
+                                  memo=memo)
     if view == "flow":
         return vflow.compose_flow(g, depth, payloads, notes, triggers, width, access, mods,
-                                  events, trace=trace, tick=tick, checks=checks)
+                                  events, trace=trace, tick=tick, checks=checks, memo=memo)
     return vgraph.compose(g, depth, payloads, notes, triggers, width, access, mods, events,
-                          trace=trace, tick=tick, checks=checks)
+                          trace=trace, tick=tick, checks=checks, memo=memo)
 
 
 def sim_focus(g, view, *, depth: int, payloads: bool, notes: str, triggers: bool,
               spaced: bool, width: int | None, access: bool, mods: bool, events: str,
-              trace, tick: int, limits=None, unroll=None, run_notes: str | None = None):
+              trace, tick: int, limits=None, unroll=None, run_notes: str | None = None,
+              memo=None):
     """(x, y, w, h): the cells of compose_view's rows (same arguments) where frame
     `tick` of `trace` acts — its tokens and the nodes it has active — in any
     view; None when the frame has nothing drawn in motion. Draws the frame once
@@ -1375,16 +1379,17 @@ def sim_focus(g, view, *, depth: int, payloads: bool, notes: str, triggers: bool
     view = view_name(view)
     if view == "graph":
         return vgraph.sim_focus(g, depth, payloads, notes, triggers, width, access, mods,
-                                events, trace=trace, tick=tick)
+                                events, trace=trace, tick=tick, memo=memo)
     if view == "run":
         rows, _w = vrun.compose_run(g, trace, tick, width, run_notes or run_notes_of(notes),
                                     show=unroll, limits=limits, probe=True)
     elif view == "tree":
         rows, _w = vtree.compose_tree(g, depth, triggers, spaced, notes, payloads, width,
-                                      access, mods, events, trace=trace, tick=tick, probe=True)
+                                      access, mods, events, trace=trace, tick=tick, probe=True,
+                                      memo=memo)
     else:
         rows, _w = vflow.compose_flow(g, depth, payloads, notes, triggers, width, access, mods,
-                                      events, trace=trace, tick=tick, probe=True)
+                                      events, trace=trace, tick=tick, probe=True, memo=memo)
     return kit.probed_box(rows)
 
 
@@ -1596,6 +1601,8 @@ class ViewState:
         self.show_checks = checks      # c: the checks overlay and its panel
         self.checks = None             # ChecksOverlay of the current text (made while on)
         self.check_error = None        # why the checker could not run (a footer row)
+        self.memo = kit.FrameMemo()    # what a run's frames keep (compose_view's memo)
+        self._calls = None             # (graph, depth, payloads, drawn_call_marks of them)
 
     @property
     def fit(self) -> bool:
@@ -1643,6 +1650,7 @@ class ViewState:
         try:
             self.graph = kit._call(kit.render.parse_document, text, self.dialect)
             self.error = None
+            self.memo = kit.FrameMemo()    # what the last document's frames kept goes
         except Exception as exc:       # keep the last good graph on screen
             self.error = f"parse failed: {type(exc).__name__}: {exc}"
         self.diags = kit.run_lint(text, self.dialect)
@@ -1762,7 +1770,8 @@ class ViewState:
                             width=width, access=self.show_access, mods=self.show_mods,
                             events=self.events_mode, trace=self.sim_trace(),
                             tick=self.player.at if self.player else 0,
-                            checks=self.check_marks(), limits=self.limits, unroll=self.unroll)
+                            checks=self.check_marks(), limits=self.limits, unroll=self.unroll,
+                            memo=self.memo)
 
     def fitted(self, cols: int):
         """(rows, width): the drawing rearranged to fit `cols` columns when it can
@@ -1952,8 +1961,7 @@ class ViewState:
         if self.tree:
             legend = vtree.tree_legend(self.show_triggers, self.payloads, self.show_access,
                                        self.show_mods, self.events_mode,
-                                       calls=drawn_call_marks(self.graph, self.depth,
-                                                              self.payloads))
+                                       calls=self._call_marks())
         elif self.view == "flow":
             legend = [vflow.flow_legend(self.show_triggers, self.payloads, self.show_access,
                                         self.show_mods, self.events_mode)]
@@ -1973,6 +1981,15 @@ class ViewState:
         if self.sim_on and self.player is not None:
             rows += sim_story_rows(self.player, cols)
         return [kit.clip(r, 0, cols) for r in rows]
+
+    def _call_marks(self) -> frozenset:
+        """drawn_call_marks of the drawing, worked out once per graph, depth and
+        payloads (not once per frame of a run)."""
+        if (self._calls is None or self._calls[0] is not self.graph
+                or self._calls[1:3] != (self.depth, self.payloads)):
+            self._calls = (self.graph, self.depth, self.payloads,
+                           drawn_call_marks(self.graph, self.depth, self.payloads))
+        return self._calls[3]
 
     def _legend_rule(self, cols: int):
         """The rule above the lint panel, carrying the node-type colour legend."""
@@ -2026,7 +2043,8 @@ class ViewState:
                             access=self.show_access,
                             mods=self.show_mods, events=self.events_mode,
                             trace=self.sim_trace(), tick=self.player.at,
-                            limits=self.limits, unroll=self.unroll, run_notes=self.run_notes)
+                            limits=self.limits, unroll=self.unroll, run_notes=self.run_notes,
+                            memo=self.memo)
         except Exception:              # following is a nicety: never break the frame
             return False
         if box is None:

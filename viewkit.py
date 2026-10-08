@@ -7,6 +7,8 @@ draw with it. It holds:
     styles      the theme's colours as (fg, bg, bold) styles — apply_theme(),
                 use_theme(), use_dialect(), kind_color(), edge_style(), muted()
     Canvas      a grid of (char, style) cells with box-drawing strokes that merge
+    frames      FrameMemo, Plan, Retained: what a run drawn frame after frame
+                keeps — a drawing laid out once, then only what changed repainted
     runs        a glyph / payload / modifier / label as styled text runs; chips
     the model   helpers over render.py's Graph: expansions (_walk), joins,
                 access, sections, control blocks, notes and their tags
@@ -250,7 +252,12 @@ def use_dialect(dialect) -> None:
     _refresh_kinds()
 
 
+_STYLED = 0     # bumped when a theme or a dialect is applied: FrameMemo drops its plans
+
+
 def _refresh_kinds() -> None:
+    global _STYLED
+    _STYLED += 1
     KINDS.clear()
     KINDS.update(CORE_KINDS)
     themed = THEME.get("kinds", {})
@@ -453,6 +460,8 @@ class Canvas:
         self.lines: dict = {}   # (x, y) → [mask, stroke, style]
         self.w = 0
         self.h = 0
+        self._kept = None       # a kept canvas (keep_rows): y → its runs, once worked out
+        self._xs = None         # … and y → the columns drawn on it
 
     def _grow(self, x, y):
         self.w = max(self.w, x + 1)
@@ -572,6 +581,12 @@ class Canvas:
     def rows(self):
         """Yield each row as a list of (run_text, style) runs."""
         w, h = self.w, self.h
+        if self._kept is not None:                  # a kept canvas: each row worked out once
+            for y in range(h):
+                if y not in self._kept:
+                    self._kept[y] = self._runs(self._row_cells(y), w)
+                yield list(self._kept[y])
+            return
         if type(self).cell is not Canvas.cell:      # a subclass's cells: ask for each
             grid = [{x: self.cell(x, y) for x in range(w)} for y in range(h)]
         else:                                       # else only the drawn cells, by row
@@ -586,29 +601,78 @@ class Canvas:
                 if 0 <= x < w and 0 <= y < h:
                     grid[y][x] = v
         for cells in grid:
-            runs = []
-            last = None                 # the open run: [chars, style]
-            at = 0                      # the next column to fill
-            for x in sorted(cells) + [w]:
-                if x > at:              # blank cells up to x
-                    if last is not None and last[1] is None:
-                        last[0].append(" " * (x - at))
-                    else:
-                        last = [[" " * (x - at)], None]
-                        runs.append(last)
-                if x == w:
-                    break
-                ch, st = cells[x]
-                if last is not None and last[1] == st:
-                    last[0].append(ch)
+            yield self._runs(cells, w)
+
+    @staticmethod
+    def _runs(cells: dict, w: int) -> list:
+        """One row's runs: its drawn cells ({x: (char, style)}) merged by style,
+        the blanks between them unstyled, the last run's trailing blanks cut."""
+        runs = []
+        last = None                     # the open run: [chars, style]
+        at = 0                          # the next column to fill
+        for x in sorted(cells) + [w]:
+            if x > at:                  # blank cells up to x
+                if last is not None and last[1] is None:
+                    last[0].append(" " * (x - at))
                 else:
-                    last = [[ch], st]
+                    last = [[" " * (x - at)], None]
                     runs.append(last)
-                at = x + 1
-            out = [("".join(t), s) for t, s in runs]
-            if out:
-                out[-1] = (out[-1][0].rstrip(), out[-1][1])
-            yield [(t, s) for t, s in out if t]
+            if x == w:
+                break
+            ch, st = cells[x]
+            if last is not None and last[1] == st:
+                last[0].append(ch)
+            else:
+                last = [[ch], st]
+                runs.append(last)
+            at = x + 1
+        out = [("".join(t), s) for t, s in runs]
+        if out:
+            out[-1] = (out[-1][0].rstrip(), out[-1][1])
+        return [(t, s) for t, s in out if t]
+
+    def _row_cells(self, y: int) -> dict:
+        """{x: (char, style)}: the cells rows() reads on row y of a kept canvas."""
+        if type(self).cell is not Canvas.cell:
+            return {x: self.cell(x, y) for x in range(self.w)}
+        out, corners = {}, self.CORNERS
+        for x in sorted(self._xs.get(y, ())):
+            if not 0 <= x < self.w:
+                continue
+            v = self.text.get((x, y))
+            if v is None:
+                ch, style = _line_cell(self.lines[(x, y)])
+                v = (corners.get(ch, ch), style) if corners else (ch, style)
+            out[x] = v
+        return out
+
+    def keep_rows(self) -> "Canvas":
+        """This canvas kept from frame to frame of a run (Retained): its rows are
+        worked out once each and kept, and from now on only splice() may
+        change it. Returns itself."""
+        self._kept, self._xs = {}, {}
+        for x, y in itertools.chain(self.text, self.lines):
+            self._xs.setdefault(y, set()).add(x)
+        return self
+
+    def splice(self, other: "Canvas", ys) -> None:
+        """A kept canvas's rows `ys` replaced by the same rows of `other` (a
+        drawing of the same size whose rows ys are right; the rest of it may
+        be anything): their cells are other's, their runs worked out again."""
+        ys = set(ys)
+        for y in ys:
+            for x in self._xs.pop(y, ()):
+                self.text.pop((x, y), None)
+                self.lines.pop((x, y), None)
+            self._kept.pop(y, None)
+        for (x, y), v in other.text.items():
+            if y in ys:
+                self.text[(x, y)] = v
+                self._xs.setdefault(y, set()).add(x)
+        for (x, y), v in other.lines.items():
+            if y in ys:
+                self.lines[(x, y)] = list(v)
+                self._xs.setdefault(y, set()).add(x)
 
 
 def _first_fit(cols: list, lo: int, hi: int) -> int:
@@ -620,6 +684,125 @@ def _first_fit(cols: list, lo: int, hi: int) -> int:
             return k
     cols.append([(lo, hi)])
     return len(cols) - 1
+
+
+# ---------------------------------------------------------------------------
+# Frames — what drawing a run frame after frame keeps. A run's frames differ
+# only in how things look (a wire lit or muted, a label's status, a badge, a
+# token's cell); the layout holds still (every badge padded to its widest over
+# the run). So a view lays a drawing out once per plan (FrameMemo) and repaints
+# only the rows of what looks different (Retained).
+# ---------------------------------------------------------------------------
+
+class Plan:
+    """One drawing's plan, kept while its run plays: `held`, what the view
+    works out once (its Scene, the choices its wrap ladder made); and the
+    drawings one compose makes, in the order it makes them (slot()), so the
+    next frame's compose finds each where the last one left it."""
+
+    def __init__(self):
+        self.held: dict = {}
+        self._slots: list = []
+        self._at = 0
+
+    def begin(self) -> "Plan":
+        """Start a compose: slot() hands out the slots from the first again."""
+        self._at = 0
+        return self
+
+    def slot(self) -> dict:
+        """The next drawing's slot (a dict the view fills; {} the first time)."""
+        if self._at == len(self._slots):
+            self._slots.append({})
+        self._at += 1
+        return self._slots[self._at - 1]
+
+    def sub(self, name) -> "Plan":
+        """The plan of one way of drawing (a step of a wrap ladder, taken on
+        some frames only), slots of its own, begun."""
+        if ("sub", name) not in self.held:
+            self.held[("sub", name)] = Plan()
+        return self.held[("sub", name)].begin()
+
+
+def held(plan: Plan | None, name: str, make):
+    """make(), worked out once per plan (kept in plan.held under `name`); each
+    time without a plan."""
+    if plan is None:
+        return make()
+    if name not in plan.held:
+        plan.held[name] = make()
+    return plan.held[name]
+
+
+def slot(plan: Plan | None) -> dict | None:
+    """plan's next slot (Plan.slot); None without a plan."""
+    return plan.slot() if plan is not None else None
+
+
+class FrameMemo:
+    """What a caller that draws a run frame after frame (view.ViewState, a
+    pane) keeps between its frames: a Plan per drawing — a view, its options
+    and width, the document, the run and the checks overlay drawn — the
+    newest KEEP of them. Pass one to view.compose_view for every frame of a
+    run; a drawing made with it is the drawing made without it. A theme or a
+    dialect applied in between starts every plan afresh (what they keep is
+    drawn in the colours and kinds of then)."""
+    KEEP = 8
+
+    def __init__(self):
+        self._plans: list = []          # (key, held objects, Plan), newest last
+
+    def plan(self, key: tuple, holds: tuple) -> Plan:
+        """The Plan of the drawing `key` names (the view's name and options) of
+        the objects `holds` (the document, the run, the overlay: the same
+        objects, not equal ones), begun (Plan.begin)."""
+        key = (_STYLED,) + key
+        for i, (k, h, p) in enumerate(self._plans):
+            if k == key and len(h) == len(holds) and all(a is b for a, b in zip(h, holds)):
+                self._plans.append(self._plans.pop(i))
+                return p.begin()
+        p = Plan()
+        self._plans.append((key, holds, p))
+        del self._plans[:-self.KEEP]
+        return p.begin()
+
+
+class Retained:
+    """A drawing kept from frame to frame of a run: its canvas, and for each
+    element drawn on it (a box, a wire, the tokens …) the rows it takes and the
+    look it was drawn with. repaint() redraws only the rows of the elements
+    whose look or rows changed. Looks compare by value, as Canvas.rows merges
+    runs: a colour by its hex, whatever its theme role."""
+
+    def __init__(self, canvas: Canvas, now: dict):
+        """`now`: {element: (its rows, its look)} — every element of the drawing."""
+        self.canvas = canvas.keep_rows()
+        self.now = now
+
+    def repaint(self, now: dict, paint) -> Canvas:
+        """The canvas as drawn with the looks `now` (as __init__'s): the rows of
+        every element whose look or rows changed since the last paint (both its
+        old rows and its new) come from paint(rows) — a drawing whose rows
+        `rows` are right (of every element taking any of them, the rest may be
+        left out); the others are kept."""
+        old, dirty = self.now, set()
+        for e, (rows, look) in now.items():
+            was = old.get(e)
+            if was is None:
+                dirty.update(rows)
+            elif was[0] is not rows and was[0] != rows:
+                dirty.update(was[0])
+                dirty.update(rows)
+            elif was[1] != look:
+                dirty.update(rows)
+        for e in old.keys() - now.keys():
+            dirty.update(old[e][0])
+        dirty = frozenset(y for y in dirty if 0 <= y < self.canvas.h)
+        if dirty:
+            self.canvas.splice(paint(dirty), dirty)
+        self.now = now
+        return self.canvas
 
 
 # A payload drawn as code: glyphs with their kind's brackets and an off-white

@@ -222,7 +222,7 @@ def _sim_legend() -> list:
 def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
                  notes: str = "off", payloads: bool = False, width: int | None = None,
                  access: bool = False, mods: bool = False, events: str = "land",
-                 trace=None, tick: int = 0, checks=None, probe: bool = False):
+                 trace=None, tick: int = 0, checks=None, probe: bool = False, memo=None):
     """The drawing as outline rows with a lane gutter; same return shape as compose().
     `triggers`: draw event → state lanes. `events`: "land" draws a pass-through
     event where it lands — no row of its own, its emitters wired straight to its
@@ -271,66 +271,35 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     (ui.error / ui.warn; an acknowledged one muted), each finding's number
     (`▲1`, `◆2`, `✓3`) after its node's label, a wire's on its target's row;
     None: no overlay. `probe`: the frame's tokens and active labels drawn in
-    kit.Probe styles (sim_focus)."""
-    scn = scene.build_scene(g, events=events, triggers=triggers, access=access, depth=depth)
-    rows = [r for r in _tree_rows(g, depth)
-            if not (r.depth == 0 and r.node.id in scn.collapsed)]
-    if not rows:
+    kit.Probe styles (sim_focus). `memo` (kit.FrameMemo, kept by a caller
+    drawing a run frame after frame): the outline, its lanes and the wrap
+    ladder's step worked out on the first frame, each later one repainting
+    only the rows that look different (the drawing is the same as without it).
+    """
+    plan = (memo.plan(("tree", depth, triggers, spaced, notes, payloads, width, access, mods,
+                       events, probe), (g, trace, checks)) if memo is not None else None)
+    setup = kit.held(plan, "setup", lambda: _tree_setup(g, depth, triggers, spaced, notes,
+                                                        payloads, access, mods, events, checks))
+    if setup is None:
         return [], 0
+    rows, idx, blocks = setup.rows, setup.idx, setup.blocks
     frame = trace.frames[tick] if trace is not None else None
-    idx = scn.notes if notes != "off" else {}
-    wires = _lane_wires(scn)
-    homes = {u.owner: u.graph for u in scn.units}
-    if spaced:
-        rows = _space_units(rows)
-    rows, brackets = _tree_banners(rows, g)
-    xs, x0 = _bracket_cols(brackets)
-    after_label = _tree_extras(scn, mods)
-    if checks is not None:
-        for nid, runs in check_extras(scn, checks).items():
-            after_label[nid] = after_label.get(nid, []) + runs
-    calls = _self_call_rows(scn, rows)
-    marks = _call_marks(scn, rows, calls, frame)
-    sim_rows = _sim_rows(scn, rows, trace, frame, probe) if trace is not None else None
-    joins = scene.join_marks(scn)
-    # Block notes are about a component: tagged on its row, called out on the
-    # left. Inline notes are about their line: they trail it on the right, after
-    # the payload the line carries — as in the source.
-    blocks = {nid: [e for e in es if e[2] == "block"] for nid, es in idx.items()}
-    blocks = {nid: es for nid, es in blocks.items() if es and nid != kit.DOC_NOTE}
     chipped = payloads or mods
-    chip_lists = scene.chip_lists(scn, payloads, mods) if chipped else {}
-    self_chips = _self_call_chips(calls, payloads, mods, frame) if chipped else {}
-    trailing = scene.wire_notes(scn) if notes != "off" else {}
+    look = _TreeLook(frame, probe, _call_marks(setup.scn, rows, setup.calls, frame),
+                     _sim_rows(kit.held(plan, "stage", lambda: _sim_stage(setup.scn, rows, trace)),
+                               rows, frame, probe) if trace is not None else None,
+                     _self_call_chips(setup.calls, payloads, mods, frame) if chipped else {})
     bases = {}
 
     def base(left: bool, right: bool, keep: int | None = None):
-        """The outline, lanes and right margin; `left`: callouts relocated (so
-        rows carry #N tags), `right`: the right margin relocated; `keep`: the
-        gutter columns kept, the lanes past them folded (None: none folded)."""
+        """The outline, lanes and right margin (_base): `left`: callouts
+        relocated (so rows carry #N tags), `right`: the right margin relocated;
+        `keep`: the gutter columns kept, the lanes past them folded (None: none
+        folded). Each kept in the plan from frame to frame of a run."""
         if (left, right, keep) not in bases:
-            cv = kit.Canvas()
-            out = _draw_outline(cv, rows, blocks, show_tags=notes != "callouts" or left,
-                                x0=x0, extra=after_label, marks=marks, sim=sim_rows)
-            _draw_brackets(cv, brackets, xs, x0)
-            gutter = max(out.ends) + 3
-            lanes = _pack_lanes(_collect_lanes(cv, wires, out, homes), gutter, frame)
-            if keep is not None:
-                lanes = _fold_lanes(lanes, gutter, keep)
-            if checks is not None:
-                lanes = _check_lanes(lanes, checks)
-            _draw_lanes(cv, lanes, out.ends, muted_sources=frame is not None)
-            _draw_join_taps(cv, lanes, out.ends, joins)
-            if frame is not None:
-                _draw_tokens(cv, frame.tokens, lanes, _self_call_cells(calls, out), probe)
-            moved = [] if right else None
-            chips, drawn = _row_chips(lanes, chip_lists, self_chips)
-            _draw_right_margin(cv, lanes, out, chips, trailing, notes, moved)
-            for y, row in enumerate(rows):      # section rules run the full width
-                if isinstance(row, Banner) and row.kind == "section" and out.ends[y] < cv.w:
-                    cv.put(out.ends[y], y, "─" * (cv.w - out.ends[y]), kit.SECTION_STYLE)
-            bases[(left, right, keep)] = (list(cv.rows()), cv.w, out, drawn, moved or [],
-                                          lanes, gutter)
+            kept = (plan.held.setdefault(("base", left, right, keep), {})
+                    if plan is not None else None)
+            bases[(left, right, keep)] = _base(setup, look, _Way(left, right, keep), kept)
         return bases[(left, right, keep)]
 
     def assemble(left: bool, right: bool, tw: int, keep: int | None = None):
@@ -341,35 +310,44 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
 
     callouts = notes == "callouts" and bool(blocks)
     need = kit._callout_need(blocks) if callouts else kit.CALLOUT_TEXT
-    choice = (False, False, kit.CALLOUT_TEXT)
-    if width is not None:
-        out_rows, w = assemble(*choice)
-        extra = _extras(g, idx, notes, payloads, base(False, False)[3], width=width)
-        fits = max([w] + [kit.row_len(r) for r in extra]) <= width
-        if fits and need > kit.CALLOUT_TEXT and assemble(False, False, need)[1] <= width:
-            choice = (False, False, need)           # room to show every callout whole
-        elif not fits:
-            shrink = range(need, kit.CALLOUT_MIN - 1, -1) if callouts else (kit.CALLOUT_TEXT,)
-            # Each margin arrangement, its callouts as wide as fit; an arrangement
-            # whose narrowest callouts don't fit is skipped whole.
-            tries = [[(False, False, tw) for tw in shrink], [(False, True, tw) for tw in shrink]]
-            if callouts:
-                tries += [[(True, False, need)], [(True, True, need)]]
-            tries = [t for group in tries if assemble(*group[-1])[1] <= width for t in group]
-            choice = next((t for t in tries if assemble(*t)[1] <= width),
-                          (callouts, True, need))
-    keep = None
-    over = assemble(*choice)[1] if width is not None else 0
-    if width is not None and over > width:
-        # the margins have given way and the lanes still don't fit: fold the
-        # lanes past the most gutter columns that then fit, else the fold that
-        # is narrowest (folding none when that is)
-        lanes, gutter = base(*choice[:2])[5:]
-        reach = {k: _fold_reach(lanes, gutter, k) for k in range(_lane_cols(lanes, gutter))}
-        keep = next((k for k in sorted(reach, reverse=True) if reach[k] <= width),
-                    min(reach, key=lambda k: (reach[k], -k), default=None))
-        if keep is not None and reach[keep] >= over:
-            keep = None
+
+    def choose():
+        """(left, right, callout width), the gutter columns kept (None: no
+        lane folded): the ladder's step, the first that fits `width`."""
+        choice = (False, False, kit.CALLOUT_TEXT)
+        if width is not None:
+            out_rows, w = assemble(*choice)
+            extra = _extras(g, idx, notes, payloads, base(False, False)[3], width=width)
+            fits = max([w] + [kit.row_len(r) for r in extra]) <= width
+            if fits and need > kit.CALLOUT_TEXT and assemble(False, False, need)[1] <= width:
+                choice = (False, False, need)       # room to show every callout whole
+            elif not fits:
+                shrink = range(need, kit.CALLOUT_MIN - 1, -1) if callouts else (kit.CALLOUT_TEXT,)
+                # Each margin arrangement, its callouts as wide as fit; an arrangement
+                # whose narrowest callouts don't fit is skipped whole.
+                tries = [[(False, False, tw) for tw in shrink],
+                         [(False, True, tw) for tw in shrink]]
+                if callouts:
+                    tries += [[(True, False, need)], [(True, True, need)]]
+                tries = [t for group in tries if assemble(*group[-1])[1] <= width for t in group]
+                choice = next((t for t in tries if assemble(*t)[1] <= width),
+                              (callouts, True, need))
+        keep = None
+        over = assemble(*choice)[1] if width is not None else 0
+        if width is not None and over > width:
+            # the margins have given way and the lanes still don't fit: fold the
+            # lanes past the most gutter columns that then fit, else the fold that
+            # is narrowest (folding none when that is)
+            lanes, gutter = base(*choice[:2])[5:]
+            reach = {k: _fold_reach(lanes, gutter, k) for k in range(_lane_cols(lanes, gutter))}
+            keep = next((k for k in sorted(reach, reverse=True) if reach[k] <= width),
+                        min(reach, key=lambda k: (reach[k], -k), default=None))
+            if keep is not None and reach[keep] >= over:
+                keep = None
+        return choice, keep
+
+    # The step is chosen on the first frame of a run (every frame lays out alike).
+    choice, keep = kit.held(plan, "ladder", choose)
     left, right, tw = choice
     out_rows, w = assemble(left, right, tw, keep)
     _r, _w, out, drawn, moved, _lanes, _gutter = base(left, right, keep)
@@ -392,6 +370,187 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
         out_rows = list(out_rows) + [[]] + kit.wide_hint("tree", "a row", w, width, None)
     out_rows = list(out_rows) + extra
     return out_rows, max([w] + [kit.row_len(r) for r in extra])
+
+
+class _TreeSetup(NamedTuple):
+    """What a tree drawing holds whatever sim frame is over it (_tree_setup):
+    worked out once per plan while a run plays."""
+    scn: object
+    rows: list                  # the outline's rows (TreeRow / Banner / None)
+    idx: dict                   # the notes drawn ({} when notes are off)
+    wires: list                 # _lane_wires
+    homes: dict                 # unit owner → its graph
+    brackets: list
+    xs: dict
+    x0: int
+    after_label: dict           # node id → runs after its label (_tree_extras, checks)
+    calls: dict                 # _self_call_rows
+    joins: dict                 # scene.join_marks
+    blocks: dict                # node id → its block notes
+    chip_lists: dict
+    trailing: dict              # scene.wire_notes (notes on)
+    notes: str                  # the notes mode drawn
+    checks: object              # the checks overlay's kit.CheckMarks (None: none)
+
+
+def _tree_setup(g, depth: int, triggers: bool, spaced: bool, notes: str, payloads: bool,
+                access: bool, mods: bool, events: str, checks) -> "_TreeSetup | None":
+    """compose_tree's _TreeSetup of g; None when the outline has no rows."""
+    scn = scene.build_scene(g, events=events, triggers=triggers, access=access, depth=depth)
+    rows = [r for r in _tree_rows(g, depth)
+            if not (r.depth == 0 and r.node.id in scn.collapsed)]
+    if not rows:
+        return None
+    idx = scn.notes if notes != "off" else {}
+    if spaced:
+        rows = _space_units(rows)
+    rows, brackets = _tree_banners(rows, g)
+    xs, x0 = _bracket_cols(brackets)
+    after_label = _tree_extras(scn, mods)
+    if checks is not None:
+        for nid, runs in check_extras(scn, checks).items():
+            after_label[nid] = after_label.get(nid, []) + runs
+    # Block notes are about a component: tagged on its row, called out on the
+    # left. Inline notes are about their line: they trail it on the right, after
+    # the payload the line carries — as in the source.
+    blocks = {nid: [e for e in es if e[2] == "block"] for nid, es in idx.items()}
+    blocks = {nid: es for nid, es in blocks.items() if es and nid != kit.DOC_NOTE}
+    return _TreeSetup(scn, rows, idx, _lane_wires(scn), {u.owner: u.graph for u in scn.units},
+                      brackets, xs, x0, after_label, _self_call_rows(scn, rows),
+                      scene.join_marks(scn), blocks,
+                      scene.chip_lists(scn, payloads, mods) if payloads or mods else {},
+                      scene.wire_notes(scn) if notes != "off" else {}, notes, checks)
+
+
+class _TreeLook(NamedTuple):
+    """What one sim frame changes in a tree drawing (None: no frame)."""
+    frame: object
+    probe: bool
+    marks: dict                 # _call_marks
+    sim_rows: Optional[dict]    # _sim_rows
+    self_chips: dict            # _self_call_chips
+
+
+class _Way(NamedTuple):
+    """How the outline, lanes and right margin are arranged (a step of the
+    wrap ladder): `left`, the callouts relocated (rows carry their #N tags);
+    `right`, the right margin relocated; `keep`, the gutter columns kept, the
+    lanes past them folded (None: none folded)."""
+    left: bool
+    right: bool
+    keep: Optional[int]
+
+
+class _Again(NamedTuple):
+    """A repaint of some rows of a tree drawing (_draw_base): the rows, and
+    what it takes from the whole drawing — its lanes (styled for the frame),
+    its outline (_Outline) and its width."""
+    rows: frozenset
+    lanes: list
+    laid: "_Outline"
+    width: int
+
+
+def _base(setup: _TreeSetup, look: _TreeLook, way: _Way, kept: dict | None) -> tuple:
+    """(rows, width, _Outline, drawn chip keys, moved, lanes, gutter): the
+    outline, lanes and right margin drawn (_draw_base) as `way` arranges them.
+    `kept` ({} the first time): the drawing kept from frame to frame of a
+    run — its lanes packed once, and only the rows whose look changed drawn
+    again (kit.Retained)."""
+    if kept:
+        lanes = _restyled(kept["lanes"], look.frame, setup.checks, kept["styles"])
+        retained = kept["drawn"]
+        cv = retained.repaint(
+            _base_looks(setup, look, kept["out"], lanes),
+            lambda rows: _draw_base(setup, look, way, _Again(rows, lanes, kept["out"],
+                                                              retained.canvas.w))[0])
+        return (list(cv.rows()), cv.w) + kept["rest"]
+    cv, out, lanes, drawn, moved, gutter = _draw_base(setup, look, way)
+    rest = (out, drawn, moved or [], lanes, gutter)
+    if kept is not None:
+        kept.update(lanes=lanes, out=out, rest=rest, styles={},
+                    drawn=kit.Retained(cv, _base_looks(setup, look, out, lanes)))
+    return (list(cv.rows()), cv.w) + rest
+
+
+def _draw_base(setup: _TreeSetup, look: _TreeLook, way: _Way,
+               again: _Again | None = None) -> tuple:
+    """(canvas, _Outline, lanes, drawn chip keys, moved, gutter): the outline
+    with its brackets, the lanes (packed, folded as `way` keeps them, styled
+    by the frame and the checks), the tokens, the right margin (relocated as
+    `way` says: moved) and the section rules. `again`: just the outline rows
+    and the lanes taking any of its rows — those rows come out as the whole
+    drawing draws them."""
+    s, frame = setup, look.frame
+    cv = kit.Canvas()
+    out = _draw_outline(cv, s.rows, s.blocks, show_tags=s.notes != "callouts" or way.left,
+                        x0=s.x0, extra=s.after_label, marks=look.marks, sim=look.sim_rows,
+                        only=again.rows if again else None, laid=again.laid if again else None)
+    out = again.laid if again else out
+    _draw_brackets(cv, s.brackets, s.xs, s.x0)
+    gutter = max(out.ends) + 3
+    found = _collect_lanes(cv, s.wires, out, s.homes)
+    if again:
+        lanes = again.lanes
+        shown = [ln for ln in lanes if not again.rows.isdisjoint(range(ln.lo, ln.hi + 1))]
+    else:
+        lanes = _pack_lanes(found, gutter, frame)
+        if way.keep is not None:
+            lanes = _fold_lanes(lanes, gutter, way.keep)
+        if s.checks is not None:
+            lanes = _check_lanes(lanes, s.checks)
+        shown = lanes
+    _draw_lanes(cv, shown, out.ends, muted_sources=frame is not None)
+    _draw_join_taps(cv, shown, out.ends, s.joins)
+    if frame is not None:
+        for x, y, mark, style in _token_cells(frame.tokens, lanes,
+                                              _self_call_cells(s.calls, out), look.probe):
+            cv.put(x, y, mark, style)
+    moved = [] if way.right else None
+    chips, drawn = _row_chips(lanes, s.chip_lists, look.self_chips)
+    _draw_right_margin(cv, lanes, out, chips, s.trailing, s.notes, moved)
+    if again and again.width > cv.w:            # a part of the drawing: the whole one's width
+        cv._grow(again.width - 1, 0)
+    for y, row in enumerate(s.rows):            # section rules run the full width
+        if isinstance(row, Banner) and row.kind == "section" and out.ends[y] < cv.w:
+            cv.put(out.ends[y], y, "─" * (cv.w - out.ends[y]), kit.SECTION_STYLE)
+    return cv, out, lanes, drawn, moved, gutter
+
+
+def _restyled(lanes: list, frame, checks, styles: dict) -> list:
+    """Packed lanes (_pack_lanes, folded or not) styled as a frame shows them:
+    each its wire's colour in its simulation state, a marked one in its
+    finding's style (_check_lanes). `styles`: {(lane, state): its style},
+    filled here — the same lanes' styles, worked out once each."""
+    out = []
+    for i, ln in enumerate(lanes):
+        state = _stroke_state(ln.idents, frame)
+        style = styles.get((i, state))
+        if style is None:
+            style = scene.wire_style(ln.wire, state)
+            if checks is not None:              # a marked lane: its finding's style
+                style = _check_lanes([ln._replace(style=style)], checks)[0].style
+            styles[(i, state)] = style
+        out.append(ln if ln.style == style else ln._replace(style=style))
+    return out
+
+
+def _base_looks(setup: _TreeSetup, look: _TreeLook, out: _Outline, lanes: list) -> dict:
+    """{element: (its rows, its look)} of a tree drawing under a frame, for
+    kit.Retained: each outline row's status and call marks, each lane's style,
+    each row's chips, the tokens' cells."""
+    sim_rows, marks = look.sim_rows or {}, look.marks
+    now = {("row", y): ((y,), (sim_rows.get(y), marks.get(y))) for y in set(sim_rows) | set(marks)}
+    for i, ln in enumerate(lanes):
+        now[("lane", i)] = (range(ln.lo, ln.hi + 1), ln.style)
+    chips, _drawn = _row_chips(lanes, setup.chip_lists, look.self_chips)
+    for y, row in chips.items():
+        now[("chips", y)] = ((y,), row)
+    if look.frame is not None:
+        cells = _token_cells(look.frame.tokens, lanes, _self_call_cells(setup.calls, out),
+                             look.probe)
+        now[("tokens",)] = (frozenset(y for _x, y, _m, _s in cells), cells)
+    return now
 
 
 class _Bracket(NamedTuple):
@@ -600,7 +759,8 @@ class _Outline:
 
 def _draw_outline(cv: kit.Canvas, rows, idx: dict, show_tags: bool = True, x0: int = 0,
                   extra: dict | None = None, marks: dict | None = None,
-                  sim: dict | None = None) -> _Outline:
+                  sim: dict | None = None, only: frozenset | None = None,
+                  laid: "_Outline | None" = None) -> _Outline:
     """The outline from column x0: rails, relation, label, the row's call marks
     (marks: {row: runs}, _call_marks), #N tag, the extra runs a node carries
     (modifiers, a writer badge, a branch arm's label) and (for a state) the
@@ -609,15 +769,35 @@ def _draw_outline(cv: kit.Canvas, rows, idx: dict, show_tags: bool = True, x0: i
     unit sits at its next row's label column, the rails it interrupts bridged.
     `sim` ({row: _SimRow}, _sim_rows): a simulation frame's look — every row a
     status slot before its label (its mark, if any), the label restyled by its
-    node's status, its badges after the call marks."""
+    node's status, its badges after the call marks.
+
+    `only` (rows) with `laid` (the _Outline of the whole outline): just the
+    rows `only` drawn as the whole outline draws them (and the rows a bridge or
+    a brace there reads); the _Outline returned is then partial."""
     out = _Outline([], {}, {}, {}, {}, {})
     slot = len(SIM_SLOT) if sim is not None else 0
     stack = []
     guides = _guides(rows)
     extra, extra_done, bridges = extra or {}, set(), []
+
+    def rail(y, step):
+        while 0 <= y < len(rows) and isinstance(rows[y], Banner):
+            y += step
+        return y if 0 <= y < len(rows) and isinstance(rows[y], TreeRow) else None
+
+    spans = _one_of_spans(rows)
+    drawn = None if only is None else _outline_rows(rows, only, spans, rail)
     for y, (row, guide) in enumerate(zip(rows, guides)):
         if row is None:
             out.ends.append(0)
+            continue
+        if drawn is not None and y not in drawn:    # not drawn: its first-row marks only
+            key = row.key if isinstance(row, Banner) else row.node.id
+            if key in idx and key not in out.tagged:
+                out.tagged[key] = y
+            if isinstance(row, TreeRow) and key in extra:
+                extra_done.add(key)
+            out.ends.append(laid.ends[y])
             continue
         if isinstance(row, Banner):
             x = x0
@@ -687,11 +867,6 @@ def _draw_outline(cv: kit.Canvas, rows, idx: dict, show_tags: bool = True, x0: i
         out.ends.append(x)
         out.by_id.setdefault(n.id, []).append(y)
 
-    def rail(y, step):
-        while 0 <= y < len(rows) and isinstance(rows[y], Banner):
-            y += step
-        return y if 0 <= y < len(rows) and isinstance(rows[y], TreeRow) else None
-
     for y, text_x in bridges:                   # rails run on through a block header
         above, below = rail(y - 1, -1), rail(y + 1, 1)
         if above is None or below is None:
@@ -701,12 +876,29 @@ def _draw_outline(cv: kit.Canvas, rows, idx: dict, show_tags: bool = True, x0: i
             if (cv.cell(x, above)[0] in "│┆├" and down in "│┆├└"):
                 dotted = down == "┆" or cv.cell(x + 1, below)[0] == INTERNAL_MARK
                 cv.put(x, y, "┆" if dotted else "│", kit.TREE_STYLE)
-    for first, last in _one_of_spans(rows):     # a brace joins the one-of set
+    for first, last in spans:                   # a brace joins the one-of set
+        if drawn is not None and not drawn.issuperset(range(first, last + 1)):
+            continue
         bx = max(out.ends[first:last + 1]) + 1
         for y in range(first, last + 1):
             piece = ONE_OF_BRACE[0 if y == first else 2 if y == last else 1]
             cv.put(bx, y, piece, kit.REL_STYLE)
             out.ends[y] = bx + 1
+    return out
+
+
+def _outline_rows(rows, only: frozenset, spans: list, rail) -> set:
+    """The outline rows to draw so that the rows `only` come out whole: those,
+    the rail rows above and below a block header among them (its bridge reads
+    them), and every row of a one-of set with a row among them (its brace
+    stands right of the set's widest row)."""
+    out = set(only)
+    for y in only:
+        if 0 <= y < len(rows) and isinstance(rows[y], Banner) and rows[y].kind == "block":
+            out.update(r for r in (rail(y - 1, -1), rail(y + 1, 1)) if r is not None)
+    for first, last in spans:
+        if any(first <= y <= last for y in only):
+            out.update(range(first, last + 1))
     return out
 
 
@@ -1105,9 +1297,17 @@ def _padded(runs: list, width: int) -> list:
     return runs + ([(" " * pad, None)] if pad > 0 else [])
 
 
-def _sim_rows(scn, rows, trace, frame, probe: bool = False) -> dict:
-    """{row index: _SimRow} for every outline row in `frame`; each node's badges
-    padded to its widest over the whole trace, so the layout holds still."""
+class _SimStage(NamedTuple):
+    """What every frame of a run reads its outline rows' looks against
+    (_sim_stage): the same for the whole trace."""
+    machines: dict              # row index → the owner of the state unit it is drawn in
+    hidden: set                 # the owners of machines tracked but not drawn
+    names: dict                 # node id → its label
+    widest: dict                # node id → its widest badges over the trace
+
+
+def _sim_stage(scn, rows, trace) -> _SimStage:
+    """_sim_rows' _SimStage of a trace drawn over these rows."""
     owner = {id(u.graph): u.owner for u in scn.units}
     drawn_machines = {owner.get(id(r.graph)) for r in rows
                       if isinstance(r, TreeRow) and getattr(r.graph, "role", "") == "state"}
@@ -1115,16 +1315,23 @@ def _sim_rows(scn, rows, trace, frame, probe: bool = False) -> dict:
     hidden = set().union(*(f.machines for f in trace.frames)) - drawn_machines
     nodes = {nid: n for cur in kit._walk(scn.graph) for nid, n in cur.nodes.items()}
     names = {nid: kit.node_label(n) for nid, n in nodes.items()}
-    widest = _trace_badge_widths(trace, nodes, hidden, names)
+    machines = {y: owner.get(id(r.graph)) for y, r in enumerate(rows)
+                if isinstance(r, TreeRow) and getattr(r.graph, "role", "") == "state"}
+    return _SimStage(machines, hidden, names, _trace_badge_widths(trace, nodes, hidden, names))
+
+
+def _sim_rows(stage: _SimStage, rows, frame, probe: bool = False) -> dict:
+    """{row index: _SimRow} for every outline row in `frame` (of the trace
+    `stage` was worked out for); each node's badges padded to its widest over
+    the whole trace, so the layout holds still."""
     out = {}
     for y, r in enumerate(rows):
         if not isinstance(r, TreeRow):
             continue
-        state_unit = getattr(r.graph, "role", "") == "state"
-        status = _row_status(r, owner.get(id(r.graph)) if state_unit else None, frame)
+        status = _row_status(r, stage.machines.get(y), frame)
         out[y] = _SimRow(status, STATUS_MARK.get(status, ""),
-                         _padded(_badge_runs(r.node, frame, hidden, names),
-                                 widest.get(r.node.id, 0)), probe and status == "active")
+                         _padded(_badge_runs(r.node, frame, stage.hidden, stage.names),
+                                 stage.widest.get(r.node.id, 0)), probe and status == "active")
     return out
 
 
@@ -1224,12 +1431,14 @@ def _token_row(lane: _Lane, at: float) -> int:
     return round(src + at * (dst - src))
 
 
-def _draw_tokens(cv: kit.Canvas, tokens, lanes, self_cells: dict, probe: bool = False):
-    """Each token over the drawing: in its lane's gutter column on _token_row, or
-    on a self-call's mark (self_cells, _self_call_cells); a later token (a later
-    task) on the same cell wins. Tokens on wires the tree does not draw are
-    skipped. `probe`: each in a kit.Probe style (sim_focus)."""
+def _token_cells(tokens, lanes, self_cells: dict, probe: bool = False) -> tuple:
+    """((x, y, mark, style), …): each token as drawn over the drawing, in task
+    order (a later token on the same cell wins): in its lane's gutter column on
+    _token_row, or on a self-call's mark (self_cells, _self_call_cells).
+    Tokens on wires the tree does not draw are left out. `probe`: each in a
+    kit.Probe style (sim_focus)."""
     lane_of = {i: ln for ln in lanes for i in ln.idents}
+    out = []
     for tok in tokens:
         if tok.wire in lane_of:
             ln = lane_of[tok.wire]
@@ -1239,7 +1448,8 @@ def _draw_tokens(cv: kit.Canvas, tokens, lanes, self_cells: dict, probe: bool = 
         else:
             continue
         mark, style = _token_glyph(tok, wire)
-        cv.put(x, y, mark, kit.Probe(style) if probe else style)
+        out.append((x, y, mark, kit.Probe(style) if probe else style))
+    return tuple(out)
 
 
 def check_extras(scn, checks) -> dict:

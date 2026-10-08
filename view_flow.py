@@ -404,10 +404,13 @@ def _join_mark(p: "_Path") -> str:
     return ""
 
 
-def _build(part: _Part, ctx: "_Ctx", band: "_BandSpec | None" = None) -> _Layout:
+def _build(part: _Part, ctx: "_Ctx", band: "_BandSpec | None" = None,
+           place: bool = True) -> _Layout:
     """A part's vertices and paths, columns, rows and channels. `band`: the part
     is one band of a wrapped part (_band_part): its columns are fixed, and its
-    plugs are vertices of their own."""
+    plugs are vertices of their own. `place`: False — the vertices and their
+    columns only, no rows or channels (a part a run's frame cuts into bands as
+    the first frame did: _banded reads its columns, never its rows)."""
     lay = _Layout(part)
     ids = list(part.nodes)
     selfs = ctx.selfs_of(part)
@@ -468,6 +471,8 @@ def _build(part: _Part, ctx: "_Ctx", band: "_BandSpec | None" = None) -> _Layout
     for vid, v in lay.V.items():
         if vid not in lay.isolated:
             lay.cols[v.col].append(vid)
+    if not place:
+        return lay
     _rows(lay)
     if _sort_heads(lay):                        # stacked heads in their sources' order
         _rows(lay)
@@ -1167,14 +1172,16 @@ def _hang(lay: _Layout, part: _Part, ctx: "_Ctx", strokes: list, col: dict,
     its part's nodes were given."""
     dim = (kit.GREY["dim"], None, False)
     base = part.base or part
+    by_src = {}
+    for st in strokes:
+        by_src.setdefault(st.src, []).append(st)
     for nid in part.nodes:
         key = (id(base), nid)
         if key not in ctx.hung_rows:
             v = lay.V[nid]
             budget = max(v.label_w, HANG)
             rows = _wrap_runs(ctx.hung_tags[nid], budget) if nid in ctx.hung_tags else []
-            outs = sorted((st for st in strokes if st.src == nid),
-                          key=lambda st: col[st.dst] <= col[st.src])
+            outs = sorted(by_src.get(nid, ()), key=lambda st: col[st.dst] <= col[st.src])
             for item in (it for st in outs for it in chips[st.key] if isinstance(it, _Hung)):
                 body = [row for runs in item.calls for row in _wrap_runs(runs, budget)]
                 if item.bare and body and (kit.row_len(body[-1]) + 1
@@ -1431,19 +1438,24 @@ def _band_part(part: _Part, ctx: "_Ctx", col: dict, lo: int, hi: int, groups: di
             _BandSpec(bcol, plugs, outs))
 
 
-def _banded(part: _Part, lay: _Layout, ctx: "_Ctx", width: int):
-    """(_Drawn, its widest band) of a part cut into bands to fit `width`: the
-    cut set with the fewest bands, then the fewest plugs, then the narrowest
-    widest band, then the earliest cuts — every cut set when the part has up to
-    BAND_SEARCH columns, else bands filled column by column. When none fits,
-    the one whose widest band is narrowest (fewer bands, then plugs, first).
-    None when the part has a single column."""
+def _banded(part: _Part, lay: _Layout, ctx: "_Ctx", width: int, cut: tuple | None = None,
+            kept: dict | None = None):
+    """(_Drawn, its widest band, the cut) of a part cut into bands to fit
+    `width`: the cut set with the fewest bands, then the fewest plugs, then the
+    narrowest widest band, then the earliest cuts — every cut set when the part
+    has up to BAND_SEARCH columns, else bands filled column by column. When
+    none fits, the one whose widest band is narrowest (fewer bands, then plugs,
+    first). None when the part has a single column. `cut`: (cut set, plug
+    labels) as a frame before chose them (_stack), every frame of a run cut
+    alike, its bands kept in `kept` (_stack's); None: choose."""
     n = len(lay.cols)
     if n < 2:
         return None
     strokes = [st for st in part.strokes if st.src != st.dst]
     col = {vid: v.col for vid, v in lay.V.items() if v.what == "node" and vid not in lay.isolated}
     index = _band_index(part, col)
+    if cut is not None:
+        return _stack(part, lay, ctx, col, cut[0], strokes, index, cut[1], kept)
     cache = {}
 
     def band_w(groups, lo, hi, band_of):
@@ -1502,12 +1514,16 @@ def _greedy(n: int, widths, width: int) -> tuple:
 
 
 def _stack(part: _Part, lay: _Layout, ctx: "_Ctx", col: dict, starts: tuple, strokes: list,
-           index: _BandIndex):
-    """(_Drawn, widest band): the bands of a cut set laid out, their cut ends
-    numbered in reading order (band by band, top to bottom), drawn one under
+           index: _BandIndex, labels: dict | None = None, kept: dict | None = None):
+    """(_Drawn, widest band, (starts, the plug labels)): the bands of a cut set
+    laid out, their cut ends numbered in reading order (band by band, top to
+    bottom; `labels`: {group: its number} as numbered before), drawn one under
     the other with a blank row between, and the part's unconnected nodes under
     them; a cut wire's route runs from its source to its cut end, then on from
-    its plug-in."""
+    its plug-in. `kept` ({band: (its look, layout, canvas)}, filled here): the
+    bands a frame before drew, each drawn again only when it looks different
+    (_band_look) — a band of a long run's chain is lit a few frames out of
+    many."""
     bounds = (0,) + starts + (len(lay.cols),)
     groups = _cut_groups(strokes, col, starts)
 
@@ -1521,17 +1537,32 @@ def _stack(part: _Part, lay: _Layout, ctx: "_Ctx", col: dict, starts: tuple, str
             out.append((_build(bpart, ctx, spec), spec))
         return out
 
-    bands = build({g: plug_label(1) for g in groups})
-    order = []                                  # the groups, their cut ends in reading order
-    for blay, _spec in bands:
-        ends = [p for p in blay.paths if p.stroke.key[0] == "\0plug"]
-        order += [p.stroke.key[1:] for p in sorted(ends, key=lambda p: blay.V[p.via[-1]].row)]
-    labels = {g: plug_label(k + 1) for k, g in enumerate(order)}
-    bands = build(labels)
+    def drawn(labels):
+        """[(band layout, its canvas)], each band kept in `kept` while it looks alike."""
+        out = []
+        for k, (lo, hi) in enumerate(zip(bounds, bounds[1:])):
+            bpart, spec = _band_part(part, ctx, col, lo, hi, groups, band_of, labels, index)
+            look = _band_look(bpart, spec, ctx) if kept is not None else None
+            if kept is not None and k in kept and kept[k][0] == look:
+                out.append(kept[k][1:])
+                continue
+            blay = _build(bpart, ctx, spec)
+            band = (blay, _draw(blay, ctx, isolated=False))
+            if kept is not None:
+                kept[k] = (look,) + band
+            out.append(band)
+        return out
+
+    if labels is None:
+        bands = build({g: plug_label(1) for g in groups})
+        order = []                              # the groups, their cut ends in reading order
+        for blay, _spec in bands:
+            ends = [p for p in blay.paths if p.stroke.key[0] == "\0plug"]
+            order += [p.stroke.key[1:] for p in sorted(ends, key=lambda p: blay.V[p.via[-1]].row)]
+        labels = {g: plug_label(k + 1) for k, g in enumerate(order)}
     cv, spots, marks, y, widest = _Canvas(), {}, {}, 0, 0
     cut, resumed = {}, []                       # group → its cut end's cells; resumes
-    for blay, _spec in bands:
-        bcv = _draw(blay, ctx, isolated=False)
+    for blay, bcv in drawn(labels):
         widest = max(widest, bcv.w)
         cv.blit(bcv, 0, y)
         spots.update({k: (x, yy + y) for k, (x, yy) in blay.spots.items()})
@@ -1543,16 +1574,29 @@ def _stack(part: _Part, lay: _Layout, ctx: "_Ctx", col: dict, starts: tuple, str
             else:
                 resumed.append((p, cells))
         y += bcv.h + 1
-    routes = {}
+    routes, group_of = {}, {}                   # group_of: stroke key → its (first) group
+    for gr, sts in groups.items():
+        for st in sts:
+            group_of.setdefault(st.key, gr)
     for p, cells in resumed:
         if p.via[0].startswith("\0pi"):
-            g = next(gr for gr, sts in groups.items() if p.stroke.key in [s.key for s in sts])
-            cells = cut.get(g, []) + cells
+            cells = cut.get(group_of[p.stroke.key], []) + cells
         for key in dict.fromkeys((p.stroke.key,) + p.stroke.rides):
             routes.setdefault(key, []).append(cells)
     if lay.isolated:
         _draw_isolated(cv, lay, ctx, cv.h + 1, spots, marks)
-    return _Drawn(cv, spots, marks, routes), widest
+    return _Drawn(cv, spots, marks, routes), widest, (starts, labels)
+
+
+def _band_look(bpart: _Part, spec: "_BandSpec", ctx: "_Ctx") -> tuple:
+    """What of a band a sim frame changes, as _build and _draw read it: each
+    label's runs (ctx.label: lead, status, badges, probe), each stroke's style,
+    each plug's, each self-call stub's stroke."""
+    selfs = ctx.selfs_of(bpart)
+    return (tuple(tuple(ctx.label(bpart, nid, selfs)) for nid in bpart.nodes),
+            tuple(ctx.style(st) for st in bpart.strokes),
+            tuple(pl.style for pl in spec.plugs),
+            tuple(ctx.styles.get(sb.wire.key) for s in selfs.values() for sb in s.stubs))
 
 
 # ---------------------------------------------------------------------------
@@ -1562,7 +1606,7 @@ def _stack(part: _Part, lay: _Layout, ctx: "_Ctx", col: dict, starts: tuple, str
 def compose_flow(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = True,
                  width: int | None = None, access: bool = False, mods: bool = False,
                  events: str = "nodes", trace=None, tick: int = 0, checks=None,
-                 probe: bool = False):
+                 probe: bool = False, memo=None):
     """The flow view as rows of (text, style) runs, plus its width — the same
     arguments and return as view_graph.compose(). Each part (the document or a
     section of it, then each drawn expansion and machine) is a call graph read
@@ -1583,8 +1627,14 @@ def compose_flow(g, depth: int, payloads: bool, notes: str = "off", triggers: bo
     `checks` (kit.CheckMarks named the same way): the checks overlay. `probe`:
     the frame's tokens and active labels drawn in kit.Probe styles (sim_focus).
     The step and the cuts are chosen on the frame's drawing, whose badge slots
-    are the run's (view_graph._trace_slots): every frame of a run wraps alike."""
-    scn = scene.build_scene(g, events=events, triggers=triggers, access=access, depth=depth)
+    are the run's (view_graph._trace_slots): every frame of a run wraps alike —
+    so with a `memo` (kit.FrameMemo, kept by a caller drawing a run frame
+    after frame) they are chosen on the first frame and kept (the drawing is
+    the same as without it)."""
+    plan = (memo.plan(("flow", depth, payloads, notes, triggers, width, access, mods, events,
+                       probe), (g, trace, checks)) if memo is not None else None)
+    scn = kit.held(plan, "scene", lambda: scene.build_scene(g, events=events, triggers=triggers,
+                                                            access=access, depth=depth))
     idx = scn.notes if notes != "off" else {}
     look = (vgraph.sim_look(scn, trace.frames[tick], vgraph._trace_slots(trace), probe)
             if trace is not None else None)
@@ -1596,12 +1646,17 @@ def compose_flow(g, depth: int, payloads: bool, notes: str = "off", triggers: bo
         return kit.stretch_rules(rows + tail, w), w
 
     args = (scn, depth, payloads, mods, notes != "off", look, checks)
-    rows, _w, drawing_w, _over = _part_rows(*args, None, width=width)
-    if width is None or drawing_w <= width:
-        return done(rows)
-    if payloads or mods:                        # (a)
+    # A run's frames start down the ladder at the step its first frame took.
+    start = LADDER.index(plan.held.get("step", LADDER[0]) if plan is not None else LADDER[0])
+    if start <= 0:
+        rows, _w, drawing_w, _over = _part_rows(*args, None, width=width,
+                                                plan=_step(plan, "natural"))
+        if width is None or drawing_w <= width:
+            return done(rows)
+    if (payloads or mods) and start <= 1:                         # (a)
         marks = []
-        fitted, fitted_w, _dw, _over = _part_rows(*args, marks, width=width)
+        fitted, fitted_w, _dw, _over = _part_rows(*args, marks, width=width,
+                                                  plan=_step(plan, "letters"))
         if marks:
             side = [(kit._chip_marker(letter), [(text, "code")]) for letter, text in marks]
             fitted = kit.stretch_rules(fitted, max(fitted_w, width))   # a title row is taken
@@ -1609,36 +1664,57 @@ def compose_flow(g, depth: int, payloads: bool, notes: str = "off", triggers: bo
                                     kit.CALLOUT_MAX)
             if max(kit.row_len(r) for r in fitted if not isinstance(r, kit.RuleRow)) <= width:
                 return done(fitted)
-    hung, _w, _dw, over = _part_rows(*args, None, hang=True, width=width)   # (b), (c)
+    hung, _w, _dw, over = _part_rows(*args, None, hang=True, width=width,   # (b), (c)
+                                     plan=_step(plan, "hung"))
     if over:                                    # (d)
         hung += [[]] + kit.wide_hint("flow", "a band", over, width)
     return done(hung, width)
 
 
+LADDER = ("natural", "letters", "hung")     # compose_flow's wrap ladder, its steps in order
+
+
+def _step(plan, name: str):
+    """The plan of the wrap ladder's step `name` (kit.Plan.sub), the step the
+    plan's frames take from now on (each frame of a run takes the step the
+    first one took); None without a plan."""
+    if plan is None:
+        return None
+    plan.held["step"] = name
+    return plan.sub(name)
+
+
 def _part_rows(scn, depth, payloads, mods, notes, look, checks, marks, hang: bool = False,
-               width: int | None = None):
+               width: int | None = None, plan=None):
     """Every part drawn, under its title, each centred within the widest; the
     tokens of a sim frame over them. Returns (rows, their width, the widest
     part's drawing, the widest band still wider than `width` or 0). `hang`:
-    chips hung (_hang), and each part wider than `width` cut into bands."""
+    chips hung (_hang), and each part wider than `width` cut into bands.
+    `plan` (kit.Plan): each part's cut kept in a slot, chosen on the first
+    frame of a run only."""
     ctx = _Ctx(scn, depth, payloads, mods, notes, look, checks, marks, hang, width)
     drawn, every, over = [], [], 0
 
     def draw(part, fit):
         """part's _Drawn (None: no nodes), banded to fit; its blocks' after it."""
         nonlocal over
-        d = None
+        d, kept = None, kit.slot(plan)
         if part.nodes:
-            lay = _build(part, ctx)
-            cv = _draw(lay, ctx)
-            d = _Drawn(cv, lay.spots, lay.marks, _routes(lay))
-            if hang and fit is not None and cv.w > fit:
-                banded = _banded(part, lay, ctx, fit)
-                if banded is not None:
-                    d = banded[0]
-                widest = banded[1] if banded is not None else cv.w
-                if widest > fit:
-                    over = max(over, widest + (width - fit))
+            cut = kept.get("cut") if kept is not None else None    # False: not cut
+            lay = _build(part, ctx, place=not cut)
+            if cut:
+                d, widest, cut = _banded(part, lay, ctx, fit, cut, kept.setdefault("bands", {}))
+            else:
+                cv = _draw(lay, ctx)
+                d, widest = _Drawn(cv, lay.spots, lay.marks, _routes(lay)), cv.w
+                if cut is None and hang and fit is not None and cv.w > fit:
+                    banded = _banded(part, lay, ctx, fit)
+                    if banded is not None:
+                        d, widest, cut = banded
+            if kept is not None:
+                kept["cut"] = cut or False
+            if hang and fit is not None and widest > fit:
+                over = max(over, widest + (width - fit))
             every.append(d)
         inner = None if fit is None else max(fit - vgraph.FRAME_PAD, 1)
         return d, [draw(bp, inner) for bp in part.blocks]
