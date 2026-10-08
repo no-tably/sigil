@@ -136,6 +136,14 @@ def compose(view, g, name: str, **kw):
     return view.compose_view(g, name, **kw)
 
 
+def frame_memo(view) -> dict:
+    """compose()'s memo keyword for a run's frames: {"memo": a fresh
+    view.kit.FrameMemo} — each frame then repaints only what changed, the
+    same rows — or {} from a view.py too old to have one."""
+    kind = getattr(getattr(view, "kit", None), "FrameMemo", None)
+    return {"memo": kind()} if kind else {}
+
+
 def window(start: int | None, count: int, last: int) -> range:
     """The run frames a draw holds: `start` … `start` + `count` - 1, kept within
     0 … `last` (start None: the `count` frames that end at the last one)."""
@@ -201,9 +209,10 @@ def draw(path: Path, view_name: str = "flow", depth: int = 1, width: int | None 
             picks = window(start, count, sim.last)
             drawn, status, log, say, trail, path_rows = [], [], [], [], [], []
             cols = width or view.LEGEND_WIDTH
+            memo = frame_memo(view)
             for at in picks:
                 sim.at = at
-                rows, _w = compose(view, g, view_name, trace=shown, tick=at, **kw)
+                rows, _w = compose(view, g, view_name, trace=shown, tick=at, **memo, **kw)
                 drawn.append(packed(rows, styles, frames))
                 status.append(_SPEED_RE.sub("", sim.status()))
                 log.append(sim.log_line())
