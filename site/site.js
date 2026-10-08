@@ -34,25 +34,36 @@
   // ------------------------------------------------------------------ cell width
   // The columns text takes in a frame, by viewkit.cell_width's rule: a wide
   // (East Asian W / F) character takes 2, a combining mark or zero-width
-  // character none, anything else 1. WIDE is Python's unicodedata table
-  // (Unicode 15.0) as ranges; tests/test_site.py checks it character by character.
+  // character none, anything else 1. WIDE is Python's unicodedata table as
+  // exact ranges, written by tools/wide_table.py (`--check` says if it is stale);
+  // tests/test_site.py checks it character by character.
   const WIDE = new RegExp(`[${[
-    String.raw`\u{1100}-\u{115f}\u{231a}-\u{231b}\u{2329}-\u{232a}\u{23e9}-\u{23ec}\u{23f0}\u{23f3}`,
-    String.raw`\u{25fd}-\u{25fe}\u{2614}-\u{2615}\u{2648}-\u{2653}\u{267f}\u{2693}\u{26a1}`,
+    String.raw`\u{1100}-\u{115f}\u{231a}-\u{231b}\u{2329}-\u{232a}\u{23e9}-\u{23ec}\u{23f0}`,
+    String.raw`\u{23f3}\u{25fd}-\u{25fe}\u{2614}-\u{2615}\u{2648}-\u{2653}\u{267f}\u{2693}\u{26a1}`,
     String.raw`\u{26aa}-\u{26ab}\u{26bd}-\u{26be}\u{26c4}-\u{26c5}\u{26ce}\u{26d4}\u{26ea}`,
     String.raw`\u{26f2}-\u{26f3}\u{26f5}\u{26fa}\u{26fd}\u{2705}\u{270a}-\u{270b}\u{2728}\u{274c}`,
     String.raw`\u{274e}\u{2753}-\u{2755}\u{2757}\u{2795}-\u{2797}\u{27b0}\u{27bf}\u{2b1b}-\u{2b1c}`,
-    String.raw`\u{2b50}\u{2b55}\u{2e80}-\u{303e}\u{3041}-\u{3247}\u{3250}-\u{4dbf}\u{4e00}-\u{a4c6}`,
-    String.raw`\u{a960}-\u{a97c}\u{ac00}-\u{d7a3}\u{f900}-\u{faff}\u{fe10}-\u{fe19}`,
-    String.raw`\u{fe30}-\u{fe6b}\u{ff01}-\u{ff60}\u{ffe0}-\u{ffe6}\u{16fe0}-\u{1b2fb}\u{1f004}`,
-    String.raw`\u{1f0cf}\u{1f18e}\u{1f191}-\u{1f19a}\u{1f200}-\u{1f320}\u{1f32d}-\u{1f335}`,
-    String.raw`\u{1f337}-\u{1f37c}\u{1f37e}-\u{1f393}\u{1f3a0}-\u{1f3ca}\u{1f3cf}-\u{1f3d3}`,
-    String.raw`\u{1f3e0}-\u{1f3f0}\u{1f3f4}\u{1f3f8}-\u{1f43e}\u{1f440}\u{1f442}-\u{1f4fc}`,
-    String.raw`\u{1f4ff}-\u{1f53d}\u{1f54b}-\u{1f54e}\u{1f550}-\u{1f567}\u{1f57a}`,
-    String.raw`\u{1f595}-\u{1f596}\u{1f5a4}\u{1f5fb}-\u{1f64f}\u{1f680}-\u{1f6c5}\u{1f6cc}`,
-    String.raw`\u{1f6d0}-\u{1f6d2}\u{1f6d5}-\u{1f6df}\u{1f6eb}-\u{1f6ec}\u{1f6f4}-\u{1f6fc}`,
-    String.raw`\u{1f7e0}-\u{1f7f0}\u{1f90c}-\u{1f93a}\u{1f93c}-\u{1f945}\u{1f947}-\u{1f9ff}`,
-    String.raw`\u{1fa70}-\u{1faf8}\u{20000}-\u{3fffd}`,
+    String.raw`\u{2b50}\u{2b55}\u{2e80}-\u{2e99}\u{2e9b}-\u{2ef3}\u{2f00}-\u{2fd5}`,
+    String.raw`\u{2ff0}-\u{2ffb}\u{3000}-\u{3029}\u{302e}-\u{303e}\u{3041}-\u{3096}`,
+    String.raw`\u{309b}-\u{30ff}\u{3105}-\u{312f}\u{3131}-\u{318e}\u{3190}-\u{31e3}`,
+    String.raw`\u{31f0}-\u{321e}\u{3220}-\u{3247}\u{3250}-\u{4dbf}\u{4e00}-\u{a48c}`,
+    String.raw`\u{a490}-\u{a4c6}\u{a960}-\u{a97c}\u{ac00}-\u{d7a3}\u{f900}-\u{faff}`,
+    String.raw`\u{fe10}-\u{fe19}\u{fe30}-\u{fe52}\u{fe54}-\u{fe66}\u{fe68}-\u{fe6b}`,
+    String.raw`\u{ff01}-\u{ff60}\u{ffe0}-\u{ffe6}\u{16fe0}-\u{16fe3}\u{16ff0}-\u{16ff1}`,
+    String.raw`\u{17000}-\u{187f7}\u{18800}-\u{18cd5}\u{18d00}-\u{18d08}\u{1aff0}-\u{1aff3}`,
+    String.raw`\u{1aff5}-\u{1affb}\u{1affd}-\u{1affe}\u{1b000}-\u{1b122}\u{1b132}`,
+    String.raw`\u{1b150}-\u{1b152}\u{1b155}\u{1b164}-\u{1b167}\u{1b170}-\u{1b2fb}\u{1f004}`,
+    String.raw`\u{1f0cf}\u{1f18e}\u{1f191}-\u{1f19a}\u{1f200}-\u{1f202}\u{1f210}-\u{1f23b}`,
+    String.raw`\u{1f240}-\u{1f248}\u{1f250}-\u{1f251}\u{1f260}-\u{1f265}\u{1f300}-\u{1f320}`,
+    String.raw`\u{1f32d}-\u{1f335}\u{1f337}-\u{1f37c}\u{1f37e}-\u{1f393}\u{1f3a0}-\u{1f3ca}`,
+    String.raw`\u{1f3cf}-\u{1f3d3}\u{1f3e0}-\u{1f3f0}\u{1f3f4}\u{1f3f8}-\u{1f43e}\u{1f440}`,
+    String.raw`\u{1f442}-\u{1f4fc}\u{1f4ff}-\u{1f53d}\u{1f54b}-\u{1f54e}\u{1f550}-\u{1f567}`,
+    String.raw`\u{1f57a}\u{1f595}-\u{1f596}\u{1f5a4}\u{1f5fb}-\u{1f64f}\u{1f680}-\u{1f6c5}`,
+    String.raw`\u{1f6cc}\u{1f6d0}-\u{1f6d2}\u{1f6d5}-\u{1f6d7}\u{1f6dc}-\u{1f6df}`,
+    String.raw`\u{1f6eb}-\u{1f6ec}\u{1f6f4}-\u{1f6fc}\u{1f7e0}-\u{1f7eb}\u{1f7f0}`,
+    String.raw`\u{1f90c}-\u{1f93a}\u{1f93c}-\u{1f945}\u{1f947}-\u{1f9ff}\u{1fa70}-\u{1fa7c}`,
+    String.raw`\u{1fa80}-\u{1fa88}\u{1fa90}-\u{1fabd}\u{1fabf}-\u{1fac5}\u{1face}-\u{1fadb}`,
+    String.raw`\u{1fae0}-\u{1fae8}\u{1faf0}-\u{1faf8}\u{20000}-\u{2fffd}\u{30000}-\u{3fffd}`,
   ].join("")}]`, "u");
   const ZERO_WIDTH = /[\p{Mn}\p{Me}\u200b-\u200d\u2060\ufeff]/u;
   const charCells = (ch) => (ch < "\x80" ? 1 : ZERO_WIDTH.test(ch) ? 0 : WIDE.test(ch) ? 2 : 1);

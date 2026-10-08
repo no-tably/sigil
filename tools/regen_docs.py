@@ -28,6 +28,7 @@ Standard library only.
 """
 from __future__ import annotations
 
+import argparse
 import os
 import re
 import subprocess
@@ -160,17 +161,31 @@ def readme_all(text: str) -> tuple[str, int]:
     return text, a + b + c + d + e
 
 
-def main() -> int:
-    check = "--check" in sys.argv[1:]
+DOCS = (("examples.md", examples), ("README.md", readme_all))
+
+
+def parse_args(argv):
+    ap = argparse.ArgumentParser(
+        prog="regen_docs.py",
+        description="Regenerate the drawings embedded in examples.md and README.md "
+                    "from view.py.")
+    ap.add_argument("--check", action="store_true",
+                    help="write nothing; exit 1 if any drawing is stale (for tests / CI)")
+    return ap.parse_args(argv)
+
+
+def main(argv=None, root: Path = ROOT, docs=DOCS) -> int:
+    """root: where the docs are; docs: (file name, its redraw) pairs."""
+    check = parse_args(argv).check
     stale = 0
-    for name, fn in (("examples.md", examples), ("README.md", readme_all)):
-        path = ROOT / name
-        text = path.read_text(encoding="utf-8")
-        new, changed = fn(text)
+    for name, fn in docs:
+        path = root / name
+        new, changed = fn(path.read_text(encoding="utf-8"))
         stale += changed
-        if changed and not check:
-            path.write_text(new, encoding="utf-8")
         print(f"{name}: {changed} drawing(s) {'stale' if check else 'updated'}")
+        if check or not changed:
+            continue
+        path.write_text(new, encoding="utf-8")
     return 1 if check and stale else 0
 
 

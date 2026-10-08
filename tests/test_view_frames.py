@@ -17,14 +17,16 @@ Covers:
   2. ViewState: a run played with its memo draws the frames a ViewState
      without one draws (follow, wrap and pan);
   3. a 500-flow chain (and, in the flow view, a tall design that fits): a
-     frame with the memo is the frame without it, in a fraction of the time
-     — CPU time, natural (as --layout pan draws) and fitted. Frames spread
-     over the run: the chain in the flow view ≥ 5× faster (measured 9-12×),
-     graph and tree ≥ 3× (measured 4.5-7×: each frame still works out the
-     run's look, sim_look, and every box's); the tall design's frames as
-     played ≥ 5× (measured 8-12×), spread ≥ 2× (measured 2.5-5×: a third of
-     its wires and labels look different between frames that far apart,
-     and each of those is painted again);
+     frame with the memo is the frame without it, for a fraction of the work
+     — natural (as --layout pan draws) and fitted. Work is counted, not
+     timed: the function calls (Python and built-in) the frames make, the
+     same on every run however busy the machine is. Frames spread over the
+     run: the chain in the flow view ≥ 4× fewer calls (counted 5.7-10×),
+     tree ≥ 3× (3.8×), graph ≥ 2× (2.5×: each frame still works out the
+     run's look, sim_look, and every box's; CPU time drops more, 4.5-7×);
+     the tall design's frames as played ≥ 3× (4×), spread ≥ 2× (2.5×: a
+     third of its wires and labels look different between frames that far
+     apart, and each of those is painted again);
   4. kit.Canvas.keep_rows / splice / patch / overlay: a kept canvas keeps its
      rows, rows spliced or cells patched in from another drawing come out as
      that drawing draws them, a frame's overlay goes when cleared;
@@ -40,7 +42,6 @@ import importlib.util
 import random
 import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
@@ -194,13 +195,31 @@ class TestViewState(unittest.TestCase):
                             st.key(".")
 
 
-class TestLongChain(unittest.TestCase):
-    """3. the 500-flow chain: the same frames, a fraction of the time."""
+def calls_made(fn):
+    """(the function calls, Python and built-in, fn() makes; what it returns):
+    a count of its work that doesn't change with the machine's load."""
+    made = 0
 
-    def speedup(self, g, v: str, width, played: bool = False) -> float:
-        """How many times faster frames are drawn with the memo than without
-        (the same frames; CPU time, the best of two): four spread over the
-        run, or (`played`) six in a row from its middle, as it plays."""
+    def count(_frame, event, _arg):
+        nonlocal made
+        if event in ("call", "c_call"):
+            made += 1
+
+    sys.setprofile(count)
+    try:
+        out = fn()
+    finally:
+        sys.setprofile(None)
+    return made, out
+
+
+class TestLongChain(unittest.TestCase):
+    """3. the 500-flow chain: the same frames, a fraction of the work."""
+
+    def fewer_calls(self, g, v: str, width, played: bool = False) -> float:
+        """How many times fewer calls frames take with the memo than without
+        (the same frames): four spread over the run, or (`played`) six in a
+        row from its middle, as it plays."""
         kw = kwargs(v, width, {})
         player, trace = shown(g, "happy", kw)
         memo = kit.FrameMemo()
@@ -208,36 +227,44 @@ class TestLongChain(unittest.TestCase):
         frames = ([player.last // 2 + k for k in range(6)] if played
                   else [player.last * k // 4 for k in range(1, 5)])
 
-        def timed(m):
-            best, out = None, None
-            for _rep in range(2):
-                start = time.process_time()
-                out = [view.compose_view(g, v, trace=trace, tick=t, memo=m, **kw)
-                       for t in frames]
-                took = time.process_time() - start
-                best = took if best is None else min(best, took)
-            return best, out
+        def draw(m):
+            return [view.compose_view(g, v, trace=trace, tick=t, memo=m, **kw) for t in frames]
 
-        slow, plain = timed(None)
-        fast, kept = timed(memo)
+        slow, plain = calls_made(lambda: draw(None))
+        fast, kept = calls_made(lambda: draw(memo))
         self.assertEqual(kept, plain, (v, width))
-        return slow / max(fast, 1e-9)
+        return slow / max(fast, 1)
 
-    def test_faster_and_same(self):
+    def test_fewer_calls_and_same(self):
         g = kit.render.parse_document(chain(500))
+        least = {"flow": 4, "tree": 3, "graph": 2}
         for v in VIEWS:
             for width in (None, 120):
                 with self.subTest(view=v, width=width):
-                    least = 5 if v == "flow" else 3
-                    self.assertGreater(self.speedup(g, v, width), least)
+                    self.assertGreater(self.fewer_calls(g, v, width), least[v])
 
     def test_flow_fits(self):
         """A drawing that fits the width is one part drawn whole, kept too."""
         g = kit.render.parse_document(rows_of_chains(120))
         for width in (None, 120):
             with self.subTest(width=width):
-                self.assertGreater(self.speedup(g, "flow", width, played=True), 5)
-                self.assertGreater(self.speedup(g, "flow", width), 2)
+                self.assertGreater(self.fewer_calls(g, "flow", width, played=True), 3)
+                self.assertGreater(self.fewer_calls(g, "flow", width), 2)
+
+    def test_calls_made_counts_work(self):
+        """The measure itself: twice the work is twice the calls, every time."""
+        def step(k):
+            return abs(k)
+
+        def work(n):
+            return [step(k) for k in range(n)]
+
+        once, out = calls_made(lambda: work(100))
+        twice, _ = calls_made(lambda: work(200))
+        self.assertEqual(out, list(range(100)))
+        self.assertEqual(calls_made(lambda: work(100))[0], once)
+        self.assertGreaterEqual(once, 200)                    # step and abs, each k
+        self.assertGreater(twice, once * 1.9)
 
 
 class TestRetained(unittest.TestCase):

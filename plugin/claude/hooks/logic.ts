@@ -445,7 +445,8 @@ export function colourOf(hex: string | null): number {
 // keeps its names as written and is measured by it.
 
 /** Inclusive [first, last] code point pairs that are W or F (combining marks
- * left out), from Python's unicodedata (tests/test_plugin_cells.py checks it). */
+ * left out), written from Python's unicodedata by tools/wide_table.py
+ * (tests/test_plugin_cells.py checks it). */
 const WIDE: readonly number[] = [
   0x1100, 0x115f, 0x231a, 0x231b, 0x2329, 0x232a, 0x23e9, 0x23ec, 0x23f0, 0x23f0, 0x23f3, 0x23f3,
   0x25fd, 0x25fe, 0x2614, 0x2615, 0x2648, 0x2653, 0x267f, 0x267f, 0x2693, 0x2693, 0x26a1, 0x26a1,
