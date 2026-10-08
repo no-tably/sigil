@@ -6,9 +6,9 @@
 ├┄┄ [LB] ───────────●     │
 ├┄┄ [App] ◀─────────┴─▶─● │
 ├┄┄ [Cache] ◀─────────┘ │ │
-└┄┄ [Data] ▸ ◀──────────┼─┤
-                        │ │
-[Data] ◀────────────────┴─┘
+└┄┄ [Data] ▸ ◀──────────┘ │
+                          │
+[Data] ◀──────────────────┘
 
 tree   ─ contains  ┄ := internals  & has  * spawns  ? when  $ from data  @ attached  ! alerts
        = gathers  _ one of  (N) weight

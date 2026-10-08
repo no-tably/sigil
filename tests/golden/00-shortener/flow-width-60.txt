@@ -1,10 +1,9 @@
-── URL shortener ─────────────────────────────────────────
+── URL shortener ───────────────────────────────────────
 
-      (User) ─────▶ [Shortener] ─┬─▶ |Links|
-╭───✖┐(Visitor) ──▶ [Redirect] ──┼╌▶ <Clicked> ──▶ [Stats]
-│ ╭─▶┘                           │
-│ ╰──────────────────────────────┤
-╰────────────────────────────────╯
+    (User) ─────▶ [Shortener] ─┬─▶ |Links|
+╭─✖┐(Visitor) ──▶ [Redirect] ──┼╌▶ <Clicked> ──▶ [Stats]
+├─▶┘                           │
+╰──────────────────────────────╯
 
 00-shortener.sigil: 7 nodes, 8 edges, 0 expansions
   · #!sketch

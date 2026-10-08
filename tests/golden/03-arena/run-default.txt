@@ -1,6 +1,7 @@
 ── run · happy — no scenario chosen: the happy run ─────────────────────────────────────────────────────────────────────────────────────────
 
-                0     ep2   ep3     20        30     37
+                      ep2   ep3
+                0         10        20        30     37
   [Physics]     █░░░░┆     ┆                             episode 1's entry
   {Transform·1} ├──▶█┆     ┆                             [Ship]'s
   {Transform·2} ├──▶█┆╭──▶█┆                             [Bullet·1]'s; runs 2×

@@ -1,6 +1,7 @@
 ── run · happy — no scenario chosen: the happy run ─────────────────────────────────────────────────────────────────────────────────────────
 
-             0         10         ep2      30
+                                  ep2
+             0         10        20        30
   (Shopper)  █░░░░░░░░░          ┆              episode 1's entry; calls [Checkout]
   [Checkout] ╰──▶██░░░░╮         ┆              calls {Order}; emits <Placed>, doesn't wait
   {Order}         ╰──▶█╎         ┆

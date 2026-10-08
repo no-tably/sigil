@@ -1,27 +1,27 @@
-   ── L1 · crawl ─────────────────────────────────────────
+   ── L1 · crawl ───────────────────────────────────────
    (Operator) ─────────────────────────●
-   [Scheduler] ↺ ◀─────────────────────┴━◆───────────●┄┆a┆
-   {Plan} ◀━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛           │
-   [Crawler] ↺ ◀───────────────────────────────●─○─●─┤┄┆b┆           ┆a┆ ↺ plan({Seed}) ↩ {Plan}
-   [Fetcher] ◀─────────────────────────●─✖─▶───┤┄╎┄│┄│┄┆c┆               start({Seed})
-   (Web) ⇱ ◀───────────────────────────┘┄│┄│┄┄┄│┄╎┄│┄│┄┆d┆           ┆b┆ ↺ throttle(${host})
-   <FetchFailed> ◀───────────────────────┘ │   │ ╎ │ │                   crawl({Plan}) ↩ {Site}
-   |Robots| ◀──────────────────────────────┘┄┄┄│┄╎┄│┄│┄┆e┆           ┆c┆ fetch(${url})
-   [Metrics] ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌│╌┤┄│┄│┄┆f┆           ┆d┆ ⇱ http.get(${url})
-                                               │ ╎ │ │               ┆e┆ allowed(${url})
-┌─ [Parser] ◀──────────────────────────────●─┬─│─╎─┤┄│┄┆g┆           ┆f┆ count(${host})
-│  ├┄┄ [Lexer] ────────────────────────●   │ │ │ ╎ │ │               ┆g┆ parse({Page}) ↩ {Doc}
-│  └┄┄ [Builder] ↻ ◀───────────────────┘┄┄┄│┄│┄│┄╎┄│┄│┄┆h┆               parse({Page}) ↩ {Doc}
-│                                          │ │ │ ╎ │ │               ┆h┆ ↻ nest({Node})
-│  [Doc.walk] ↻ ◀──────────────────────────┘┄│┄│┄╎┄│┄│┄┆i┆               build(tokens) ↩ {Doc}
-├─ [Indexer] ──────────────────────────●─✖───● │ ╎ │ │               ┆i┆ ↻ child
-└─ ↺ loop @each page of {Site}.pages   │ │     │ ╎ │ │                   {Doc}
-   |Index| ◀───────────────────────────┴─┘┄┄┄┄┄│┄╎┄│┄│┄┆j┆           ┆j┆ reserve(${shard}) ↩ {Lease}
-   {Site}                                      │ ╎ │ │                   write({Doc}, {Lease})
-   [Notifier] ⇱ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄│┄╎┄│┄│┄┆k┆               ✖ release({Lease})
-                                               │ ╎ │ │               ┆k┆ ⇱ mail.send(${report})
-   [[follow]]                                  │ ╎ │ │               ┆l┆ ↻ follow(.links)
-   └┄┄ [Crawler] ↻ ◀───────────────────────────●─○─●─┘┄┆l┆               crawl({Plan}) ↩ {Site}
+   [Scheduler] ↺ ◀─────────────────────┴━◆─●┄┄┄┄┄┄┄┄┄┆a┆
+   {Plan} ◀━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛ │
+   [Crawler] ↺ ◀───────────────────────●───┴─────○─●┄┆b┆
+   [Fetcher] ◀─────────────────────────┴─●───✖─▶┄╎┄│┄┆c┆             ┆a┆ ↺ plan({Seed}) ↩ {Plan}
+   (Web) ⇱ ◀─────────────────────────────┘┄┄┄│┄│┄╎┄│┄┆d┆                 start({Seed})
+   <FetchFailed> ◀───────────────────────────┘ │ ╎ │                 ┆b┆ ↺ throttle(${host})
+   |Robots| ◀──────────────────────────────────┘┄╎┄│┄┆e┆                 crawl({Plan}) ↩ {Site}
+   [Metrics] ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘┄│┄┆f┆             ┆c┆ fetch(${url})
+                                                   │                 ┆d┆ ⇱ http.get(${url})
+┌─ [Parser] ◀──────────────────────────────●─┬─────┘┄┆g┆             ┆e┆ allowed(${url})
+│  ├┄┄ [Lexer] ────────────────────────●   │ │                       ┆f┆ count(${host})
+│  └┄┄ [Builder] ↻ ◀───────────────────┘┄┄┄│┄│┄┄┄┄┄┄┄┆h┆             ┆g┆ parse({Page}) ↩ {Doc}
+│                                          │ │                           parse({Page}) ↩ {Doc}
+│  [Doc.walk] ↻ ◀──────────────────────────┘┄│┄┄┄┄┄┄┄┆i┆             ┆h┆ ↻ nest({Node})
+├─ [Indexer] ──────────────────────────●─✖───●                           build(tokens) ↩ {Doc}
+└─ ↺ loop @each page of {Site}.pages   │ │                           ┆i┆ ↻ child
+   |Index| ◀───────────────────────────┴─┘┄┄┄┄┄┄┄┄┄┄┄┆j┆                 {Doc}
+   {Site}                                                            ┆j┆ reserve(${shard}) ↩ {Lease}
+   [Notifier] ⇱ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┆k┆                 write({Doc}, {Lease})
+                                                                         ✖ release({Lease})
+   [[follow]]                                                        ┆k┆ ⇱ mail.send(${report})
+   └┄┄ [Crawler] ↻ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┆l┆             ┆l┆ ↻ follow(.links)
 
 tree   ─ contains  ┄ := internals  & has  * spawns  ? when  $ from data  @ attached  ! alerts
        = gathers  _ one of  (N) weight
