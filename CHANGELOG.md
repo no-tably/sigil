@@ -2,7 +2,7 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
-## 0.4.1 — 2026-10-08
+## 0.4.1 — 2026-10-09
 
 Fixes and speed-ups for what 0.4.0 shipped. No new features.
 
