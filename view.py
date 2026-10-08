@@ -1369,7 +1369,7 @@ def compose_view(g, view, *, depth: int, payloads: bool, notes: str, triggers: b
     if view == "run":
         return vrun.compose_run(g, trace, tick if trace is not None else None, width,
                                 run_notes or run_notes_of(notes), checks, unroll, limits,
-                                trace is not None)
+                                trace is not None, depth=depth)
     if view == "tree":
         return vtree.compose_tree(g, depth, triggers, spaced, notes, payloads, width, access,
                                   mods, events, trace=trace, tick=tick, checks=checks,
@@ -1395,7 +1395,7 @@ def sim_focus(g, view, *, depth: int, payloads: bool, notes: str, triggers: bool
                                 events, trace=trace, tick=tick, memo=memo)
     if view == "run":
         rows, _w = vrun.compose_run(g, trace, tick, width, run_notes or run_notes_of(notes),
-                                    show=unroll, limits=limits, probe=True)
+                                    show=unroll, limits=limits, probe=True, depth=depth)
     elif view == "tree":
         rows, _w = vtree.compose_tree(g, depth, triggers, spaced, notes, payloads, width,
                                       access, mods, events, trace=trace, tick=tick, probe=True,
