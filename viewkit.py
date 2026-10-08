@@ -1023,12 +1023,31 @@ class FrameMemo:
         return p.begin()
 
 
+def same_look(a, b) -> bool:
+    """a and b draw alike: equal, and each colour in them (a Colour, at the same
+    place in both) of the same theme role — "#6e7681" as edges-maybe is not
+    "#6e7681" as edges-split."""
+    return a is b or (a == b and _same_roles(a, b))
+
+
+def _same_roles(a, b) -> bool:
+    """Every colour in a of the role of its counterpart in b (a == b)."""
+    if isinstance(a, str):
+        return getattr(a, "role", "") == getattr(b, "role", "")
+    if isinstance(a, (tuple, list)):
+        return all(_same_roles(x, y) for x, y in zip(a, b))
+    if isinstance(a, dict):
+        return all(_same_roles(v, b[k]) for k, v in a.items())
+    return True
+
+
 class Retained:
     """A drawing kept from frame to frame of a run: its canvas, and for each
     element drawn on it (a box, a wire, the tokens …) the rows it takes and the
     look it was drawn with. repaint() redraws only the rows of the elements
-    whose look or rows changed. Looks compare by value, as Canvas.rows merges
-    runs: a colour by its hex, whatever its theme role."""
+    whose look or rows changed. Looks compare by value and by role
+    (same_look): a colour of another role repaints, though its hex is the same,
+    so the drawing keeps every colour's role (the page re-colours by role)."""
 
     def __init__(self, canvas: Canvas, now: dict):
         """`now`: {element: (its rows, its look)} — every element of the drawing."""
@@ -1049,7 +1068,7 @@ class Retained:
             elif was[0] is not rows and was[0] != rows:
                 dirty.update(was[0])
                 dirty.update(rows)
-            elif was[1] != look:
+            elif not same_look(was[1], look):
                 dirty.update(rows)
         for e in old.keys() - now.keys():
             dirty.update(old[e][0])

@@ -272,8 +272,9 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     None: no overlay. `probe`: the frame's tokens and active labels drawn in
     kit.Probe styles (sim_focus). `memo` (kit.FrameMemo, kept by a caller
     drawing a run frame after frame): the outline, its lanes and the wrap
-    ladder's step worked out on the first frame, each later one repainting
-    only the rows that look different (the drawing is the same as without it).
+    ladder's step worked out once while the frames lay out alike (_laid), each
+    later one repainting only the rows that look different (the drawing is the
+    same as without it).
     """
     plan = (memo.plan(("tree", depth, triggers, spaced, notes, payloads, width, access, mods,
                        events, probe), (g, trace, checks)) if memo is not None else None)
@@ -288,16 +289,17 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
                      _sim_rows(kit.held(plan, "stage", lambda: _sim_stage(setup.scn, rows, trace)),
                                rows, frame, probe) if trace is not None else None,
                      _self_call_chips(setup.calls, payloads, mods, frame) if chipped else {})
+    laid = _laid(plan, look)
     bases = {}
 
     def base(left: bool, right: bool, keep: int | None = None):
         """The outline, lanes and right margin (_base): `left`: callouts
         relocated (so rows carry #N tags), `right`: the right margin relocated;
         `keep`: the gutter columns kept, the lanes past them folded (None: none
-        folded). Each kept in the plan from frame to frame of a run."""
+        folded). Each kept from frame to frame of a run (while its layout holds, _laid)."""
         if (left, right, keep) not in bases:
-            kept = (plan.held.setdefault(("base", left, right, keep), {})
-                    if plan is not None else None)
+            kept = (laid.held.setdefault(("base", left, right, keep), {})
+                    if laid is not None else None)
             bases[(left, right, keep)] = _base(setup, look, _Way(left, right, keep), kept)
         return bases[(left, right, keep)]
 
@@ -345,8 +347,8 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
                 keep = None
         return choice, keep
 
-    # The step is chosen on the first frame of a run (every frame lays out alike).
-    choice, keep = kit.held(plan, "ladder", choose)
+    # The step is chosen again whenever a frame lays out unlike the last (_laid).
+    choice, keep = kit.held(laid, "ladder", choose)
     left, right, tw = choice
     out_rows, w = assemble(left, right, tw, keep)
     _r, _w, out, drawn, moved, _lanes, _gutter = base(left, right, keep)
@@ -428,6 +430,32 @@ class _TreeLook(NamedTuple):
     marks: dict                 # _call_marks
     sim_rows: Optional[dict]    # _sim_rows
     self_chips: dict            # _self_call_chips
+
+
+def _laid(plan, look: _TreeLook):
+    """The plan (kit.Plan) of the layout drawn under `look` — the wrap ladder's
+    step, the outline and lanes of each way tried — kept while a run's frames
+    lay out alike: a fresh one when this frame's _extent differs from the last
+    frame's (a mark, badge or chip of another width), so the ladder chooses
+    again for it. None without a plan."""
+    if plan is None:
+        return None
+    extent = _extent(look)
+    kept = plan.held.get("laid")
+    if kept is None or kept[0] != extent:
+        kept = plan.held["laid"] = (extent, kit.Plan())
+    return kept[1].begin()
+
+
+def _extent(look: _TreeLook) -> tuple:
+    """The columns a frame's own runs take on each row — its call marks, its
+    badges (the status slot is one column whatever the status), its self-call
+    chips: what of a frame the layout depends on."""
+    def widths(rows: dict, cells) -> tuple:
+        return tuple((y, cells(v)) for y, v in rows.items())
+    return (widths(look.marks, kit.row_len),
+            widths(look.sim_rows or {}, lambda r: kit.row_len(r.badges)),
+            widths(look.self_chips, lambda chips: tuple(kit.cell_width(t) for _w, t, _s in chips)))
 
 
 class _Way(NamedTuple):
