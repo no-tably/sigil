@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url'
 
 import {
   DEFAULT_WIDTH, DISPLAYS, LAYOUTS, START_SPEED, SUPERSEDED, UNASKED_COLUMNS, VIEWS,
-  askedFrame, cropRows, detectMux, displayReport, drawArgv, drawnFrame, frameIndex, frameMs, herdrPaneOf, herdrReadyArgv,
+  askedFrame, cellWidth, cropRows, cutCells, detectMux, displayReport, drawArgv, drawnFrame, frameIndex, frameMs, herdrPaneOf, herdrReadyArgv,
   lastFrame, layoutReport, nextSpeed, panTo, parseCommandArgs, parseDisplayArgs, parseDrawing, parseLayoutArgs, parseRequest,
   pickDisplay, pickLayout, playbackFor, playTick, replyText, resolveDisplay, runLines, shellQuote, slot, splitArgv,
   splitStart, statusLine, viewArgv, windowFor, windowStart,
@@ -173,9 +173,9 @@ export function ansiRow(row: PackedRow, styles: readonly Style[], width: number)
   return out
 }
 
-/** Plain text cut to `width` cells, in an SGR style (dim 2, bold 1, red 31). */
+/** Plain text cut to `width` columns (a wide character two), in an SGR style (dim 2, bold 1, red 31). */
 export function styled(text: string, width: number, sgr?: string): string {
-  const cut = [...text].slice(0, width).join('')
+  const cut = cutCells(text, width)
   return sgr === undefined ? cut : `\x1b[${sgr}m${cut}\x1b[0m`
 }
 
@@ -186,7 +186,7 @@ export function wrapped(text: string, width: number, sgr?: string): string[] {
   let line = ''
   for (const word of text.split(' ')) {
     const next = line === '' ? word : `${line} ${word}`
-    if ([...next].length > width && line.trim() !== '') {
+    if (cellWidth(next) > width && line.trim() !== '') {
       out.push(line)
       line = `  ${word}`
     } else line = next

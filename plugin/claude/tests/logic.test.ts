@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import {
-  WINDOW, WINDOW_AHEAD, WINDOW_BACK, askedFrame, colourOf, cropRows, displayReport, drawArgv, drawnFrame, frameIndex,
+  WINDOW, WINDOW_AHEAD, WINDOW_BACK, askedFrame, cellWidth, charCells, colourOf, cropRows, cutCells, displayReport, drawArgv, drawnFrame, frameIndex,
   herdrPaneOf, herdrReadyArgv, holds, layoutOf, layoutReport, nextView, nextSpeed, panTo, parseCommandArgs, parseDisplayArgs,
   parseDrawing, parseLayoutArgs, parseRequest, pickDisplay, pickLayout, playbackFor, playTick, rasterCells, replyText,
   resolveDisplay, runLines, shellQuote, slices, slot, speedText, splitArgv, splitStart, statusLine, viewArgv, windowFor,
@@ -140,6 +140,12 @@ describe('commands', () => {
 })
 
 describe('cells', () => {
+  test('a wide character takes two columns, a combining mark none', () => {
+    expect([charCells('a'), charCells('界'), charCells('\u0301'), charCells('😀')]).toEqual([1, 2, 0, 2])
+    expect(cellWidth('(利用者)')).toBe(8)
+    expect(cutCells('a界b', 2)).toBe('a')
+    expect(cutCells('a界b', 3)).toBe('a界')
+  })
   test('a run in its colour, padded with the default', () => {
     expect(colourOf('#8b7aad')).toBe(0x8b7aad)
     expect(colourOf('#fff')).toBe(0xffffff)

@@ -11,7 +11,8 @@ export type ViewRequest = {
 
 export type ViewName = 'graph' | 'tree' | 'flow' | 'run'
 
-/** One packed row: [text, style id] runs (site/frames.py's packing). */
+/** One packed row: [text, style id] runs (site/frames.py's packing), each
+ * character one terminal column (pane.py draws a wide one as `??`). */
 export type PackedRow = [string, number][]
 
 /** A style: [foreground hex | null, background hex | null, bold]. */

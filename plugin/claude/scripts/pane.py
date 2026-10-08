@@ -41,8 +41,9 @@ Usage:
         split closes — removing both files. A view.py that fails (a bad flag,
         an unreadable file) leaves its message on screen and the loop waiting.
 
-Every cell is one terminal column: a wide or zero-width character becomes `?`
-so the mod's grid keeps the drawing's columns. Standard library only.
+Every character is one terminal column, so the mod's grid keeps the drawing's
+columns: a wide character becomes `??` (the two columns view.py gives it), a
+combining mark or zero-width character nothing. Standard library only.
 """
 
 from __future__ import annotations
@@ -87,18 +88,27 @@ def _load(name: str, path: Path):
 # draw
 # ---------------------------------------------------------------------------
 
+_ZERO_WIDTH = {"\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"}   # ZWSP ZWNJ ZWJ WJ BOM
+
+
 def cell(ch: str) -> str:
-    """`ch` when it fills exactly one terminal column, else `?`."""
-    if len(ch) != 1 or ord(ch) > 0xFFFF:
-        return "?"
-    if unicodedata.east_asian_width(ch) in ("W", "F") or unicodedata.category(ch)[0] in "MC":
+    """`ch` as the columns view.py draws it in (viewkit.char_cells), each one a
+    one-column character: a wide character `??`, a combining mark or zero-width
+    character nothing, any other that is not a printable BMP character `?`."""
+    kind = unicodedata.category(ch)
+    if kind in ("Mn", "Me") or ch in _ZERO_WIDTH:
+        return ""
+    if unicodedata.east_asian_width(ch) in ("W", "F"):
+        return "??"
+    if ord(ch) > 0xFFFF or kind[0] in "MC":
         return "?"
     return ch
 
 
 @functools.lru_cache(maxsize=4096)
 def cells(text: str) -> str:
-    """text with every cell() one column wide (a run's text recurs frame after frame)."""
+    """text as cell() draws each character, one column a character (a run's
+    text recurs frame after frame)."""
     if text.isascii() and text.isprintable():
         return text
     return "".join(ch if " " <= ch < "\x7f" else cell(ch) for ch in text)
