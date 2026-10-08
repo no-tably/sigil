@@ -575,7 +575,8 @@ class Canvas:
 
     def put(self, x, y, s, style=None):
         """Text from column x on row y: one cell a character, two a wide one
-        (its second WIDE_TAIL), a combining mark joined to the cell before."""
+        (its second WIDE_TAIL), a combining mark joined to the character before
+        (a wide one's first cell, never its tail)."""
         if not s:
             return
         if s.isascii():
@@ -585,12 +586,14 @@ class Canvas:
             self._grow(x + n - 1, y)
             return
         at = x
+        base = None                     # the last character's own cell (not its tail)
         for ch in s:
             k = char_cells(ch)
-            if k == 0:                  # a combining mark: onto the cell before
-                if at > x:
-                    self.text[(at - 1, y)] = (self.text[(at - 1, y)][0] + ch, style)
+            if k == 0:                  # a combining mark: onto that character's cell
+                if base is not None:
+                    self.text[(base, y)] = (self.text[(base, y)][0] + ch, style)
                 continue
+            base = at
             self.text[(at, y)] = (ch, style)
             if k == 2:
                 self.text[(at + 1, y)] = (WIDE_TAIL, style)

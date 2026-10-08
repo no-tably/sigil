@@ -1,7 +1,9 @@
 #!spec
 # 短縮サービス — wide (CJK) names in every place a view draws a name: boxes,
 # tree rows, flow wires, run lanes, payload chips, titles, notes. A café with
-# a combining accent (cafe + U+0301) is one column narrower than its letters.
+# a combining accent (cafe + U+0301) is one column narrower than its letters,
+# and [ガイド係] is decomposed (NFD: カ + U+3099, ト + U+3099): a mark after a
+# wide character joins that character, not the column it spills into.
 # Every name has its own length: render.mk_id maps each non-ASCII character
 # to "_", so two names of one length would draw as one node; an op's verb is
 # ASCII (render.OP_TARGET_RE reads `verb(…)` from [A-Za-z_] only).
@@ -16,6 +18,7 @@
            -> (訪問する人) : redirect({網址})
            ~> <クリックされた> -> [統]
 [統] -> [café] : count({符号})
+[統] -> [ガイド係] : report({符号})
 
 --- L2: [短縮] ---
 

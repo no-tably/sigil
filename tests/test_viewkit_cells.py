@@ -120,6 +120,12 @@ class TestCanvasCells(unittest.TestCase):
         cv.put(0, 0, "cafe" + ACUTE + "|")
         self.assertEqual((cv.w, self.rows(cv)), (5, ["cafe" + ACUTE + "|"]))
 
+    def test_combining_mark_after_a_wide_character_joins_it(self):
+        cv = kit.Canvas()
+        cv.put(0, 0, "\u304b\u3099x")          # が decomposed: か + U+3099
+        self.assertEqual((cv.w, self.rows(cv)), (3, ["\u304b\u3099x"]))
+        self.assertEqual(kit.row_len(next(iter(cv.rows()))), 3)
+
     def test_overdrawn_half_becomes_a_blank(self):
         cv = kit.Canvas()
         cv.put(0, 0, "短縮器")
@@ -212,6 +218,7 @@ class TestWideNamesInEveryView(unittest.TestCase):
         text = CJK.read_text(encoding="utf-8")
         self.assertIn("[転送するサービス]", text)
         self.assertIn("[cafe" + ACUTE + "]", text)
+        self.assertIn("[\u30ab\u3099\u30a4\u30c8\u3099\u4fc2]", text)   # ガイド係 decomposed
 
     def test_every_view_matches_its_ascii_twin(self):
         for v in self.VIEWS:
