@@ -507,6 +507,7 @@ def _label_runs(ln, scn, numbered: set, tick: int, marks) -> list:
     return runs
 
 
+SCALE_GAP = 2                             # blanks between two of the ruler's scale labels
 STEPS = (1, 2, 5, 10, 20, 50, 100)        # a crowded ruler shows every step-th `↺k`
 
 
@@ -517,17 +518,21 @@ class _Mark(NamedTuple):
     text: str
     style: object
     due: Optional[int] = None
+    scale: bool = False        # the time scale's (≈, a tick): SCALE_GAP blanks from another
 
 
 def _scale(fr: _Frame, tl) -> list:
-    """The ruler's time scale, in the order it is placed: ≈ on each folded
-    stretch, the ticks at multiples of 10, the last tick."""
+    """The ruler's time scale, in the order it is placed: tick 0 (where the
+    scale starts), ≈ on each folded stretch, the other ticks at multiples of
+    10, the last tick."""
     st = _styles()
-    out = [_Mark(c, QUIET, st["dim"]) for c in sorted(fr.cols.quiet)]
-    out += [_Mark(fr.cols.of[t], str(t), st["dim"]) for t in range(0, tl.last + 1, 10)
+    tens = [_Mark(fr.cols.of[t], str(t), st["dim"], scale=True)
+            for t in range(0, tl.last + 1, 10)
             if t in fr.cols.of and fr.cols.of[t] not in fr.cols.quiet]
+    out = tens[:1] + [_Mark(c, QUIET, st["dim"], scale=True) for c in sorted(fr.cols.quiet)]
+    out += tens[1:]
     if tl.last % 10 or fr.cols.of[tl.last] in fr.cols.quiet:     # not a tick already
-        out.append(_Mark(fr.cols.of[tl.last], str(tl.last), st["dim"]))
+        out.append(_Mark(fr.cols.of[tl.last], str(tl.last), st["dim"], scale=True))
     return out
 
 
@@ -550,8 +555,9 @@ def _marks(fr: _Frame, tl, witnessed: tuple, step: int = 1) -> list:
 def _place(want: list, lo: int, hi: int, room: Optional[int]) -> list:
     """[_Mark]: of the wanted marks (in priority order), those in columns lo …
     hi - 1 that fit in room (None: any) and keep a blank from every mark placed
-    before them; the playhead short of room is `▼` alone."""
-    taken, placed = set(), []
+    before them (two blanks between two of the scale's, SCALE_GAP, so `100
+    104` reads as two numbers); the playhead short of room is `▼` alone."""
+    taken, scaled, placed = set(), set(), []
     for m in want:
         if not lo <= m.col < hi:
             continue
@@ -562,7 +568,11 @@ def _place(want: list, lo: int, hi: int, room: Optional[int]) -> list:
             m, n = m._replace(text=NOW), kit.cell_width(NOW)
         if set(range(m.col - 1, m.col + n + 1)) & taken:
             continue
+        if m.scale and set(range(m.col - SCALE_GAP, m.col + n + SCALE_GAP)) & scaled:
+            continue
         taken |= set(range(m.col, m.col + n))
+        if m.scale:
+            scaled |= set(range(m.col, m.col + n))
         placed.append(m)
     return placed
 
@@ -724,9 +734,9 @@ def lane_notes(tl, scn, numbered: set, tick: int, final: bool) -> dict:
         if kind == "event" and mine:
             n = len(acts)
             cl.append(Clause("lands" + (f" {n}×" if n > 1 else ""), MINOR))
-        calls = list(dict.fromkeys(scn_dst(scn, m) for m in outof
+        calls = list(dict.fromkeys(scn_dst(scn, m, tl.hosts) for m in outof
                                    if m.kind in ("->", "<->") and len(m.dst) == 1
-                                   and scn_dst(scn, m) != ln.node))
+                                   and scn_dst(scn, m, tl.hosts) != ln.node))
         if calls:
             names = [_name(scn, n) for n in calls]
             text = ("calls " + names[0] if len(names) == 1 else
@@ -744,14 +754,14 @@ def lane_notes(tl, scn, numbered: set, tick: int, final: bool) -> dict:
         spawning = [m for m in outof if m.kind == "=>" and any(
             k in by_key and by_key[k].spawned is not None for k in m.dst)]
         if spawning:
-            dst = _name(scn, scn_dst(scn, spawning[0]))
+            dst = _name(scn, scn_dst(scn, spawning[0], tl.hosts))
             cl.append(Clause(f"produces into {dst}: a new instance", ROLE,
                              f"produces into {dst}"))
         produced = [m for m in into if m.kind == "=>"]
         if produced and ln.spawned is None:
             who = by_key.get(produced[0].src[0])
             cl.append(Clause(f"produced by {_name(scn, who.node) if who else '?'}", ROLE))
-        emits = list(dict.fromkeys(scn_dst(scn, m) for m in outof if m.kind == "~>"))
+        emits = list(dict.fromkeys(scn_dst(scn, m, tl.hosts) for m in outof if m.kind == "~>"))
         if emits:
             cl.append(Clause(f"emits {_name(scn, emits[0])}, doesn't wait", ROLE,
                              "emits, doesn't wait"))
@@ -812,9 +822,13 @@ def lane_notes(tl, scn, numbered: set, tick: int, final: bool) -> dict:
     return out
 
 
-def scn_dst(scn, m) -> str:
+def scn_dst(scn, m, hosts: Optional[dict] = None) -> str:
+    """The node a move goes to: its wire's target (a folded one's host, hosts:
+    Timeline.hosts), else its first lane's node."""
     w = next((x for x in scn.wires if x.ident == m.wire), None)
-    return w.dst if w is not None else m.dst[0][0]
+    if w is None:
+        return m.dst[0][0]
+    return (hosts or {}).get(w.dst, w.dst)
 
 
 def _inst_range(scn, a, b, numbered: set) -> str:
@@ -860,20 +874,23 @@ def _design_notes(scn, ln) -> list:
 # compose_run
 # ---------------------------------------------------------------------------
 
-_CACHE: dict = {}                  # (id(trace), show, limits) → (trace, Timeline)
+_CACHE: dict = {}                  # (id(trace), show, limits, depth) → (trace, Timeline)
 
 
-def run_timeline(trace, limits=None, show: Optional[int] = None):
-    """sim.timeline(trace) for a canonical trace, cached per trace (a run's
-    frames are drawn from one Timeline)."""
+def run_timeline(trace, limits=None, show: Optional[int] = None,
+                 depth: int = kit.ALL_DEPTH):
+    """sim.timeline(trace) for a canonical trace drawn to `depth` (the lanes of
+    an expansion folded there in its node's, sim.folded_hosts), cached per
+    trace (a run's frames are drawn from one Timeline)."""
     limits = limits or sim.Limits()
     show = sim.RUN_SHOW if show is None else show
-    key = (id(trace), show, limits)
+    key = (id(trace), show, limits, depth)
     hit = _CACHE.get(key)
     if hit is None or hit[0] is not trace:
         if len(_CACHE) > 8:
             _CACHE.clear()
-        tl = sim.timeline(trace, limits=limits, show=show if show > 0 else None)
+        hosts = sim.folded_hosts(trace.scene, depth)
+        tl = sim.timeline(trace, limits=limits, show=show if show > 0 else None, hosts=hosts)
         hit = _CACHE[key] = (trace, tl)
     return hit[1]
 
@@ -894,7 +911,7 @@ def happy_run(g, limits=None):
 
 def compose_run(g, trace=None, tick: Optional[int] = None, width: Optional[int] = None,
                 notes: str = "run", checks=None, show: Optional[int] = None, limits=None,
-                chosen: bool = True, probe: bool = False):
+                chosen: bool = True, probe: bool = False, depth: int = kit.ALL_DEPTH):
     """The run view as rows of (text, style) runs, plus its width. `trace`: a
     run on the canonical scene (sim.simulate's; None: the happy run, and the
     title says no scenario was chosen); `tick`: the frame shown (None: the
@@ -905,12 +922,13 @@ def compose_run(g, trace=None, tick: Optional[int] = None, width: Optional[int] 
     the canonical scene names things (a finding this run witnesses also puts
     its number on the ruler at the tick it shows). `show`: instances per group before
     folding (sim.RUN_SHOW; 0: never fold). `probe`: the playhead's cells in
-    kit.Probe styles (sim_focus)."""
+    kit.Probe styles (sim_focus). `depth`: the levels of expansions drawn
+    (--depth; a folded expansion's lanes fold into its node's lane)."""
     if trace is None:
         trace, chosen = happy_run(g, limits), False
     prog = sim._program_of(trace.scene.graph)
     scn = prog.scene                    # the canonical scene: a projected trace's events
-    tl = run_timeline(trace, limits, show)   # name things as it does
+    tl = run_timeline(trace, limits, show, depth)   # name things as it does
     last_i = len(trace.frames) - 1
     i = last_i if tick is None else max(0, min(tick, last_i))
     t = trace.frames[i].tick if trace.frames else 0
@@ -1132,10 +1150,11 @@ def run_legend() -> list:
     return row
 
 
-def timeline_json(trace, limits=None, show: Optional[int] = None) -> dict:
-    """The timeline of a canonical trace as data (--run --json): lanes with
-    their labels, spans, moves and marks."""
-    tl = run_timeline(trace, limits, show)
+def timeline_json(trace, limits=None, show: Optional[int] = None,
+                  depth: int = kit.ALL_DEPTH) -> dict:
+    """The timeline of a canonical trace drawn to `depth` as data (--run
+    --json): lanes with their labels, spans, moves and marks."""
+    tl = run_timeline(trace, limits, show, depth)
     prog = sim._program_of(trace.scene.graph)
     scn = prog.scene
     numbered = _shows_ordinal(tl, prog)

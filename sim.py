@@ -217,15 +217,26 @@ THE TIMELINE (pure, no drawing; what the run view draws)
                   or was cancelled, the rest one lane (ordinal `…<owner>`, its
                   levels with it); a lane deeper than show + 1 keeps ↻2 …
                   ↻(show − 1) and its deepest, the middle one lane (`lo‥hi`)
+  hosts (folded_hosts(scene, depth): {node: the drawn node standing for it} for
+                  each node inside an expansion a view drawn to depth folds): a
+                  folded node's lanes fold into its host's lane — its work is
+                  the host's, a hop between two of them is the host's own
+                  work (not drawn), a hop across the fold leaves or reaches the
+                  host's lane
 
 NARRATION (pure, over a Trace and the scene it names)
 
-  narrate(trace)  (Beat(frame, tick, text), …): the run in plain words, one Beat
-                  per frame where something happens ("[API] calls [Payments] with
-                  charge(total) — attempt 2 of 4"), read from the frames and the
-                  events, never from the log's text
-  hops(trace)     (Hop(frame, src, kind, dst, end, outcome), …): every hop set out
-                  on, in order, with the frame it ends and how (failed, cancelled)
+  narrate(trace, hosts)  (Beat(frame, tick, text), …): the run in plain words,
+                  one Beat per frame where something happens ("[API] calls
+                  [Payments] with charge(total) — attempt 2 of 4"), read from
+                  the frames and the events, never from the log's text
+  hops(trace, hosts)     (Hop(frame, src, kind, dst, end, outcome), …): every hop
+                  set out on, in order, with the frame it ends and how (failed,
+                  cancelled)
+                  hosts (folded_hosts; None: every node drawn): both name a
+                  folded node by its host and leave out what happens wholly
+                  inside a fold (a hop between two of its nodes, an event of
+                  one), so at --depth 0 they name only the drawn nodes
 """
 
 from __future__ import annotations
@@ -3145,10 +3156,11 @@ class Timeline(NamedTuple):
     last: int                  # the run's last tick
     folded: dict               # {"show", "instances", "levels"}: what folding left out
     iterations: tuple = ()     # Iteration, by tick
+    hosts: dict = {}           # folded_hosts: the folded nodes, each with its host
 
 
 def timeline(trace: Trace, *, limits: Limits = Limits(),
-             show: Optional[int] = RUN_SHOW) -> Timeline:
+             show: Optional[int] = RUN_SHOW, hosts: Optional[dict] = None) -> Timeline:
     """The run of `trace` (on the canonical scene, simulate's) as a timeline:
     a lane per participant it touched — every node an activation entered or a
     hop set out to (a failed attempt's target, a race's loser, an actor, a
@@ -3165,7 +3177,8 @@ def timeline(trace: Trace, *, limits: Limits = Limits(),
     than `show` instances of one node under one kind of owner keeps its first
     show − 1 and every one that failed or was cancelled, the rest one lane
     (FOLD); levels past show + 1 keep ↻2 … ↻(show − 1) and the deepest, the
-    middle one lane (lo‥hi). Pure."""
+    middle one lane (lo‥hi). `hosts` (folded_hosts; None: every node drawn):
+    a folded node's lanes fold into its host's (_fold_into_hosts). Pure."""
     prog = _program_of(trace.scene.graph)
     events = trace.end.get("events", ())
     wires = {w.ident: w for w in prog.scene.wires}
@@ -3293,6 +3306,9 @@ def timeline(trace: Trace, *, limits: Limits = Limits(),
                               owner_of.get(inst) if inst else None,
                               sp[0] if sp else None, sp[1] if sp else None))
     born_at = {k: v["born"] for k, v in lanes.items()}
+    if hosts:
+        lane_rows, spans, moves, marks, born_at = _fold_into_hosts(
+            lane_rows, spans, moves, marks, born_at, hosts, last)
     folded = {"show": show, "instances": 0, "levels": 0}
     if show is not None:
         lane_rows, spans, moves, marks, born_at = _fold_lanes(
@@ -3301,7 +3317,94 @@ def timeline(trace: Trace, *, limits: Limits = Limits(),
                                                      move_acts, last)
     return Timeline(_lane_order(lane_rows, born_at), tuple(sorted(spans, key=lambda s: (s.enter, s.act))),
                     tuple(moves), tuple(sorted(marks, key=lambda m: m.t)), tuple(episodes), last,
-                    folded, tuple(iterations))
+                    folded, tuple(iterations), dict(hosts or {}))
+
+
+def _host_lanes(lanes: list, hosts: dict) -> dict:
+    """{folded lane key: its host's lane key}: the nearest lane above it (by
+    parent) of a drawn node; with none, the host's level-1 lane outside the
+    composition tree."""
+    by_key = {ln.key: ln for ln in lanes}
+    out = {}
+    for ln in lanes:
+        if ln.node not in hosts:
+            continue
+        p, seen = ln.parent, set()
+        while p is not None and p in by_key and by_key[p].node in hosts and p not in seen:
+            seen.add(p)
+            p = by_key[p].parent
+        out[ln.key] = p if p in by_key and by_key[p].node not in hosts \
+            else (hosts[ln.node], None, 1)
+    return out
+
+
+def _absorbed(host: Span, inner: list, last: int) -> Span:
+    """The host's span with the work of the folded spans it runs (its task's,
+    within it) taken out of its waits: the fold works while they do. `last`:
+    the run's last tick (a span still running then works to it)."""
+    work = set()
+    for s in inner:
+        stop = s.leave if s.leave is not None else last + 1
+        busy = set(range(s.enter, max(stop, s.enter + 1)))
+        for a, b in s.waits:
+            busy -= set(range(a, b))
+        work |= busy
+    waits = {t for a, b in host.waits for t in range(a, b)} - work
+    return host._replace(waits=_ranges(waits))
+
+
+def _within(s: Span, host: Span) -> bool:
+    """Whether span s runs on host's task inside host's activation."""
+    return (s.task == host.task and host.enter <= s.enter
+            and (host.leave is None or (s.leave is not None and s.leave <= host.leave)))
+
+
+def _fold_into_hosts(lanes: list, spans: list, moves: list, marks: list, born_at: dict,
+                     hosts: dict, last: int) -> tuple:
+    """The lanes of folded nodes (hosts) folded into their hosts' (_host_lanes):
+    a folded span running inside a host span on its task is absorbed into it
+    (_absorbed), any other moves onto the host's lane; a move between two lanes
+    of one fold is left out (the host's own work), any other leaves or reaches
+    the host's lane; marks move with their lanes."""
+    to = _host_lanes(lanes, hosts)
+    if not to:
+        return lanes, spans, moves, marks, born_at
+    r = lambda k: to.get(k, k)
+    by_key = {ln.key: ln for ln in lanes}
+    out_lanes, out_born = {}, {}
+    for ln in lanes:
+        key = r(ln.key)
+        b = born_at[ln.key]
+        if key in out_lanes:
+            out_lanes[key] = out_lanes[key]._replace(born=min(out_lanes[key].born, ln.born))
+            out_born[key] = min(out_born[key], b)
+            continue
+        base = by_key.get(key) or Lane(key, key[0], None, 1, None, ln.born, None, None, None)
+        out_lanes[key] = base._replace(parent=r(base.parent) if base.parent is not None else None)
+        out_born[key] = born_at.get(key, b)
+    hosted, inner = [], {}
+    for s in spans:
+        if s.lane in to:
+            inner.setdefault(to[s.lane], []).append(s)
+        else:
+            hosted.append(s)
+    out_spans, taken = [], set()
+    for s in hosted:
+        mine = [x for x in inner.get(s.lane, ()) if _within(x, s)]
+        taken.update(id(x) for x in mine)
+        out_spans.append(_absorbed(s, mine, last) if mine else s)
+    out_spans += [s._replace(lane=r(s.lane)) for ss in inner.values() for s in ss
+                  if id(s) not in taken]
+    out_moves = []
+    for m in moves:
+        src = tuple(dict.fromkeys(map(r, m.src)))
+        dst = tuple(k for k in dict.fromkeys(map(r, m.dst)) if k not in src)
+        if (src, dst) == (m.src, m.dst):
+            out_moves.append(m)
+        elif dst:
+            out_moves.append(m._replace(src=src, dst=dst))
+    out_marks = [mk._replace(lane=r(mk.lane)) for mk in marks]
+    return list(out_lanes.values()), out_spans, out_moves, out_marks, out_born
 
 
 def _spans(acts: dict, moves: list, awaits: dict, last: int) -> list:
@@ -3644,20 +3747,43 @@ def ident_map(canon, view) -> dict:
     return out
 
 
+def _nearest_drawn(canon, nid: str, drawn: set) -> Optional[str]:
+    """nid when it is drawn, else the owner of the nearest drawn unit around
+    it (None: none)."""
+    host, seen = nid, set()
+    while host is not None and host not in drawn and host not in seen:
+        seen.add(host)
+        host = canon.nodes[host].unit if host in canon.nodes else None
+    return host
+
+
 def host_map(canon, view) -> dict:
     """{node id: the drawn node standing for it}: itself when the view draws it,
     else the owner of the nearest drawn unit around it; collapsed events none."""
     drawn = {nid for u in view.units for nid in u.graph.nodes} - set(view.collapsed)
+    return {nid: None if nid in view.collapsed else _nearest_drawn(canon, nid, drawn)
+            for nid in canon.nodes}
+
+
+def folded_hosts(canon, depth: int) -> dict:
+    """{node id: the drawn node standing for it} for each node of the canonical
+    scene inside an expansion a view drawn to `depth` folds (the owner of the
+    nearest drawn unit around it, as host_map); a drawn node is absent. The
+    hosts timeline(), narrate() and hops() fold a run by. Pure."""
+    drawn = {nid for u in scene_mod.drawn_units(canon.graph, depth) for nid in u.graph.nodes}
     out = {}
-    for nid, sn in canon.nodes.items():
-        host, seen = nid, set()
-        while host is not None and host not in drawn and host not in seen:
-            seen.add(host)
-            host = canon.nodes[host].unit if host in canon.nodes else None
-        if nid in view.collapsed:
-            host = None
-        out[nid] = host
+    for nid in canon.nodes:
+        host = _nearest_drawn(canon, nid, drawn)
+        if host is not None and host != nid:
+            out[nid] = host
     return out
+
+
+def folded_wire(w, hosts: dict) -> bool:
+    """Whether wire w runs wholly inside a fold: an end of it folded and both
+    ends standing for the same drawn node (the host's own work)."""
+    return ((w.src in hosts or w.dst in hosts)
+            and hosts.get(w.src, w.src) == hosts.get(w.dst, w.dst))
 
 
 def folded_details(summaries: dict, idmap: dict) -> dict:
@@ -3740,14 +3866,16 @@ _PSEUDO_STATE = {"start": "+", "end": "$", "any": "_"}
 
 class _Words:
     """Names as a reader reads them, over the Scene a trace names (a node's label,
-    a machine state as a transition writes it)."""
+    a machine state as a transition writes it); a folded node (hosts,
+    folded_hosts) by its host's."""
 
-    def __init__(self, scn):
+    def __init__(self, scn, hosts: Optional[dict] = None):
         self.scn = scn
+        self.hosts = hosts or {}
         self.wires = {w.ident: w for w in scn.wires}
 
     def name(self, nid) -> str:
-        sn = self.scn.nodes.get(nid)
+        sn = self.scn.nodes.get(self.hosts.get(nid, nid))
         if sn is not None:
             return kit.node_label(sn.node)
         return scene_mod.decision_name(self.scn, nid) or str(nid)
@@ -3832,7 +3960,7 @@ def _token_sentences(wd: _Words, frame) -> list:
     leaving, out = [], []
     for tok in frame.tokens:
         w = wd.wires.get(tok.wire)
-        if w is None or w.kind == "!>" or w.role == "arm":
+        if w is None or w.kind == "!>" or w.role == "arm" or folded_wire(w, wd.hosts):
             continue
         if tok.state == "cancelled":
             out.append(f"the call to {wd.name(w.dst)} is cancelled")
@@ -3879,7 +4007,18 @@ _STOP_TEXT = {"entry": "episode {ep} fails",
               "abort": "a critical call failed: the run ends"}
 
 
+def _inside_fold(wd: _Words, ev: dict) -> bool:
+    """Whether an event happens wholly inside a fold (wd.hosts): it is a folded
+    node's, a folded machine's, or on a wire running inside the fold."""
+    if any(ev.get(k) in wd.hosts for k in ("node", "owner")):
+        return True
+    w = wd.wires.get(ev.get("wire"))
+    return w is not None and folded_wire(w, wd.hosts)
+
+
 def _event_sentence(wd: _Words, ev: dict, scn) -> Optional[str]:
+    if _inside_fold(wd, ev):
+        return None
     kind = ev["kind"]
     n = wd.name(ev.get("node"))
     if kind == "fail":
@@ -3917,31 +4056,34 @@ def _changes(wd: _Words, prev, f) -> list:
     node cancelled (a race lost, a waiter's other members)."""
     out = []
     for nid, st in f.nodes.items():
-        if st == "cancelled" and (prev is None or prev.nodes.get(nid) != st):
+        if (st == "cancelled" and nid not in wd.hosts
+                and (prev is None or prev.nodes.get(nid) != st)):
             out.append(f"{wd.name(nid)} is cancelled")
     for key, k in f.loops.items():
         if prev is None or prev.loops.get(key) != k:
             where = f" in {wd.name(key[0])}" if key[0] is not None else ""
             out.append(f"loop{where}: iteration {k}")
     if prev is not None:
-        for nid in sorted(f.held_resources - prev.held_resources, key=str):
+        for nid in sorted(f.held_resources - prev.held_resources - wd.hosts.keys(), key=str):
             out.append(f"{wd.name(nid)} is held")
-        for nid in sorted(prev.held_resources - f.held_resources, key=str):
+        for nid in sorted(prev.held_resources - f.held_resources - wd.hosts.keys(), key=str):
             out.append(f"{wd.name(nid)} is released")
         for nid, k in f.instances.items():
-            if k > prev.instances.get(nid, k):
+            if nid not in wd.hosts and k > prev.instances.get(nid, k):
                 out.append(f"{wd.name(nid)} gets another instance ({k} now)")
     return out
 
 
-def narrate(trace: Trace) -> tuple:
+def narrate(trace: Trace, hosts: Optional[dict] = None) -> tuple:
     """(Beat, …): the run in plain words, a Beat for every frame where something
     happens — an episode beginning, a hop setting out (`[API] calls [Payments]
     with charge(total) — attempt 2 of 4`), a reply or fallback, an attempt
     failing, a call giving up, a route, a transition, a join, a bound, the end.
-    Over the scene the trace names (the canonical one, or project()'s). Pure."""
+    Over the scene the trace names (the canonical one, or project()'s). `hosts`
+    (folded_hosts; None: every node drawn): a folded node is named by its host
+    and what happens wholly inside a fold is not said. Pure."""
     scn = trace.scene
-    wd = _Words(scn)
+    wd = _Words(scn, hosts)
     by_tick: dict = {}
     for ev in trace.end.get("events", ()):
         by_tick.setdefault(ev["t"], []).append(ev)
@@ -3967,13 +4109,16 @@ def narrate(trace: Trace) -> tuple:
     return tuple(beats)
 
 
-def hops(trace: Trace) -> tuple:
+def hops(trace: Trace, hosts: Optional[dict] = None) -> tuple:
     """(Hop, …): every hop the run sets out on, in order (the frame it leaves in,
     the wire's ends and arrow, the last frame its token is on the wire and how it
     ended there: an attempt failing on arrival "failed", a call cancelled on the
     way or on arrival — a race's loser — "cancelled") — the path a view writes out. A reply going back is no hop;
-    a `!>` route is (it travels as a failure, but it is no failed hop)."""
-    wires = {w.ident: w for w in trace.scene.wires}
+    a `!>` route is (it travels as a failure, but it is no failed hop).
+    `hosts` (folded_hosts; None: every node drawn): a hop's folded end is its
+    host, and a hop wholly inside a fold is left out."""
+    hosts = hosts or {}
+    wires = {w.ident: w for w in trace.scene.wires if not folded_wire(w, hosts)}
     out, live = [], {}             # live: (task, wire) → [index in out, its token]
     for i, f in enumerate(trace.frames):
         seen = {}
@@ -3984,7 +4129,8 @@ def hops(trace: Trace) -> tuple:
             key = (tok.task, tok.wire)
             on = live.get(key)
             if tok.at == 0.0 and tok.state != "cancelled":
-                out.append([i, w.src, w.kind, w.dst, i, "", tok.state])
+                out.append([i, hosts.get(w.src, w.src), w.kind, hosts.get(w.dst, w.dst), i,
+                            "", tok.state, w.dst])
                 seen[key] = len(out) - 1
             elif on is not None:
                 h = out[on]
@@ -3996,8 +4142,8 @@ def hops(trace: Trace) -> tuple:
                 seen[key] = on
         for key, on in live.items():   # gone: a race's loser is cancelled on arrival
             h = out[on]
-            if (key not in seen and not h[5] and f.nodes.get(h[3]) == "cancelled"
-                    and trace.frames[i - 1].nodes.get(h[3]) != "cancelled"):
+            if (key not in seen and not h[5] and f.nodes.get(h[7]) == "cancelled"
+                    and trace.frames[i - 1].nodes.get(h[7]) != "cancelled"):
                 h[4], h[5] = i, "cancelled"
         live = seen
     return tuple(Hop(*h[:6]) for h in out)
