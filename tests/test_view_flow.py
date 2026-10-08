@@ -141,17 +141,40 @@ class TestWiresBack(unittest.TestCase):
         self.assertTrue(text[3].startswith("╰─"), text)          # one return row
         self.assertEqual(len(text), 4)
 
-    def test_chipped_wires_back_keep_a_row_each(self):
+    def test_chipped_wires_back_share_one_return_row(self):
         text = plain(flow(SHORTENER, payloads=True))
-        self.assertTrue(any(ln.startswith("│ ╰─┆redirect({Url})┆") for ln in text), text)
-        self.assertTrue(any(ln.startswith("╰─┆<NotFound>┆") for ln in text), text)
+        self.assertTrue(text[-1].startswith("╰─┆<NotFound>┆─┆redirect({Url})┆──"), text)
+        self.assertTrue(text[-1].endswith("╯"), text)
+        self.assertTrue(text[-2].startswith("├─▶┘"), text)       # one way up, no second row
+
+    def test_chips_that_dont_fit_stack_under_the_return_row(self):
+        text = plain(flow("[A] -> [B]\n[B] -> [A] : retry({Job})\n[B] !> [A] : <Failed>\n",
+                          payloads=True))
+        self.assertEqual([ln.rstrip() for ln in text[-3:]],
+                         ["╰────────────────╯", "  ┆retry({Job})┆", "  ┆<Failed>┆"])
+
+    def test_return_chips(self):
+        self.assertEqual(vflow._return_chips([3, 4], 8), [(0, 0), (4, 0)])     # side by side
+        self.assertEqual(vflow._return_chips([3, 4], 7), [(0, 0), (0, 1)])     # stacked
+        self.assertEqual(vflow._return_chips([9, 4], 7), [(0, 1), (0, 2)])     # first too wide
+        self.assertEqual(vflow._return_chips([], 0), [])
 
     def test_back_bundles(self):
         def path(src, dst, chip=None, back=True):
             return vflow._Path(None, (), chip, [src, dst], back=back)
         paths = [path("A", "B"), path("A", "B", ["x"]), path("A", "B", ["y"]),
                  path("A", "B"), path("C", "B"), path("A", "B", back=False)]
-        self.assertEqual(vflow._back_bundles(paths), {0: 0, 1: 0, 2: 2, 3: 0, 4: 4})
+        self.assertEqual(vflow._back_bundles(paths), {0: 0, 1: 0, 2: 0, 3: 0, 4: 4})
+
+    def test_a_bundle_reads_as_its_error_wire_without_a_run(self):
+        # the shortener's `!> (Visitor)` and `-> (Visitor)` share their way down,
+        # return row and way up: drawn in the error wire's look, from its source
+        rows = flow(SHORTENER)
+        failed = view.scene.colour_of("edges-fail")
+        ret = next(r for r in rows if "".join(t for t, _ in r).startswith("╰"))
+        self.assertEqual({st[0] for t, st in ret if t.strip()}, {failed})
+        up = next(r for r in rows if "".join(t for t, _ in r).startswith("├"))
+        self.assertEqual((up[0][0][0], up[0][1][0]), ("├", failed))
 
 
 class TestStackedHeads(unittest.TestCase):

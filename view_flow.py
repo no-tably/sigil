@@ -343,6 +343,7 @@ class _Path:
     ret: int = 0                # a back path: its return row
     tin: int = 0                # a back path: the x of its track into the target
     tout: int = 0               # … and out of the source
+    chip_at: tuple = (0, 0)     # a back path's chip: its first cell (_return_chips)
     cells: list = field(default_factory=list)
 
 
@@ -721,9 +722,15 @@ def _channels(lay: _Layout) -> None:
         bundle = [paths[pi] for pi, l in lead.items() if l == li]
         for p in bundle:                        # the shorter ones higher, a bundle on one row
             p.ret = y
-        y += 1 + (not all(_chip_fits(p) for p in bundle))
-        rets.setdefault(("out", paths[li].via[0]), set()).add(y - 1)
-        rets.setdefault(("in", li), set()).add(paths[li].ret)
+        lead_p = paths[li]
+        chipped = [p for p in bundle if p.chip is not None]
+        spots = _return_chips([kit.row_len(p.chip) for p in chipped],
+                              lead_p.tout - lead_p.tin - 4)
+        for p, (dx, dy) in zip(chipped, spots):
+            p.chip_at = (p.tin + 2 + dx, y + dy)
+        y += 1 + max((dy for _dx, dy in spots), default=0)
+        rets.setdefault(("out", lead_p.via[0]), set()).add(lead_p.ret)
+        rets.setdefault(("in", li), set()).add(lead_p.ret)
     for gid, gr in lay.groups.items():          # the cells a vertical only passes
         if gr.straight or gid not in lay.track:
             continue
@@ -736,29 +743,22 @@ def _channels(lay: _Layout) -> None:
 def _back_bundles(paths: list) -> dict:
     """{back path index: the index of its bundle's first path}: the wires back
     from one source to one target share one return row and one way up, splitting
-    only into their stacked heads (`╭─✖┐` over `├─▶┘`). A return row holds one
-    chip, so of a pair's chipped wires only the first joins its bundle."""
-    lead, first, chipped = {}, {}, set()
+    only into their stacked heads (`╭─✖┐` over `├─▶┘`); their chips share the
+    return row too (_return_chips)."""
+    lead, first = {}, {}
     for pi, p in enumerate(paths):
-        if not p.back:
-            continue
-        pair = (p.via[0], p.via[-1])
-        li = first.setdefault(pair, pi)
-        if p.chip is not None:
-            if li in chipped:
-                li = pi
-            chipped.add(li)
-        lead[pi] = li
+        if p.back:
+            lead[pi] = first.setdefault((p.via[0], p.via[-1]), pi)
     return lead
 
 
-def _bundle_looks(paths: list, state) -> dict:
+def _bundle_looks(paths: list, rank) -> dict:
     """{cell: style} for the cells a back bundle's wires share (their way down,
-    return row and way up) under a run: the look of its busiest member — failed
-    over now over taken over untouched (`state`: a stroke → its run state) — so
-    a bundled wire the run took reads as taken along its whole way, not only
-    at its head. A bundle whose busiest state two members hold keeps the
-    nearest-owner rule."""
+    return row and way up): the look of its top-ranked member (`rank`: a path →
+    its rank: its run state's under a run, else _severity) — so a bundled wire the
+    run took reads as taken, and an error wire reads as one, along its whole
+    way, not only at its head. A bundle whose top rank two members hold keeps
+    the nearest-owner rule."""
     bundles = {}                                # lead index → [_Path]
     for pi, li in _back_bundles(paths).items():
         bundles.setdefault(li, []).append(paths[pi])
@@ -766,7 +766,7 @@ def _bundle_looks(paths: list, state) -> dict:
     for bundle in bundles.values():
         if len(bundle) < 2:
             continue
-        ranks = [vgraph._STATE_RANK.get(state(p.stroke), -1) for p in bundle]
+        ranks = [rank(p) for p in bundle]
         top = max(ranks)
         if ranks.count(top) > 1:
             continue
@@ -779,10 +779,25 @@ def _bundle_looks(paths: list, state) -> dict:
     return out
 
 
-def _chip_fits(p: _Path) -> bool:
-    """Whether a back path's chip fits on its return row (else it takes the row
-    under it)."""
-    return p.chip is None or kit.row_len(p.chip) + 4 <= p.tout - p.tin
+def _severity(p: _Path) -> int:
+    """A wire's rank by its colour with no run: an error wire (edges-fail) 1,
+    else 0 — the most severe member of a bundle reads along its shared way."""
+    return int(any(w.colour == "edges-fail" for w in p.stroke.wires))
+
+
+def _return_chips(widths: list, room: int) -> list:
+    """[(dx, dy)]: where the chips of one back bundle's chipped wires go
+    (`widths`, in order), from the return row's first chip cell: side by side,
+    one stroke apart, when they fit in `room` cells; else stacked a row each,
+    from the return row when the first fits there, else from the row under it."""
+    if sum(widths) + len(widths) - 1 <= room:
+        out, dx = [], 0
+        for w in widths:
+            out.append((dx, 0))
+            dx += w + 1
+        return out
+    first = int(widths[0] > room)
+    return [(0, first + k) for k in range(len(widths))]
 
 
 def _tracks(gs: list) -> list:
@@ -911,10 +926,11 @@ def _paint(cv: _Canvas, lay: _Layout, ctx: "_Ctx", paths: list, vids: list) -> N
         traces.append(tr)
     for cell, st in vgraph._nearest_owners(traces, cv.lines).items():
         cv.lines[cell][2] = st
-    if ctx.look is not None:
-        for cell, st in _bundle_looks(paths, ctx.state).items():
-            if cell in cv.lines:
-                cv.lines[cell][2] = st
+    rank = ((lambda p: vgraph._STATE_RANK.get(ctx.state(p.stroke), -1))
+            if ctx.look is not None else _severity)
+    for cell, st in _bundle_looks(paths, rank).items():
+        if cell in cv.lines:
+            cv.lines[cell][2] = st
     for p in paths:                             # heads, and a `<->`'s source end
         dst = lay.V[p.via[-1]]
         if dst.solid and p.cells:
@@ -930,12 +946,7 @@ def _paint(cv: _Canvas, lay: _Layout, ctx: "_Ctx", paths: list, vids: list) -> N
         _put_vertex(cv, lay, ctx, vid)
     for p in paths:                             # a back path's chip on its return row
         if p.back and p.chip is not None:
-            kit._put_runs(cv, p.tin + 2, _chip_row(p), p.chip)
-
-
-def _chip_row(p: _Path) -> int:
-    """The row a back path's chip is drawn on: its return row, else the row under it."""
-    return p.ret if _chip_fits(p) else p.ret + 1
+            kit._put_runs(cv, *p.chip_at, p.chip)
 
 
 def _put_vertex(cv: _Canvas, lay: _Layout, ctx: "_Ctx", vid) -> None:
@@ -1490,8 +1501,8 @@ def _units(lay: _Layout, ctx: "_Ctx") -> list:
         if p.letter:                            # somewhere along its own cells' rows
             cells |= {(x - k, y) for x, y in p.cells for k in range(len(p.letter))}
         if p.back and p.chip is not None:
-            y = _chip_row(p)
-            cells |= {(p.tin + 2 + k, y) for k in range(kit.row_len(p.chip))}
+            x, y = p.chip_at
+            cells |= {(x + k, y) for k in range(kit.row_len(p.chip))}
         add(("p", pi), cells)
     for vid, v in lay.V.items():
         if v.what == "dummy":
