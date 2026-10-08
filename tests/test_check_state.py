@@ -318,6 +318,42 @@ def folded(report, rid: str) -> list:
     return sorted(a.rule.id for f in report.findings if f.rule.id == rid for a in f.also)
 
 
+class SummarisedWriters(unittest.TestCase):
+    """SGC131 counts an outer flow summarised by its expansion (sim's
+    Program.summaries) and the expansion's detail as one writer."""
+
+    SHOP = """
+        (User) -> [Shop]
+        [Shop] -> |Orders| : put({Order})
+        [Shop] := {
+          [Checkout] -> [Pay]
+          [Pay] -> |Orders| : put({Order})
+        }
+        """
+
+    def test_summary_and_its_detail_are_one_writer(self):
+        self.assertEqual(found(check_state(self.SHOP, mode="spec"), "SGC131"), [])
+
+    def test_a_second_writer_still_counts(self):
+        rep = check_state(self.SHOP + "        [Admin] -> |Orders| : put({Order})\n",
+                          mode="spec")
+        self.assertEqual(found(rep, "SGC131"), [(2, "SGC131")])
+        self.assertIn("2 writers (`Admin` and `Pay`)",
+                      next(f.hit.statement for f in rep.findings if f.rule.id == "SGC131"))
+
+    def test_a_route_detail_is_no_summary(self):
+        """A `!>` may not be taken: the outer wire still writes on its own."""
+        rep = check_state("""
+            (User) -> [Shop]
+            [Shop] -> |Orders| : put({Order})
+            [Shop] := {
+              [Checkout] -> [Pay]
+              [Pay] !> |Orders| : put({Order})
+            }
+            """, mode="spec")
+        self.assertEqual(found(rep, "SGC131"), [(2, "SGC131")])
+
+
 class Suppression(unittest.TestCase):
     """Catalog §1.7: one defect, one finding."""
 

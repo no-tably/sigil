@@ -487,6 +487,24 @@ class Facts:
             out.setdefault(store, []).append((w, principal, mode))
         return out
 
+    @cached_property
+    def summaries(self) -> frozenset:
+        """The idents of the summary wires (sim's Program.summaries): an expanded
+        node's out-wire whose detail inside its expansion carries the same
+        traffic. A summary and its detail are one access, counted by the detail."""
+        return frozenset(self.doc.prog.summaries or ())
+
+    def counted_store_flows(self, sid: str) -> list:
+        """store_flows of sid without its summary wires."""
+        return [wpm for wpm in self.store_flows.get(sid, []) if wpm[0].ident not in self.summaries]
+
+    def summarised(self, sid: str, principal: str) -> bool:
+        """Whether every flow by which principal writes sid is a summary (so its
+        detail's writer stands for it)."""
+        mine = [w for w, p, m in self.store_flows.get(sid, [])
+                if p == principal and m in ("write", "rw")]
+        return bool(mine) and all(w.ident in self.summaries for w in mine)
+
     def writers(self, sid: str) -> dict:
         return self.doc.writers(sid)
 
@@ -667,11 +685,12 @@ def store_scopes(sid: str, nid: Optional[str] = None) -> tuple:
 
 def writer_roles(f: Facts, sid: str) -> dict:
     """{role: guessed} of a store's writers; a writer is a guess when every flow
-    that makes it one reads its mode off a verb."""
+    that makes it one reads its mode off a verb. A writer only by summary wires
+    is not one: its expansion's detail writes in its place."""
     out = {}
-    flows = f.store_flows.get(sid, [])
+    flows = f.counted_store_flows(sid)
     for principal, srcs in f.writers(sid).items():
-        if principal == sid:
+        if principal == sid or (srcs == frozenset({"flow"}) and f.summarised(sid, principal)):
             continue
         mine = [w for w, p, m in flows if p == principal and m in ("write", "rw")]
         guessed = srcs == frozenset({"flow"}) and all(f.heuristic(w) for w in mine)
@@ -683,7 +702,8 @@ def writer_roles(f: Facts, sid: str) -> dict:
 def find_shared_writable(ck, f: Facts):
     """SGC131 (a): a plain store with two or more writers and no resolution;
     (c): one writer plus flows of unknown mode that could make two (a hint, which
-    folds nothing: a hint never hides a race)."""
+    folds nothing: a hint never hides a race). A summarised outer flow and its
+    expansion's detail are one writer (writer_roles)."""
     for sid in f.stores:
         if not f.plain(sid) or f.resolution(sid):
             continue
@@ -698,7 +718,7 @@ def find_shared_writable(ck, f: Facts):
                          "writes resolved?",
                          anchor=("node", sid), scopes=store_scopes(sid), guess=guess)
             continue
-        unknown = sorted({f.role(p) for w, p, m in f.store_flows.get(sid, [])
+        unknown = sorted({f.role(p) for w, p, m in f.counted_store_flows(sid)
                           if m == "unknown" and f.role(p) not in roles})
         if len(roles) == 1 and unknown:
             who = listing(f"`{u}`" for u in unknown)
