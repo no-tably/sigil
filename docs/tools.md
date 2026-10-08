@@ -156,7 +156,8 @@ sits on its row and the rest below it; wires from one source share a trunk
 (`─┬─▶ ├─▶ ╰─▶`), wires into one target with one kind of head share its last run, and
 a target fed by several kinds of arrow takes their heads stacked (`▶┐` / `✖┘`). A
 wire that only crosses another hops it (`─│─`); a wire back to an earlier column
-runs along a return row under the drawing (`╰──╯`). Strokes, heads, colours, chips,
+runs along a return row under the drawing (`╰──╯`), and wires back from one source
+to one target share that row as one bundle. Strokes, heads, colours, chips,
 notes, triggers, the checks overlay and the simulation are the graph view's.
 `--- section ---` dividers and expansions are parts under titles, as in the graph
 view; a control block's flows are drawn in its frame under its part, as in the graph
@@ -178,7 +179,8 @@ without reflowing, its tokens crossing the plugs.
 The graph and tree views fit a width the same way, never squashing a box or a
 label. In the graph view a chip becomes a marker letter first; then every layer
 too wide for the width wraps onto the layers below it (a node only moves down, the
-edges passing a layer take its room too), and each row of boxes, each row of
+edges passing a layer take its room too, and a fan-out's edges pass the wrapped rows
+as one trunk), and each row of boxes, each row of
 control-block frames and the grid of unconnected nodes keeps inside the width. In
 the tree view the margins give way first (callouts narrow, then move to panels);
 then the lanes past the gutter columns that fit fold into the same numbered plugs:
@@ -212,9 +214,12 @@ transit along the receiver's lane in its arrow's stroke (`╰──▶` `╰╌�
 no bar, and retries repeat the segment; a race's loser ends `⊘`; a reply runs on the
 callee's lane to `↩`. `↺` is a self-call's pulse, `┤` where the depth limit stopped
 a recursion, `⇱` a host op, `•` an actor reached with no work of its own, `┆` the
-boundary between episodes, `↺2` on the ruler where a loop's next iteration starts
-("loops 2×" in the note of the lane running it), and with the checks overlay (`c`)
-a finding's number at the tick this run shows it, when the run is its witness. A
+boundary between episodes, `↺2` where a loop's next iteration starts ("loops 2×"
+in the note of the lane running it), and with the checks overlay (`c`) a finding's
+number at the tick this run shows it, when the run is its witness. These marks (and
+`ep2` for an episode) sit on a row of their own above the ruler's scale, so they
+never hide its ticks; when `↺k` marks crowd, only every second, fifth, tenth …
+one is labelled (findings and episodes are placed first). A
 spawned lane carries `◌` while its spawn hop flies;
 many instances fold into `{…×k more}` (`u` / `--unroll`). Each lane has a note in
 plain words ("4 attempts, each fails", "spawned by [Spawner] for [Asteroid]"); `n`
@@ -277,8 +282,8 @@ The tool's input:
 - `scenario` — a scenario to simulate, as `--sim` names it. `""` ends the run.
 - `frame` — the frame of the run to show: a 0-based number, as view.py's
   `--frame` counts them, or `"last"`. A new run starts on its last frame. The
-  pane and widget draw a long run at most 400 frames, evenly spread: they show
-  the nearest drawn frame at or before it, numbered as the run's own.
+  pane and widget play every frame of a run, however long, drawing it a window
+  of frames at a time.
 - `play` — `true` plays the run, `false` pauses it.
 - `payloads` — show flow payloads.
 

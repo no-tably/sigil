@@ -2,6 +2,51 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
+## 0.4.1 — 2026-10-08
+
+Fixes and speed-ups for what 0.4.0 shipped. No new features.
+
+### Viewer
+
+- **Wide characters line up.** A CJK name takes two columns and a combining mark
+  none, in every view, the Claude Code pane, the pi widget and the page. Before, a
+  wide name pushed its row out of line, and a decomposed mark (as in が) could be drawn
+  on its own. ASCII drawings are unchanged.
+- **A playing run is much faster.** During a run the graph, tree and flow views lay
+  the drawing out once and repaint only what changes (about 6–10× faster a frame on a
+  500-flow chain). The pane, widget and playground do the same. The drawing is the same.
+- **The graph view:** a fan-out wrapped onto lower rows passes them as one trunk, so the
+  drawing is shorter and narrower. In a run the trunk takes the look of its busiest wire,
+  so a failed call reads failed from its source down.
+- **The tree view:** a lane reaches its ends only in the expansion its wire is written
+  in. A store borrowed by two expansions gets a lane to each, and the gutter is
+  narrower.
+- **The flow view:** wires back from one source to one target share one return row
+  instead of looping separately (the shortener's two replies to `(Visitor)`). A taken
+  wire in that bundle is lit all the way along.
+- **The run view:** `↺k`, episode and finding marks sit on a row of their own above the
+  ruler, so they no longer hide its ticks. When loop marks crowd, only every 2nd, 5th,
+  10th … is labelled.
+- `view.py --help` explains every flag in plain words, lists the views in key order and
+  names flow as the default.
+
+### Simulation and checks
+
+- At `--depth 0` a run's token on a folded detail rides the outer flow that summarises
+  it (the shop's `[Shop] ~> <OrderPlaced>`), so the token no longer vanishes while
+  the detail runs.
+- Overlapping activations find their `∥` row by a heap instead of a scan, so long runs
+  with many of them no longer slow down quadratically.
+- `SGC131` counts an outer flow and the expansion detail it summarises as one writer, not
+  two. A failure route (`!>`) still counts on its own.
+
+### Agent plugins and page
+
+- The Claude Code pane and pi widget play every frame of a long run, drawn a window at a
+  time. Before, they showed at most 400 frames, evenly spread.
+- The page's run section names the run playing in its command (`--sim not-found` while
+  not-found plays). On a phone, the 3D planes stay above the section text.
+
 ## 0.4.0 — 2026-10-08
 
 Two new views, a viewer inside your coding agent, drawings that fit the window, and
