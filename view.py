@@ -9,7 +9,8 @@ Usage:
 
 Options:
     --depth N|all    Show `X := { … }` expansions as sections below the graph,
-                     nested up to N levels (default: 1).
+                     nested up to N levels (default: 1); the run view (and
+                     --run --json) folds deeper lanes into their node's lane.
     --payloads       Show each flow's `: payload`: as a chip on its edge in the
                      graph view, in a list under the tree in the tree view.
     --no-lint        Skip lint diagnostics.
@@ -583,11 +584,16 @@ class SimPlayer:
 
     `name`: the scenario to start on (None: `happy`; `a+b` combines two and is
     added to the list); `limits`: the simulator's bounds (None: its defaults).
+    `depth`: the expansion depth the run is drawn to (None: every node drawn) —
+    the narration (beats) and the path (hops) name the drawn nodes, a folded
+    node by its host (sim.folded_hosts); the owner may change it at any time.
     Raises UnknownScenario for an unknown name."""
 
-    def __init__(self, graph, name: str | None = None, limits=None):
+    def __init__(self, graph, name: str | None = None, limits=None,
+                 depth: int | None = None):
         self.graph = graph
         self.limits = limits or simulator.Limits()
+        self.depth = depth
         self.canon = simulator.canonical(graph)
         self.scenarios = simulator.scenarios(self.canon, limits=self.limits)
         names = [sc.name for sc in self.scenarios]
@@ -609,22 +615,28 @@ class SimPlayer:
                                         limits=self.limits)
         self.at = 0
         self._shown = {}                # SceneOptions → the trace projected onto them
-        self._beats = self._hops = None  # sim.narrate / sim.hops of the run, when first asked
+        self._told_at = {}              # depth → (sim.narrate, sim.hops) of the run there
+
+    def _told(self) -> tuple:
+        """(beats, hops) of the run drawn to self.depth, worked out once per depth."""
+        if self.depth not in self._told_at:
+            hosts = (None if self.depth is None
+                     else simulator.folded_hosts(self.canon, self.depth))
+            self._told_at[self.depth] = (simulator.narrate(self.trace, hosts),
+                                         simulator.hops(self.trace, hosts))
+        return self._told_at[self.depth]
 
     @property
     def beats(self) -> tuple:
         """The run in plain words (sim.narrate): a Beat per frame where something
-        happens."""
-        if self._beats is None:
-            self._beats = simulator.narrate(self.trace)
-        return self._beats
+        happens, naming the nodes drawn at self.depth."""
+        return self._told()[0]
 
     @property
     def hops(self) -> tuple:
-        """Every hop the run sets out on (sim.hops), for the path."""
-        if self._hops is None:
-            self._hops = simulator.hops(self.trace)
-        return self._hops
+        """Every hop the run sets out on (sim.hops), for the path, between the
+        nodes drawn at self.depth."""
+        return self._told()[1]
 
     @property
     def scenario(self):
@@ -637,11 +649,12 @@ class SimPlayer:
 
     def rebuilt(self, graph) -> "SimPlayer":
         """A player on a re-parsed document keeping this one's scenario (when it
-        still exists, else `happy`), position (clamped), play state and speed."""
+        still exists, else `happy`), depth, position (clamped), play state and
+        speed."""
         try:
-            new = SimPlayer(graph, self.scenario.name, self.limits)
+            new = SimPlayer(graph, self.scenario.name, self.limits, self.depth)
         except UnknownScenario:
-            new = SimPlayer(graph, None, self.limits)
+            new = SimPlayer(graph, None, self.limits, self.depth)
         new.at = min(self.at, new.last)
         new.playing, new.speed, new.due = self.playing, self.speed, self.due
         return new
@@ -1138,26 +1151,31 @@ def sim_batch(path: Path, mode: str, dialect=None, as_json: bool = False,
     return 0
 
 
-def sim_json(path: Path, name: str, dialect=None, limits=None) -> int:
+def sim_json(path: Path, name: str, dialect=None, limits=None,
+             depth: int | None = None) -> int:
     """--sim NAME --json: print one run (sim_run) as JSON; no drawing, no lint.
-    Exit status 0; raises UnknownScenario for an unknown name."""
+    `depth` (--depth; None: not given, every node named): its steps name the
+    nodes a view drawn to it draws. Exit status 0; raises UnknownScenario for
+    an unknown name."""
     kit.use_dialect(dialect)
     g = kit._call(kit.render.parse_document, path.read_text(), dialect)
-    player = SimPlayer(g, name, limits)
+    player = SimPlayer(g, name, limits, depth)
     print(json.dumps(sim_run(player, limits), indent=2, ensure_ascii=False))
     return 0
 
 
 def run_json(path: Path, name: str | None, dialect=None, limits=None,
-             unroll: int | None = None) -> int:
+             unroll: int | None = None, depth: int | None = None) -> int:
     """--run --json [--sim NAME]: print the run's timeline (view_run.timeline_json:
     lanes with their labels, spans, moves, marks) as JSON — the scenario's run,
-    else the happy one; no drawing, no lint. Exit status 0; raises
-    UnknownScenario for an unknown name."""
+    else the happy one; no drawing, no lint. `depth` (--depth; None: not given,
+    every level): the timeline as the run view drawn to it. Exit status 0;
+    raises UnknownScenario for an unknown name."""
     kit.use_dialect(dialect)
     g = kit._call(kit.render.parse_document, path.read_text(), dialect)
     player = SimPlayer(g, name, limits)
-    data = vrun.timeline_json(player.trace, player.limits, unroll)
+    data = vrun.timeline_json(player.trace, player.limits, unroll,
+                              kit.ALL_DEPTH if depth is None else depth)
     print(json.dumps(data, indent=2, ensure_ascii=False))
     return 0
 
@@ -1438,7 +1456,7 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
     options = scene.SceneOptions(events, triggers, access, depth)
     player = shown = None
     if sim is not None:
-        player = SimPlayer(g, sim, limits)
+        player = SimPlayer(g, sim, limits, depth)
         player.at = frame_index(frame, player.last, default=player.last)
         shown = player.shown(options)
     overlay = check_failed = None
@@ -1500,6 +1518,7 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
 # ---------------------------------------------------------------------------
 
 DEPTHS = (0, 1, kit.ALL_DEPTH)
+DEFAULT_DEPTH = 1                       # --depth not given
 LINT_ROWS = 8
 SCROLL_X = 4                                    # columns per left / right key / wheel notch
 WHEEL_Y = 3                                     # rows per wheel notch
@@ -1556,7 +1575,7 @@ def wheel_step(code: int) -> tuple[int, int]:
 
 
 class ViewState:
-    def __init__(self, path: Path, depth: int = 1, payloads: bool = False,
+    def __init__(self, path: Path, depth: int = DEFAULT_DEPTH, payloads: bool = False,
                  do_lint: bool = True, dialect=None, tree: bool = False,
                  triggers: bool = True, spaced: bool = True, notes: str = "off",
                  access: bool = False, mods: bool = False, events: str | None = None,
@@ -1687,6 +1706,7 @@ class ViewState:
             self.sim_error = f"sim failed: {type(exc).__name__}: {exc}"
             return None
         self.sim_error = None
+        player.depth = self.depth      # its narration and path name the drawn nodes
         return player
 
     def _ensure_player(self) -> None:
@@ -1813,6 +1833,8 @@ class ViewState:
             self._recompose()
         elif k == "d":                 # the next larger depth, wrapping to the first
             self.depth = next((d for d in DEPTHS if d > self.depth), DEPTHS[0])
+            if self.player is not None:
+                self.player.depth = self.depth
             self._recompose()
         elif k == "t" or (k.isdigit() and 1 <= int(k) <= len(VIEWS)):
             # t: the next view; a digit: that view (1 the first in VIEWS)
@@ -2293,9 +2315,12 @@ def main(argv=None) -> int:
                     "(--once: print it once and exit). Four views, by their keys: "
                     f"{keys}; it starts in the {DEFAULT_VIEW} view.")
     ap.add_argument("file", type=Path, help="the Sigil file to draw")
-    ap.add_argument("--depth", type=kit.render.depth_arg, default=1, metavar="N|all",
+    ap.add_argument("--depth", type=kit.render.depth_arg, default=None, metavar="N|all",
                     help="how many levels of `X := { … }` expansions to draw "
-                         "(default 1; all: every level)")
+                         "(default 1; all: every level); a run's narration and path "
+                         "name the nodes drawn there and the run view folds deeper "
+                         "lanes (with --sim NAME --json / --run --json: only "
+                         "when given)")
     ap.add_argument("--payloads", action="store_true",
                     help="show what each flow carries: a chip on its edge (graph and flow "
                          "views), a list under the tree (tree view)")
@@ -2408,6 +2433,7 @@ def main(argv=None) -> int:
         print("view.py: --frame and --play need --sim SCENARIO", file=sys.stderr)
         return 2
     view = next((v for v in VIEWS if getattr(a, v)), DEFAULT_VIEW)
+    depth = DEFAULT_DEPTH if a.depth is None else a.depth   # drawn to
     batch = a.sim in SIM_BATCH             # never drawn: the same live or --once
     tty_out = sys.stdout.isatty()
     once_out = a.once or not tty_out or not sys.stdin.isatty()
@@ -2420,8 +2446,8 @@ def main(argv=None) -> int:
             return 2
         try:
             if a.run:
-                return run_json(a.file, a.sim, dialect, limits, a.unroll)
-            return sim_json(a.file, a.sim, dialect, limits)
+                return run_json(a.file, a.sim, dialect, limits, a.unroll, a.depth)
+            return sim_json(a.file, a.sim, dialect, limits, a.depth)
         except UnknownScenario as exc:
             print(f"view.py: --sim: {exc}", file=sys.stderr)
             return 2
@@ -2429,14 +2455,14 @@ def main(argv=None) -> int:
         colour = a.color == "always" or (a.color == "auto" and tty_out)
         width = a.width or (shutil.get_terminal_size().columns if tty_out else ONCE_WIDTH)
         try:
-            return once(a.file, a.depth, a.payloads, not a.no_lint, dialect, colour, a.tree,
+            return once(a.file, depth, a.payloads, not a.no_lint, dialect, colour, a.tree,
                         not a.no_triggers, not a.compact, a.notes, width, a.access, a.mods,
                         a.events, a.sim, a.checks, limits, view, a.unroll, a.layout,
                         a.frame)
         except UnknownScenario as exc:     # the message lists the known ones
             print(f"view.py: --sim: {exc}", file=sys.stderr)
             return 2
-    state = ViewState(a.file, a.depth, a.payloads, not a.no_lint, dialect, a.tree,
+    state = ViewState(a.file, depth, a.payloads, not a.no_lint, dialect, a.tree,
                       not a.no_triggers, not a.compact, a.notes, a.access, a.mods, a.events,
                       a.sim, a.checks, limits, view, a.unroll, a.layout)
     if a.frame is not None or a.play:
