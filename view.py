@@ -242,7 +242,6 @@ import select
 import shutil
 import signal
 import sys
-import textwrap
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -370,7 +369,7 @@ def wrap_legend(row, cols: int):
     entry wider than a line on its own breaks between its words, the rest under
     its first word."""
     label, items = row[0], [row[i:i + 2] for i in range(1, len(row), 2)]
-    indent = (" " * len(label[0]), None)
+    indent = (" " * kit.cell_width(label[0]), None)
     out, cur = [], [label]
     for item in items:
         if kit.row_len(cur) + kit.row_len(item) > cols and len(cur) > 1:
@@ -379,8 +378,8 @@ def wrap_legend(row, cols: int):
         if kit.row_len(cur) + kit.row_len(item) > cols and len(item) == 2:
             (mark, mstyle), (word, wstyle) = item
             pad = " " * (len(word) - len(word.lstrip()))
-            lead = kit.row_len(cur) + len(mark) + len(pad)
-            parts = textwrap.wrap(word.lstrip(), max(cols - lead, 8), break_long_words=False)
+            lead = kit.row_len(cur) + kit.cell_width(mark) + len(pad)
+            parts = kit.wrap_cells(word.lstrip(), max(cols - lead, 8), long_words=False)
             if len(parts) > 1:
                 cur = cur + [(mark, mstyle), (pad + parts[0], wstyle)]
                 for part in parts[1:]:
@@ -787,10 +786,10 @@ def info_lines(text: str, cols: int, indent: int = 2) -> list[str]:
     `cols` between words, each continuation indented `indent`; a ` · ` stays
     with the word after it, a word longer than cols stays whole, and a line
     that fits is kept as it is."""
-    if len(text) <= cols:
+    if kit.cell_width(text) <= cols:
         return [text]
-    lines = textwrap.wrap(text.replace(" · ", " ·\xa0"), cols, subsequent_indent=" " * indent,
-                          break_long_words=False, break_on_hyphens=False)
+    lines = kit.wrap_cells(text.replace(" · ", " ·\xa0"), cols, indent=" " * indent,
+                           long_words=False, hyphens=False)
     return [ln.replace("\xa0", " ") for ln in lines] or [text]
 
 
@@ -863,7 +862,7 @@ def path_rows(branches: list, cols: int, hold: bool = False, mono: bool = False)
     rows above don't move as the path grows."""
     dim, mid = (kit.GREY["dim"], None, False), (kit.GREY["mid"], None, False)
     num, bold = (kit.GREY["light"], None, False), (kit.GREY["mid"], None, True)
-    width = max(cols - len(PATH_LABEL), 1)
+    width = max(cols - kit.cell_width(PATH_LABEL), 1)
 
     def hop(h):
         return [((PATH_NOW if h.now and mono else "") + h.text, bold if h.now else mid)]
@@ -917,7 +916,7 @@ def path_rows(branches: list, cols: int, hold: bool = False, mono: bool = False)
         body = [[("… ", dim)] + kit.clip(line, over, width - 2)]
     body = body or [[]]
     rows = [[(PATH_LABEL, dim)] + body[0]]
-    rows += [[(" " * len(PATH_LABEL), None)] + r for r in body[1:]]
+    rows += [[(" " * kit.cell_width(PATH_LABEL), None)] + r for r in body[1:]]
     if hold:
         rows += [[("  ", None)] for _k in range(PATH_ROWS - len(rows))]
     return rows
@@ -1062,15 +1061,15 @@ def _fit(head: str, tail: str, width: int) -> list[str]:
     line of its own."""
     if not tail:
         return [head.rstrip()]
-    if len(head) + len(tail) <= width:
+    if kit.cell_width(head) + kit.cell_width(tail) <= width:
         return [head + tail]
     return [head.rstrip(), "    " + tail]
 
 
 def sim_list(scenarios, width: int = SIM_WIDTH) -> list[str]:
     """--sim list: one line per scenario, its name then its label."""
-    pad = min(max((len(sc.name) for sc in scenarios), default=0), 32) + 2
-    return [ln for sc in scenarios for ln in _fit(f"{sc.name:<{pad}}", sc.label, width)]
+    pad = min(max((kit.cell_width(sc.name) for sc in scenarios), default=0), 32) + 2
+    return [ln for sc in scenarios for ln in _fit(kit.ljust_cells(sc.name, pad), sc.label, width)]
 
 
 def sim_table(facts: list, width: int = SIM_WIDTH) -> list[str]:
@@ -1081,7 +1080,7 @@ def sim_table(facts: list, width: int = SIM_WIDTH) -> list[str]:
     versions of a design shows only the runs that changed."""
     out = []
     for f in facts:
-        head = f"{f['name']:<{SIM_NAME}} {f['outcome']:<6} {f['frames']:>4} frames  "
+        head = f"{kit.ljust_cells(f['name'], SIM_NAME)} {f['outcome']:<6} {f['frames']:>4} frames  "
         out += _fit(head, f["label"], width)
         out += [ln for k in SIM_FACTS if f[k] for ln in _fact_lines(k, f[k], width)]
     return out + [sim_summary(facts)]
@@ -1091,7 +1090,7 @@ def _fact_lines(key: str, items: list, width: int) -> list[str]:
     """`  key: a · b · c`, wrapped between items (never inside one) at width."""
     lines, line = [], f"  {key}: {items[0]}"
     for item in items[1:]:
-        if len(line) + 3 + len(item) > width:
+        if kit.cell_width(line) + 3 + kit.cell_width(item) > width:
             lines.append(line)
             line = "      " + item
         else:
@@ -1253,8 +1252,8 @@ def entry_rows(e: CheckEntry, cols: int) -> list:
     glyph = kit.check_glyph(e.mark)
     f = e.finding
     text = f"{glyph} {f.line}:{f.rule.name} {finding_question(f)}"
-    lines = textwrap.wrap(text, width=max(cols, len(glyph) + 12), break_long_words=False,
-                          subsequent_indent=" " * (len(glyph) + 1)) or [glyph]
+    lines = kit.wrap_cells(text, max(cols, kit.cell_width(glyph) + 12), long_words=False,
+                           indent=" " * (kit.cell_width(glyph) + 1)) or [glyph]
     body = (kit.GREY["dim"] if e.mark.acked else kit.GREY["light"], None, False)
     return ([[(glyph, kit.check_mark_style(e.mark)), (lines[0][len(glyph):], body)]]
             + [[(ln, body)] for ln in lines[1:]])

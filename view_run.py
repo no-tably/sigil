@@ -488,7 +488,7 @@ def _label_text(ln, scn, numbered: set) -> str:
 
 
 def _cut(text: str, n: int) -> str:
-    return text if len(text) <= n else text[:n - 1] + "…"
+    return text if kit.cell_width(text) <= n else kit.cut_cells(text, n - 1) + "…"
 
 
 def _label_runs(ln, scn, numbered: set, tick: int, marks) -> list:
@@ -555,13 +555,14 @@ def _place(want: list, lo: int, hi: int, room: Optional[int]) -> list:
     for m in want:
         if not lo <= m.col < hi:
             continue
-        if room is not None and m.col - lo + len(m.text) > room:
+        n = kit.cell_width(m.text)
+        if room is not None and m.col - lo + n > room:
             if not m.text.startswith(NOW):
                 continue
-            m = m._replace(text=NOW)
-        if set(range(m.col - 1, m.col + len(m.text) + 1)) & taken:
+            m, n = m._replace(text=NOW), kit.cell_width(NOW)
+        if set(range(m.col - 1, m.col + n + 1)) & taken:
             continue
-        taken |= set(range(m.col, m.col + len(m.text)))
+        taken |= set(range(m.col, m.col + n))
         placed.append(m)
     return placed
 
@@ -573,7 +574,7 @@ def _ruler_row(placed: list, lo: int, x0: int) -> list:
         if m.col > x:
             row.append((" " * (m.col - x), None))
         row.append((m.text, m.style))
-        x = m.col + len(m.text)
+        x = m.col + kit.cell_width(m.text)
     return row
 
 
@@ -832,15 +833,15 @@ def _fit_note(clauses: list, budget: int, cut: bool = True) -> Optional[str]:
     keep = [[c.text, c.keep, c.short] for c in clauses]
     text = lambda: "; ".join(k[0] for k in keep)
     for item in sorted(keep, key=lambda k: k[1]):
-        if len(text()) <= budget:
+        if kit.cell_width(text()) <= budget:
             break
         if item[2]:
             item[0], item[2] = item[2], None
-            if len(text()) <= budget:
+            if kit.cell_width(text()) <= budget:
                 break
         if len(keep) > 1:
             keep.remove(item)
-    if len(text()) <= budget:
+    if kit.cell_width(text()) <= budget:
         return text()
     if not cut:
         return None
@@ -1004,7 +1005,7 @@ def compose_run(g, trace=None, tick: Optional[int] = None, width: Optional[int] 
         head = f"happy run (every default) · {trace.outcome} · {len(trace.frames)} frames"
         keys = "x plays it   [ ] another scenario"
         rows.append([])
-        if width is None or len(head) + 3 + len(keys) <= width:
+        if width is None or kit.cell_width(head) + 3 + kit.cell_width(keys) <= width:
             rows.append([(head, st["mid"]), ("   " + keys, st["dim"])])
         else:                                   # each on lines of its own, wrapped
             rows += [[(ln, st["mid"])] for ln in _wrapped(head, width)]

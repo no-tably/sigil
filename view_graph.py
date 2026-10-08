@@ -197,7 +197,7 @@ def _shape(lay: "_Layout") -> tuple:
     """What a layout's places depend on beyond its graph: each label's width,
     the edges, the self-call stubs' widths, the wrap — equal from frame to
     frame of a run (badges are padded to their widest)."""
-    return (lay.wrap, tuple((nid, len(lab)) for nid, lab in lay.labels.items()),
+    return (lay.wrap, tuple((nid, kit.cell_width(lab)) for nid, lab in lay.labels.items()),
             tuple((e.src, e.dst, e.kind) for e in lay.edges),
             tuple((nid, tuple(st.width() for st in sts)) for nid, sts in lay.stubs.items()))
 
@@ -277,9 +277,9 @@ def _layer(lay: _Layout) -> None:
     for i in ids:
         if lay.g.nodes[i].kind == kit.JOIN:
             pw = max(2 * max(deg_in[i], deg_out[i]) + 1, 5)
-            V[i] = _V(i, pw + 1 + len(lay.labels[i]), pw=pw)
+            V[i] = _V(i, pw + 1 + kit.cell_width(lay.labels[i]), pw=pw)
         else:
-            w = len(lay.labels[i]) + 4
+            w = kit.cell_width(lay.labels[i]) + 4
             V[i] = _V(i, w, reach=_reach(w, lay.stubs.get(i, ())))
     indeg = {i: 0 for i in ids}
     down = {i: [] for i in ids}
@@ -769,7 +769,7 @@ def _paint(lay: _Layout, only: frozenset | None = None, sketch: _Sketch | None =
         x, y = 0, above[1] + 1 if above[1] else 0
         row_h = BOX_H
         for vid in lay.isolated:
-            w = len(lay.labels[vid]) + 4
+            w = kit.cell_width(lay.labels[vid]) + 4
             stubs = lay.stubs.get(vid, ())
             if x and x + _reach(w, stubs) > wrap:
                 x, y, row_h = 0, y + row_h, BOX_H
@@ -837,7 +837,7 @@ def _place_box(cv: kit.Canvas, lay: _Layout, vid, x, y, w, spots: "_SelfSpots") 
     _colour_tags(cv, x + kit.row_len(lead), y, n, lay.tags.get(vid))
     spots.stubs.update(_draw_stubs(cv, x, y, w, n, lay.stubs.get(vid, ()), lay.styles))
     if vid in lay.marked:
-        spots.marks[vid] = (x + 2 + len(label) - 1, y + 1)
+        spots.marks[vid] = (x + 2 + kit.cell_width(label) - 1, y + 1)
 
 
 @dataclass
@@ -957,11 +957,11 @@ def _colour_tags(cv: kit.Canvas, x, y, n, runs):
     """Re-colour a box's #N note tags (drawn in the label's colour) by note kind."""
     if not runs:
         return
-    tx = x + 2 + len(kit.node_label(n) + _stream_mark(n))
+    tx = x + 2 + kit.cell_width(kit.node_label(n) + _stream_mark(n))
     for text, style in runs:
         if style:
             cv.put(tx, y + 1, text, style)
-        tx += len(text)
+        tx += kit.cell_width(text)
 
 
 def _stream_mark(n) -> str:
@@ -1017,7 +1017,7 @@ def _draw_box(cv: kit.Canvas, x, y, w, label, n, look: Optional["_BoxLook"] = No
     border, text = look[:2] if look else kit.node_styles(n)
     cv.put(x, y, tl + h * (w - 2) + tr, border)
     cv.put(x, y + 1, s + " ", border)
-    cv.put(x + 2, y + 1, label.ljust(w - 4), text)
+    cv.put(x + 2, y + 1, kit.ljust_cells(label, w - 4), text)
     lx = kit._put_runs(cv, x + 2, y + 1, lead)
     if look and look.runs is not None:              # one run in the look's colour
         kit._put_runs(cv, lx, y + 1, look.runs)
@@ -2126,7 +2126,7 @@ def _section_rows(parts, fit: int | None = None):
     to it (kit.fit_title), so a title never widens a drawing past it."""
     if fit is not None:
         parts = [(kit.fit_title(t, fit - 6) if t else t, sg, cv) for t, sg, cv in parts]
-    width = max([cv.w for _, _, cv in parts] + [len(t) + 6 for t, _, _ in parts if t] + [0])
+    width = max([cv.w for _, _, cv in parts] + [kit.cell_width(t) + 6 for t, _, _ in parts if t] + [0])
     rows = []
     for title, _sg, cv in parts:
         if isinstance(title, kit.Rule):

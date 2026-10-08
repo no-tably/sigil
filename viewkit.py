@@ -6,6 +6,9 @@ draw with it. It holds:
 
     styles      the theme's colours as (fg, bg, bold) styles — apply_theme(),
                 use_theme(), use_dialect(), kind_color(), edge_style(), muted()
+    cells       cell_width() — a drawn width in terminal columns (wide CJK 2,
+                combining marks 0), never len() — and cut_cells, ljust_cells,
+                wrap_cells by it
     Canvas      a grid of (char, style) cells with box-drawing strokes that merge
     frames      FrameMemo, Plan, Retained: what a run drawn frame after frame
                 keeps — a drawing laid out once, then only what changed repainted
@@ -31,6 +34,7 @@ import itertools
 import re
 import sys
 import textwrap
+import unicodedata
 from pathlib import Path
 from typing import NamedTuple
 
@@ -399,6 +403,106 @@ _STROKES = {"=>": "heavy", "*>": "double", "~>": "dashed", "trigger": "hdash",
             "?>": "dotted", "]>[": "dotted", "arm": "dotted", "access": "dotted"}
 
 
+# ---------------------------------------------------------------------------
+# Cells — what a drawing measures. A terminal shows a wide character (CJK,
+# east_asian_width W / F) in two columns and a combining mark in none, so a
+# drawn width is cell_width(text), never len(text). A Canvas cell is one
+# column: a wide character takes two, the second holding WIDE_TAIL.
+# ---------------------------------------------------------------------------
+
+WIDE_TAIL = ""          # the second cell of a wide character: draws nothing
+_ZERO_WIDTH = {"\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"}   # ZWSP ZWNJ ZWJ WJ BOM
+_CHAR_CELLS: dict = {}  # a non-ASCII character → its cells, as char_cells finds them
+
+
+def char_cells(ch: str) -> int:
+    """The columns one character takes: 2 wide (W / F), 0 a combining mark or a
+    zero-width character, else 1."""
+    if ch < "\x80":
+        return 1
+    n = _CHAR_CELLS.get(ch)
+    if n is None:
+        if unicodedata.category(ch) in ("Mn", "Me") or ch in _ZERO_WIDTH:
+            n = 0
+        else:
+            n = 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+        _CHAR_CELLS[ch] = n
+    return n
+
+
+def cell_width(s: str) -> int:
+    """The columns text takes in a terminal (len(s) for ASCII)."""
+    if s.isascii():
+        return len(s)
+    return sum(map(char_cells, s))
+
+
+def cut_cells(s: str, n: int) -> str:
+    """The longest start of s that fits n columns (s[:n] for ASCII); a wide
+    character that would straddle the edge is left out, a combining mark kept
+    with its base."""
+    if s.isascii():
+        return s[:max(n, 0)]
+    used = 0
+    for k, ch in enumerate(s):
+        used += char_cells(ch)
+        if used > n:
+            return s[:k]
+    return s
+
+
+def ljust_cells(s: str, n: int, fill: str = " ") -> str:
+    """s padded with fill to n columns (str.ljust by drawn width)."""
+    return s + fill * (n - cell_width(s))
+
+
+_SPACES = re.compile(r"[ \t\n\r\f\v]+")       # textwrap's whitespace (not \xa0)
+
+
+def wrap_cells(text: str, width: int, indent: str = "", hyphens: bool = True,
+               long_words: bool = True) -> list:
+    """textwrap.wrap by drawn width (indent: its subsequent_indent, hyphens:
+    break_on_hyphens, long_words: break_long_words). Text whose characters
+    are one column each gets textwrap's own lines; otherwise words fill lines
+    greedily, and a word wider than its line is cut by columns — even with
+    long_words=False when it holds a wide character (CJK has no spaces to
+    break at)."""
+    if cell_width(text) == len(text) and cell_width(indent) == len(indent):
+        return textwrap.wrap(text, width, subsequent_indent=indent,
+                             break_on_hyphens=hyphens, break_long_words=long_words)
+    lines, line = [], ""                        # line: the open line's words, no indent
+
+    def room() -> int:
+        lead = cell_width(indent) if lines else 0
+        return max(width - lead - (cell_width(line) + 1 if line else 0), 0)
+
+    def close():
+        nonlocal line
+        lines.append((indent if lines else "") + line)
+        line = ""
+
+    for word in _SPACES.split(text.strip()):
+        cut = long_words or cell_width(word) != len(word)
+        if line and cell_width(word) > room() and (
+                not cut or cell_width(word) <= width - cell_width(indent)):
+            close()                             # it fits a line of its own: start one
+        while cut and word and cell_width(word) > room():
+            head = cut_cells(word, room())
+            if not head and not line:           # not one character fits: take one anyway
+                head = word[0]
+            if head:
+                line = line + " " + head if line else head
+                word = word[len(head):]
+            close()
+        if word:
+            if line and cell_width(word) > room():
+                close()
+            line = line + " " + word if line else word
+    if line:
+        close()
+    return lines
+
+
 class Probe(tuple):
     """A style that draws exactly like the (fg, bg, bold) it wraps but equals
     only another Probe, so Canvas.rows never merges it into a plain run and
@@ -428,9 +532,10 @@ def probed_box(rows) -> tuple | None:
     for y, row in enumerate(rows):
         x = 0
         for text, style in row:
-            if isinstance(style, Probe) and text:
-                cells += [(x, y), (x + len(text) - 1, y)]
-            x += len(text)
+            n = cell_width(text)
+            if isinstance(style, Probe) and n:
+                cells += [(x, y), (x + n - 1, y)]
+            x += n
     if not cells:
         return None
     xs, ys = [x for x, _y in cells], [y for _x, y in cells]
@@ -462,17 +567,37 @@ class Canvas:
         self.h = 0
         self._kept = None       # a kept canvas (keep_rows): y → its runs, once worked out
         self._xs = None         # … and y → the columns drawn on it
+        self._wide = False      # a wide character was put: rows mend split ones
 
     def _grow(self, x, y):
         self.w = max(self.w, x + 1)
         self.h = max(self.h, y + 1)
 
     def put(self, x, y, s, style=None):
-        if s:
+        """Text from column x on row y: one cell a character, two a wide one
+        (its second WIDE_TAIL), a combining mark joined to the cell before."""
+        if not s:
+            return
+        if s.isascii():
             n = len(s)
             self.text.update(zip(zip(range(x, x + n), itertools.repeat(y)),
                                  zip(s, itertools.repeat(style))))
             self._grow(x + n - 1, y)
+            return
+        at = x
+        for ch in s:
+            k = char_cells(ch)
+            if k == 0:                  # a combining mark: onto the cell before
+                if at > x:
+                    self.text[(at - 1, y)] = (self.text[(at - 1, y)][0] + ch, style)
+                continue
+            self.text[(at, y)] = (ch, style)
+            if k == 2:
+                self.text[(at + 1, y)] = (WIDE_TAIL, style)
+                self._wide = True
+            at += k
+        if at > x:
+            self._grow(at - 1, y)
 
     def link(self, a, b, kind, style, fixed=frozenset()):
         """Connect adjacent cells a → b with a line of the given arrow kind. A cell
@@ -569,6 +694,7 @@ class Canvas:
             self.lines[(x + ox, y + oy)] = list(v)
         if other.w and other.h:
             self._grow(ox + other.w - 1, oy + other.h - 1)
+        self._wide = self._wide or other._wide
 
     def cell(self, x, y):
         if (x, y) in self.text:
@@ -584,7 +710,7 @@ class Canvas:
         if self._kept is not None:                  # a kept canvas: each row worked out once
             for y in range(h):
                 if y not in self._kept:
-                    self._kept[y] = self._runs(self._row_cells(y), w)
+                    self._kept[y] = self._runs(self._mend(self._row_cells(y)), w)
                 yield list(self._kept[y])
             return
         if type(self).cell is not Canvas.cell:      # a subclass's cells: ask for each
@@ -601,7 +727,24 @@ class Canvas:
                 if 0 <= x < w and 0 <= y < h:
                     grid[y][x] = v
         for cells in grid:
-            yield self._runs(cells, w)
+            yield self._runs(self._mend(cells), w)
+
+    def _mend(self, cells: dict) -> dict:
+        """A row's cells ({x: (char, style)}) with every wide character that
+        lost a half to a later put drawn as a blank, so the row keeps its
+        columns. Unchanged when no wide character was put."""
+        if not self._wide:
+            return cells
+        for x, (ch, st) in list(cells.items()):
+            if ch == WIDE_TAIL:
+                head = cells.get(x - 1)
+                if head is None or not head[0] or char_cells(head[0][0]) != 2:
+                    cells[x] = (" ", st)
+            elif ch and char_cells(ch[0]) == 2:
+                tail = cells.get(x + 1)
+                if tail is None or tail[0] != WIDE_TAIL:
+                    cells[x] = (" ", st)
+        return cells
 
     @staticmethod
     def _runs(cells: dict, w: int) -> list:
@@ -669,6 +812,7 @@ class Canvas:
             if y in ys:
                 self.text[(x, y)] = v
                 self._xs.setdefault(y, set()).add(x)
+        self._wide = self._wide or other._wide
         for (x, y), v in other.lines.items():
             if y in ys:
                 self.lines[(x, y)] = list(v)
@@ -882,8 +1026,8 @@ def mod_text(pair) -> str:
     → `×3`, ("^", "10k@drop") → `^10k drop`, ("!", None) → `!`, (".", "age") → `.age`."""
     name, arg = pair
     arg = " ".join(str(arg).split()) if arg is not None else None
-    if arg and len(arg) > MOD_ARG_MAX:
-        arg = arg[:MOD_ARG_MAX - 1] + "…"
+    if arg and cell_width(arg) > MOD_ARG_MAX:
+        arg = cut_cells(arg, MOD_ARG_MAX - 1) + "…"
     if name in ("×", "^", "."):
         return name + (arg or "").replace("@", " ")
     if name in ("!", "?"):
@@ -954,10 +1098,10 @@ def block_preview(body: str) -> str:
     rubric…\"\"\"`)."""
     lines = block_lines(body)
     first = lines[0] if lines else ""
-    more = len(lines) > 1 or len(first) > BLOCK_PREVIEW
-    if len(first) > BLOCK_PREVIEW:              # cut at a word, else mid-word
-        cut = first[:BLOCK_PREVIEW + 1].rfind(" ")
-        first = first[:cut if cut > 0 else BLOCK_PREVIEW].rstrip()
+    more = len(lines) > 1 or cell_width(first) > BLOCK_PREVIEW
+    if cell_width(first) > BLOCK_PREVIEW:       # cut at a word, else mid-word
+        cut = cut_cells(first, BLOCK_PREVIEW + 1).rfind(" ")
+        first = (first[:cut] if cut > 0 else cut_cells(first, BLOCK_PREVIEW)).rstrip()
     return '"""' + first + ("…" if more else "") + '"""'
 
 
@@ -1005,7 +1149,7 @@ def _put_runs(cv: Canvas, x, y, runs) -> int:
     """Draw styled runs from x; returns the x after them."""
     for text, style in runs:
         cv.put(x, y, text, style)
-        x += len(text)
+        x += cell_width(text)
     return x
 
 
@@ -1311,7 +1455,7 @@ def note_rows(idx: dict, width: int = NOTE_WIDTH):
     for num, text, kind, _edges in sorted(e for entries in idx.values() for e in entries):
         tag = f"{note_label(num)} "
         wrapped = [w for part in text.split("\n")
-                   for w in textwrap.wrap(part, max(width - len(tag), 20)) or [""]]
+                   for w in wrap_cells(part, max(width - len(tag), 20)) or [""]]
         for k, ln in enumerate(wrapped):
             rows.append([(tag if k == 0 else " " * len(tag), NOTE_STYLE[kind]),
                          (ln, NOTE_STYLE[kind] if kind == "inline" else NOTE_TEXT_STYLE)])
@@ -1330,14 +1474,14 @@ def fit_title(name: str, room: int) -> str:
     """A part title cut to `room` columns (a str subclass, Rule, kept): a nested
     expansion's oldest ancestors first, as `…  ›  [Risk] := { … }`, then the
     end, `[VeryLong…`. Untouched when it fits."""
-    if room < 1 or len(name) <= room:
+    if room < 1 or cell_width(name) <= room:
         return name
     steps, out = name.split(TITLE_STEP), name
-    while len(steps) > 1 and len(out) > room:
+    while len(steps) > 1 and cell_width(out) > room:
         steps = steps[1:]
         out = "…" + TITLE_STEP + TITLE_STEP.join(steps)
-    if len(out) > room:
-        out = out[:max(room - 1, 0)].rstrip(" …") + "…"
+    if cell_width(out) > room:
+        out = cut_cells(out, max(room - 1, 0)).rstrip(" …") + "…"
     return type(name)(out) if isinstance(name, Rule) else out
 
 
@@ -1368,8 +1512,8 @@ def wide_hint(view: str, what: str, over: int, width: int,
     dim = (GREY["dim"], None, False)
     hint = [f"{view}: {what} is {over} wide, {width} here" + (";" if advice else "")]
     hint += [advice] if advice else []
-    if any(len(text) > width for text in hint):
-        hint = textwrap.wrap(" ".join(hint), width)
+    if any(cell_width(text) > width for text in hint):
+        hint = wrap_cells(" ".join(hint), width)
     return [[(ln, dim)] for ln in hint]
 
 
@@ -1415,11 +1559,11 @@ def _callout_lines_cap(kind: str, tw: int) -> int:
 
 def _callout_lines(text: str, kind: str, tw: int) -> list:
     """A callout's text wrapped at tw, cut with … past its line limit."""
-    lines = textwrap.wrap(text, tw) or [""]
+    lines = wrap_cells(text, tw) or [""]
     limit = _callout_lines_cap(kind, tw)
     if len(lines) > limit:
         lines = lines[:limit]
-        lines[-1] = lines[-1][:tw - 1] + "…"
+        lines[-1] = cut_cells(lines[-1], tw - 1) + "…"
     return lines
 
 
@@ -1430,7 +1574,7 @@ def _callout_need(blocks: dict) -> int:
     for entries in blocks.values():
         for _num, text, kind, _e in entries:
             while (need < CALLOUT_MAX
-                   and len(textwrap.wrap(text, need)) > _callout_lines_cap(kind, need)):
+                   and len(wrap_cells(text, need)) > _callout_lines_cap(kind, need)):
                 need += 1
     return need
 
@@ -1449,7 +1593,7 @@ def _callout_panel(entries, tw: int):
             else:
                 lside, rside = {0: ("╭ ", " ╮"), k - 1: ("╰ ", " ╯")}.get(j, ("│ ", " │"))
             tag = f"#{num}".ljust(tag_w) if j == 0 else " " * tag_w
-            rows.append([(tag, style), (lside, style), (ln.ljust(tw), style), (rside, style)])
+            rows.append([(tag, style), (lside, style), (ljust_cells(ln, tw), style), (rside, style)])
     return rows, tag_w + tw + 4
 
 
@@ -1464,10 +1608,10 @@ def _panel_rows(items, tw: int, most: int | None = None):
     for marker, texts in items:
         first = True
         for text, kind in texts:
-            wrap = max(tw, min(len(text), CALLOUT_MAX)) if kind == "code" else tw
+            wrap = max(tw, min(cell_width(text), CALLOUT_MAX)) if kind == "code" else tw
             if most is not None:
                 wrap = max(min(wrap, most - mark_w), 1)
-            for ln in textwrap.wrap(text, wrap) or [""]:
+            for ln in wrap_cells(text, wrap) or [""]:
                 lead = (marker + [(" " * (mark_w - row_len(marker)), None)] if first
                         else [(" " * mark_w, None)])
                 body = (payload_runs(ln) if kind == "code"
@@ -1482,13 +1626,21 @@ def _occupancy(rows, width: int):
     count of drawn cells in O(1)."""
     acc = [[0] * (width + 1)]
     for row in rows:
-        text = "".join(t for t, _ in row)[:width].ljust(width)
+        text = _one_per_column("".join(t for t, _ in row))[:width].ljust(width)
         line, run = [0], 0
         for x, ch in enumerate(text):
             run += ch != " "
             line.append(acc[-1][x + 1] + run)
         acc.append(line)
     return acc
+
+
+def _one_per_column(text: str) -> str:
+    """text with one character a column: a wide character's second column
+    repeats it, a combining mark is dropped (what is drawn where, by column)."""
+    if text.isascii():
+        return text
+    return "".join(ch * char_cells(ch) for ch in text)
 
 
 def _empty_spot(acc, ph: int, pw: int, width: int, corner: str):
@@ -1700,17 +1852,45 @@ def ansi(row, colour: bool = True) -> str:
 
 
 def clip(row, start: int, width: int):
-    """Slice a row of runs to the columns [start, start + width)."""
+    """Slice a row of runs to the columns [start, start + width). A wide
+    character cut in half by either edge leaves a blank column in its place."""
     out, x = [], 0
     for t, st in row:
-        a, b = max(start - x, 0), min(start + width - x, len(t))
-        if a < b:
-            out.append((t[a:b], st))
-        x += len(t)
+        n = cell_width(t)
+        if n == len(t):
+            a, b = max(start - x, 0), min(start + width - x, n)
+            if a < b:
+                out.append((t[a:b], st))
+        else:
+            part = _clip_cells(t, start - x, start + width - x)
+            if part:
+                out.append((part, st))
+        x += n
         if x >= start + width:
             break
     return out
 
 
+def _clip_cells(t: str, lo: int, hi: int) -> str:
+    """The columns [lo, hi) of text with wide characters: a wide character
+    straddling lo or hi becomes a blank column, combining marks stay with
+    their base."""
+    out, x, kept = [], 0, False                 # kept: the last base character is in
+    for ch in t:
+        k = char_cells(ch)
+        if k == 0:
+            if kept:
+                out.append(ch)
+            continue
+        kept = x >= lo and x + k <= hi
+        if kept:
+            out.append(ch)
+        elif x < hi and x + k > lo:             # straddles an edge: its cells inside
+            out.append(" " * (min(x + k, hi) - max(x, lo)))
+        x += k
+    return "".join(out)
+
+
 def row_len(row) -> int:
-    return sum(len(t) for t, _ in row)
+    """A row of runs' drawn width, in columns."""
+    return sum(cell_width(t) for t, _ in row)

@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
@@ -804,7 +803,7 @@ def _draw_outline(cv: kit.Canvas, rows, idx: dict, show_tags: bool = True, x0: i
             if row.kind == "block":
                 nxt = next((guides[j] for j in range(y + 1, len(rows))
                             if isinstance(rows[j], TreeRow)), "")
-                x = x0 + (len(nxt) + 2 if nxt else 0) + slot
+                x = x0 + (kit.cell_width(nxt) + 2 if nxt else 0) + slot
                 bridges.append((y, x))
             x = kit._put_runs(cv, x, y, row.runs)
             if row.key is not None:             # the header's row: its notes' anchor
@@ -822,10 +821,10 @@ def _draw_outline(cv: kit.Canvas, rows, idx: dict, show_tags: bool = True, x0: i
         x = x0
         if row.depth:
             cv.put(x0, y, guide, kit.TREE_STYLE)
-            x = x0 + len(guide)
+            x = x0 + kit.cell_width(guide)
             if rel and rel not in ("─", INTERNAL_MARK):
                 cv.put(x, y, rel, kit.REL_STYLE)
-                x += len(rel)
+                x += kit.cell_width(rel)
             else:
                 cv.put(x, y, rel or "─", kit.TREE_STYLE)
                 x += 1
@@ -853,8 +852,8 @@ def _draw_outline(cv: kit.Canvas, rows, idx: dict, show_tags: bool = True, x0: i
             tx = x
             for run, style in kit.note_tag_runs(idx[n.id]):
                 cv.put(tx, y, run, style)
-                tx += len(run)
-            x += len(tag)
+                tx += kit.cell_width(run)
+            x += kit.cell_width(tag)
             out.tagged[n.id] = y
         if n.id in extra and n.id not in extra_done:    # on the node's first row
             extra_done.add(n.id)
@@ -863,7 +862,7 @@ def _draw_outline(cv: kit.Canvas, rows, idx: dict, show_tags: bool = True, x0: i
             into = sorted({e.label for e in row.graph.edges if e.dst == n.id and e.label})
             if into:
                 cv.put(x + 1, y, " ".join(into), kit.LABEL_STYLE)
-                x += 1 + len(" ".join(into))
+                x += 1 + kit.cell_width(" ".join(into))
         out.ends.append(x)
         out.by_id.setdefault(n.id, []).append(y)
 
@@ -1117,7 +1116,7 @@ def _fold_reach(lanes, left: int, keep: int) -> int:
     folded = _fold_lanes(lanes, left, keep)
     rows = _plug_rows(folded)
     start = left + keep * LANE_GAP
-    longest = max([sum(len(text) for text, _st in runs) for runs in rows.values()] + [0])
+    longest = max([kit.row_len(runs) for runs in rows.values()] + [0])
     return max([ln.x + 1 for ln in folded if not ln.plug] + [start + longest])
 
 
@@ -1207,7 +1206,7 @@ def _draw_lanes(cv: kit.Canvas, lanes, ends, *, muted_sources: bool = False):
         x = next(ln.x for ln in lanes if ln.plug)
         for text, style in runs:
             cv.put(x, y, text, style)
-            x += len(text)
+            x += kit.cell_width(text)
 
 
 # ---------------------------------------------------------------------------
@@ -1538,7 +1537,7 @@ def _draw_right_margin(cv: kit.Canvas, lanes, out: _Outline, chips: dict,
     `moved` (a list), a row's payloads and comment text are relocated instead:
     the row ends in a `┆a┆` marker and moved gets (letter, [chip text],
     [(number, text)]); `#N` markers stay on the row."""
-    plugs = {y: sum(len(text) for text, _st in runs) - 1 for y, runs in _plug_rows(lanes).items()}
+    plugs = {y: kit.row_len(runs) - 1 for y, runs in _plug_rows(lanes).items()}
     margin = max([ln.x + plugs.get(y, 0) for ln in lanes for y in ln.sy + ln.dy]
                  + [max(out.ends) - 1]) + 3
     rightmost, notes_at = {}, {}
@@ -1583,7 +1582,7 @@ def _draw_right_margin(cv: kit.Canvas, lanes, out: _Outline, chips: dict,
         for num, text in sorted(notes_at.get(y, ())):
             note = f"#{num}" if notes == "markers" else f"# {text}"
             cv.put(x, y, note, kit.NOTE_STYLE["inline"])
-            x += len(note) + 2
+            x += kit.cell_width(note) + 2
 
 
 def _extras(g, idx: dict, notes: str, payloads: bool, drawn: frozenset = frozenset(),
@@ -1596,8 +1595,8 @@ def _extras(g, idx: dict, notes: str, payloads: bool, drawn: frozenset = frozens
     pl = [f"  {kit.edge_text(sub, e)} : {e.payload}" for sub in kit._walk(g) for e in sub.edges
           if e.payload and (e.src, e.dst, e.kind) not in drawn] if payloads else []
     if width is not None:
-        pl = [ln for p in pl for ln in (textwrap.wrap(p, width, subsequent_indent="    ",
-                                                      break_on_hyphens=False) if len(p) > width else [p])]
+        pl = [ln for p in pl for ln in (kit.wrap_cells(p, width, indent="    ", hyphens=False)
+                                        if kit.cell_width(p) > width else [p])]
     if pl:
         extra += [[], kit.section_rule("payloads"), []] + [[(p, kit.PAYLOAD_STYLE)] for p in pl]
     if notes == "markers" and idx:
@@ -1643,7 +1642,7 @@ def _with_callouts(rows, idx: dict, tagged: dict, tw: int = kit.CALLOUT_TEXT):
             else:
                 lside, rside = {0: ("╭ ", " ╮"), k - 1: ("╰ ", " ╯")}.get(j, ("│ ", " │"))
             mc.put(0, top + j, lside, border)
-            mc.put(2, top + j, ln.ljust(tw), style)
+            mc.put(2, top + j, kit.ljust_cells(ln, tw), style)
             mc.put(box_w - 2, top + j, rside, border)
     # Leaders: verticals first, then horizontal runs that hop (─│─) over any other
     # leader's vertical, so two leaders never read as joined.

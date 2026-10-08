@@ -1190,7 +1190,7 @@ def _hang(lay: _Layout, part: _Part, ctx: "_Ctx", strokes: list, col: dict,
                 elif item.bare:
                     body += _wrap_runs(item.bare, budget)
                 for k, row in enumerate(body):
-                    lead = item.letter if k == 0 else " " * len(item.letter)
+                    lead = item.letter if k == 0 else " " * kit.cell_width(item.letter)
                     rows.append([(lead, kit.PAYLOAD_STYLE if k == 0 else None),
                                  ("┆", dim)] + row)
             ctx.hung_rows[key] = rows
@@ -1208,7 +1208,7 @@ def _wrap_runs(runs: list, budget: int) -> list:
     longer than the budget stays whole."""
     cells = [(ch, st) for text, st in runs for ch in text]
     rows = []
-    while len(cells) > budget:
+    while kit.cell_width("".join(ch for ch, _st in cells)) > budget:
         cut = _wrap_at("".join(ch for ch, _st in cells), budget)
         if cut is None:
             break
@@ -1228,11 +1228,12 @@ def _wrap_runs(runs: list, budget: int) -> list:
 
 
 def _wrap_at(text: str, budget: int):
-    """(end of this row, start of the next) for _wrap_runs, or None: no break."""
+    """(end of this row, start of the next) for _wrap_runs, or None: no break.
+    Indexes are characters; the budget is columns."""
     inside = {i for m in _MOD.finditer(text) for i in range(m.start() + 1, m.end())}
     found = [(level, i, size) for level, (seam, size) in enumerate(_BREAKS)
              for i in range(1, len(text)) if text.startswith(seam, i) and i not in inside]
-    near = [f for f in found if f[1] <= budget]
+    near = [f for f in found if kit.cell_width(text[:f[1]]) <= budget]
     if near:
         level = min(f[0] for f in near)
         _lv, i, size = max(f for f in near if f[0] == level)

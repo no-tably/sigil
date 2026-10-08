@@ -1,0 +1,25 @@
+#!spec
+# 短縮サービス — wide (CJK) names in every place a view draws a name: boxes,
+# tree rows, flow wires, run lanes, payload chips, titles, notes. A café with
+# a combining accent (cafe + U+0301) is one column narrower than its letters.
+# Every name has its own length: render.mk_id maps each non-ASCII character
+# to "_", so two names of one length would draw as one node; an op's verb is
+# ASCII (render.OP_TARGET_RE reads `verb(…)` from [A-Za-z_] only).
+
+--- L1: 短縮 ---
+
+(利用者) -> [短縮] : shorten({網址}) => {符号}   # 利用者は網址を短くしたい
+[短縮] -> |リンク表| : save({符号}, {網址}) @timeout(2s)
+(訪問する人) -> [転送するサービス] : follow({符号})
+[転送するサービス] -> |リンク表| : lookup({符号}) => {網址}
+           !> (訪問する人) : <見つからない>
+           -> (訪問する人) : redirect({網址})
+           ~> <クリックされた> -> [統]
+[統] -> [café] : count({符号})
+
+--- L2: [短縮] ---
+
+[短縮] := {
+  [検証するサービス群] -> [符号を生成する仕組み] : check({網址}) => {符号}
+  [符号を生成する仕組み] -> |リンク表| : query({符号})   # 衝突したら作り直す
+}
