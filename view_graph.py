@@ -276,8 +276,8 @@ def _layer(lay: _Layout) -> None:
         deg_in[e.dst] += 1
     for i in ids:
         if lay.g.nodes[i].kind == kit.JOIN:
-            pw = max(2 * max(deg_in[i], deg_out[i]) + 1, 5)
-            V[i] = _V(i, pw + 1 + kit.cell_width(lay.labels[i]), pw=pw)
+            w, pw = _join_size(lay.labels[i], max(deg_in[i], deg_out[i]))
+            V[i] = _V(i, w, pw=pw)
         else:
             w = kit.cell_width(lay.labels[i]) + 4
             V[i] = _V(i, w, reach=_reach(w, lay.stubs.get(i, ())))
@@ -301,6 +301,7 @@ def _layer(lay: _Layout) -> None:
     # wrapping, the edges of one trunk (_trunk: a fan-out's) share them, so a
     # wrapped fan-out passes its rows as one line, not a line per child.
     n_dummy, shared, linked = 0, {}, set()          # (trunk, layer) → its dummy
+    merged = Counter()                              # top node → its edges into a trunk after the first
     for a, b, e, rev in dag:
         chain = [a]
         trunk = _trunk(a, e, rev) if lay.wrap is not None else None
@@ -316,6 +317,8 @@ def _layer(lay: _Layout) -> None:
         chain.append(b)
         for u, w in zip(chain, chain[1:]):
             if (u, w) in linked:                    # a trunk's shared segment links once
+                if u == a:
+                    merged[a] += 1
                 continue
             if trunk:
                 linked.add((u, w))
@@ -323,6 +326,11 @@ def _layer(lay: _Layout) -> None:
             V[w].ins.append(u)
         lay.chains.append((e, rev, chain))
     trunk_dummies = set(shared.values())
+    # A join bar a wrapped fan-out leaves takes a port per branch on its first
+    # row and one for the trunk to the rows below, not one per branch.
+    for i in merged:
+        if V[i].pw:
+            V[i].w, V[i].pw = _join_size(lay.labels[i], max(deg_in[i], deg_out[i] - merged[i]))
 
     # Edges of different kinds between one pair keep a stroke each: every one
     # after the first is offset (its own ports and track) instead of drawn over it.
@@ -341,6 +349,13 @@ def _layer(lay: _Layout) -> None:
     lay.layers = [[] for _ in range(nlayers)]
     for vid, v in V.items():          # document order, dummies after
         lay.layers[v.layer].append(vid)
+
+
+def _join_size(label: str, ports: int) -> tuple:
+    """(width, bar width) of a join bar: the bar as wide as `ports` ports on
+    its busier side need (two columns each, 5 at least), its label beside it."""
+    pw = max(2 * ports + 1, 5)
+    return pw + 1 + kit.cell_width(label), pw
 
 
 WRAP_ROUNDS = 4       # _wrap_layers: passes that make room for the edges passing a layer
@@ -725,7 +740,7 @@ def _paint(lay: _Layout, only: frozenset | None = None, sketch: _Sketch | None =
         chain_rows = [frozenset(y for _x, y in tr.cells) for tr in traces]
     for cell, st in _nearest_owners(traces, cv.lines).items():
         cv.lines[cell][2] = st
-    for cell, st in _trunk_looks(lay, drawn, traces, cv.lines).items():
+    for cell, st in _fan_out_looks(lay, drawn, traces, cv.lines).items():
         cv.lines[cell][2] = st
     for x, y, ch, st in heads:
         cv.put(x, y, ch, st)
@@ -934,69 +949,75 @@ def _nearest_owners(traces: list, lines: dict) -> dict:
     return out
 
 
-def _trunk_looks(lay: _Layout, drawn: list, traces: list, lines: dict) -> dict:
-    """{cell: style} for the line cells a wrapped fan-out's chains share (its
-    trunk, _trunk, and the port and channel cells before it) under a run: the
-    style of the busiest chain through the cell — failed over now over taken
-    over untouched (_STATE_RANK) — so the path the run took reads as taken
-    from its source down, not only past the trunk. Of chains as busy as each
+def _fan_out_looks(lay: _Layout, drawn: list, traces: list, lines: dict) -> dict:
+    """{cell: style} for the line cells a fan-out's chains share (the stem
+    under its source, the channel cells before they part, a wrapped fan-out's
+    trunk, _trunk) — one rule, wrapped or not, with or without a run: the
+    most severe chain through the cell takes it (share_rank: failed over
+    active over trail over untouched under a run, then an error wire over
+    the rest), so the path a run took, or an error wire, reads as its own
+    from the source down, not only near its head. Of chains as severe as each
     other, the nearest-owner style stays when it is one of theirs, else the
-    one nearest its own head takes the cell. Each chain's last cell (its head)
-    stays its own. `drawn`: per trace, its chain's index in lay.chains."""
-    if lay.sim is None or lay.wrap is None:
-        return {}
+    one nearest its own head takes the cell. Each chain's last cell (its
+    head) stays its own. `drawn`: per trace, its chain's index in lay.chains."""
     out = {}
     for members in _fan_outs(lay, drawn):
-        out.update(_busiest_shared([(traces[k], _chain_rank(lay, drawn[k])) for k in members],
-                                   lines))
+        out.update(_most_severe_shared(
+            [(traces[k], _chain_rank(lay, drawn[k])) for k in members], lines))
     return out
 
 
 def _fan_outs(lay: _Layout, drawn: list) -> list:
-    """The drawn chains (indices into `drawn`) of each fan-out that passes a
-    trunk: the chains of one _trunk key, two or more, one of them long."""
+    """The drawn chains (indices into `drawn`) of each fan-out: the forward
+    chains leaving one source, two or more (a back edge leaves by a port of
+    its own and is never one)."""
     groups = {}
     for k, ci in enumerate(drawn):
-        e, rev, chain = lay.chains[ci]
-        key = _trunk(chain[0], e, rev)
-        if key is not None:
-            groups.setdefault(key, []).append(k)
-    return [ks for ks in groups.values()
-            if len(ks) > 1 and any(len(lay.chains[drawn[k]][2]) > 2 for k in ks)]
+        _e, rev, chain = lay.chains[ci]
+        if not rev:
+            groups.setdefault(chain[0], []).append(k)
+    return [ks for ks in groups.values() if len(ks) > 1]
 
 
-def _chain_rank(lay: _Layout, ci: int) -> int:
-    """The run state's _STATE_RANK of chain ci's wire in lay.sim (-1: none)."""
+def share_rank(kind: str, state: Optional[str] = None) -> tuple:
+    """How severe a wire is where it shares cells with others (bigger wins):
+    its run state's _STATE_RANK (-1: no run, or no state), then whether it is
+    an error wire (`!>`)."""
+    return (_STATE_RANK.get(state, -1), kind == "!>")
+
+
+def _chain_rank(lay: _Layout, ci: int) -> tuple:
+    """share_rank of chain ci's wire, in lay.sim's state when there is one."""
     e = lay.chains[ci][0]
-    return _STATE_RANK.get(lay.sim.states.get(_wire_key(lay.g, e)), -1)
+    state = lay.sim.states.get(_wire_key(lay.g, e)) if lay.sim is not None else None
+    return share_rank(e.kind, state)
 
 
-def _busiest_shared(members: list, lines: dict) -> dict:
-    """{cell: style} of _trunk_looks for one fan-out: `members`, (_Trace, its
-    rank) each."""
-    cover = {}                                  # cell → member indices through it
+def _most_severe_shared(members: list, lines: dict) -> dict:
+    """{cell: style} of _fan_out_looks for one fan-out: `members`, (_Trace,
+    its share_rank) each. A cell is shared where two or more members run
+    through it the same way (a member merely crossing another does not)."""
+    seen = {}                                   # cell → [(member, dirs)]
     for m, (tr, _rank) in enumerate(members):
-        for cell in set(tr.cells[:-1]):
-            if cell in lines:
-                cover.setdefault(cell, []).append(m)
-    dists = {}
-    out = {}
-    for cell, ms in cover.items():
-        if len(ms) < 2:
+        last = tr.cells[-1] if tr.cells else None
+        for cell, dirs in tr.runs().items():
+            if cell != last and cell in lines:
+                seen.setdefault(cell, []).append((m, dirs))
+    dists, out = {}, {}
+    for cell, through in seen.items():
+        sharing = [m for m, dirs in through
+                   if any(dirs & d for n, d in through if n != m)]
+        if len(sharing) < 2:
             continue
-        top = max(members[m][1] for m in ms)
-        if top < 0:
-            continue
-        best = [m for m in ms if members[m][1] == top]
+        top = max(members[m][1] for m in sharing)
+        best = [m for m in sharing if members[m][1] == top]
         cur = lines[cell][2]
         if any(members[m][0].style == cur for m in best):
             continue
         for m in best:
             if m not in dists:
                 dists[m] = members[m][0].to_head()
-        st = members[min(best, key=lambda m: dists[m][cell])][0].style
-        if st != cur:
-            out[cell] = st
+        out[cell] = members[min(best, key=lambda m: dists[m][cell])][0].style
     return out
 
 
