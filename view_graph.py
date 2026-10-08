@@ -637,7 +637,8 @@ def _paint(lay: _Layout, only: frozenset | None = None, sketch: _Sketch | None =
     heads = []
     edge_labels = []   # (x, y, runs) beside an arrowhead
     bar_style = {}     # join bar → the style of the edges it joins
-    traces = []        # per chain: _Trace, for the shared-cell colour rule
+    traces = []        # per chain drawn: _Trace, for the shared-cell colour rule
+    drawn = []         # per chain drawn: its index in lay.chains
     ports = _port_users(lay) if whole else sketch.ports
     for ci, (e, rev, chain) in enumerate(lay.chains):
         if not whole and not hit(sketch.chains[ci]):
@@ -646,6 +647,7 @@ def _paint(lay: _Layout, only: frozenset | None = None, sketch: _Sketch | None =
         style = lay.styles.get(key) or _unkeyed_style(e.kind, lay.sim is not None)
         trace = _Trace(style, rev, e.kind == "<->", edge=e)
         traces.append(trace)
+        drawn.append(ci)
 
         def path(pts):
             cv.path(pts, e.kind, style)
@@ -722,6 +724,8 @@ def _paint(lay: _Layout, only: frozenset | None = None, sketch: _Sketch | None =
     if whole:
         chain_rows = [frozenset(y for _x, y in tr.cells) for tr in traces]
     for cell, st in _nearest_owners(traces, cv.lines).items():
+        cv.lines[cell][2] = st
+    for cell, st in _trunk_looks(lay, drawn, traces, cv.lines).items():
         cv.lines[cell][2] = st
     for x, y, ch, st in heads:
         cv.put(x, y, ch, st)
@@ -925,6 +929,72 @@ def _nearest_owners(traces: list, lines: dict) -> dict:
                         dists[k] = traces[k].to_head()
                     sharing.append((dists[k][cell], traces[k].style))
             _d, st = min(sharing, key=lambda c: c[0])
+        if st != cur:
+            out[cell] = st
+    return out
+
+
+def _trunk_looks(lay: _Layout, drawn: list, traces: list, lines: dict) -> dict:
+    """{cell: style} for the line cells a wrapped fan-out's chains share (its
+    trunk, _trunk, and the port and channel cells before it) under a run: the
+    style of the busiest chain through the cell — failed over now over taken
+    over untouched (_STATE_RANK) — so the path the run took reads as taken
+    from its source down, not only past the trunk. Of chains as busy as each
+    other, the nearest-owner style stays when it is one of theirs, else the
+    one nearest its own head takes the cell. Each chain's last cell (its head)
+    stays its own. `drawn`: per trace, its chain's index in lay.chains."""
+    if lay.sim is None or lay.wrap is None:
+        return {}
+    out = {}
+    for members in _fan_outs(lay, drawn):
+        out.update(_busiest_shared([(traces[k], _chain_rank(lay, drawn[k])) for k in members],
+                                   lines))
+    return out
+
+
+def _fan_outs(lay: _Layout, drawn: list) -> list:
+    """The drawn chains (indices into `drawn`) of each fan-out that passes a
+    trunk: the chains of one _trunk key, two or more, one of them long."""
+    groups = {}
+    for k, ci in enumerate(drawn):
+        e, rev, chain = lay.chains[ci]
+        key = _trunk(chain[0], e, rev)
+        if key is not None:
+            groups.setdefault(key, []).append(k)
+    return [ks for ks in groups.values()
+            if len(ks) > 1 and any(len(lay.chains[drawn[k]][2]) > 2 for k in ks)]
+
+
+def _chain_rank(lay: _Layout, ci: int) -> int:
+    """The run state's _STATE_RANK of chain ci's wire in lay.sim (-1: none)."""
+    e = lay.chains[ci][0]
+    return _STATE_RANK.get(lay.sim.states.get(_wire_key(lay.g, e)), -1)
+
+
+def _busiest_shared(members: list, lines: dict) -> dict:
+    """{cell: style} of _trunk_looks for one fan-out: `members`, (_Trace, its
+    rank) each."""
+    cover = {}                                  # cell → member indices through it
+    for m, (tr, _rank) in enumerate(members):
+        for cell in set(tr.cells[:-1]):
+            if cell in lines:
+                cover.setdefault(cell, []).append(m)
+    dists = {}
+    out = {}
+    for cell, ms in cover.items():
+        if len(ms) < 2:
+            continue
+        top = max(members[m][1] for m in ms)
+        if top < 0:
+            continue
+        best = [m for m in ms if members[m][1] == top]
+        cur = lines[cell][2]
+        if any(members[m][0].style == cur for m in best):
+            continue
+        for m in best:
+            if m not in dists:
+                dists[m] = members[m][0].to_head()
+        st = members[min(best, key=lambda m: dists[m][cell])][0].style
         if st != cur:
             out[cell] = st
     return out

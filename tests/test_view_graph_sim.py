@@ -13,7 +13,10 @@ Covers:
   5. badge_slots: the layout holds still from frame to frame; it visits only
      the nodes a frame names and is worked out once per trace;
   6. sim_focus: the cells of the frame's tokens and active boxes;
-  7. no frame: compose draws exactly as before (the goldens cover the rest).
+  7. no frame: compose draws exactly as before (the goldens cover the rest);
+  8. a wrapped fan-out's shared trunk takes the look of its busiest member
+     (one long-edge member failed: its whole path from the hub reads failed),
+     and a FrameMemo repaint draws the trunk as a fresh drawing does.
 
 Run:  python3 -m unittest discover tests
 """
@@ -345,6 +348,86 @@ class Focus(unittest.TestCase):
         self.assertEqual(vgraph._probed_box([[("ab", None), ("●", vgraph._Probe(st))],
                                              [("  ", None), ("x", vgraph._Probe(st))]]),
                          (2, 0, 1, 2))
+
+
+FAN = "\n".join(
+    [f"[Hub] -> [{n}]" for n in ("Alpha", "Beta", "Gamma", "Delta", "Eps", "Zeta", "Eta", "Theta")]
+    + ["[Delta] -> |Db| : put => {R}", "  !> <Oops>"]) + "\n"
+LINE_CHARS = set("│─┼┬┴┐┌└┘├┤▼")
+
+
+def _grid(rows) -> dict:
+    """{(x, y): (char, style)} of the drawn cells."""
+    out = {}
+    for y, row in enumerate(rows):
+        x = 0
+        for text, style in row:
+            for k, c in enumerate(text):
+                out[(x + k, y)] = (c, style)
+            x += len(text)
+    return out
+
+
+class WrappedTrunk(unittest.TestCase):
+    """8. a wrapped fan-out's trunk under a run."""
+    WIDTH = 50
+
+    def compose(self, run: Run, i: int, memo=None):
+        args = list(run.args())
+        args[5] = self.WIDTH
+        rows, _w = vgraph.compose(*args, trace=run.trace, tick=i, memo=memo)
+        return rows
+
+    def test_failed_member_lights_the_trunk(self):
+        """[Hub] → [Delta] passes the wrapped trunk: with Delta's call failing,
+        the failed stroke is one connected path from under [Hub] to the head
+        over [Delta], not only its last row."""
+        run = Run(FAN, "Delta->Db:fails")
+        rows = self.compose(run, len(run.trace.frames) - 1)
+        text = [kit.ansi(r, False) for r in rows]
+        hub_y = next(y for y, t in enumerate(text) if "[Hub]" in t) + 1    # its bottom border
+        delta_y = next(y for y, t in enumerate(text) if "[Delta]" in t)
+        self.assertGreater(delta_y - hub_y, 6, "the fixture must wrap the fan-out")
+        grid, fail = _grid(rows), scene.colour_of("edges-fail")
+
+        def failed(cell):
+            got = grid.get(cell)
+            return got is not None and got[0] in LINE_CHARS and got[1] and got[1][0] == fail
+
+        start = [c for c in grid if c[1] == delta_y - 2 and grid[c][0] == "▼" and failed(c)]
+        self.assertEqual(len(start), 1)
+        seen, todo = set(start), list(start)
+        while todo:
+            x, y = todo.pop()
+            for nb in ((x + 1, y), (x - 1, y), (x, y - 1), (x, y + 1)):
+                if nb not in seen and failed(nb):
+                    seen.add(nb)
+                    todo.append(nb)
+        self.assertTrue(any(y == hub_y + 1 for _x, y in seen),
+                        "the failed path is cut before it reaches [Hub]")
+
+    def test_untouched_members_keep_their_look(self):
+        """Only the trunk cells the failed member shares take its look: a branch
+        to a member the run never took stays untouched."""
+        run = Run(FAN, "Delta->Db:fails")
+        rows = self.compose(run, len(run.trace.frames) - 1)
+        theta = run.look(len(run.trace.frames) - 1).styles[("Hub_service", "Theta_service", "->")]
+        grid = _grid(rows)
+        text = [kit.ansi(r, False) for r in rows]
+        y = next(y for y, t in enumerate(text) if "[Theta]" in t) - 2
+        heads = [st for (x, yy), (c, st) in grid.items() if yy == y and c == "▼"]
+        self.assertIn(theta, heads)
+
+    def test_memo_repaints_the_trunk(self):
+        """Drawn frame after frame with a FrameMemo (forward, then back), each
+        frame is the frame drawn afresh: the trunk's rows are repainted when the
+        member it takes its look from changes."""
+        for name in ("Delta->Db:fails", "happy"):
+            run = Run(FAN, name)
+            memo = kit.FrameMemo()
+            last = len(run.trace.frames) - 1
+            for i in list(range(last + 1)) + [0, last, 1]:
+                self.assertEqual(self.compose(run, i, memo), self.compose(run, i), (name, i))
 
 
 if __name__ == "__main__":
