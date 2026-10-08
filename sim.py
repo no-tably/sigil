@@ -72,7 +72,9 @@ view draws (events drawn where they land, a shallower depth).
   beats a `_` one), then runs its body. An expansion is a closer reading of the same node: its entries run first,
   then the node's body minus its summary wires (out-wires to a target the
   expansion already reaches: the detail carries the traffic, and the summary
-  is lit and taken with it), so `<OrderPlaced>` lands once, not once per level.
+  is lit and taken with it), so `<OrderPlaced>` lands once, not once per level;
+  a view that folds the expansion (--depth 0) draws the detail's token on the
+  summary (project).
   A node reached in a unit where it has no work of its own runs its home
   unit's (the shallowest that has some). An alias runs when called by name.
   Composition children are instances: static ones once per parent (×N
@@ -3448,14 +3450,7 @@ def _parallel_lanes(lanes: list, spans: list, moves: list, marks: list, born_at:
         ln = lane_of.get(key)
         if ln is None or ln.fold or ln.levels:
             continue
-        free = []                           # per row: the tick it is free from
-        for s in sorted(ss, key=lambda s: (s.enter, s.act)):
-            stop = max(s.leave if s.leave is not None else last + 1, s.enter + 1)
-            stop += s.how in ("failed", "cancelled")
-            row = next((k for k, t in enumerate(free) if t <= s.enter), len(free))
-            if row == len(free):
-                free.append(stop)
-            free[row] = stop
+        for s, row in _first_free_rows(ss, last):
             if row:
                 sub = key + (row + 1,)
                 moved[(key, s.act)] = sub
@@ -3471,19 +3466,68 @@ def _parallel_lanes(lanes: list, spans: list, moves: list, marks: list, born_at:
         a, b = move_acts.get(m.id, (None, None))
         out_moves.append(m._replace(src=tuple(to(k, a) for k in m.src),
                                     dst=tuple(to(k, b) for k in m.dst)))
+    ticks = {}                              # lane → the ticks its marks are at
+    for mk in marks:
+        ticks.setdefault(mk.lane, set()).add(mk.t)
+    running = {lane: _running_at(by_lane.get(lane, ()), ts) for lane, ts in ticks.items()}
     out_marks = []
     for mk in marks:                        # on the row of the activation then running
-        on = [s for s in by_lane.get(mk.lane, ()) if s.enter <= mk.t
-              and (s.leave is None or mk.t < max(s.leave, s.enter + 1))]
-        out_marks.append(mk._replace(lane=to(mk.lane, on[-1].act)) if on else mk)
+        s = running[mk.lane].get(mk.t)
+        out_marks.append(mk._replace(lane=to(mk.lane, s.act)) if s is not None else mk)
+    arrive = {}                             # sub-row → the earliest move onto it
+    for m in out_moves:
+        for k in m.dst:
+            if k in made:
+                arrive[k] = min(arrive.get(k, m.start), m.start)
     out_lanes = list(lanes)
     for sub, ss in made.items():
         base = lane_of[sub[:-1]]
-        first = min([s.enter for s in ss] + [m.start for m in out_moves if sub in m.dst])
+        first = min([s.enter for s in ss] + ([arrive[sub]] if sub in arrive else []))
         out_lanes.append(base._replace(key=sub, parent=base.key, born=first, par=sub[-1]))
         born_at[sub] = (first, born_at[base.key][1])
     out_spans = [s._replace(lane=to(s.lane, s.act)) for s in spans]
     return out_lanes, out_spans, out_moves, out_marks
+
+
+def _first_free_rows(spans: list, last: int) -> list:
+    """[(span, row)] in (enter, act) order: each activation on the lowest row
+    free at its enter, a row free from its activation's leave (a run's end
+    + 1 for one still running; a failed or cancelled one a tick later, for
+    its ✕ / ⊘). Enters only grow, so a row once free stays free: busy rows wait
+    on a heap by the tick they free, free ones on a heap by row."""
+    busy, free, rows, out = [], [], 0, []
+    for s in sorted(spans, key=lambda s: (s.enter, s.act)):
+        while busy and busy[0][0] <= s.enter:
+            heapq.heappush(free, heapq.heappop(busy)[1])
+        if free:
+            row = heapq.heappop(free)
+        else:
+            row, rows = rows, rows + 1
+        stop = max(s.leave if s.leave is not None else last + 1, s.enter + 1)
+        heapq.heappush(busy, (stop + (s.how in ("failed", "cancelled")), row))
+        out.append((s, row))
+    return out
+
+
+def _running_at(spans, ticks) -> dict:
+    """{tick: the span running at it}, for each tick in `ticks` some span of
+    `spans` runs at ([enter, max(leave, enter + 1)), open when leave is None):
+    the latest in `spans`' order when several do. A sweep over the ticks in
+    order: spans join a heap by their place as they enter, and leave it once
+    they ended (lazily, when they surface)."""
+    order = sorted(range(len(spans)), key=lambda k: spans[k].enter)
+    heap, nxt, out = [], 0, {}
+    for t in sorted(ticks):
+        while nxt < len(order) and spans[order[nxt]].enter <= t:
+            k = order[nxt]
+            s = spans[k]
+            heapq.heappush(heap, (-k, None if s.leave is None else max(s.leave, s.enter + 1)))
+            nxt += 1
+        while heap and heap[0][1] is not None and heap[0][1] <= t:
+            heapq.heappop(heap)
+        if heap:
+            out[t] = spans[-heap[0][0]]
+    return out
 
 
 def _lane_order(lanes: list, born_at: dict) -> tuple:
@@ -3616,9 +3660,32 @@ def host_map(canon, view) -> dict:
     return out
 
 
-def _project_frame(f: Frame, idmap: dict, hosts: dict) -> Frame:
+def folded_details(summaries: dict, idmap: dict) -> dict:
+    """{detail ident: its hits}, for each detail a view does not draw (its
+    expansion folded, as at --depth 0): the hits of the innermost summary of it
+    the view draws, composed. A summary carries its detail's traffic as the
+    folded node's own wire, so its token rides the summary there; where the
+    detail is drawn it rides the detail and the summary is only lit.
+    `summaries`: Program.summaries; `idmap`: ident_map's."""
+    by_detail = {}
+    for s, details in summaries.items():
+        for d in details:
+            by_detail.setdefault(d, []).append(s)
+    out = {}
+    for d, sums in by_detail.items():
+        if idmap.get(d):
+            continue
+        drawn = [s for s in sums if idmap.get(s)]
+        inner = [s for s in drawn if not any(t in summaries[s] for t in drawn if t != s)]
+        hits = [(v, o, sc) for s in inner for v, o, sc in idmap[s]]
+        if hits:
+            out[d] = tuple(dict.fromkeys(hits))
+    return out
+
+
+def _project_frame(f: Frame, idmap: dict, hosts: dict, tokmap: dict) -> Frame:
     tokens = tuple(f_tok._replace(wire=v, at=round(off + scale * f_tok.at, 4))
-                   for f_tok in f.tokens for v, off, scale in idmap.get(f_tok.wire, ()))
+                   for f_tok in f.tokens for v, off, scale in tokmap.get(f_tok.wire, ()))
     remap = lambda s: frozenset(v for i in s for v, _o, _s in idmap.get(i, ()))
     nodes = {}
     for nid, st in f.nodes.items():
@@ -3635,10 +3702,14 @@ def _project_frame(f: Frame, idmap: dict, hosts: dict) -> Frame:
 def project(trace: Trace, view) -> Trace:
     """The same run named as `view` (a Scene of the same document) draws it:
     wires by its idents (land mode: an emit wire's halves), nodes it does not
-    draw folded into the drawn owner (busiest status wins). Pure."""
+    draw folded into the drawn owner (busiest status wins), and a token on a
+    detail it does not draw on the summary standing for it (folded_details).
+    Pure."""
     idmap = ident_map(trace.scene, view)
     hosts = host_map(trace.scene, view)
-    frames = tuple(_project_frame(f, idmap, hosts) for f in trace.frames)
+    summaries = _program_of(trace.scene.graph).summaries or {}
+    tokmap = {**idmap, **folded_details(summaries, idmap)}
+    frames = tuple(_project_frame(f, idmap, hosts, tokmap) for f in trace.frames)
     return trace._replace(frames=frames, scene=view)
 
 

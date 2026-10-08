@@ -941,6 +941,51 @@ class TestProject(unittest.TestCase):
         self.assertTrue(busy)
         self.assertNotIn("Cart_service", p.frames[-1].nodes)
 
+    def test_a_folded_detail_rides_its_summary(self):
+        # at --depth 0 `[Checkout] ~> <OrderPlaced>` is not drawn: its token rides
+        # `[Shop] ~> <OrderPlaced>`, the summary standing for it; drawn (depth 1),
+        # it rides the detail and the summary is only lit
+        text = (_DIR / "site" / "examples" / "02-shop.sigil").read_text()
+        tr = run(build(text))
+        summary = ("Shop_service", "OrderPlaced_event", "~>", 0)
+        detail = ("Checkout_service", "OrderPlaced_event", "~>", 0)
+        sent = [k for k, f in enumerate(tr.frames) if any(t.wire == detail for t in f.tokens)]
+        self.assertTrue(sent)
+        d0 = sim.project(tr, build(text, depth=0, events="nodes"))
+        for k in sent:
+            with self.subTest(frame=k):
+                at = [t.at for t in d0.frames[k].tokens if t.wire == summary]
+                self.assertEqual(at, [t.at for t in tr.frames[k].tokens if t.wire == detail])
+                self.assertIn(summary, d0.frames[k].lit)
+        self.assertEqual([k for k, f in enumerate(d0.frames)
+                          if any(t.wire == summary for t in f.tokens)], sent)
+        d1 = sim.project(tr, build(text, depth=1, events="nodes"))
+        self.assertFalse(any(t.wire == summary for f in d1.frames for t in f.tokens))
+        self.assertTrue(any(t.wire == detail for f in d1.frames for t in f.tokens))
+
+    def test_a_folded_detail_rides_the_summary_land_mode_draws(self):
+        text = (_DIR / "site" / "examples" / "02-shop.sigil").read_text()
+        tr = run(build(text))
+        land = build(text, depth=0, events="land")
+        p = sim.project(tr, land)
+        emits = {w.ident for w in land.wires if w.role == "emit" and w.src == "Shop_service"}
+        first = next(k for k, f in enumerate(tr.frames)
+                     if any(t.wire[0] == "Checkout_service" and t.wire[2] == "~>"
+                            for t in f.tokens))
+        on = [t for t in p.frames[first].tokens if t.wire in emits]
+        self.assertTrue(on)
+        self.assertTrue(all(t.at <= 0.5 for t in on))   # the emit wire's first half
+
+    def test_the_innermost_drawn_summary_carries_a_folded_detail(self):
+        summaries = {"outer": ("mid", "leaf"), "mid": ("leaf",)}
+        idmap = {"outer": (("O", 0.0, 1.0),), "mid": (("M", 0.0, 0.5),), "leaf": ()}
+        self.assertEqual(sim.folded_details(summaries, idmap), {"leaf": (("M", 0.0, 0.5),)})
+        idmap["mid"] = ()
+        self.assertEqual(sim.folded_details(summaries, idmap),
+                         {"mid": (("O", 0.0, 1.0),), "leaf": (("O", 0.0, 1.0),)})
+        idmap["leaf"] = (("L", 0.0, 1.0),)
+        self.assertNotIn("leaf", sim.folded_details(summaries, idmap))
+
 
 
 # ---------------------------------------------------------------------------

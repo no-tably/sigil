@@ -418,6 +418,66 @@ class TestTimelineParallel(unittest.TestCase):
                 self.assertLessEqual(a.leave, b.enter)
 
 
+def _span(act: int, enter: int, leave, how: str = "ok"):
+    return sim.Span(lane=("A", None, 1), act=act, task=act, node="A", enter=enter,
+                    leave=leave, how=how, waits=(), caller=None, wire=None, episode=1)
+
+
+def _random_spans(seed: int, n: int) -> list:
+    import random
+    rnd = random.Random(seed)
+    out = []
+    for k in range(n):
+        enter = rnd.randrange(n)
+        leave = None if rnd.random() < 0.1 else enter + rnd.randrange(0, 12)
+        out.append(_span(k, enter, leave, rnd.choice(("ok", "ok", "failed", "cancelled"))))
+    rnd.shuffle(out)
+    return out
+
+
+class TestParallelRows(unittest.TestCase):
+    """The ∥ row search (a heap of free rows) gives what scanning every row
+    for the first free one gives, and the running span under a mark is the
+    latest in order that runs at its tick."""
+
+    @staticmethod
+    def scan_rows(spans, last):
+        free, out = [], []
+        for s in sorted(spans, key=lambda s: (s.enter, s.act)):
+            stop = max(s.leave if s.leave is not None else last + 1, s.enter + 1)
+            stop += s.how in ("failed", "cancelled")
+            row = next((k for k, t in enumerate(free) if t <= s.enter), len(free))
+            if row == len(free):
+                free.append(stop)
+            free[row] = stop
+            out.append((s, row))
+        return out
+
+    def test_rows_match_a_scan(self):
+        for seed in range(20):
+            spans = _random_spans(seed, 60)
+            with self.subTest(seed=seed):
+                self.assertEqual(sim._first_free_rows(spans, 80), self.scan_rows(spans, 80))
+
+    def test_running_at_matches_a_scan(self):
+        for seed in range(20):
+            spans = _random_spans(seed, 60)
+            ticks = set(range(-1, 90))
+            want = {}
+            for t in ticks:
+                on = [s for s in spans if s.enter <= t
+                      and (s.leave is None or t < max(s.leave, s.enter + 1))]
+                if on:
+                    want[t] = on[-1]
+            with self.subTest(seed=seed):
+                self.assertEqual(sim._running_at(spans, ticks), want)
+
+    def test_a_freed_row_is_reused_lowest_first(self):
+        spans = [_span(0, 0, 5), _span(1, 1, 3), _span(2, 2, 9), _span(3, 5, 6), _span(4, 6, 7)]
+        rows = [r for _s, r in sim._first_free_rows(spans, 10)]
+        self.assertEqual(rows, [0, 1, 2, 0, 0])
+
+
 class TestIterations(unittest.TestCase):
     def setUp(self):
         self.tr = run(canon(LOOP))
