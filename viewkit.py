@@ -565,9 +565,10 @@ class Canvas:
         self.lines: dict = {}   # (x, y) → [mask, stroke, style]
         self.w = 0
         self.h = 0
-        self._kept = None       # a kept canvas (keep_rows): y → its runs, once worked out
-        self._xs = None         # … and y → the columns drawn on it
+        self._kept = None       # a kept canvas (keep_rows): y → {span: its runs}, once worked out
+        self._xs = None         # … and y → {span: the columns drawn in it} (ROW_SPAN wide)
         self._wide = False      # a wide character was put: rows mend split ones
+        self._under = {}        # a kept canvas: cell → what this frame's overlay() covered
 
     def _grow(self, x, y):
         self.w = max(self.w, x + 1)
@@ -710,11 +711,9 @@ class Canvas:
     def rows(self):
         """Yield each row as a list of (run_text, style) runs."""
         w, h = self.w, self.h
-        if self._kept is not None:                  # a kept canvas: each row worked out once
+        if self._kept is not None:                  # a kept canvas: each span worked out once
             for y in range(h):
-                if y not in self._kept:
-                    self._kept[y] = self._runs(self._mend(self._row_cells(y)), w)
-                yield list(self._kept[y])
+                yield self._kept_row(y, w)
             return
         if type(self).cell is not Canvas.cell:      # a subclass's cells: ask for each
             grid = [{x: self.cell(x, y) for x in range(w)} for y in range(h)]
@@ -753,17 +752,24 @@ class Canvas:
     def _runs(cells: dict, w: int) -> list:
         """One row's runs: its drawn cells ({x: (char, style)}) merged by style,
         the blanks between them unstyled, the last run's trailing blanks cut."""
+        return _cut_tail(Canvas._span(cells, 0, w))
+
+    @staticmethod
+    def _span(cells: dict, lo: int, hi: int) -> list:
+        """The runs of columns lo … hi-1 of a row (`cells`: its drawn cells
+        there, {x: (char, style)}): merged by style, the blanks unstyled, up
+        to hi (no blanks cut)."""
         runs = []
         last = None                     # the open run: [chars, style]
-        at = 0                          # the next column to fill
-        for x in sorted(cells) + [w]:
+        at = lo                         # the next column to fill
+        for x in sorted(cells) + [hi]:
             if x > at:                  # blank cells up to x
                 if last is not None and last[1] is None:
                     last[0].append(" " * (x - at))
                 else:
                     last = [[" " * (x - at)], None]
                     runs.append(last)
-            if x == w:
+            if x == hi:
                 break
             ch, st = cells[x]
             if last is not None and last[1] == st:
@@ -772,17 +778,46 @@ class Canvas:
                 last = [[ch], st]
                 runs.append(last)
             at = x + 1
-        out = [("".join(t), s) for t, s in runs]
-        if out:
-            out[-1] = (out[-1][0].rstrip(), out[-1][1])
-        return [(t, s) for t, s in out if t]
+        return [("".join(t), s) for t, s in runs]
+
+    def _kept_row(self, y: int, w: int) -> list:
+        """Row y of a kept canvas: each span of ROW_SPAN columns worked out once
+        (until a cell of it changes), the spans' runs joined — the row as
+        _runs works it out. A row with a wide character or a subclass's
+        cells is worked out whole (a wide character may straddle two spans)."""
+        spans = self._kept.setdefault(y, {})
+        if self._wide or type(self).cell is not Canvas.cell:
+            if None not in spans:
+                spans[None] = self._runs(self._mend(self._row_cells(y)), w)
+            return list(spans[None])
+        xs, out = self._xs.get(y, {}), []
+        for k in range((w + ROW_SPAN - 1) // ROW_SPAN):
+            lo, hi = k * ROW_SPAN, min((k + 1) * ROW_SPAN, w)
+            got = spans.get(k)
+            if got is None or got[0] != hi:
+                got = spans[k] = (hi, self._span(self._cells_at(y, xs.get(k, ())), lo, hi))
+            _join_runs(out, got[1])
+        return _cut_tail(out)
+
+    def _cells_at(self, y: int, xs) -> dict:
+        """{x: (char, style)} of a kept canvas's row y at the columns xs."""
+        out, corners = {}, self.CORNERS
+        for x in xs:
+            if not 0 <= x < self.w:
+                continue
+            v = self.text.get((x, y))
+            if v is None:
+                ch, style = _line_cell(self.lines[(x, y)])
+                v = (corners.get(ch, ch), style) if corners else (ch, style)
+            out[x] = v
+        return out
 
     def _row_cells(self, y: int) -> dict:
         """{x: (char, style)}: the cells rows() reads on row y of a kept canvas."""
         if type(self).cell is not Canvas.cell:
             return {x: self.cell(x, y) for x in range(self.w)}
         out, corners = {}, self.CORNERS
-        for x in sorted(self._xs.get(y, ())):
+        for x in sorted(x for xs in self._xs.get(y, {}).values() for x in xs):
             if not 0 <= x < self.w:
                 continue
             v = self.text.get((x, y))
@@ -798,7 +833,7 @@ class Canvas:
         change it. Returns itself."""
         self._kept, self._xs = {}, {}
         for x, y in itertools.chain(self.text, self.lines):
-            self._xs.setdefault(y, set()).add(x)
+            self._xs.setdefault(y, {}).setdefault(x // ROW_SPAN, set()).add(x)
         return self
 
     def splice(self, other: "Canvas", ys) -> None:
@@ -807,19 +842,92 @@ class Canvas:
         be anything): their cells are other's, their runs worked out again."""
         ys = set(ys)
         for y in ys:
-            for x in self._xs.pop(y, ()):
-                self.text.pop((x, y), None)
-                self.lines.pop((x, y), None)
+            for xs in self._xs.pop(y, {}).values():
+                for x in xs:
+                    self.text.pop((x, y), None)
+                    self.lines.pop((x, y), None)
             self._kept.pop(y, None)
         for (x, y), v in other.text.items():
             if y in ys:
                 self.text[(x, y)] = v
-                self._xs.setdefault(y, set()).add(x)
+                self._xs.setdefault(y, {}).setdefault(x // ROW_SPAN, set()).add(x)
         self._wide = self._wide or other._wide
         for (x, y), v in other.lines.items():
             if y in ys:
                 self.lines[(x, y)] = list(v)
-                self._xs.setdefault(y, set()).add(x)
+                self._xs.setdefault(y, {}).setdefault(x // ROW_SPAN, set()).add(x)
+
+    def patch(self, other: "Canvas", cells) -> None:
+        """A kept canvas's `cells` replaced by the same cells of `other` (a
+        drawing whose cells `cells` are right; elsewhere it may be anything):
+        each takes other's text and line there, or none; only their rows are
+        worked out again. splice() by the cell, for a drawing whose rows are
+        wide (a row of many elements, a few of which look different)."""
+        text, lines = other.text, other.lines
+        for cell in cells:
+            self._set(cell, text.get(cell), lines.get(cell))
+        self._wide = self._wide or other._wide
+
+    def _set(self, cell, text, line) -> None:
+        """One cell of a kept canvas set to `text` and `line` (None: none)."""
+        x, y = cell
+        if text is None:
+            self.text.pop(cell, None)
+        else:
+            self.text[cell] = text
+        if line is None:
+            self.lines.pop(cell, None)
+        else:
+            self.lines[cell] = list(line)
+        k = x // ROW_SPAN
+        xs = self._xs.setdefault(y, {}).setdefault(k, set())
+        if text is None and line is None:
+            xs.discard(x)
+        else:
+            xs.add(x)
+            self._grow(x, y)
+        spans = self._kept.get(y)
+        if spans is not None:
+            spans.pop(k, None)
+            spans.pop(None, None)
+
+    def overlay(self, x, y, s, style=None) -> None:
+        """put() onto a kept canvas for one frame only (a run's tokens): the
+        cells it covers remember what they held, and clear_overlay() puts
+        that back. A later overlay over an earlier one wins its cells."""
+        top = Canvas()
+        top.put(x, y, s, style)
+        for cell, v in top.text.items():
+            if cell not in self._under:
+                self._under[cell] = self.text.get(cell)
+            self._set(cell, v, self.lines.get(cell))
+        self._wide = self._wide or top._wide
+
+    def clear_overlay(self) -> None:
+        """A kept canvas as it was before this frame's overlay() calls."""
+        under, self._under = self._under, {}
+        for cell, v in under.items():
+            self._set(cell, v, self.lines.get(cell))
+
+
+ROW_SPAN = 128      # a kept canvas works a row out in spans this wide (Canvas._kept_row)
+
+
+def _join_runs(out: list, runs: list) -> None:
+    """runs appended to out, the first merged into out's last when they share a style."""
+    if out and runs and out[-1][1] == runs[0][1]:
+        out[-1] = (out[-1][0] + runs[0][0], out[-1][1])
+        out.extend(runs[1:])
+    else:
+        out.extend(runs)
+
+
+def _cut_tail(runs: list) -> list:
+    """A row's runs with the last one's trailing blanks cut (and it dropped when
+    nothing is left of it)."""
+    if runs:
+        runs[-1] = (runs[-1][0].rstrip(), runs[-1][1])
+    return [(t, s) for t, s in runs if t]
 
 
 def _first_fit(cols: list, lo: int, hi: int) -> int:

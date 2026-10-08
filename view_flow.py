@@ -382,6 +382,7 @@ class _Layout:
     groups: dict = field(default_factory=dict)  # group id → _Group
     passes: dict = field(default_factory=dict)  # (x, y) → group id: a vertical passing through
     bottom: int = 0                             # the first row under every vertex
+    isolated_at: dict = field(default_factory=dict)  # unconnected node id → its cell (_draw)
 
 
 def _head(kind: str) -> str:
@@ -404,16 +405,25 @@ def _join_mark(p: "_Path") -> str:
     return ""
 
 
+def _wire_chips(part: _Part, ctx: "_Ctx") -> dict:
+    """{stroke key: its chips (ctx.chips)} of a part's wires between two nodes,
+    in stroke order: the order the chips' letters are handed out in."""
+    return {st.key: ctx.chips(part, st) for st in part.strokes if st.src != st.dst}
+
+
 def _build(part: _Part, ctx: "_Ctx", band: "_BandSpec | None" = None,
-           place: bool = True) -> _Layout:
+           place: bool = True, selfs: dict | None = None,
+           chips: dict | None = None) -> _Layout:
     """A part's vertices and paths, columns, rows and channels. `band`: the part
     is one band of a wrapped part (_band_part): its columns are fixed, and its
     plugs are vertices of their own. `place`: False — the vertices and their
     columns only, no rows or channels (a part a run's frame cuts into bands as
-    the first frame did: _banded reads its columns, never its rows)."""
+    the first frame did: _banded reads its columns, never its rows). `selfs`,
+    `chips`: the part's ctx.selfs_of and _wire_chips when this frame worked
+    them out already (each hands out letters, once a frame)."""
     lay = _Layout(part)
     ids = list(part.nodes)
-    selfs = ctx.selfs_of(part)
+    selfs = ctx.selfs_of(part) if selfs is None else selfs
     for nid in ids:
         lay.V[nid] = _Vx(nid, "node", ctx.label(part, nid, selfs), stubs=list(
             selfs[nid].stubs if nid in selfs else ()))
@@ -425,7 +435,7 @@ def _build(part: _Part, ctx: "_Ctx", band: "_BandSpec | None" = None,
     lay.isolated = [nid for nid in ids if nid not in linked]
     col = (band.col if band is not None
            else _columns([nid for nid in ids if nid in linked], strokes))
-    chips = {st.key: ctx.chips(part, st) for st in strokes}
+    chips = _wire_chips(part, ctx) if chips is None else chips
     if ctx.hang:
         _hang(lay, part, ctx, strokes, col, chips)
     # A column of chips after a node column when a flow from it carries one.
@@ -876,10 +886,25 @@ def _draw_path(cv: _Canvas, lay: _Layout, p: _Path) -> list:
 
 def _draw(lay: _Layout, ctx: "_Ctx", isolated: bool = True) -> _Canvas:
     """A layout on a canvas; `isolated`: its unconnected nodes too, in rows under
-    it (a wrapped part draws them once, under its bands)."""
+    it (a wrapped part draws them once, under its bands; where each went is
+    kept in lay.isolated_at)."""
     cv = _Canvas()
+    _paint(cv, lay, ctx, lay.paths, [vid for vid, v in lay.V.items()
+                                     if vid not in lay.isolated and v.what != "dummy"])
+    if isolated and lay.isolated:
+        y = (max(cv.h, lay.bottom) + 1) if (cv.h or lay.bottom) else 0
+        lay.isolated_at = _draw_isolated(cv, lay, ctx, y, lay.spots, lay.marks)
+    return cv
+
+
+def _paint(cv: _Canvas, lay: _Layout, ctx: "_Ctx", paths: list, vids: list) -> None:
+    """Some of a layout's paths (in lay.paths order) and placed vertices drawn on
+    cv as _draw draws them all: the paths' lines, their shared cells' styles,
+    heads, join marks and letters, then the vertices, then the back paths'
+    chips. A cell one of them shares with a path or vertex left out comes out
+    as that one's absence draws it (_Kept paints sets that share none)."""
     traces = []
-    for p in lay.paths:
+    for p in paths:
         p.cells = _draw_path(cv, lay, p)
         tr = vgraph._Trace(p.style, False, p.stroke.kind == "<->", edge=None)
         tr.cells = list(p.cells)
@@ -887,69 +912,85 @@ def _draw(lay: _Layout, ctx: "_Ctx", isolated: bool = True) -> _Canvas:
     for cell, st in vgraph._nearest_owners(traces, cv.lines).items():
         cv.lines[cell][2] = st
     if ctx.look is not None:
-        for cell, st in _bundle_looks(lay.paths, ctx.state).items():
+        for cell, st in _bundle_looks(paths, ctx.state).items():
             if cell in cv.lines:
                 cv.lines[cell][2] = st
-    for p in lay.paths:                         # heads, and a `<->`'s source end
+    for p in paths:                             # heads, and a `<->`'s source end
         dst = lay.V[p.via[-1]]
         if dst.solid and p.cells:
             cv.put(*p.cells[-1], p.head, p.style)
             if dst.what == "node":
-                _put_join(cv, lay, p)
+                _put_join(cv, paths, p)
         if p.stroke.kind == "<->" and len(p.cells) > 1:  # its own first cell, else by its head
             shared = sum(q.via[0] == p.via[0] for q in lay.paths) > 1
             at = p.cells[-2] if shared and len(p.cells) > 2 else p.cells[0]
             cv.put(*at, "◀", p.style)
-    _put_letters(cv, lay)
-    for vid, v in lay.V.items():
-        if vid in lay.isolated or v.what == "dummy":
-            continue
-        x, y = lay.colx[v.col], v.row
-        kit._put_runs(cv, x, y, v.runs)
-        if v.what == "node":
-            if len(v.heads) > 1:
-                last = len(v.heads) - 1
-                for j in range(last + 1):
-                    mark = BUNDLE[0] if j == 0 else BUNDLE[2] if j == last else BUNDLE[1]
-                    cv.put(x - 1, y + j, mark, kit.FRAME_STYLE)
-            lay.spots.update(_draw_stubs(cv, x, y, v.stubs, ctx.styles))
-            if v.mark >= 0:
-                lay.marks[v.id] = (x + v.mark, y)
-            for k, row in enumerate(v.hung):
-                kit._put_runs(cv, x, y + v.hung_at + k, row)
-    for p in lay.paths:                         # a back path's chip on its return row
+    _put_letters(cv, lay, paths)
+    for vid in vids:
+        _put_vertex(cv, lay, ctx, vid)
+    for p in paths:                             # a back path's chip on its return row
         if p.back and p.chip is not None:
-            yy = p.ret if _chip_fits(p) else p.ret + 1
-            kit._put_runs(cv, p.tin + 2, yy, p.chip)
-    if isolated and lay.isolated:
-        y = (max(cv.h, lay.bottom) + 1) if (cv.h or lay.bottom) else 0
-        _draw_isolated(cv, lay, ctx, y, lay.spots, lay.marks)
-    return cv
+            kit._put_runs(cv, p.tin + 2, _chip_row(p), p.chip)
+
+
+def _chip_row(p: _Path) -> int:
+    """The row a back path's chip is drawn on: its return row, else the row under it."""
+    return p.ret if _chip_fits(p) else p.ret + 1
+
+
+def _put_vertex(cv: _Canvas, lay: _Layout, ctx: "_Ctx", vid) -> None:
+    """A placed vertex at its column and row: its runs, a node's stacked in-port
+    marks, self-call stubs (their ● cells into lay.spots, its mark's into
+    lay.marks) and hung rows."""
+    v = lay.V[vid]
+    x, y = lay.colx[v.col], v.row
+    kit._put_runs(cv, x, y, v.runs)
+    if v.what != "node":
+        return
+    if len(v.heads) > 1:
+        last = len(v.heads) - 1
+        for j in range(last + 1):
+            mark = BUNDLE[0] if j == 0 else BUNDLE[2] if j == last else BUNDLE[1]
+            cv.put(x - 1, y + j, mark, kit.FRAME_STYLE)
+    lay.spots.update(_draw_stubs(cv, x, y, v.stubs, ctx.styles))
+    if v.mark >= 0:
+        lay.marks[v.id] = (x + v.mark, y)
+    for k, row in enumerate(v.hung):
+        kit._put_runs(cv, x, y + v.hung_at + k, row)
 
 
 def _draw_isolated(cv: _Canvas, lay: _Layout, ctx: "_Ctx", y: int, spots: dict,
-                   marks: dict) -> None:
+                   marks: dict) -> dict:
     """A layout's unconnected nodes from row y, wrapped at the drawing's width
     (at most ISOLATED_WRAP, or the width fitted to when that is narrower); the
-    cells of their stubs' ● and self-call marks into spots / marks."""
-    x, row_h = 0, 1
+    cells of their stubs' ● and self-call marks into spots / marks. Returns
+    {node id: the cell it was drawn from}."""
+    x, row_h, at = 0, 1, {}
     wrap = max(cv.w, min(ISOLATED_WRAP, ctx.width or ISOLATED_WRAP))
     for nid in lay.isolated:
         v = lay.V[nid]
         if x and x + v.width > wrap:
             x, y, row_h = 0, y + row_h, 1
-        kit._put_runs(cv, x, y, v.runs)
-        spots.update(_draw_stubs(cv, x, y, v.stubs, ctx.styles))
-        if v.mark >= 0:
-            marks[nid] = (x + v.mark, y)
+        at[nid] = (x, y)
+        _put_isolated(cv, v, ctx, x, y, spots, marks)
         row_h = max(row_h, v.height)
         x += v.width + ISOLATED_GAP
+    return at
+
+
+def _put_isolated(cv: _Canvas, v: _Vx, ctx: "_Ctx", x: int, y: int, spots: dict,
+                  marks: dict) -> None:
+    """An unconnected node at (x, y): its runs and self-call stubs."""
+    kit._put_runs(cv, x, y, v.runs)
+    spots.update(_draw_stubs(cv, x, y, v.stubs, ctx.styles))
+    if v.mark >= 0:
+        marks[v.id] = (x + v.mark, y)
 
 
 _STRAIGHT = (kit.L | kit.R, kit.U | kit.D)
 
 
-def _put_join(cv: _Canvas, lay: _Layout, p: _Path) -> None:
+def _put_join(cv: _Canvas, paths: list, p: _Path) -> None:
     """A path's join mark (_join_mark) in the cells before its head, in the room
     _channels left there; not where a wire with another mark (or none) shares
     those cells: the mark would read as that wire's too."""
@@ -960,19 +1001,19 @@ def _put_join(cv: _Canvas, lay: _Layout, p: _Path) -> None:
     cells = p.cells[-1 - n:-1]
     y = p.cells[-1][1]
     if any(c[1] != y for c in cells) or any(
-            c in q.cells and _join_mark(q) != mark for q in lay.paths if q is not p
+            c in q.cells and _join_mark(q) != mark for q in paths if q is not p
             for c in cells):
         return
     cv.put(cells[0][0], y, mark, kit.LABEL_STYLE)
 
 
-def _put_letters(cv: _Canvas, lay: _Layout) -> None:
+def _put_letters(cv: _Canvas, lay: _Layout, paths: list) -> None:
     """Each hung chip's letter in its wire, on the wire's last own straight cell
     (one no other wire draws or crosses: before a shared last run's junction,
     after a trunk's branch), so the wire keeps its length: `─b▶`, `├c▶`,
     `──b┬`. An access head is a letter itself: one stroke stays between them."""
-    used = Counter(c for p in lay.paths for c in set(p.cells))
-    for p in lay.paths:
+    used = Counter(c for p in paths for c in set(p.cells))
+    for p in paths:
         if p.letter is None or len(p.cells) < 2:
             continue
         end = len(p.cells) - (1 if p.head in ("▶", "✖") else 2)
@@ -1023,12 +1064,13 @@ class _Ctx:
 
     def __init__(self, scn, depth: int, payloads: bool, mods: bool, notes: bool,
                  look=None, checks=None, marks: list | None = None, hang: bool = False,
-                 width: int | None = None):
+                 width: int | None = None, tags: dict | None = None):
+        """`tags`: vgraph._tags(scn, notes, mods) when worked out already."""
         self.scn, self.depth, self.payloads, self.mods = scn, depth, payloads, mods
         self.look, self.checks, self.letters = look, checks, marks
         self.hang, self.width = hang, width
         self._selfs = {}                        # (graph, owner) → its self-calls (hung)
-        self.tags = vgraph._tags(scn, notes, mods)
+        self.tags = dict(tags if tags is not None else vgraph._tags(scn, notes, mods))
         self.hung_tags = {}                     # node id → its label's tags that hang
         if hang:
             plain = vgraph._tags(scn, False, False)
@@ -1092,6 +1134,15 @@ class _Ctx:
             if st.src == st.dst and st.src in part.nodes and st.src not in out:
                 out[st.src] = vgraph._Selfs("↺", [])
         return {nid: s for nid, s in out.items() if nid in part.nodes}
+
+    def label_key(self, nid: str) -> tuple:
+        """What label() reads of a node that a sim frame changes — its lead,
+        look, probe and tags (a frame's badges among them): within one plan
+        (the same Scene, options and overlay) equal keys, equal labels."""
+        tags = self.tags.get(nid)
+        if self.look is None:
+            return (tags,)
+        return (self.look.lead.get(nid), self.look.looks.get(nid), nid in self.look.probe, tags)
 
     def label(self, part: _Part, nid: str, selfs: dict) -> list:
         """A node's runs: a sim lead (a machine's ◉ slot), its label as the frame
@@ -1349,6 +1400,154 @@ def _token_cell(tok, lay: _Layout, routes: dict):
 
 
 # ---------------------------------------------------------------------------
+# Whole parts kept — a part drawn whole (not cut into bands) during a run is
+# laid out once and kept; each frame paints again only the units (wires and
+# vertices whose cells meet) of which something looks different
+# ---------------------------------------------------------------------------
+
+class _Unit(NamedTuple):
+    """Elements of a layout painted apart from the rest (_units): no cell of
+    theirs is drawn by anything outside them."""
+    paths: list                 # indices into lay.paths, in order
+    vids: list                  # placed vertices
+    lone: list                  # unconnected node ids (lay.isolated_at)
+    cells: frozenset
+
+
+def _whole(part: _Part, ctx: "_Ctx", keep: dict | None, lay: _Layout | None = None) -> "_Drawn":
+    """part drawn whole, from `lay` when this frame laid it out already. `keep`
+    (a plan slot's dict: {} on a run's first frame): the drawing kept from
+    frame to frame — laid out once (its strokes and self-calls are the plan's
+    Scene's), and while every label a frame changes keeps its width only the
+    units whose look changed are painted again (_repaint); the canvas is the
+    kept one, a frame's tokens go over it as overlays (_Drawn.kept)."""
+    if keep is None:
+        lay = lay or _build(part, ctx)
+        cv = _draw(lay, ctx)
+        return _Drawn(cv, lay.spots, lay.marks, _routes(lay))
+    selfs = chips = None
+    if lay is None:                             # what _build reads that a frame changes
+        selfs = ctx.selfs_of(part)              # (each hands out letters once a frame)
+        chips = _wire_chips(part, ctx) if ctx.letters is not None else None
+    if lay is None and "lay" in keep:
+        kept = keep["lay"]
+        keys = {nid: ctx.label_key(nid) for nid in part.nodes}
+        fresh = {nid: ctx.label(part, nid, selfs) for nid, k in keys.items()
+                 if k != keep["keys"][nid]}
+        if all(kit.row_len(r) == kit.row_len(kept.V[nid].runs) for nid, r in fresh.items()):
+            for nid, r in fresh.items():
+                kept.V[nid].runs = r
+            for p in kept.paths:
+                p.style = ctx.style(p.stroke)
+            keep["keys"] = keys
+            keep["looks"] = _repaint(keep["cv"], kept, ctx, keep["units"], keep["owner"],
+                                     keep["looks"])
+            return _Drawn(keep["cv"], kept.spots, kept.marks, keep["routes"], kept=True)
+    lay = lay or _build(part, ctx, selfs=selfs, chips=chips)
+    cv = _draw(lay, ctx).keep_rows()            # its paths' cells, then its units
+    units = _units(lay, ctx)
+    keep.update(lay=lay, cv=cv, routes=_routes(lay), units=units, looks=_looks(lay, ctx),
+                keys={nid: ctx.label_key(nid) for nid in part.nodes},
+                owner={e: k for k, u in enumerate(units) for e in _elements(u)})
+    return _Drawn(cv, lay.spots, lay.marks, keep["routes"], kept=True)
+
+
+def _elements(u: _Unit):
+    """A unit's elements as _looks names them."""
+    yield from (("p", pi) for pi in u.paths)
+    yield from (("v", vid) for vid in u.vids + u.lone)
+
+
+def _looks(lay: _Layout, ctx: "_Ctx") -> dict:
+    """{element: its look}: what a frame changes of each path (its style, its
+    run state: a back bundle's look) and vertex (its runs, its stubs' strokes)."""
+    out = {("p", pi): (p.style, ctx.state(p.stroke)) for pi, p in enumerate(lay.paths)}
+    for vid, v in lay.V.items():
+        if v.what != "dummy":
+            out[("v", vid)] = (v.runs, tuple(ctx.styles.get(sb.wire.key) for sb in v.stubs))
+    return out
+
+
+def _units(lay: _Layout, ctx: "_Ctx") -> list:
+    """[_Unit] of a drawn layout (_draw): paths and vertices whose cells meet,
+    and the wires of one back bundle (their look is their busiest's), in one
+    unit; each unit's cells are what its elements draw (a path: its line,
+    head, join mark, letters, chip; a vertex: what _put_vertex puts)."""
+    elems, parent, lone = {}, {}, set(lay.isolated)
+
+    def find(e):
+        while parent[e] != e:
+            parent[e] = parent[parent[e]]
+            e = parent[e]
+        return e
+
+    def add(e, cells):
+        elems[e] = cells
+        parent[e] = e
+
+    for pi, p in enumerate(lay.paths):
+        cells = set(p.cells)
+        if p.letter:                            # somewhere along its own cells' rows
+            cells |= {(x - k, y) for x, y in p.cells for k in range(len(p.letter))}
+        if p.back and p.chip is not None:
+            y = _chip_row(p)
+            cells |= {(p.tin + 2 + k, y) for k in range(kit.row_len(p.chip))}
+        add(("p", pi), cells)
+    for vid, v in lay.V.items():
+        if v.what == "dummy":
+            continue
+        cv = _Canvas()
+        if vid in lone:
+            _put_isolated(cv, v, ctx, *lay.isolated_at[vid], {}, {})
+        else:
+            _put_vertex(cv, lay, ctx, vid)
+        add(("v", vid), cv.text.keys() | cv.lines.keys())
+    owner = {}
+    for e, cells in elems.items():
+        for cell in cells:
+            other = owner.setdefault(cell, e)
+            if other != e:
+                parent[find(e)] = find(other)
+    for pi, li in _back_bundles(lay.paths).items():
+        parent[find(("p", pi))] = find(("p", li))
+    groups = {}
+    for e in elems:
+        groups.setdefault(find(e), []).append(e)
+    units = []
+    for members in groups.values():
+        vids = [vid for kind, vid in members if kind == "v"]
+        units.append(_Unit(sorted(pi for kind, pi in members if kind == "p"),
+                           [vid for vid in vids if vid not in lone],
+                           [vid for vid in vids if vid in lone],
+                           frozenset().union(*(elems[e] for e in members))))
+    return units
+
+
+def _repaint(cv: _Canvas, lay: _Layout, ctx: "_Ctx", units: list, owner: dict,
+             looks: dict) -> dict:
+    """A kept canvas brought to the frame `lay` and `ctx` now draw: the last
+    frame's overlays cleared, then the units with an element whose look
+    differs from `looks` painted afresh (together: no two share a cell) and
+    their cells patched in. Returns the looks now."""
+    cv.clear_overlay()
+    now = _looks(lay, ctx)
+    dirty = [units[k] for k in sorted({owner[e] for e, look in now.items()
+                                       if looks.get(e) != look})]
+    if dirty:
+        vids = {vid for u in dirty for vid in u.vids}
+        fresh = _Canvas()
+        paths = sorted(pi for u in dirty for pi in u.paths)
+        _paint(fresh, lay, ctx, [lay.paths[pi] for pi in paths],
+               [vid for vid in lay.V if vid in vids])
+        for u in dirty:
+            for nid in u.lone:
+                _put_isolated(fresh, lay.V[nid], ctx, *lay.isolated_at[nid], lay.spots,
+                              lay.marks)
+        cv.patch(fresh, frozenset().union(*(u.cells for u in dirty)))
+    return now
+
+
+# ---------------------------------------------------------------------------
 # Bands — (c) of the wrap ladder: a part too wide for the width is cut between
 # its call-depth columns into bands stacked down the page; a wire cut at a
 # band's right edge ends in a numbered plug and resumes at the start of the
@@ -1387,6 +1586,7 @@ class _Drawn(NamedTuple):
     spots: dict
     marks: dict
     routes: dict
+    kept: bool = False          # cv is kept from frame to frame (_whole): tokens overlay it
 
 
 plug_label = kit.plug_label                     # ① … ⑳, «21» … (the tree's folded lanes too)
@@ -1670,8 +1870,9 @@ def compose_flow(g, depth: int, payloads: bool, notes: str = "off", triggers: bo
     The step and the cuts are chosen on the frame's drawing, whose badge slots
     are the run's (view_graph._trace_slots): every frame of a run wraps alike —
     so with a `memo` (kit.FrameMemo, kept by a caller drawing a run frame
-    after frame) they are chosen on the first frame and kept (the drawing is
-    the same as without it)."""
+    after frame) they are chosen on the first frame and kept, and so is each
+    part's drawing, painted again only where a frame changes how it looks
+    (the drawing is the same as without it)."""
     plan = (memo.plan(("flow", depth, payloads, notes, triggers, width, access, mods, events,
                        probe), (g, trace, checks)) if memo is not None else None)
     scn = kit.held(plan, "scene", lambda: scene.build_scene(g, events=events, triggers=triggers,
@@ -1731,9 +1932,11 @@ def _part_rows(scn, depth, payloads, mods, notes, look, checks, marks, hang: boo
     tokens of a sim frame over them. Returns (rows, their width, the widest
     part's drawing, the widest band still wider than `width` or 0). `hang`:
     chips hung (_hang), and each part wider than `width` cut into bands.
-    `plan` (kit.Plan): each part's cut kept in a slot, chosen on the first
-    frame of a run only."""
-    ctx = _Ctx(scn, depth, payloads, mods, notes, look, checks, marks, hang, width)
+    `plan` (kit.Plan): the parts and tags worked out once, each part's cut
+    kept in a slot, chosen on the first frame of a run only, and its drawing
+    with it (a part drawn whole: _whole; its bands: _stack)."""
+    ctx = _Ctx(scn, depth, payloads, mods, notes, look, checks, marks, hang, width,
+               kit.held(plan, "tags", lambda: vgraph._tags(scn, notes, mods)))
     drawn, every, over = [], [], 0
 
     def draw(part, fit):
@@ -1742,13 +1945,19 @@ def _part_rows(scn, depth, payloads, mods, notes, look, checks, marks, hang: boo
         d, kept = None, kit.slot(plan)
         if part.nodes:
             cut = kept.get("cut") if kept is not None else None    # False: not cut
-            lay = _build(part, ctx, place=not cut)
+            whole = kept.setdefault("whole", {}) if kept is not None else None
+            if cut is False:                    # drawn whole on the frames before
+                d = _whole(part, ctx, whole)
+                widest = d.cv.w
+            else:
+                lay = _build(part, ctx, place=not cut)
             if cut:
                 d, widest, cut = _banded(part, lay, ctx, fit, cut, kept.setdefault("bands", {}))
-            else:
-                cv = _draw(lay, ctx)
-                d, widest = _Drawn(cv, lay.spots, lay.marks, _routes(lay)), cv.w
-                if cut is None and hang and fit is not None and cv.w > fit:
+            elif cut is None:                   # the first frame: kept unless it may band
+                may_band = hang and fit is not None
+                d = _whole(part, ctx, None if may_band else whole, lay)
+                widest = d.cv.w
+                if may_band and widest > fit:
                     banded = _banded(part, lay, ctx, fit)
                     if banded is not None:
                         d, widest, cut = banded
@@ -1760,7 +1969,7 @@ def _part_rows(scn, depth, payloads, mods, notes, look, checks, marks, hang: boo
         inner = None if fit is None else max(fit - vgraph.FRAME_PAD, 1)
         return d, [draw(bp, inner) for bp in part.blocks]
 
-    for part in flow_parts(scn, depth):
+    for part in kit.held(plan, "parts", lambda: flow_parts(scn, depth)):
         if part.nodes or part.blocks:
             drawn.append((part, draw(part, width)))
     if look is not None:                        # in task order: a later token wins a cell
@@ -1768,7 +1977,7 @@ def _part_rows(scn, depth, payloads, mods, notes, look, checks, marks, hang: boo
             for d in every:
                 cell = _token_cell(tok, d, d.routes)
                 if cell is not None:
-                    d.cv.put(cell[0], cell[1], tok.mark, tok.style)
+                    (d.cv.overlay if d.kept else d.cv.put)(cell[0], cell[1], tok.mark, tok.style)
                     break
 
     def framed(part, tree, fit):

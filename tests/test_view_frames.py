@@ -3,8 +3,9 @@
 A view lays a drawing out once per plan (its options, width, the document, the
 run and the checks overlay) and then repaints only what each frame changes
 (view_graph and view_tree: the rows of the boxes, wires and tokens that look
-different, kit.Retained; view_flow: the bands that look different, the wrap
-ladder's step and cuts chosen once).
+different, kit.Retained; view_flow: the bands that look different, and in a
+part drawn whole the cells of the wires and labels that look different, the
+wrap ladder's step and cuts chosen once).
 
 Covers:
   1. every few frames of runs of the site examples and the executions fixture,
@@ -15,10 +16,18 @@ Covers:
      a plan of its own); the checks overlay too;
   2. ViewState: a run played with its memo draws the frames a ViewState
      without one draws (follow, wrap and pan);
-  3. a 500-flow chain: a frame with the memo is the frame without it, in a
-     fraction of the time (CPU time, a lenient bound: ≥ 5× is the aim);
-  4. kit.Canvas.keep_rows / splice: a kept canvas keeps its rows, and rows
-     spliced in from another drawing come out as that drawing draws them;
+  3. a 500-flow chain (and, in the flow view, a tall design that fits): a
+     frame with the memo is the frame without it, in a fraction of the time
+     — CPU time, natural (as --layout pan draws) and fitted. Frames spread
+     over the run: the chain in the flow view ≥ 5× faster (measured 9-12×),
+     graph and tree ≥ 3× (measured 4.5-7×: each frame still works out the
+     run's look, sim_look, and every box's); the tall design's frames as
+     played ≥ 5× (measured 8-12×), spread ≥ 2× (measured 2.5-5×: a third of
+     its wires and labels look different between frames that far apart,
+     and each of those is painted again);
+  4. kit.Canvas.keep_rows / splice / patch / overlay: a kept canvas keeps its
+     rows, rows spliced or cells patched in from another drawing come out as
+     that drawing draws them, a frame's overlay goes when cleared;
   5. kit.Retained: only the rows of an element whose look or rows changed are
      painted again; kit.FrameMemo: plans by key and by the identity of what
      they hold, the newest KEEP of them, all afresh after a theme is applied.
@@ -61,6 +70,11 @@ OPTIONS = (
 
 def chain(n: int) -> str:
     return "".join(f"[N{i}] -> [N{i + 1}]\n" for i in range(n))
+
+
+def rows_of_chains(n: int) -> str:
+    """n chains of three, one under the other: a tall drawing that fits 120."""
+    return "".join(f"[A{i}] -> [B{i}]\n[B{i}] -> [C{i}]\n" for i in range(n))
 
 
 def kwargs(v: str, width, opts: dict) -> dict:
@@ -136,6 +150,15 @@ class TestSameFrames(unittest.TestCase):
             with self.subTest(view=v):
                 self.assert_run(g, v, 80, {}, "happy", stride=3, checks=overlay.marks(opts))
 
+    def test_flow_letters_step(self):
+        """Frames that fit with the chips lettered: each frame hands out the
+        letters the panel lists (a part drawn whole is not laid out again)."""
+        for path in EXAMPLES[:3]:
+            g = kit.render.parse_document(path.read_text())
+            with self.subTest(path=path.name):
+                self.assert_run(g, "flow", 100, dict(payloads=True, mods=True), "happy",
+                                stride=3)
+
     def test_chain_long_run(self):
         g = kit.render.parse_document(chain(40))
         for v in VIEWS:
@@ -174,24 +197,47 @@ class TestViewState(unittest.TestCase):
 class TestLongChain(unittest.TestCase):
     """3. the 500-flow chain: the same frames, a fraction of the time."""
 
+    def speedup(self, g, v: str, width, played: bool = False) -> float:
+        """How many times faster frames are drawn with the memo than without
+        (the same frames; CPU time, the best of two): four spread over the
+        run, or (`played`) six in a row from its middle, as it plays."""
+        kw = kwargs(v, width, {})
+        player, trace = shown(g, "happy", kw)
+        memo = kit.FrameMemo()
+        view.compose_view(g, v, trace=trace, tick=0, memo=memo, **kw)
+        frames = ([player.last // 2 + k for k in range(6)] if played
+                  else [player.last * k // 4 for k in range(1, 5)])
+
+        def timed(m):
+            best, out = None, None
+            for _rep in range(2):
+                start = time.process_time()
+                out = [view.compose_view(g, v, trace=trace, tick=t, memo=m, **kw)
+                       for t in frames]
+                took = time.process_time() - start
+                best = took if best is None else min(best, took)
+            return best, out
+
+        slow, plain = timed(None)
+        fast, kept = timed(memo)
+        self.assertEqual(kept, plain, (v, width))
+        return slow / max(fast, 1e-9)
+
     def test_faster_and_same(self):
         g = kit.render.parse_document(chain(500))
         for v in VIEWS:
-            with self.subTest(view=v):
-                kw = kwargs(v, 120, {})
-                player, trace = shown(g, "happy", kw)
-                memo = kit.FrameMemo()
-                view.compose_view(g, v, trace=trace, tick=0, memo=memo, **kw)
-                frames = range(1, 5)
-                start = time.process_time()
-                plain = [view.compose_view(g, v, trace=trace, tick=t, **kw) for t in frames]
-                slow = time.process_time() - start
-                start = time.process_time()
-                kept = [view.compose_view(g, v, trace=trace, tick=t, memo=memo, **kw)
-                        for t in frames]
-                fast = time.process_time() - start
-                self.assertEqual(kept, plain)
-                self.assertLess(fast * 3, slow, (v, slow, fast))
+            for width in (None, 120):
+                with self.subTest(view=v, width=width):
+                    least = 5 if v == "flow" else 3
+                    self.assertGreater(self.speedup(g, v, width), least)
+
+    def test_flow_fits(self):
+        """A drawing that fits the width is one part drawn whole, kept too."""
+        g = kit.render.parse_document(rows_of_chains(120))
+        for width in (None, 120):
+            with self.subTest(width=width):
+                self.assertGreater(self.speedup(g, "flow", width, played=True), 5)
+                self.assertGreater(self.speedup(g, "flow", width), 2)
 
 
 class TestRetained(unittest.TestCase):
@@ -215,6 +261,31 @@ class TestRetained(unittest.TestCase):
         rows = list(cv.rows())
         rows[0].append(("mutated", None))          # rows handed out are copies
         self.assertEqual(list(cv.rows()), list(self.drawing(lit).rows()))
+
+    def test_patch_and_overlay(self):
+        def wide(styles):                         # one row wider than a span
+            cv = kit.Canvas()
+            for k in range(60):
+                cv.put(k * 6, 0, f"[n{k:02d}]", styles.get(k))
+                cv.path([(k * 6 + 5, 1), (k * 6 + 5, 2)], "->", styles.get(k))
+            return cv
+
+        cv = wide({}).keep_rows()
+        lit = {7: (kit.Colour("#ff0000", "edges-fail"), None, True), 59: (None, None, True)}
+        self.assertEqual(list(cv.rows()), list(wide({}).rows()))
+        cells = {(x, y) for k in lit for x in range(k * 6, k * 6 + 6) for y in range(3)}
+        cv.patch(wide(lit), cells)
+        self.assertEqual(list(cv.rows()), list(wide(lit).rows()))
+        cv.overlay(3, 0, "●", (None, None, True))
+        cv.overlay(300, 1, "●●", None)
+        marked = wide(lit)
+        marked.put(3, 0, "●", (None, None, True))
+        marked.put(300, 1, "●●", None)
+        self.assertEqual(list(cv.rows()), list(marked.rows()))
+        cv.clear_overlay()
+        self.assertEqual(list(cv.rows()), list(wide(lit).rows()))
+        cv.patch(wide({}), cells)
+        self.assertEqual(list(cv.rows()), list(wide({}).rows()))
 
     def test_repaints_changed_rows_only(self):
         painted = []
