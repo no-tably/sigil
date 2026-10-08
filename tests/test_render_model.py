@@ -770,6 +770,36 @@ class CommentAnchors(unittest.TestCase):
                          [(d.line, d.code) for d in lint.lint(bare).diagnostics])
 
 
+class WideNames(unittest.TestCase):
+    """Non-ASCII names keep distinct, Mermaid-safe ids; a wide op verb is an op-call."""
+
+    def test_names_of_one_length_stay_apart(self):
+        g = parse("[利用者] -> [転送器]\n")
+        self.assertEqual(keys(g), {("u5229u7528u8005_service", "u8ee2u9001u5668_service", "->")})
+
+    def test_ids_are_mermaid_safe_and_ascii_ids_unchanged(self):
+        for name in ("利用者", "café", "cafe\u0301", "ガイド係", "１番", "a b-c"):
+            self.assertRegex(render.mk_id(name), r"^[A-Za-z_][A-Za-z0-9_]*$", name)
+        self.assertNotEqual(render.mk_id("café"), render.mk_id("cafe\u0301"))
+        self.assertEqual(render.mk_id("Api_service"), "Api_service")
+        self.assertEqual(render.mk_id("a-b"), render.mk_id("a_b"))
+        self.assertEqual(render.mk_id("2fa"), "n2fa")
+        self.assertEqual(render.mk_id(""), "anon")
+
+    def test_a_wide_verb_is_an_op_call(self):
+        g = parse("[Api] -> 実行({仕事})\n")
+        self.assertEqual(keys(g), {("Api_service", "Api_service", "->")})
+        self.assertEqual(edge(g, "Api_service", "Api_service").payload, "実行({仕事})")
+        self.assertIsNotNone(render.OP_TARGET_RE.match("短縮({網址})"))
+        self.assertIsNone(render.OP_TARGET_RE.match("１番({網址})"))
+
+    def test_the_cjk_fixture_lints_clean(self):
+        out = subprocess.run([sys.executable, str(_DIR / "lint.py"),
+                              str(_DIR / "tests" / "fixtures" / "cjk.sigil")],
+                             capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+
+
 class ModelDocumented(unittest.TestCase):
     def test_docstring_names_every_graph_field(self):
         src = (_DIR / "render.py").read_text(encoding="utf-8")

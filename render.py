@@ -437,11 +437,21 @@ class Section(NamedTuple):
 # Parser
 # ---------------------------------------------------------------------------
 
+def _id_char(ch: str) -> str:
+    """One character of a node id: ASCII letters, digits and `_` stay; other
+    ASCII (punctuation, space) becomes `_`; a non-ASCII character becomes `u` +
+    its code point in hex (`利` → `u5229`), so wide names keep distinct ids."""
+    if ch.isascii():
+        return ch if ch.isalnum() or ch == "_" else "_"
+    return f"u{ord(ch):x}"
+
+
 def mk_id(name: str) -> str:
-    """Make a Mermaid-safe ID from a glyph name. Lossy: names differing only in
-    punctuation (`[a-b]` / `[a_b]`) share an id, so they draw as one node."""
-    # Replace non-alphanumeric with underscore, prefix with 'n' if starts with digit
-    safe = re.sub(r"[^A-Za-z0-9_]", "_", name.strip())
+    """Make a Mermaid-safe ID ([A-Za-z0-9_], never a digit first) from a glyph
+    name. Lossy only for ASCII punctuation: `[a-b]` / `[a_b]` share an id, so
+    they draw as one node; two non-ASCII names (`[利用者]` / `[転送器]`) never do
+    (only an ASCII name spelt like an encoding, `[u5229]`, could meet `[利]`)."""
+    safe = "".join(_id_char(ch) for ch in name.strip())
     if safe and safe[0].isdigit():
         safe = "n" + safe
     return safe or "anon"
@@ -582,8 +592,9 @@ _SIGN_MODS = {"×", "!", "?", ".", "^"}
 
 # An internal op-call written as a flow's target: `[Worker] -> run()`,
 # `-> run({Job})`, `-> walk(.children)` (no space before the `(`: `-> x (Y)` is
-# a word and an actor). An `op ns.verb(…)` external reach is taken too.
-OP_TARGET_RE = re.compile(r"(?:op\s+)?[A-Za-z_][\w.]*\((?:[^()]|\([^()]*\))*\)")
+# a word and an actor). An `op ns.verb(…)` external reach is taken too. The
+# verb starts with any letter or `_` (`-> 短縮({網址})`), never a digit.
+OP_TARGET_RE = re.compile(r"(?:op\s+)?[^\W\d][\w.]*\((?:[^()]|\([^()]*\))*\)")
 
 
 # What may follow a modifier's `( … )` argument and still be other modifiers:

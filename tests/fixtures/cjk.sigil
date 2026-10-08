@@ -4,25 +4,24 @@
 # a combining accent (cafe + U+0301) is one column narrower than its letters,
 # and [ガイド係] is decomposed (NFD: カ + U+3099, ト + U+3099): a mark after a
 # wide character joins that character, not the column it spills into.
-# Every name has its own length: render.mk_id maps each non-ASCII character
-# to "_", so two names of one length would draw as one node; an op's verb is
-# ASCII (render.OP_TARGET_RE reads `verb(…)` from [A-Za-z_] only).
+# Names of one length (利用者 / 訪問者, 短縮 / 集計) stay distinct nodes, and op
+# verbs are wide too (`短縮({網址})` is an op-call).
 
 --- L1: 短縮 ---
 
-(利用者) -> [短縮] : shorten({網址}) => {符号}   # 利用者は網址を短くしたい
-[短縮] -> |リンク表| : save({符号}, {網址}) @timeout(2s)
-(訪問する人) -> [転送するサービス] : follow({符号})
-[転送するサービス] -> |リンク表| : lookup({符号}) => {網址}
-           !> (訪問する人) : <見つからない>
-           -> (訪問する人) : redirect({網址})
-           ~> <クリックされた> -> [統]
-[統] -> [café] : count({符号})
-[統] -> [ガイド係] : report({符号})
+(利用者) -> [短縮] : 短縮({網址}) => {符号}   # 利用者は網址を短くしたい
+[短縮] -> |リンク表| : 保存({符号}, {網址}) @timeout(2s)
+(訪問者) -> [転送するサービス] : 訪問({符号})
+[転送するサービス] -> |リンク表| : 検索({符号}) => {網址}
+           !> (訪問者) : <見つからない>
+           -> (訪問者) : 転送({網址})
+           ~> <クリックされた> -> [集計]
+[集計] -> [café] : 数える({符号})
+[集計] -> [ガイド係] : 報告({符号})
 
 --- L2: [短縮] ---
 
 [短縮] := {
-  [検証するサービス群] -> [符号を生成する仕組み] : check({網址}) => {符号}
-  [符号を生成する仕組み] -> |リンク表| : query({符号})   # 衝突したら作り直す
+  [検証するサービス群] -> [符号を生成する仕組み] : 検証({網址}) => {符号}
+  [符号を生成する仕組み] -> |リンク表| : 照会({符号})   # 衝突したら作り直す
 }

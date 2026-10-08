@@ -723,7 +723,7 @@ def _classify_payload(value_text: str):
         return ("value", v)
 
     # Bare `verb(args)` — internal op-call (structural, by-shape).
-    if re.match(r"^[A-Za-z_][\w]*\s*\(.*\)\s*$", v):
+    if re.match(r"^[^\W\d]\w*\s*\(.*\)\s*$", v):
         return ("int-op", v)
 
     # Anything else (a bare identifier label like `reserve`, `charge`) is an
@@ -1131,7 +1131,7 @@ def code_line(raw: str, masks=()) -> Code:
 _CLOSER = {"[": "]", "{": "}", "<": ">", "(": ")", "|": "|"}
 _GENERIC_RE = re.compile(r"<[^\[\]{}<>()|]*(?:<[^\[\]{}<>()|]*>[^\[\]{}<>()|]*)*>")
 _WORD_RE = re.compile(r"[A-Za-z_\d][\w.-]*")
-_OP_HEAD_RE = re.compile(r"(?:op\s+)?[A-Za-z_][\w.]*\(")
+_OP_HEAD_RE = re.compile(r"(?:op\s+)?[^\W\d][\w.]*\(")  # a letter or `_` first (render.OP_TARGET_RE)
 _MOD_NAME_RE = re.compile(r"@([A-Za-z][\w-]*)")
 _CARD_RE = re.compile(r"×\s*(\w*)|(?<![\w.])x(\d+|N)\b(?=\s|$|@)|\*(\d+)\b")
 _BOUND_RE = re.compile(r"\^(\w*)(?:@[a-z]+)?")
