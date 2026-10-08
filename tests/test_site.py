@@ -290,6 +290,26 @@ class TestBuild(unittest.TestCase):
         self.assertTrue(run["say"])
         self.assertIn("●", "".join(t for r in run["legend"] for t, _s in r))
 
+    def test_playground_run_frames_with_its_memo_are_drawn_from_scratch(self):
+        """sim() keeps a kit.FrameMemo while one run steps; every frame (forward,
+        back, in each view) is the drawing view.py makes without one."""
+        pg = _load("sigil_playground_t5", SITE / "playground.py")
+        view = pg.view
+        text = (SITE / "examples" / "01-checkout.sigil").read_text()
+        name = "API.charge:fails"
+        last = view.SimPlayer(view.render.parse_document(text), name).last
+        for vname in ("graph", "tree", "flow"):
+            req = {"text": text, "view": vname, "scenario": name}
+            o = pg._opts(req)
+            for frame in (0, 3, last, 1, last // 2):
+                with self.subTest(view=vname, frame=frame):
+                    got = json.loads(pg.sim(json.dumps({**req, "frame": frame})))
+                    player, g = pg._player["player"], pg._player["graph"]
+                    shown = player.shown(view.scene.SceneOptions(o["events"], o["triggers"],
+                                                                 o["access"], o["depth"]))
+                    self.assertEqual(got["rows"], pg._rows(g, o, shown, player.at))
+            self.assertIsNotNone(pg._player["memo"])
+
     def test_playground_sim_narrates_as_the_viewer_does(self):
         """sim() carries the viewer's wording: "say" (the narration line), "story"
         (the beats so far), "beats" (where stepping by event stops), "trail" / "path"."""

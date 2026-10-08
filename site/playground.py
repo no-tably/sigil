@@ -49,7 +49,8 @@ view.use_theme(None)
 MAX_DEPTH = 99
 CHECK_K = 1                 # failure combinations per scenario: the RFC's playground k
 STYLES = frames.Styles()
-_player: dict = {}          # the run being shown: {"key": (text, scenario), "player"}
+_player: dict = {}          # the run being shown: {"key": (text, scenario), "player",
+                            # "graph", "memo": its frames' kit.FrameMemo}
 
 
 def _opts(req: dict) -> dict:
@@ -71,11 +72,13 @@ def _graph(text: str):
     return view.render.parse_document(frames.autoclose(text.split("\n")))
 
 
-def _rows(g, o: dict, trace=None, tick: int = 0) -> list:
+def _rows(g, o: dict, trace=None, tick: int = 0, memo=None) -> list:
+    """The drawing packed; `memo` (kit.FrameMemo) as compose_view's: kept while
+    one run steps, so a frame repaints only what changed (the same drawing)."""
     rows, _w = view.compose_view(g, o["view"], depth=o["depth"], payloads=o["payloads"],
                                  notes=o["notes"], triggers=o["triggers"],
                                  spaced=o["spaced"], width=o["width"], access=o["access"],
-                                 mods=o["mods"], events=o["events"], trace=trace, tick=tick)
+                                 mods=o["mods"], events=o["events"], trace=trace, tick=tick, memo=memo)
     return frames.pack_rows(rows, STYLES)
 
 
@@ -141,13 +144,13 @@ def sim(request: str) -> str:
             player = view.SimPlayer(g, name)
         except view.UnknownScenario as exc:
             return json.dumps({"error": str(exc)})
-        _player.update(key=key, player=player, graph=g)
+        _player.update(key=key, player=player, graph=g, memo=view.kit.FrameMemo())
     player, g = _player["player"], _player["graph"]
     player.at = max(0, min(int(req.get("frame", 0)), player.last))
     shown = player.shown(view.scene.SceneOptions(o["events"], o["triggers"], o["access"],
                                                  o["depth"]))
     log = [ln for f in player.trace.frames[:player.at + 1] for ln in f.log]
-    out = {"rows": _rows(g, o, shown, player.at), "legend": _legend(o, g, True),
+    out = {"rows": _rows(g, o, shown, player.at, _player["memo"]), "legend": _legend(o, g, True),
            "frame": player.at, "last": player.last,
            "tick": player.trace.frames[player.at].tick, "ticks": player.trace.frames[-1].tick,
            "choice": player.choice(), "log": log[-40:],
