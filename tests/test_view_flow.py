@@ -428,6 +428,20 @@ class TestOverlays(unittest.TestCase):
         untouched = style_of(rows, "|Ledger|", "Ledger")
         self.assertEqual(untouched[0], kit.muted(kit.kind_color("store")))
 
+    def test_a_taken_bundled_wire_is_lit_along_its_way(self):
+        # the shortener's `!> (Visitor)` shares its way down, return row and way
+        # up with [Redirect]'s other wire back; the run takes the failure, so
+        # the shared cells are drawn in its failed look, not the untouched one
+        text = (_DIR / "site" / "examples" / "00-shortener.sigil").read_text()
+        g, player, trace = self.frames(text, "Redirect.lookup:fails")
+        rows = vflow.compose_flow(g, 1, False, trace=trace, tick=player.last)[0]
+        failed = (view.scene.colour_of("edges-fail"), None, True)
+        ret = next(r for r in rows if "".join(t for t, _ in r).startswith("╰"))
+        self.assertEqual({st for t, st in ret if t.strip()}, {failed})
+        up = next(r for r in rows if "".join(t for t, _ in r).startswith("├"))
+        self.assertEqual(up[0][1], failed)
+        self.assertEqual(up[0][0][0], "├")
+
     def test_checks_numbers_on_labels(self):
         text = "#!craft\n[LB] -> [App]×N\n[App] -> [Data]\n"
         g = view.render.parse_document(text)

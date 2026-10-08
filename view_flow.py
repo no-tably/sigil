@@ -742,6 +742,33 @@ def _back_bundles(paths: list) -> dict:
     return lead
 
 
+def _bundle_looks(paths: list, state) -> dict:
+    """{cell: style} for the cells a back bundle's wires share (their way down,
+    return row and way up) under a run: the look of its busiest member — failed
+    over now over taken over untouched (`state`: a stroke → its run state) — so
+    a bundled wire the run took reads as taken along its whole way, not only
+    at its head. A bundle whose busiest state two members hold keeps the
+    nearest-owner rule."""
+    bundles = {}                                # lead index → [_Path]
+    for pi, li in _back_bundles(paths).items():
+        bundles.setdefault(li, []).append(paths[pi])
+    out = {}
+    for bundle in bundles.values():
+        if len(bundle) < 2:
+            continue
+        ranks = [vgraph._STATE_RANK.get(state(p.stroke), -1) for p in bundle]
+        top = max(ranks)
+        if ranks.count(top) > 1:
+            continue
+        best = bundle[ranks.index(top)]
+        count = {}
+        for p in bundle:
+            for cell in set(p.cells[:-1]):      # its head stays its own
+                count[cell] = count.get(cell, 0) + 1
+        out.update({cell: best.style for cell, n in count.items() if n > 1})
+    return out
+
+
 def _chip_fits(p: _Path) -> bool:
     """Whether a back path's chip fits on its return row (else it takes the row
     under it)."""
@@ -859,6 +886,10 @@ def _draw(lay: _Layout, ctx: "_Ctx", isolated: bool = True) -> _Canvas:
         traces.append(tr)
     for cell, st in vgraph._nearest_owners(traces, cv.lines).items():
         cv.lines[cell][2] = st
+    if ctx.look is not None:
+        for cell, st in _bundle_looks(lay.paths, ctx.state).items():
+            if cell in cv.lines:
+                cv.lines[cell][2] = st
     for p in lay.paths:                         # heads, and a `<->`'s source end
         dst = lay.V[p.via[-1]]
         if dst.solid and p.cells:
@@ -1036,6 +1067,15 @@ class _Ctx:
             if key in self.styles:
                 return self.styles[key]
         return vgraph._unkeyed_style(st.kind, self.look is not None)
+
+    def state(self, st: _Stroke) -> Optional[str]:
+        """A stroke's run state ("active", "trail", "inactive", "failed"; see
+        style for the key it reads), None with no run or no keyed wire."""
+        states = self.look.states if self.look is not None else {}
+        for key in (st.key,) + st.rides:
+            if key in self.styles:
+                return states.get(key)
+        return None
 
     def selfs_of(self, part: _Part) -> dict:
         """{node id: view_graph._Selfs} of the part's nodes that call themselves."""
