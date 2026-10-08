@@ -2255,73 +2255,97 @@ def _readable(path: Path) -> bool:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Live terminal view of a Sigil graph.")
-    ap.add_argument("file", type=Path)
-    ap.add_argument("--depth", type=kit.render.depth_arg, default=1, help="expansion depth: N or 'all'")
+    keys = ", ".join(f"{i} {v}" for i, v in enumerate(VIEWS, 1))
+    ap = argparse.ArgumentParser(
+        description="Draw a Sigil document in the terminal and redraw it on every save "
+                    "(--once: print it once and exit). Four views, by their keys: "
+                    f"{keys}; it starts in the {DEFAULT_VIEW} view.")
+    ap.add_argument("file", type=Path, help="the Sigil file to draw")
+    ap.add_argument("--depth", type=kit.render.depth_arg, default=1, metavar="N|all",
+                    help="how many levels of `X := { … }` expansions to draw "
+                         "(default 1; all: every level)")
     ap.add_argument("--payloads", action="store_true",
-                    help="show flow payloads: chips on edges (graph view), a list (tree view)")
-    ap.add_argument("--no-lint", action="store_true", help="skip lint")
-    ap.add_argument("--dialect", default=None, help="dialect name or path (default: $SIGIL_DIALECT)")
-    ap.add_argument("--once", action="store_true", help="print once and exit")
+                    help="show what each flow carries: a chip on its edge (graph and flow "
+                         "views), a list under the tree (tree view)")
+    ap.add_argument("--no-lint", action="store_true",
+                    help="leave out the lint problems under the drawing")
+    ap.add_argument("--dialect", default=None, metavar="NAME",
+                    help="a dialect to read the document with: a name or a path "
+                         "(default: $SIGIL_DIALECT)")
+    ap.add_argument("--once", action="store_true",
+                    help="print the drawing and the lint once and exit, instead of "
+                         "redrawing on every save (exit status 1 on a lint error)")
     ap.add_argument("--notes", choices=NOTE_MODES, default="off",
-                    help="comments: #N markers + a notes list, or margin callouts (tree)")
+                    help="the document's comments: off (default), markers (#N on the "
+                         "drawing, the notes listed under it) or callouts (tree view: "
+                         "boxes in the left margin)")
     ap.add_argument("--compact", action="store_true",
-                    help="tree view without blank rows between top-level units")
+                    help="tree view: no blank row between top-level parts")
     ap.add_argument("--no-triggers", action="store_true",
-                    help="hide event → state triggers (dashed edges in the graph view, "
-                         "lanes in the tree view)")
+                    help="hide the wires from an event to the state it changes (dashed "
+                         "edges in the graph view, lanes in the tree view)")
     ap.add_argument("--access", action="store_true",
-                    help="draw the permission graph: principal → store, headed r / w / b")
+                    help="draw who may read or write each store: dotted edges from the "
+                         "principal to the store, headed r / w / b")
     ap.add_argument("--mods", action="store_true",
-                    help="draw modifiers: chips on edges, after node labels")
+                    help="show modifiers (timeouts, retries, limits): on an edge's chip and "
+                         "after a node's label")
     ap.add_argument("--events", choices=EVENT_MODES, default=None,
-                    help="land: a pass-through event drawn where it lands (emitter wired "
-                         "to each destination); nodes: as a row / box of its own "
-                         "(default: tree land, graph and flow nodes)")
-    views = ap.add_mutually_exclusive_group()
+                    help="how an event that only passes through is drawn: land (each "
+                         "sender wired straight to each receiver) or nodes (a box or row "
+                         "of its own); default: land in the tree view, nodes in the others")
+    views = ap.add_argument_group(
+        "views", f"Start in one view (default: {DEFAULT_VIEW}); live, keys {keys} "
+                 "switch between them and t steps to the next.").add_mutually_exclusive_group()
     views.add_argument("--graph", action="store_true",
-                       help="graph: boxes and edges laid out top-down in layers")
+                       help="graph (key 1): boxes and edges laid out top-down in layers")
     views.add_argument("--tree", action="store_true",
-                       help="tree + wires: the composition tree as an outline, flows as lanes")
+                       help="tree (key 2): the composition tree as an outline, each flow a "
+                            "lane beside it")
     views.add_argument("--flow", action="store_true",
-                       help="flow: a call graph read left to right, bare labels in columns "
-                            "by call depth")
+                       help="flow (key 3, the default): who calls whom, read left to right, "
+                            "one column per call depth")
     views.add_argument("--run", action="store_true",
-                       help="run: one simulated run as a timeline — a lane per participant, "
-                            "instance and recursion level, time left to right (--sim's run, "
-                            "else the happy one)")
+                       help="run (key 4): one simulated run as a timeline, a lane per "
+                            "participant, time left to right (--sim's run, else the happy "
+                            "path)")
     ap.add_argument("--unroll", type=_unroll_arg, default=None, metavar="N|all",
-                    help=f"the run view: instances of one node shown before the rest fold "
-                         f"(default {RUN_UNROLL[0]}; all: none fold)")
+                    help="run view: how many instances of one node to show before the rest "
+                         f"fold into one row (default {RUN_UNROLL[0]}; all: none fold)")
     ap.add_argument("--layout", choices=LAYOUTS, default=LAYOUTS[0],
                     help="a drawing wider than the window: wrap (fit the width, grow "
-                         "down), pan (keep the natural layout, pan) or auto (default: "
-                         "whichever overflows less; --once: wrap)")
+                         "down), pan (keep its natural shape and scroll sideways) or auto "
+                         "(default: whichever overflows less; --once: wrap)")
     ap.add_argument("--width", type=_width_arg, default=None, metavar="N",
                     help="--once: fit the drawing to N columns (default: the terminal's "
-                         f"width, or {ONCE_WIDTH} when stdout is not a terminal)")
+                         f"width, or {ONCE_WIDTH} when the output is not a terminal)")
     ap.add_argument("--sim", default=None, metavar="SCENARIO",
-                    help="simulate a pathway: happy, a scenario's name, or a+b (--once: "
-                         "the run's final frame, outcome and log; live: start in sim mode); "
-                         "list: the scenarios; all: run every one, a table of outcomes")
+                    help="simulate a run: happy (every default), a scenario's name, or "
+                         "a+b to combine two scenarios. --once prints the run's last frame, outcome "
+                         "and log; live, it starts with the run shown. list: the scenarios; "
+                         "all: run every one and print a table of outcomes")
     ap.add_argument("--frame", type=_frame_arg, default=None, metavar="N|last",
-                    help="live, with --sim: start the run at frame N (0-based) or its last")
+                    help="live, with --sim: start at frame N of the run (counting from 0) "
+                         "or at its last")
     ap.add_argument("--play", action="store_true",
-                    help="live, with --sim: start the run playing")
+                    help="live, with --sim: start with the run playing")
     ap.add_argument("--limit", action="append", default=[], metavar="NAME=N",
-                    help="raise one simulator bound for --sim (repeatable; e.g. frames=5000, "
-                         "depth=5)")
+                    help="with --sim: raise one of the simulator's bounds, e.g. "
+                         "frames=5000 or depth=5 (repeat for more)")
     ap.add_argument("--json", action="store_true",
-                    help="with --sim: print JSON instead of text (list / all: the "
-                         "scenarios / every run's facts; a scenario: its facts, the run in "
-                         "plain words and its log; no drawing); with --run: the run's "
+                    help="print JSON instead of a drawing. With --sim list / all: the "
+                         "scenarios / every run's facts; with --sim SCENARIO: its facts, "
+                         "the run in plain words and its log; with --run: the run's "
                          "timeline (lanes, spans, moves, marks)")
     ap.add_argument("--checks", action="store_true",
-                    help="the composition checks overlay (check.py): findings marked on the "
-                         "drawing, listed with their questions (live: start with it on, key c)")
-    ap.add_argument("--color", choices=("auto", "always", "never"), default="auto")
+                    help="mark the composition checks' findings (check.py) on the drawing "
+                         "and list them with their questions (live: key c toggles it)")
+    ap.add_argument("--color", choices=("auto", "always", "never"), default="auto",
+                    help="when to colour the output: auto (default: when it goes to a "
+                         "terminal), always or never")
     ap.add_argument("--theme", default=None,
-                    help="colour theme: a name in themes/ or a .yaml path (default: $SIGIL_THEME or sigil)")
+                    help="colour theme: a name in themes/ or a .yaml path (default: "
+                         "$SIGIL_THEME, else sigil)")
     a = ap.parse_args(argv)
     try:
         kit.use_theme(a.theme)

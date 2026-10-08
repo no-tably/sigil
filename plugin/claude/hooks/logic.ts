@@ -18,6 +18,10 @@ export const RASTER_COLUMNS = 512
 export const DEFAULT_COLOUR = 0x01000000 // the terminal's own colour
 export const SPEEDS: readonly number[] = [0.25, 0.5, 1, 2, 4, 8, 16, 32] // frames a second: view.py's SIM_SPEEDS
 export const START_SPEED = 3 // 2 frames a second, view.py's start (an index into SPEEDS)
+// A run is drawn a window at a time (pane.py's --from / --count), every frame of it.
+export const WINDOW = 120 // run frames one draw holds: pane.py's WINDOW
+export const WINDOW_BACK = 8 // frames a window keeps before the one it is drawn for (a step back stays in it)
+export const WINDOW_AHEAD = 30 // a playing run asks for the next window this many frames before its window ends
 
 export type Display = 'mod' | 'multiplex'
 export type MuxEnv = { herdr?: string; tmux?: string; zellij?: string }
@@ -196,13 +200,17 @@ export function parseCommandArgs(args: string): Record<string, unknown> {
 }
 
 /** `python3 pane.py draw …` for a request at a width; `layout` (auto when
- * left out) and the pane's `height`, which auto picks by. */
+ * left out), the pane's `height`, which auto picks by, and for a run the
+ * window's first frame `from` (windowStart; -1: the window that ends the run). */
 export function drawArgv(script: string, request: ViewRequest, width: number,
-                         pane: { layout?: LayoutChoice; height?: number } = {}): string[] {
+                         pane: { layout?: LayoutChoice; height?: number; from?: number } = {}): string[] {
   const argv = ['python3', script, 'draw', request.file, '--view', request.view, '--depth', String(request.depth), '--width', String(width)]
   if (pane.layout && pane.layout !== 'auto') argv.push('--layout', pane.layout)
   if (pane.height) argv.push('--height', String(pane.height))
   if (request.scenario) argv.push('--scenario', request.scenario)
+  if (request.scenario && pane.from !== undefined && pane.from !== 0) {
+    argv.push('--from', pane.from < 0 ? 'last' : String(pane.from), '--count', String(WINDOW))
+  }
   if (request.payloads) argv.push('--payloads')
   return argv
 }
@@ -295,28 +303,80 @@ export function parseDrawing(stdout: string): Drawing | { error: string } {
   return { error: 'pane.py printed no drawing' }
 }
 
+/** The run's last frame (a still: 0). A playback's `at` is a frame of the
+ * run, numbered as view.py numbers them; the drawing holds a window of them. */
+export function lastFrame(drawing: Drawing): number {
+  return drawing.last ?? drawing.frames.length - 1
+}
+
 /** The frame a playback shows, clamped to the run. */
 export function frameIndex(drawing: Drawing, playback: Playback): number {
-  return Math.max(0, Math.min(playback.at, drawing.frames.length - 1))
+  return Math.max(0, Math.min(playback.at, lastFrame(drawing)))
 }
 
-/** The drawn frame that shows a frame of the run (`frame`: view.py's numbering,
- * as a request and the split take it; -1 or past the end: the last). A long
- * run is sampled (pane.py's `at`): the latest drawn frame at or before it. */
+/** The frame of the run a request names (`frame`: view.py's numbering, as a
+ * request and the split take it; -1 or past the end: the last). */
 export function drawnFrame(drawing: Drawing, frame: number): number {
-  const last = drawing.frames.length - 1
-  if (frame < 0) return last
-  if (drawing.at === undefined) return Math.min(frame, last)
-  let i = 0
-  while (i < last && (drawing.at[i + 1] ?? Infinity) <= frame) i++
-  return i
+  const last = lastFrame(drawing)
+  return frame < 0 || frame > last ? last : frame
 }
 
-/** `frame N/M` in the run's own numbering (from 1) for a drawn frame. */
+/** Whether the drawing's window holds a frame of the run. */
+export function holds(drawing: Drawing, frame: number): boolean {
+  const i = frame - (drawing.first ?? 0)
+  return i >= 0 && i < drawing.frames.length
+}
+
+/** The index into the drawing's per-frame lists (frames, status, …) of a frame
+ * of the run: the nearest frame its window holds. */
+export function slot(drawing: Drawing, frame: number): number {
+  return Math.max(0, Math.min(frame - (drawing.first ?? 0), drawing.frames.length - 1))
+}
+
+/** The window's first frame to draw for showing a frame of the run (-1: the
+ * last, so the window that ends the run). */
+export function windowStart(frame: number): number {
+  return frame < 0 ? -1 : Math.max(0, frame - WINDOW_BACK)
+}
+
+/** The window to draw next for showing `frame` (windowStart), or null when the
+ * drawing holds it — and, playing, holds WINDOW_AHEAD frames past it or the
+ * run's end. */
+export function windowFor(drawing: Drawing, frame: number, isPlaying: boolean): number | null {
+  if (drawing.status === undefined) return null
+  const end = (drawing.first ?? 0) + drawing.frames.length - 1
+  const isShort = isPlaying && end < lastFrame(drawing) && frame > end - WINDOW_AHEAD
+  return holds(drawing, frame) && !isShort ? null : windowStart(frame)
+}
+
+/** A playing run's next tick: a frame on, or held where it is while the next
+ * frame's window is still being drawn; it stops at the run's end. */
+export function playTick(drawing: Drawing, playback: Playback): Playback {
+  const last = lastFrame(drawing)
+  const at = Math.min(frameIndex(drawing, playback) + 1, last)
+  if (!holds(drawing, at)) return playback
+  return { at, isPlaying: at < last }
+}
+
+/** The frame of the run a request starts at before it is drawn: `frame` (-1:
+ * the last), else a new run's first (playing) or last frame, else where it was. */
+export function askedFrame(asked: Asked, before: Playback, isNewRun: boolean): number {
+  if (asked.frame !== undefined) return asked.frame
+  return isNewRun ? (asked.play ? 0 : -1) : before.at
+}
+
+/** The playback a request asks for over the drawing: askedFrame, `play` from
+ * there (a run played from its end starts again). */
+export function playbackFor(asked: Asked, shown: Drawing, before: Playback, isNewRun: boolean): Playback {
+  const last = lastFrame(shown)
+  const at = drawnFrame(shown, askedFrame(asked, before, isNewRun))
+  const isPlaying = asked.play ?? (isNewRun ? false : before.isPlaying)
+  return { at: isPlaying && at >= last && asked.frame === undefined ? 0 : at, isPlaying: isPlaying && last > 0 }
+}
+
+/** `frame N/M` in the run's own numbering (from 1) for a frame of the run. */
 function frameText(drawing: Drawing, at: number, of: string): string {
-  const n = drawing.at?.[at] ?? at
-  const all = drawing.last !== undefined ? drawing.last + 1 : drawing.frames.length
-  return `frame ${n + 1}${of}${all}`
+  return `frame ${at + 1}${of}${lastFrame(drawing) + 1}`
 }
 
 /** The views in `t` order (the viewer's): graph → tree → flow → run → graph. */
@@ -417,7 +477,7 @@ export function statusLine(drawing: Drawing, request: ViewRequest, at: number, i
                            speed: number = START_SPEED): string {
   const depth = request.depth >= ALL_DEPTH ? 'all' : String(request.depth)
   const head = `${drawing.file} · ${drawing.view} · depth ${depth}${drawing.layout ? ` · ${drawing.layout}` : ''}`
-  const run = drawing.status?.[at]
+  const run = drawing.status?.[slot(drawing, at)]
   if (run === undefined) return head
   return `${head} · ${isPlaying ? '▶' : '❚❚'} ${speedText(speed)} · ${run} · ${frameText(drawing, at, '/')}`
 }
@@ -429,20 +489,22 @@ export function statusLine(drawing: Drawing, request: ViewRequest, at: number, i
  * still. */
 export function runLines(drawing: Drawing, at: number): { trail: string; path: PackedRow[] | null; now: string } | null {
   if (drawing.status === undefined) return null
-  const now = drawing.say?.[at] ?? drawing.log?.[at] ?? ''
-  return { trail: `path   ${drawing.trail?.[at] ?? ''}`, path: drawing.path?.[at] ?? null, now: `› ${now}` }
+  const i = slot(drawing, at)
+  const now = drawing.say?.[i] ?? drawing.log?.[i] ?? ''
+  return { trail: `path   ${drawing.trail?.[i] ?? ''}`, path: drawing.path?.[i] ?? null, now: `› ${now}` }
 }
 
 /** What the tool answers the agent: what is drawn and where, in words. */
 export function replyText(drawing: Drawing, at: number, isPlaying: boolean, where: string): string {
   const lines = [where, drawing.summary, ...drawing.lint]
   if (drawing.status !== undefined) {
-    lines.push(`${isPlaying ? 'playing' : 'paused at'} ${drawing.status[at] ?? ''} (${frameText(drawing, at, ' of ')})`)
-    const say = drawing.say?.[at]
-    const log = drawing.log?.[at]
+    const i = slot(drawing, at)
+    lines.push(`${isPlaying ? 'playing' : 'paused at'} ${drawing.status[i] ?? ''} (${frameText(drawing, at, ' of ')})`)
+    const say = drawing.say?.[i]
+    const log = drawing.log?.[i]
     if (say) lines.push(`now: ${say}`)
     else if (log) lines.push(`log: ${log}`)
-    const trail = drawing.trail?.[at]
+    const trail = drawing.trail?.[i]
     if (trail) lines.push(`path: ${trail}`)
     if (drawing.outcome !== undefined) lines.push(`outcome of the whole run: ${drawing.outcome}`)
   }

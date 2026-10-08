@@ -10,10 +10,11 @@ import type { EngineInterface, Register, UiOpenResult } from 'claude-code'
 import type { Drawing, Playback, Split, ViewRequest } from '../types'
 import {
   COMMAND, DEFAULT_WIDTH, PANE, VIEWS, RASTER_COLUMNS, START_SPEED, SUPERSEDED, TOOL, UNASKED_COLUMNS,
-  cropRows, detectMux, displayReport, drawArgv, drawnFrame, frameIndex, frameMs, herdrPaneOf, herdrReadyArgv, isDisplayChoice,
-  layoutOf, layoutReport, nextDepth, nextSpeed, nextView, panTo, parseCommandArgs, parseDisplayArgs, parseDrawing,
-  parseLayoutArgs, parseRequest, rasterCells, replyText, resolveDisplay, rowsWidth, runLines, shellQuote, slices,
-  splitArgv, splitStart, statusLine, viewArgv,
+  askedFrame, cropRows, detectMux, displayReport, drawArgv, drawnFrame, frameIndex, frameMs, herdrPaneOf, herdrReadyArgv,
+  isDisplayChoice, lastFrame, layoutOf, layoutReport, nextDepth, nextSpeed, nextView, panTo, parseCommandArgs,
+  parseDisplayArgs, parseDrawing, parseLayoutArgs, parseRequest, playbackFor, playTick, rasterCells, replyText,
+  resolveDisplay, rowsWidth, runLines, shellQuote, slices, slot, splitArgv, splitStart, statusLine, viewArgv,
+  windowFor, windowStart,
 } from './logic'
 import type { Asked, Display, DisplayChoice, LayoutChoice } from './logic'
 
@@ -71,6 +72,7 @@ let paneRows = 0 // the pane body's rows as last drawn (auto's layout picks by t
 let layout: LayoutChoice = 'auto' // the plugin's `layout` option, set when the module loads
 let drawingFor = '' // the request + size the latest redraw is for ('' once it drew; kept when it failed)
 let drawSeq = 0 // counts redraws: only the latest stores what it drew
+let isWindowing = false // a run window is being drawn (fetchWindow asks for one at a time)
 
 async function scriptPath($: $): Promise<string> {
   const built = `${$.plugin.root}/skills/sigil/scripts/pane.py`
@@ -98,13 +100,16 @@ function drawKey(req: ViewRequest, width: number): string {
 
 /** Runs pane.py for the request at `width` and stores what it drew, unless a
  * later redraw started meanwhile (an older run finishing last never wins). A
- * failure keeps `drawingFor`, so the pane does not ask for the same size again
- * until the request or the size changes (or a save redraws). */
-async function redraw($: $, req: ViewRequest, width: number): Promise<Drawing | { error: string }> {
+ * run is drawn a window at a time: the one starting at `from` (windowStart),
+ * else the one holding the frame shown. A failure keeps `drawingFor`, so the
+ * pane does not ask for the same size again until the request or the size
+ * changes (or a save redraws). */
+async function redraw($: $, req: ViewRequest, width: number, from?: number): Promise<Drawing | { error: string }> {
   const key = drawKey(req, width)
   const seq = ++drawSeq
   drawingFor = key
-  const pane = { layout, ...(layout === 'auto' && paneRows > 0 ? { height: paneRows } : {}) }
+  const start = from ?? windowStart((await read($, playback)).at)
+  const pane = { layout, from: start, ...(layout === 'auto' && paneRows > 0 ? { height: paneRows } : {}) }
   const ran = await $.process.run(drawArgv(await scriptPath($), req, width, pane), { timeoutMs: 60000 })
     .catch((err: unknown) => ({ exitCode: 1, stdout: '', stderr: String(err) }))
   const got = ran.exitCode === 0 ? parseDrawing(ran.stdout) : { error: ran.stderr.trim().split('\n').pop() ?? 'pane.py failed' }
@@ -118,8 +123,17 @@ async function redraw($: $, req: ViewRequest, width: number): Promise<Drawing | 
   got.height = layout === 'auto' ? paneRows : 0
   await update($, drawing, () => got)
   await update($, failure, () => null)
-  await update($, playback, p => ({ ...p, at: Math.min(p.at, got.frames.length - 1) }))
+  await update($, playback, p => ({ ...p, at: Math.min(p.at, lastFrame(got)) }))
   return got
+}
+
+/** Draws the run's window for showing `at` when the drawing does not hold it
+ * (or, playing, will soon run out of it): windowFor, one window at a time. */
+function fetchWindow($: $, req: ViewRequest, shown: Drawing, at: number, isPlaying: boolean): void {
+  const from = windowFor(shown, at, isPlaying)
+  if (from === null || isWindowing) return
+  isWindowing = true
+  $.clock.after(0, () => void redraw($, req, columns, from).finally(() => { isWindowing = false }))
 }
 
 function startWatch($: $): void {
@@ -146,11 +160,12 @@ async function startPlay($: $): Promise<void> {
   playTimer = $.clock.every(ms, async () => {
     const shown = await read($, drawing)
     const now = await read($, playback)
-    if (shown === null || !now.isPlaying) return stopPlay()
-    const last = shown.frames.length - 1
-    const at = Math.min(now.at + 1, last)
-    await update($, playback, () => ({ at, isPlaying: at < last }))
-    if (at >= last) stopPlay()
+    const req = await read($, request)
+    if (shown === null || req === null || !now.isPlaying) return stopPlay()
+    const next = playTick(shown, now)
+    fetchWindow($, req, shown, next.at + 1, next.isPlaying)
+    await update($, playback, () => next)
+    if (!next.isPlaying) stopPlay()
   })
 }
 
@@ -167,17 +182,6 @@ async function setSpeed($: $, delta: number): Promise<void> {
   if ((await read($, playback)).isPlaying) await startPlay($)
 }
 
-/** The playback a request asks for over the drawing: `frame` (a frame of the
- * run, drawnFrame; -1: the last), else the last frame of a new run, else where
- * it stood; `play` from there. */
-function playbackFor(asked: Asked, shown: Drawing, before: Playback, isNewRun: boolean): Playback {
-  const last = shown.frames.length - 1
-  let at = asked.frame === undefined ? (isNewRun ? (asked.play ? 0 : last) : before.at) : drawnFrame(shown, asked.frame)
-  if (at < 0 || at > last) at = last
-  const isPlaying = asked.play ?? (isNewRun ? false : before.isPlaying)
-  return { at: isPlaying && at >= last && asked.frame === undefined ? 0 : at, isPlaying: isPlaying && last > 0 }
-}
-
 /** Shows `asked` in the mod's pane; `isAsked`: the person's /sigil (any width). */
 async function showInPane($: $, asked: Asked, isAsked: boolean): Promise<string> {
   const before = await read($, request)
@@ -187,9 +191,10 @@ async function showInPane($: $, asked: Asked, isAsked: boolean): Promise<string>
   const isNewRun = req.scenario !== before?.scenario || req.file !== before?.file
   await update($, request, () => req)
   await update($, panX, () => 0)
-  const got = await redraw($, req, columns)
+  const was = await read($, playback)
+  const got = await redraw($, req, columns, windowStart(askedFrame(asked, was, isNewRun)))
   if ('error' in got) return `sigil: ${got.error}`
-  const now = playbackFor(asked, got, await read($, playback), isNewRun)
+  const now = playbackFor(asked, got, was, isNewRun)
   await setPlayback($, now)
   startWatch($)
   // Opened by the person, the pane takes the keys (Esc hands them back); opened
@@ -244,13 +249,13 @@ async function showInSplit($: $, asked: Asked): Promise<string> {
 /** A split's reply: where, then the summary and the run where the split
  * starts it (splitStart) as pane.py reads them. */
 async function about($: $, req: ViewRequest, asked: Asked, where: string): Promise<string> {
-  const ran = await $.process.run(drawArgv(await scriptPath($), req, DEFAULT_WIDTH), { timeoutMs: 60000 })
-    .catch(() => undefined)
+  const start = splitStart(asked)
+  const ran = await $.process.run(drawArgv(await scriptPath($), req, DEFAULT_WIDTH, { from: windowStart(start.frame) }),
+    { timeoutMs: 60000 }).catch(() => undefined)
   const got = ran?.exitCode === 0 ? parseDrawing(ran.stdout) : undefined
   if (got === undefined) return where
   if ('error' in got) return `${where}\nsigil: ${got.error}`
-  const start = splitStart(asked)
-  const last = got.frames.length - 1
+  const last = lastFrame(got)
   const at = drawnFrame(got, start.frame)
   return replyText(got, at, start.play && at < last, where)
 }
@@ -387,7 +392,8 @@ export const register: Register = (on, options) => {
       )
     }
     const at = frameIndex(shown, now)
-    const drawn = shown.frames[at] ?? []
+    fetchWindow($, req, shown, at, now.isPlaying)
+    const drawn = shown.frames[slot(shown, at)] ?? []
     const across = rowsWidth(drawn)
     const x = await read($, panX)
     const isPanned = shown.layout === 'pan' && across > width
@@ -413,7 +419,7 @@ export const register: Register = (on, options) => {
       ))
     }
     const step = (delta: number) => () =>
-      setPlayback($, { at: Math.max(0, Math.min(at + delta, shown.frames.length - 1)), isPlaying: false })
+      setPlayback($, { at: Math.max(0, Math.min(at + delta, lastFrame(shown))), isPlaying: false })
     // Docked, the drawing takes the room the info rows leave and they sit at the
     // bottom; inline, the pane is as tall as what it holds.
     const fill = e.props.placement === 'dock' ? { height: e.props.scroll.bodyRows } : {}
@@ -440,7 +446,7 @@ export const register: Register = (on, options) => {
             onPress={() => press($, r => ({ ...r, depth: nextDepth(r.depth) }))} />
           {isRun && <Button key="play" plain hotkey="p" label={now.isPlaying ? 'pause' : 'play'}
             onPress={() => setPlayback($, {
-              at: !now.isPlaying && at >= shown.frames.length - 1 ? 0 : at, isPlaying: !now.isPlaying,
+              at: !now.isPlaying && at >= lastFrame(shown) ? 0 : at, isPlaying: !now.isPlaying,
             })} />}
           {isRun && <Button key="back" plain hotkey="b" label="back" onPress={step(-1)} />}
           {isRun && <Button key="next" plain hotkey="n" label="next" onPress={step(1)} />}

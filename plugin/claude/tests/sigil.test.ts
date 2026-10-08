@@ -21,6 +21,26 @@ function drawingOf(argv: readonly string[]): string {
   })
 }
 
+/** pane.py over a run of `frames` frames, answering with the window --from /
+ * --count ask for (pane.py's own defaults: 0 and 120). */
+function longRunOf(frames: number) {
+  return (argv: readonly string[]): string => {
+    if (!argv.includes('draw')) return ''
+    const at = argv.indexOf('--from')
+    const count = argv.includes('--count') ? Number(argv[argv.indexOf('--count') + 1]) : 120
+    const last = frames - 1
+    const asked = at < 0 ? 0 : argv[at + 1] === 'last' ? last - count + 1 : Number(argv[at + 1])
+    const first = Math.max(0, Math.min(asked, last))
+    const shown = Array.from({ length: Math.min(count, frames - first) }, (_, i) => first + i)
+    return JSON.stringify({
+      file: 'long.sigil', view: 'flow', width: null, styles: [['#8b7aad', null, true]],
+      frames: shown.map(n => [[[`[N${n}]`, 0]]]), legend: [], summary: 'long.sigil', lint: [], scenarios: ['happy'],
+      scenario: 'happy', status: shown.map(n => `sim happy · f${n}`), log: shown.map(() => ''), say: shown.map(() => ''),
+      trail: shown.map(() => ''), outcome: 'ok', first, last,
+    })
+  }
+}
+
 type World = { runs: string[][]; writes: { path: string; text: string }[]; opens: number; focused: boolean[]; clock: MockClock }
 
 function world(on: On, opts: { isPlaced: boolean; env?: Record<string, string>; stdout?: (argv: readonly string[]) => string;
@@ -188,6 +208,33 @@ describe('mod display', () => {
     expect(await pane.find({ type: 'Text', text: /❚❚ 8 frames\/s/ })).toBeDefined()
     for (let i = 0; i < 9; i++) await pane.press({ key: 'slower' })
     expect(await pane.find({ type: 'Text', text: /❚❚ ¼ frame\/s/ })).toBeDefined()
+  })
+})
+
+describe('a long run', () => {
+  test('the pane plays every frame, drawing the run a window at a time', { options: { display: 'mod' } }, async ($, on) => {
+    const seen = world(on, { isPlaced: true, stdout: longRunOf(300) })
+    await $.session.start(START)
+    const { result } = await $.tool.call({ tool: 'mcp__sigil__view', file: 'long.sigil', scenario: 'happy' })
+    expect(String(result)).toContain('(frame 300 of 300)')               // a new run: its last frame
+    expect(seen.runs.at(-1)).toContain('last')                           // drawn in the window that ends it
+    const props = { title: 'Sigil', isFocused: true, bodyColumns: 100, placement: 'dock' as const,
+      scroll: { offset: 0, bodyRows: 40 }, view: {} }
+    const pane = await $.ui.mount({ plugin: 'sigil', surface: 'desktop', component: 'Pane', props, requestId: 'sigil' })
+    for (let i = 0; i < 4; i++) await pane.press({ key: 'faster' })    // 32 frames a second
+    await pane.press({ key: 'play' })                                   // from its end: again from the start
+    const shown: number[] = []
+    for (let tick = 0; tick < 1000 && shown.at(-1) !== 300; tick++) {      // half a frame a look
+      const status = await pane.find({ type: 'Text', text: /frame \d+\/300/ })
+      const n = Number(/frame (\d+)\/300/.exec(String(status?.props?.text ?? status?.text ?? ''))?.[1])
+      if (shown.at(-1) !== n) shown.push(n)
+      await seen.clock.advance(16)
+    }
+    expect(shown[0]).toBe(1)
+    expect(shown.at(-1)).toBe(300)
+    expect(shown).toEqual(Array.from({ length: 300 }, (_, i) => i + 1))  // every frame, none skipped
+    const windows = seen.runs.filter(r => r.includes('--from')).map(r => r[r.indexOf('--from') + 1])
+    expect(windows.length).toBeGreaterThan(2)                            // asked for window by window
   })
 })
 

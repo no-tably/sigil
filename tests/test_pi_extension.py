@@ -156,6 +156,20 @@ class HelpersTest(unittest.TestCase):
         self.assertEqual(got[1], {"action": "slower", "input": {"view": "tree"}})
         self.assertEqual(got[2], ["abc"])
 
+    def test_a_run_drawn_a_window_at_a_time_shows_the_run_frame_asked(self):
+        # frames 280 … 282 of a 900-frame run: frame 281 of the run is the
+        # window's second, and the status counts in the run's own frames
+        got = self.node(
+            "const row = n => [[`[N${n}]`, 0]];"
+            "const d = {file: 'a.sigil', view: 'flow', width: 40, styles: [[null, null, false]],"
+            " frames: [[row(280)], [row(281)], [row(282)]], legend: [], summary: 's', lint: [],"
+            " scenarios: [], status: ['a', 'b', 'c'], first: 280, last: 899};"
+            "const req = {file: '/a.sigil', view: 'flow', depth: 1};"
+            "console.log(JSON.stringify(m.plainLines(m.widgetLines(d, req, {at: 281, isPlaying: false},"
+            " null, 120, 20))))")
+        self.assertIn("frame 282/900", got[0])
+        self.assertEqual(got[1], "[N281]")
+
 
 class DriveMixin:
     pi_dir: Path | None = None

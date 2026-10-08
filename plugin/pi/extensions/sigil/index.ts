@@ -16,9 +16,10 @@ import { fileURLToPath } from 'node:url'
 
 import {
   DEFAULT_WIDTH, DISPLAYS, LAYOUTS, START_SPEED, SUPERSEDED, UNASKED_COLUMNS, VIEWS,
-  cropRows, detectMux, displayReport, drawArgv, drawnFrame, frameIndex, frameMs, herdrPaneOf, herdrReadyArgv, layoutReport,
-  nextSpeed, panTo, parseCommandArgs, parseDisplayArgs, parseDrawing, parseLayoutArgs, parseRequest, pickDisplay,
-  pickLayout, replyText, resolveDisplay, runLines, shellQuote, splitArgv, splitStart, statusLine, viewArgv,
+  askedFrame, cropRows, detectMux, displayReport, drawArgv, drawnFrame, frameIndex, frameMs, herdrPaneOf, herdrReadyArgv,
+  lastFrame, layoutReport, nextSpeed, panTo, parseCommandArgs, parseDisplayArgs, parseDrawing, parseLayoutArgs, parseRequest,
+  pickDisplay, pickLayout, playbackFor, playTick, replyText, resolveDisplay, runLines, shellQuote, slot, splitArgv,
+  splitStart, statusLine, viewArgv, windowFor, windowStart,
 } from './logic.ts'
 import type { Asked, Display, DisplayChoice, LayoutChoice } from './logic.ts'
 
@@ -31,7 +32,7 @@ type Drawing = {
   styles: Style[]; frames: PackedRow[][]
   legend: PackedRow[]; summary: string; lint: string[]; scenarios: string[]
   status?: string[]; log?: string[]; say?: string[]; trail?: string[]; path?: PackedRow[][]; outcome?: string
-  at?: number[]; last?: number
+  first?: number; last?: number // a run is drawn a window at a time: its frames first … first + frames.length - 1
 }
 type Playback = { at: number; isPlaying: boolean }
 type Split = { mux: 'herdr' | 'tmux' | 'zellij'; control: string; pane?: string }
@@ -202,7 +203,7 @@ export function widgetLines(drawing: Drawing, request: ViewRequest, playback: Pl
                             error: string | null, width: number, bodyRows: number, panX = 0,
                             speed: number = START_SPEED): string[] {
   const at = frameIndex(drawing as never, playback)
-  const drawn = drawing.frames[at] ?? []
+  const drawn = drawing.frames[slot(drawing as never, at)] ?? []
   const isPanned = drawing.layout === 'pan' && drawn.some(r => r.reduce((n, [t]) => n + [...t].length, 0) > width)
   const rows = isPanned ? cropRows(drawn, panX, width) : drawn
   const lines = [styled(statusLine(drawing as never, request, at, playback.isPlaying, speed), width, '1')]
@@ -265,6 +266,7 @@ export default function sigil(pi: Pi): void {
   let panX = 0 // the first column a panned drawing shows
   let drawingFor = '' // the request + size the latest redraw is for ('' once it drew; kept when it failed)
   let drawSeq = 0 // counts redraws: only the latest stores what it drew
+  let isWindowing = false // a run window is being drawn (fetchWindow asks for one at a time)
 
   const columns = () => process.stdout.columns || DEFAULT_WIDTH
   const bodyRows = () => Math.max(MIN_BODY_ROWS, (process.stdout.rows || 40) - CHROME_ROWS)
@@ -348,9 +350,10 @@ export default function sigil(pi: Pi): void {
     ui.setWidget(WIDGET, lines)
   }
 
-  async function runPane(req: ViewRequest, width: number): Promise<Drawing | { error: string }> {
+  /** pane.py's drawing of the request at `width`; a run's window from `from` (windowStart). */
+  async function runPane(req: ViewRequest, width: number, from: number): Promise<Drawing | { error: string }> {
     const layout = layoutSetting().choice
-    const argv = drawArgv(PANE_PY, req, width, { layout, ...(layout === 'auto' ? { height: bodyRows() } : {}) })
+    const argv = drawArgv(PANE_PY, req, width, { layout, from, ...(layout === 'auto' ? { height: bodyRows() } : {}) })
     const ran = await pi.exec(argv[0] ?? 'python3', argv.slice(1), { timeout: 60000 })
       .catch((err: unknown) => ({ code: 1, stdout: '', stderr: String(err) }))
     if (ran.code !== 0) return { error: ran.stderr.trim().split('\n').pop() || 'pane.py failed' }
@@ -359,13 +362,15 @@ export default function sigil(pi: Pi): void {
 
   /** Runs pane.py for the request at `width` and stores what it drew, unless a
    * later redraw started meanwhile (an older run finishing last never wins). A
-   * failure keeps `drawingFor`, so the widget does not ask for the same width
-   * again until the request or the width changes (or a save redraws). */
-  async function redraw(req: ViewRequest, width: number): Promise<Drawing | { error: string }> {
+   * run is drawn a window at a time: the one starting at `from` (windowStart),
+   * else the one holding the frame shown. A failure keeps `drawingFor`, so the
+   * widget does not ask for the same width again until the request or the
+   * width changes (or a save redraws). */
+  async function redraw(req: ViewRequest, width: number, from?: number): Promise<Drawing | { error: string }> {
     const key = drawKey(req, width)
     const seq = ++drawSeq
     drawingFor = key
-    const got = await runPane(req, width)
+    const got = await runPane(req, width, from ?? windowStart(playback.at))
     if (seq !== drawSeq) return { error: SUPERSEDED }
     if ('error' in got) failure = got.error
     else {
@@ -373,10 +378,20 @@ export default function sigil(pi: Pi): void {
       got.width = width
       drawing = got
       failure = null
-      playback = { ...playback, at: Math.min(playback.at, got.frames.length - 1) }
+      playback = { ...playback, at: Math.min(playback.at, lastFrame(got as never)) }
     }
     refresh()
     return got
+  }
+
+  /** Draws the run's window for showing `at` when the drawing does not hold it
+   * (or, playing, will soon run out of it): windowFor, one window at a time. */
+  function fetchWindow(at: number, isPlaying: boolean): void {
+    if (request === null || drawing === null || isWindowing) return
+    const from = windowFor(drawing as never, at, isPlaying)
+    if (from === null) return
+    isWindowing = true
+    void redraw(request, drawing.width ?? columns(), from).finally(() => { isWindowing = false })
   }
 
   function startWatch(): void {
@@ -402,11 +417,10 @@ export default function sigil(pi: Pi): void {
     if (playTimer !== null) return
     playTimer = setInterval(() => {
       if (drawing === null || !playback.isPlaying) return stopPlay()
-      const last = drawing.frames.length - 1
-      const at = Math.min(playback.at + 1, last)
-      playback = { at, isPlaying: at < last }
+      playback = playTick(drawing as never, playback)
+      fetchWindow(playback.at + 1, playback.isPlaying)
       refresh()
-      if (at >= last) stopPlay()
+      if (!playback.isPlaying) stopPlay()
     }, frameMs(speed))
   }
 
@@ -415,18 +429,6 @@ export default function sigil(pi: Pi): void {
     speed = nextSpeed(speed, delta)
     stopPlay()
     setPlayback(playback)
-  }
-
-  /** The playback a request asks for over the drawing: `frame` (a frame of the
-   * run, drawnFrame; -1: the last), else the last frame of a new run, else
-   * where it stood; `play` from there. */
-  function playbackFor(asked: Asked, shown: Drawing, isNewRun: boolean): Playback {
-    const last = shown.frames.length - 1
-    let at = asked.frame === undefined ? (isNewRun ? (asked.play ? 0 : last) : playback.at)
-      : drawnFrame(shown as never, asked.frame)
-    if (at < 0 || at > last) at = last
-    const isPlaying = asked.play ?? (isNewRun ? false : playback.isPlaying)
-    return { at: isPlaying && at >= last && asked.frame === undefined ? 0 : at, isPlaying: isPlaying && last > 0 }
   }
 
   function component(): Component {
@@ -483,9 +485,9 @@ export default function sigil(pi: Pi): void {
     request = req
     panX = 0
     const width = columns()
-    const got = await redraw(req, width)
+    const got = await redraw(req, width, windowStart(askedFrame(asked, playback, isNewRun)))
     if ('error' in got) return `sigil: ${got.error}`
-    setPlayback(playbackFor(asked, got, isNewRun))
+    setPlayback(playbackFor(asked, got as never, playback, isNewRun))
     let where = 'Shown in the sigil widget above the editor (redrawn on every save).'
     if (tui !== null || isAsked || width >= UNASKED_COLUMNS || isTextOnly()) openWidget(ctx.ui)
     else {
@@ -503,10 +505,10 @@ export default function sigil(pi: Pi): void {
   /** A split's reply: where, then the summary and the run where the split
    * starts it (splitStart) as pane.py reads them. */
   async function about(req: ViewRequest, asked: Asked, where: string): Promise<string> {
-    const got = await runPane(req, DEFAULT_WIDTH)
-    if ('error' in got) return `${where}\nsigil: ${got.error}`
     const start = splitStart(asked)
-    const last = got.frames.length - 1
+    const got = await runPane(req, DEFAULT_WIDTH, windowStart(start.frame))
+    if ('error' in got) return `${where}\nsigil: ${got.error}`
+    const last = lastFrame(got as never)
     const at = drawnFrame(got as never, start.frame)
     return replyText(got as never, at, start.play && at < last, where)
   }
@@ -608,7 +610,7 @@ export default function sigil(pi: Pi): void {
       if (action === 'left' || action === 'right') {
         if (drawing === null) return ctx.ui.notify(`sigil: nothing shown yet: /${COMMAND} FILE`, 'warning')
         const width = drawing.width ?? columns()
-        const across = Math.max(0, ...(drawing.frames[frameIndex(drawing as never, playback)] ?? [])
+        const across = Math.max(0, ...(drawing.frames[slot(drawing as never, frameIndex(drawing as never, playback))] ?? [])
           .map(r => r.reduce((n, [t]) => n + [...t].length, 0)))
         panX = panTo(panX, (action === 'right' ? 1 : -1) * Math.floor(width / 2), across, width)
         refresh()
@@ -619,8 +621,9 @@ export default function sigil(pi: Pi): void {
         if (action === 'slower' || action === 'faster') setSpeed(action === 'faster' ? 1 : -1)
         else {
           const step = action === 'next' ? 1 : -1
-          const at = Math.max(0, Math.min(frameIndex(drawing as never, playback) + step, drawing.frames.length - 1))
+          const at = Math.max(0, Math.min(frameIndex(drawing as never, playback) + step, lastFrame(drawing as never)))
           setPlayback({ at, isPlaying: false })
+          fetchWindow(at, false)
         }
         if (Object.keys(input).length === 0) return openWidget(ctx.ui)
       }

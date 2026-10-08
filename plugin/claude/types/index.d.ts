@@ -38,11 +38,11 @@ export type Drawing = {
   path?: PackedRow[][]
   outcome?: string
   choice?: string
-  at?: number[] // the run's frame each drawn frame shows (a long run is sampled)
+  first?: number // the run's frame the drawn frames start at (a run is drawn a window at a time)
   last?: number // the run's last frame
 }
 
-/** The run's playback: the frame shown and whether it plays. */
+/** The run's playback: the frame of the run shown (view.py's numbering) and whether it plays. */
 export type Playback = { at: number; isPlaying: boolean }
 
 /** The multiplexer split the mod drives, by the control file it writes. */

@@ -10,8 +10,8 @@ role names, since the mod paints cells, not CSS.
 
 Usage:
     pane.py draw FILE [--view graph|tree|flow|run] [--depth N|all] [--width N]
-                      [--height N] [--layout auto|wrap|pan] [--scenario NAME]
-                      [--payloads] [--theme NAME]
+                      [--height N] [--layout auto|wrap|pan] [--scenario NAME
+                      [--from N|last] [--count N]] [--payloads] [--theme NAME]
         One JSON object on stdout: {"file", "view", "width", "layout" (what was
         drawn: wrap — fitted to --width — or pan — the natural layout; auto picks
         as view.py does for a --width × --height pane, wrap without --height),
@@ -23,10 +23,12 @@ Usage:
         plain words, view.py's `›` line], "trail": [the episode's path so far
         per frame, in notation as text — view.py's path row without its label,
         the hop now marked `▸`], "path": [the same row per frame as view.py
-        draws it, at most two rows, the hop now bold], "outcome", "at": [the
-        run's frame each drawn frame shows: a long run is sampled to at most
-        MAX_FRAMES], "last": the run's last frame}; a row is
-        [[text, style id], …].
+        draws it, at most two rows, the hop now bold], "outcome", "first": the
+        run's frame the drawn frames start at, "last": the run's last frame};
+        a row is [[text, style id], …]. A run is drawn a window at a time, every
+        frame of it: frames --from … --from + --count - 1 (default 0 and
+        WINDOW; --from last: the window that ends at the run's last frame), so
+        the mod asks for the next window as it plays on.
         The legend is the tree's key, the flow view's or the run view's, then a
         run's marks (the run view: its path's only; without --scenario it draws
         the happy run). A document or
@@ -64,7 +66,7 @@ _TOOLS = _HERE if (_HERE / "view.py").is_file() else _HERE.parents[2]
 _FRAMES = _HERE / "frames.py" if (_HERE / "frames.py").is_file() else _TOOLS / "site" / "frames.py"
 
 VIEWS = ("graph", "tree", "flow", "run")
-MAX_FRAMES = 400            # a longer run is sampled evenly, its last frame kept
+WINDOW = 120               # run frames one draw holds (the mod asks for the next as it plays)
 LINT_LINES = 5              # diagnostics carried into the reply
 FOLLOW_POLL_S = 0.3         # how often follow looks at CONTROL
 ALIVE_S = 1.0               # how often follow touches CONTROL.alive
@@ -134,11 +136,14 @@ def compose(view, g, name: str, **kw):
     return view.compose_view(g, name, **kw)
 
 
-def sampled(last: int, cap: int = MAX_FRAMES) -> list[int]:
-    """Frame indices 0..last, at most `cap` of them, evenly spread, both ends kept."""
-    if last + 1 <= cap:
-        return list(range(last + 1))
-    return sorted({round(i * last / (cap - 1)) for i in range(cap)})
+def window(start: int | None, count: int, last: int) -> range:
+    """The run frames a draw holds: `start` … `start` + `count` - 1, kept within
+    0 … `last` (start None: the `count` frames that end at the last one)."""
+    count = max(1, count)
+    if start is None:
+        start = last - count + 1
+    start = max(0, min(start, last))
+    return range(start, min(start + count, last + 1))
 
 
 def lint_summary(diags) -> str:
@@ -164,8 +169,10 @@ def placing(view, g, name: str, layout: str, width: int | None, height: int | No
 
 def draw(path: Path, view_name: str = "flow", depth: int = 1, width: int | None = None,
          scenario: str | None = None, payloads: bool = False, theme: str | None = None,
-         layout: str = "auto", height: int | None = None) -> dict:
-    """The JSON object `pane.py draw` prints (see the module docstring)."""
+         layout: str = "auto", height: int | None = None, start: int | None = 0,
+         count: int = WINDOW) -> dict:
+    """The JSON object `pane.py draw` prints (see the module docstring); a run's
+    frames are window(start, count, its last frame)."""
     view = _load("sigil_view", _TOOLS / "view.py")
     frames = _load("sigil_site_frames", _FRAMES)
     try:
@@ -191,7 +198,7 @@ def draw(path: Path, view_name: str = "flow", depth: int = 1, width: int | None 
         if scenario:
             sim = view.SimPlayer(g, scenario)
             shown = sim.shown(view.scene.SceneOptions(events, True, False, depth))
-            picks = sampled(sim.last)
+            picks = window(start, count, sim.last)
             drawn, status, log, say, trail, path_rows = [], [], [], [], [], []
             cols = width or view.LEGEND_WIDTH
             for at in picks:
@@ -205,7 +212,7 @@ def draw(path: Path, view_name: str = "flow", depth: int = 1, width: int | None 
                 path_rows.append(packed(view.path_rows(sim.path_branches(), cols, hold=True),
                                    styles, frames))
             out.update(scenario=sim.scenario.name, status=status, log=log, say=say, trail=trail,
-                       path=path_rows, at=picks, last=sim.last,
+                       path=path_rows, first=picks.start, last=sim.last,
                        outcome=sim.trace.outcome, choice=sim.choice())
         else:
             rows, _w = compose(view, g, view_name, **kw)
@@ -319,6 +326,11 @@ def _depth(text: str) -> int:
     return 99 if text == "all" else max(0, int(text))
 
 
+def _start(text: str) -> int | None:
+    """--from: a run frame (from 0), or None for `last`."""
+    return None if text == "last" else max(0, int(text))
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="The Claude Code mod's drawing and split helper.")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -330,6 +342,8 @@ def main(argv=None) -> int:
     d.add_argument("--height", type=int, default=None)
     d.add_argument("--layout", choices=("auto", "wrap", "pan"), default="auto")
     d.add_argument("--scenario", default=None)
+    d.add_argument("--from", dest="start", type=_start, default=0)
+    d.add_argument("--count", type=int, default=WINDOW)
     d.add_argument("--payloads", action="store_true")
     d.add_argument("--theme", default=None)
     f = sub.add_parser("follow", help="run view.py live as a control file says")
@@ -338,7 +352,7 @@ def main(argv=None) -> int:
     if a.cmd == "follow":
         return follow(a.control)
     out = draw(a.file, a.view, a.depth, a.width, a.scenario, a.payloads, a.theme, a.layout,
-               a.height)
+               a.height, a.start, a.count)
     sys.stdout.write(json.dumps(out, ensure_ascii=False) + "\n")
     return 0
 

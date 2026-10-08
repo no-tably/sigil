@@ -29,7 +29,6 @@ import types
 import unicodedata
 import unittest
 from pathlib import Path
-from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 MOD = ROOT / "plugin" / "claude"
@@ -124,7 +123,7 @@ class DrawTest(unittest.TestCase):
         self.assertEqual(len(out["say"]), len(out["frames"]))
         self.assertEqual(len(out["trail"]), len(out["frames"]))
         self.assertEqual(len(out["path"]), len(out["frames"]))
-        self.assertEqual((out["at"], out["last"]), (list(range(player.last + 1)), player.last))
+        self.assertEqual((out["first"], out["last"]), (0, player.last))
         player.at = player.last
         self.assertEqual(out["say"][-1], player.narration())
         self.assertEqual(out["trail"][-1], player.path())
@@ -135,18 +134,26 @@ class DrawTest(unittest.TestCase):
         bold = [t for t, sid in out["path"][1][0] if out["styles"][sid][2]]
         self.assertEqual(bold, ["-> [Edge]"])
 
-    def test_sampling_keeps_both_ends(self):
-        self.assertEqual(pane.sampled(3), [0, 1, 2, 3])
-        picks = pane.sampled(1000, cap=5)
-        self.assertEqual(picks, [0, 250, 500, 750, 1000])
+    def test_a_window_is_every_frame_in_it_kept_within_the_run(self):
+        self.assertEqual(pane.window(0, 120, 3), range(0, 4))
+        self.assertEqual(pane.window(10, 5, 1000), range(10, 15))
+        self.assertEqual(pane.window(998, 5, 1000), range(998, 1001))
+        self.assertEqual(pane.window(None, 5, 1000), range(996, 1001))    # last: ends the run
+        self.assertEqual(pane.window(None, 120, 3), range(0, 4))
+        self.assertEqual(pane.window(5000, 5, 1000), range(1000, 1001))
 
-    def test_a_sampled_run_names_the_run_frame_of_each_drawn_frame(self):
-        sampled = pane.sampled
-        with mock.patch.object(pane, "sampled", lambda last: sampled(last, cap=5)):
-            out = pane.draw(SHOP, "graph", scenario="happy", width=100)
-        self.assertEqual(len(out["frames"]), 5)
-        self.assertEqual(out["at"], sampled(out["last"], cap=5))
-        self.assertGreater(out["last"], 5)
+    def test_a_run_is_drawn_a_window_at_a_time_every_frame(self):
+        whole = pane.draw(SHOP, "graph", scenario="happy", width=100)
+        self.assertGreater(whole["last"], 6)
+        part = run_pane("draw", str(SHOP), "--view", "graph", "--width", "100",
+                        "--scenario", "happy", "--from", "3", "--count", "4")
+        self.assertEqual((part["first"], part["last"]), (3, whole["last"]))
+        for key in ("frames", "status", "log", "say", "trail", "path"):
+            self.assertEqual(part[key], whole[key][3:7], key)   # the same frames, none skipped
+        end = run_pane("draw", str(SHOP), "--view", "graph", "--width", "100",
+                       "--scenario", "happy", "--from", "last", "--count", "2")
+        self.assertEqual(end["first"], whole["last"] - 1)
+        self.assertEqual(end["status"], whole["status"][-2:])
 
     def test_errors_are_reported_not_raised(self):
         self.assertIn("error", run_pane("draw", str(ROOT / "nope.sigil")))

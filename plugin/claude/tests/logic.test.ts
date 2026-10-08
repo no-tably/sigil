@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import {
-  colourOf, cropRows, displayReport, drawArgv, drawnFrame, frameIndex, herdrPaneOf, herdrReadyArgv, layoutOf, layoutReport, nextView,
-  nextSpeed, panTo, parseCommandArgs, parseDisplayArgs, parseDrawing, parseLayoutArgs, parseRequest, pickDisplay, pickLayout,
-  rasterCells, replyText, resolveDisplay, runLines, shellQuote, slices, speedText, splitArgv, splitStart, statusLine, viewArgv,
+  WINDOW, WINDOW_AHEAD, WINDOW_BACK, askedFrame, colourOf, cropRows, displayReport, drawArgv, drawnFrame, frameIndex,
+  herdrPaneOf, herdrReadyArgv, holds, layoutOf, layoutReport, nextView, nextSpeed, panTo, parseCommandArgs, parseDisplayArgs,
+  parseDrawing, parseLayoutArgs, parseRequest, pickDisplay, pickLayout, playbackFor, playTick, rasterCells, replyText,
+  resolveDisplay, runLines, shellQuote, slices, slot, speedText, splitArgv, splitStart, statusLine, viewArgv, windowFor,
+  windowStart,
 } from '../hooks/logic'
 import type { Drawing } from '../types'
 
@@ -165,15 +167,54 @@ describe('cells', () => {
     expect(statusLine(run, req, 0, true)).toBe('a.sigil · flow · depth 1 · ▶ 2 frames/s · sim happy · start · frame 1/2')
     expect(statusLine(run, req, 1, false, 0)).toBe('a.sigil · flow · depth 1 · ❚❚ ¼ frame/s · sim happy · end · ok · frame 2/2')
   })
-  test("a sampled run's frames are the run's own: asked by them, numbered by them", () => {
+  test("a run drawn a window at a time: its frames are the run's own, asked by them, numbered by them", () => {
     const run = { file: 'a.sigil', view: 'flow', frames: [[], [], [], []], status: ['a', 'b', 'c', 'd'],
-      at: [0, 280, 559, 838], last: 838, summary: '', lint: [], scenarios: [] } as unknown as Drawing
-    expect([0, 279, 280, 420, 838, 900, -1].map(f => drawnFrame(run, f))).toEqual([0, 0, 1, 1, 3, 3, 3])
+      first: 280, last: 838, summary: '', lint: [], scenarios: [] } as unknown as Drawing
+    expect([0, 279, 280, 420, 838, 900, -1].map(f => drawnFrame(run, f))).toEqual([0, 279, 280, 420, 838, 838, 838])
+    expect([279, 280, 283, 284].map(f => holds(run, f))).toEqual([false, true, true, false])
+    expect([0, 281, 900].map(f => slot(run, f))).toEqual([0, 1, 3])
     const req = { file: '/d/a.sigil', view: 'flow' as const, depth: 1 }
-    expect(statusLine(run, req, 1, false)).toMatch(/· b · frame 281\/839$/)
-    expect(replyText(run, 1, false, 'here')).toContain('paused at b (frame 281 of 839)')
-    const whole = { frames: [[], []] } as unknown as Drawing                          // not sampled
+    expect(statusLine(run, req, 281, false)).toMatch(/· b · frame 282\/839$/)
+    expect(replyText(run, 281, false, 'here')).toContain('paused at b (frame 282 of 839)')
+    expect(frameIndex(run, { at: 5000, isPlaying: false })).toBe(838)
+    const whole = { frames: [[], []] } as unknown as Drawing                          // a still
     expect([0, 1, 5, -1].map(f => drawnFrame(whole, f))).toEqual([0, 1, 1, 1])
+  })
+  test('which window to draw: the one holding the frame, the next one ahead of a playing run', () => {
+    expect([-1, 0, 3, 100].map(windowStart)).toEqual([-1, 0, 0, 100 - WINDOW_BACK])
+    const frames = Array.from({ length: WINDOW }, () => [])
+    const run = { frames, status: frames.map(() => 's'), first: 0, last: 1000 } as unknown as Drawing
+    expect(windowFor(run, 10, false)).toBeNull()
+    expect(windowFor(run, WINDOW - 1, false)).toBeNull()                       // held; paused, no need
+    expect(windowFor(run, WINDOW - WINDOW_AHEAD + 1, true)).toBe(WINDOW - WINDOW_AHEAD + 1 - WINDOW_BACK)
+    expect(windowFor(run, 500, false)).toBe(500 - WINDOW_BACK)                 // a step far off
+    const end = { frames, status: frames.map(() => 's'), first: 1001 - WINDOW, last: 1000 } as unknown as Drawing
+    expect(windowFor(end, 999, true)).toBeNull()                               // the window ends the run
+    expect(windowFor({ frames: [[]] } as unknown as Drawing, 5, true)).toBeNull()  // a still
+    expect(drawArgv('p.py', { file: 'a', view: 'flow', depth: 1, scenario: 'happy' }, 80, { from: 92 }).slice(-4))
+      .toEqual(['--from', '92', '--count', String(WINDOW)])
+    expect(drawArgv('p.py', { file: 'a', view: 'flow', depth: 1, scenario: 'happy' }, 80, { from: -1 }))
+      .toContain('last')
+    expect(drawArgv('p.py', { file: 'a', view: 'flow', depth: 1 }, 80, { from: 92 })).not.toContain('--from')
+  })
+  test('a playing run plays every frame, waits at its window\'s end, stops at the last', () => {
+    const run = { frames: [[], [], []], status: ['a', 'b', 'c'], first: 10, last: 20 } as unknown as Drawing
+    expect(playTick(run, { at: 10, isPlaying: true })).toEqual({ at: 11, isPlaying: true })
+    expect(playTick(run, { at: 12, isPlaying: true })).toEqual({ at: 12, isPlaying: true }) // 13 not drawn yet
+    const end = { frames: [[], []], status: ['a', 'b'], first: 19, last: 20 } as unknown as Drawing
+    expect(playTick(end, { at: 19, isPlaying: true })).toEqual({ at: 20, isPlaying: false })
+  })
+  test('where a request starts its run, before and after it is drawn', () => {
+    const req = { file: 'a', view: 'flow' as const, depth: 1, scenario: 'happy' }
+    const before = { at: 50, isPlaying: false }
+    expect(askedFrame({ request: req }, before, true)).toBe(-1)                  // a new run: its last
+    expect(askedFrame({ request: req, play: true }, before, true)).toBe(0)       // played: its first
+    expect(askedFrame({ request: req }, before, false)).toBe(50)                 // the same run: where it was
+    expect(askedFrame({ request: req, frame: 7 }, before, false)).toBe(7)
+    const run = { frames: [[], []], status: ['a', 'b'], first: 499, last: 500 } as unknown as Drawing
+    expect(playbackFor({ request: req }, run, before, true)).toEqual({ at: 500, isPlaying: false })
+    expect(playbackFor({ request: req, play: true }, run, before, false)).toEqual({ at: 50, isPlaying: true })
+    expect(playbackFor({ request: req, frame: 900 }, run, before, false)).toEqual({ at: 500, isPlaying: false })
   })
   test("a run's path and narration line; the log line from an older pane.py", () => {
     const row = [['path   ', 0], ['① (A) -> [B]', 1]]
