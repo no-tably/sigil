@@ -134,6 +134,25 @@ class TestWiresBack(unittest.TestCase):
         self.assertEqual(text[-1].strip()[0], "╰")              # the return row, last
         self.assertTrue(text[-1].rstrip().endswith("╯"))
 
+    def test_wires_back_from_one_source_to_one_target_are_one_bundle(self):
+        text = plain(flow(SHORTENER))[2:]
+        self.assertTrue(text[1].startswith("╭─✖┐(Visitor)"), text)
+        self.assertTrue(text[2].startswith("├─▶┘"), text)       # splits only into its heads
+        self.assertTrue(text[3].startswith("╰─"), text)          # one return row
+        self.assertEqual(len(text), 4)
+
+    def test_chipped_wires_back_keep_a_row_each(self):
+        text = plain(flow(SHORTENER, payloads=True))
+        self.assertTrue(any(ln.startswith("│ ╰─┆redirect({Url})┆") for ln in text), text)
+        self.assertTrue(any(ln.startswith("╰─┆<NotFound>┆") for ln in text), text)
+
+    def test_back_bundles(self):
+        def path(src, dst, chip=None, back=True):
+            return vflow._Path(None, (), chip, [src, dst], back=back)
+        paths = [path("A", "B"), path("A", "B", ["x"]), path("A", "B", ["y"]),
+                 path("A", "B"), path("C", "B"), path("A", "B", back=False)]
+        self.assertEqual(vflow._back_bundles(paths), {0: 0, 1: 0, 2: 2, 3: 0, 4: 4})
+
 
 class TestStackedHeads(unittest.TestCase):
     def test_two_kinds_into_one_target(self):
@@ -302,10 +321,9 @@ class TestWrap(unittest.TestCase):
         self.assertIn("┬b▶ [Payments]", text)            # a branch off a trunk
         self.assertIn("├c▶ |Orders|", text)
         rows = plain(flow(SHORTENER, width=50, **RICH))
-        at = next(i for i, ln in enumerate(rows) if "b┬─▶ |Links|" in ln)
-        self.assertEqual(rows[at + 1][rows[at].index("┬")], "d")    # a fan-in: on its vertical
-        self.assertTrue(any(ln.startswith("③──┬e✖┐(Visitor)") for ln in rows))   # a back path
-        self.assertIn("   ╰f▶┘", rows)
+        self.assertIn("①─b┬d▶ |Links|", rows)                     # a fan-in: by its head
+        self.assertTrue(any(ln.startswith("╭e✖┐(Visitor)") for ln in rows))   # a back path
+        self.assertTrue(any(ln.startswith("├f▶┘") for ln in rows))
 
     def test_wrap_seams(self):
         def rows(text, budget=18):

@@ -47,6 +47,7 @@ vrun, kit, sim = view.vrun, view.kit, view.simulator
 
 CHECKOUT = _DIR / "site" / "examples" / "01-checkout.sigil"
 ARENA = _DIR / "site" / "examples" / "03-arena.sigil"
+SHORTENER = _DIR / "site" / "examples" / "00-shortener.sigil"
 EXECUTIONS = _DIR / "tests" / "fixtures" / "executions.sigil"
 RACE = """(User) -> [Api]
 parallel @all {
@@ -101,6 +102,13 @@ def drawn(path_or_text, name: str | None = None, tick=None, width=None, limits=N
 
 def row(lines: list, label: str) -> str:
     return next(ln for ln in lines if ln.lstrip(" ▸").startswith(label))
+
+
+def marks_row(lines: list) -> str:
+    """The first ruler's run marks: the row over its time scale when they
+    take one of their own, else the scale's."""
+    at = next(i for i, ln in enumerate(lines) if ln.strip().startswith("0"))
+    return lines[at - 1] if at and lines[at - 1].strip() else lines[at]
 
 
 def cells(lines: list, label: str) -> str:
@@ -288,6 +296,63 @@ class TestWidth(unittest.TestCase):
         self.assertFalse(any("more}" in ln for ln in unfolded))
 
 
+PINGS = """#!spec
+(User) -> [Pinger]
+loop @times 12 {
+  [Pinger] -> (Peer)
+}
+"""
+
+
+def _ruler_fakes(iters: list, last: int):
+    """A frame and a timeline as _rulers reads them: one column a tick, a
+    loop iteration starting at each tick in iters."""
+    cols = vrun._Cols({t: t for t in range(last + 1)}, last + 1, frozenset(), {})
+    fr = vrun._Frame(None, {}, (), frozenset(), cols, last, True)
+    tl = type("Tl", (), {"last": last, "episodes": [], "iterations": [
+        sim.Iteration(*(None,) * len(sim.Iteration._fields))._replace(t=t, k=k)
+        for k, t in enumerate(iters, 2)]})()
+    return fr, tl
+
+
+class TestRuler(unittest.TestCase):
+    def test_marks_that_would_hide_ticks_take_a_row_of_their_own(self):
+        lines = drawn(PINGS, limits=sim.Limits(iterations=20), notes="off")
+        at = next(i for i, ln in enumerate(lines) if ln.strip().startswith("0"))
+        self.assertEqual(lines[at].split()[:4], ["0", "10", "20", "30"])   # the scale whole
+        self.assertEqual(lines[at - 1].split()[:3], ["↺2", "↺3", "↺4"])
+        self.assertIn("↺12", lines[at - 1])
+
+    def test_marks_that_fit_share_the_scale(self):
+        lines = drawn(SHORTENER, notes="off")
+        at = next(i for i, ln in enumerate(lines) if ln.strip().startswith("0"))
+        self.assertIn("ep2", lines[at])
+        self.assertEqual(lines[at - 1].strip(), "")
+        fr, tl = _ruler_fakes([5, 15, 25], 30)
+        self.assertEqual(len(vrun._rulers(fr, tl, 0, 31, 0)), 1)
+
+    def test_the_ruler_holds_its_rows_through_a_run(self):
+        g = parse(PINGS)
+        tr = trace_of(g, "happy", sim.Limits(iterations=20))
+        def first_lane(i):
+            rows = plain(vrun.compose_run(g, tr, i, notes="off")[0])
+            return next(k for k, ln in enumerate(rows) if "(User)" in ln)
+        self.assertEqual({first_lane(i) for i in range(0, len(tr.frames), 7)}, {4})
+
+    def test_crowded_iterations_thin_to_a_step(self):
+        fr, tl = _ruler_fakes(list(range(3, 60, 3)), 60)
+        top, scale = vrun._rulers(fr, tl, 0, 61, 0)
+        shown = "".join(t for t, _ in top).split()
+        self.assertEqual(shown, [f"↺{k}" for k in range(2, 21, 2)])   # 3 columns apart: every 2nd
+        self.assertEqual("".join(t for t, _ in scale).split(), ["0", "10", "20", "30", "40",
+                                                                "50", "60"])
+
+    def test_iterations_with_room_are_all_shown(self):
+        fr, tl = _ruler_fakes([5, 15, 25], 30)
+        self.assertEqual(vrun._thinned(fr, tl, (), 0, 31, None),
+                         vrun._marks(fr, tl, ()))
+
+
 class TestApp(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -372,8 +437,7 @@ class TestApp(unittest.TestCase):
 
     def test_a_loop_iteration_on_the_ruler_and_in_the_notes(self):
         lines = drawn(LOOP)
-        ruler = next(ln for ln in lines if ln.strip().startswith("0"))
-        self.assertIn("↺2", ruler)
+        self.assertIn("↺2", marks_row(lines))
         self.assertIn("loops 2×", row(lines, "[Api]"))
         self.assertIn("↺k iteration k", "".join(t for t, _ in vrun.run_legend()))
 
@@ -384,11 +448,10 @@ class TestApp(unittest.TestCase):
             view.main([str(path), "--run", "--once", "--checks", "--no-lint", "--color",
                        "never", "--width", "120"])
         lines = out.getvalue().splitlines()
-        ruler = next(ln for ln in lines if ln.strip().startswith("0"))
-        x0 = ruler.index("0")
+        ruler = marks_row(lines)
         doc = next(ln for ln in lines if ln.lstrip(" ▸").startswith("|Doc|"))
         self.assertIn("▲2", ruler)
-        self.assertEqual(ruler.index("▲2") - x0, doc.index("█") - x0)   # at the write
+        self.assertEqual(ruler.index("▲2"), doc.index("█"))   # at the write
 
     def test_legend_lines_end_without_blanks(self):
         for flag in ("--run", "--tree", "--flow"):

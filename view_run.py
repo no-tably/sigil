@@ -507,49 +507,119 @@ def _label_runs(ln, scn, numbered: set, tick: int, marks) -> list:
     return runs
 
 
-def _ruler(fr: _Frame, tl, lo: int, hi: int, x0: int, witnessed: tuple = (),
-           room: Optional[int] = None) -> list:
-    """The ruler over columns lo … hi - 1: the playhead `▼t`, a finding's
-    number where this run shows it (`witnessed`: ((tick, CheckMark), …)), `ep2`
-    where an episode starts, `↺k` where a loop's k-th iteration starts (k ≥ 2),
-    the last tick, ticks at multiples of 10, ≈ on a folded stretch — each only
-    where it touches no label placed before it, and nothing right of the
-    playhead. room: the columns after x0 a label may reach (None: any); the
-    playhead short of room is `▼` alone."""
+STEPS = (1, 2, 5, 10, 20, 50, 100)        # a crowded ruler shows every step-th `↺k`
+
+
+class _Mark(NamedTuple):
+    """A label on the ruler: its column, text and style, and the tick from
+    which a run draws it (None: from the start — the scale, an episode)."""
+    col: int
+    text: str
+    style: object
+    due: Optional[int] = None
+
+
+def _scale(fr: _Frame, tl) -> list:
+    """The ruler's time scale, in the order it is placed: ≈ on each folded
+    stretch, the ticks at multiples of 10, the last tick."""
     st = _styles()
-    want = []
-    if not fr.final:
-        want.append((fr.cols.of[fr.tick], NOW + str(fr.tick), st["now"]))
-    want += [(fr.cols.of[t], kit.check_glyph(m), kit.check_mark_style(m))
-             for t, m in witnessed if t in fr.cols.of and t <= fr.tick]
-    want += [(fr.cols.of[t], f"ep{k}", st["section"]) for k, t, _n in tl.episodes[1:]
-             if t in fr.cols.of]
-    want += [(fr.cols.of[it.t], f"{ITERATION}{it.k}", st["op"]) for it in tl.iterations
-             if it.k > 1 and it.t in fr.cols.of and it.t <= fr.tick]
-    want += [(c, QUIET, st["dim"]) for c in sorted(fr.cols.quiet)]
-    want += [(fr.cols.of[t], str(t), st["dim"]) for t in range(0, tl.last + 1, 10)
-             if t in fr.cols.of and fr.cols.of[t] not in fr.cols.quiet]
-    want.append((fr.cols.of[tl.last], str(tl.last), st["dim"]))
+    out = [_Mark(c, QUIET, st["dim"]) for c in sorted(fr.cols.quiet)]
+    out += [_Mark(fr.cols.of[t], str(t), st["dim"]) for t in range(0, tl.last + 1, 10)
+            if t in fr.cols.of and fr.cols.of[t] not in fr.cols.quiet]
+    if tl.last % 10 or fr.cols.of[tl.last] in fr.cols.quiet:     # not a tick already
+        out.append(_Mark(fr.cols.of[tl.last], str(tl.last), st["dim"]))
+    return out
+
+
+def _marks(fr: _Frame, tl, witnessed: tuple, step: int = 1) -> list:
+    """The ruler's run marks, in the order they are placed, whatever the
+    playhead: each finding's number at the tick this run shows it, `epN` where
+    an episode starts, `↺k` where a loop's k-th iteration starts (k ≥ 2; only
+    every step-th k when step > 1)."""
+    st = _styles()
+    out = [_Mark(fr.cols.of[t], kit.check_glyph(m), kit.check_mark_style(m), t)
+           for t, m in witnessed if t in fr.cols.of]
+    out += [_Mark(fr.cols.of[t], f"ep{k}", st["section"]) for k, t, _n in tl.episodes[1:]
+            if t in fr.cols.of]
+    out += [_Mark(fr.cols.of[it.t], f"{ITERATION}{it.k}", st["op"], it.t)
+            for it in tl.iterations
+            if it.k > 1 and it.t in fr.cols.of and (step == 1 or it.k % step == 0)]
+    return out
+
+
+def _place(want: list, lo: int, hi: int, room: Optional[int]) -> list:
+    """[_Mark]: of the wanted marks (in priority order), those in columns lo …
+    hi - 1 that fit in room (None: any) and keep a blank from every mark placed
+    before them; the playhead short of room is `▼` alone."""
     taken, placed = set(), []
-    for c, text, style in want:
-        if not lo <= c < hi:
+    for m in want:
+        if not lo <= m.col < hi:
             continue
-        if room is not None and c - lo + len(text) > room:
-            if not text.startswith(NOW):
+        if room is not None and m.col - lo + len(m.text) > room:
+            if not m.text.startswith(NOW):
                 continue
-            text = NOW
-        cells = set(range(c - 1, c + len(text) + 1))
-        if cells & taken:
+            m = m._replace(text=NOW)
+        if set(range(m.col - 1, m.col + len(m.text) + 1)) & taken:
             continue
-        taken |= set(range(c, c + len(text)))
-        placed.append((c, text, style))
+        taken |= set(range(m.col, m.col + len(m.text)))
+        placed.append(m)
+    return placed
+
+
+def _ruler_row(placed: list, lo: int, x0: int) -> list:
+    """Placed marks as one row of runs, x0 columns in."""
     row, x = [(" " * x0, None)], lo
-    for c, text, style in sorted(placed):
-        if c > x:
-            row.append((" " * (c - x), None))
-        row.append((text, style))
-        x = c + len(text)
+    for m in sorted(placed, key=lambda m: m.col):
+        if m.col > x:
+            row.append((" " * (m.col - x), None))
+        row.append((m.text, m.style))
+        x = m.col + len(m.text)
     return row
+
+
+def _thinned(fr: _Frame, tl, witnessed: tuple, lo: int, hi: int,
+             room: Optional[int]) -> list:
+    """The run marks for a row of their own: the fewest `↺k` dropped — every
+    step-th iteration, the smallest step at which none of them crowds out
+    another (findings and episodes first)."""
+    for step in STEPS:
+        want = _marks(fr, tl, witnessed, step)
+        if _fits(want, _place(want, lo, hi, room), lo, hi):
+            return want
+    return want
+
+
+def _due(marks: list, tick: int) -> list:
+    """The marks a frame at tick draws."""
+    return [m for m in marks if m.due is None or m.due <= tick]
+
+
+def _fits(want: list, placed: list, lo: int, hi: int) -> bool:
+    """Whether every wanted mark in columns lo … hi - 1 was placed."""
+    return {m for m in want if lo <= m.col < hi} <= set(placed)
+
+
+def _rulers(fr: _Frame, tl, lo: int, hi: int, x0: int, witnessed: tuple = (),
+            room: Optional[int] = None, whole: Optional[int] = None) -> list:
+    """The ruler over columns lo … hi - 1, as rows: the playhead `▼t`, the run
+    marks (_marks) and the time scale (_scale), each only where it touches no
+    label placed before it, no finding or `↺k` right of the playhead. One row when every
+    mark fits beside the scale over the whole band (columns lo … whole - 1;
+    None: hi), whatever the playhead, so the drawing holds still in a run;
+    else two — the run marks over the scale, their `↺k` thinned to every
+    step-th iteration (_thinned). room: the columns after x0 a label may reach
+    (None: any)."""
+    now = [] if fr.final else [_Mark(fr.cols.of[fr.tick], NOW + str(fr.tick),
+                                     _styles()["now"], fr.tick)]
+    marks, scale = _marks(fr, tl, witnessed), _scale(fr, tl)
+    together = marks + scale
+    end = hi if whole is None else whole
+    if _fits(marks, _place(together, lo, end, room), lo, end) and set(
+            _place(scale, lo, end, room)) <= set(_place(together, lo, end, room)):
+        return [_ruler_row(_place(now + _due(together, fr.tick), lo, hi, room), lo, x0)]
+    top = _due(_thinned(fr, tl, witnessed, lo, end, room), fr.tick)
+    return [_ruler_row(_place(top, lo, hi, room), lo, x0),
+            _ruler_row(_place(now + _due(scale, fr.tick), lo, hi, room), lo, x0)]
 
 
 def _plural(n: int, word: str) -> str:
@@ -900,8 +970,8 @@ def compose_run(g, trace=None, tick: Optional[int] = None, width: Optional[int] 
     for k, (lo, hi) in enumerate(bands):
         if k:
             rows.append([])
-        rows.append(_ruler(fr, tl, lo, hi, x0, witnessed,
-                           None if width is None else width - x0))
+        rows += _rulers(fr, tl, lo, hi, x0, witnessed, None if width is None else width - x0,
+                        hi if banded else fr.cols.n)
         for ln in fr.lanes:
             r = fr.rows[ln.key]
             if len(bands) > 1:                  # a lane with nothing but lines here: left out

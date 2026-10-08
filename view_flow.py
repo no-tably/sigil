@@ -666,11 +666,13 @@ def _channels(lay: _Layout) -> None:
         down = vid in backs
         if dsts or down:
             groups.setdefault(v.col, []).append(_Group(("out", vid), v.row, frozenset(dsts), down))
-    for pi, p in enumerate(paths):
-        if p.back:
-            dst = V[p.via[-1]]
-            groups.setdefault(dst.col - 1, []).append(
-                _Group(("in", pi), None, frozenset({_in_row(lay, p, p.via[-1])}), True))
+    lead = _back_bundles(paths)
+    ins = {}                                    # a bundle's lead → the rows it turns into
+    for pi, li in lead.items():
+        ins.setdefault(li, set()).add(_in_row(lay, paths[pi], paths[pi].via[-1]))
+    for li, rows in ins.items():
+        dst = V[paths[li].via[-1]]
+        groups.setdefault(dst.col - 1, []).append(_Group(("in", li), None, frozenset(rows), True))
     for gs in groups.values():
         for gr in gs:
             lay.groups[gr.gid] = gr
@@ -697,17 +699,16 @@ def _channels(lay: _Layout) -> None:
     for pi, p in enumerate(paths):
         if p.back:
             p.tout = lay.track[("out", p.via[0])]
-            p.tin = lay.track[("in", pi)]
+            p.tin = lay.track[("in", lead[pi])]
     y = lay.bottom
     rets = {}                                   # group id → the return rows it turns into
-    back = sorted((pi for pi, p in enumerate(paths) if p.back),
-                  key=lambda pi: (paths[pi].tout - paths[pi].tin, paths[pi].tin))
-    for pi in back:                             # the shorter ones higher
-        p = paths[pi]
-        p.ret = y
-        y += 1 + (not _chip_fits(p))
-        rets.setdefault(("out", p.via[0]), set()).add(p.ret)
-        rets.setdefault(("in", pi), set()).add(p.ret)
+    for li in sorted(ins, key=lambda li: (paths[li].tout - paths[li].tin, paths[li].tin)):
+        bundle = [paths[pi] for pi, l in lead.items() if l == li]
+        for p in bundle:                        # the shorter ones higher, a bundle on one row
+            p.ret = y
+        y += 1 + (not all(_chip_fits(p) for p in bundle))
+        rets.setdefault(("out", paths[li].via[0]), set()).add(y - 1)
+        rets.setdefault(("in", li), set()).add(paths[li].ret)
     for gid, gr in lay.groups.items():          # the cells a vertical only passes
         if gr.straight or gid not in lay.track:
             continue
@@ -715,6 +716,25 @@ def _channels(lay: _Layout) -> None:
         for yy in range(gr.lo, max(turns) + 1):
             if yy not in turns:
                 lay.passes[(lay.track[gid], yy)] = gid
+
+
+def _back_bundles(paths: list) -> dict:
+    """{back path index: the index of its bundle's first path}: the wires back
+    from one source to one target share one return row and one way up, splitting
+    only into their stacked heads (`╭─✖┐` over `├─▶┘`). A return row holds one
+    chip, so of a pair's chipped wires only the first joins its bundle."""
+    lead, first, chipped = {}, {}, set()
+    for pi, p in enumerate(paths):
+        if not p.back:
+            continue
+        pair = (p.via[0], p.via[-1])
+        li = first.setdefault(pair, pi)
+        if p.chip is not None:
+            if li in chipped:
+                li = pi
+            chipped.add(li)
+        lead[pi] = li
+    return lead
 
 
 def _chip_fits(p: _Path) -> bool:
