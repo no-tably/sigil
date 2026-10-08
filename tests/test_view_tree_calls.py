@@ -74,7 +74,8 @@ class TestMarks(unittest.TestCase):
             self.assertIn(label + " ↻", line(self.rows, label))
 
     def test_each_unit_shows_its_own_self_calls(self):
-        crawler = [ln for ln in plain(self.rows) if "[Crawler] " in ln and "◀" in ln]
+        crawler = [ln for ln in plain(self.rows)              # its rows, by their label
+                   if ln.lstrip(" │├└┌┄─").startswith("[Crawler] ")]
         self.assertEqual(len(crawler), 2)
         self.assertIn("[Crawler] ↺", crawler[0])        # throttle, in the document
         self.assertIn("[Crawler] ↻", crawler[1])        # follow(.links), in `follow`

@@ -280,6 +280,7 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     frame = trace.frames[tick] if trace is not None else None
     idx = scn.notes if notes != "off" else {}
     wires = _lane_wires(scn)
+    homes = {u.owner: u.graph for u in scn.units}
     if spaced:
         rows = _space_units(rows)
     rows, brackets = _tree_banners(rows, g)
@@ -313,7 +314,7 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
                                 x0=x0, extra=after_label, marks=marks, sim=sim_rows)
             _draw_brackets(cv, brackets, xs, x0)
             gutter = max(out.ends) + 3
-            lanes = _pack_lanes(_collect_lanes(cv, wires, out), gutter, frame)
+            lanes = _pack_lanes(_collect_lanes(cv, wires, out, homes), gutter, frame)
             if keep is not None:
                 lanes = _fold_lanes(lanes, gutter, keep)
             if checks is not None:
@@ -592,6 +593,7 @@ class _Outline:
     ends: list                                  # per row: x just past its text (0 if blank)
     by_id: dict                                 # node id → the rows it is drawn on
     chain_at: dict                              # y → names root → this row
+    graph_at: dict                              # y → the graph its node is drawn from
     tagged: dict                                # node id → row carrying its #N
     marks_at: dict                              # y → x of its call mark (_call_marks)
 
@@ -608,7 +610,7 @@ def _draw_outline(cv: kit.Canvas, rows, idx: dict, show_tags: bool = True, x0: i
     `sim` ({row: _SimRow}, _sim_rows): a simulation frame's look — every row a
     status slot before its label (its mark, if any), the label restyled by its
     node's status, its badges after the call marks."""
-    out = _Outline([], {}, {}, {}, {})
+    out = _Outline([], {}, {}, {}, {}, {})
     slot = len(SIM_SLOT) if sim is not None else 0
     stack = []
     guides = _guides(rows)
@@ -636,6 +638,7 @@ def _draw_outline(cv: kit.Canvas, rows, idx: dict, show_tags: bool = True, x0: i
         n, rel = row.node, row.rel
         stack = stack[:row.depth] + [n.name]
         out.chain_at[y] = tuple(stack)
+        out.graph_at[y] = row.graph
         x = x0
         if row.depth:
             cv.put(x0, y, guide, kit.TREE_STYLE)
@@ -854,20 +857,24 @@ class _Lane(NamedTuple):
     plug: str = ""                              # folded (_fold_lanes): its number, no vertical
 
 
-def _collect_lanes(cv: kit.Canvas, wires, out: _Outline) -> list:
+def _collect_lanes(cv: kit.Canvas, wires, out: _Outline, homes: dict) -> list:
     """One _Lane per (wire, idents) of _lane_wires, over every row where either
-    end occurs, shortest first; a self-loop that is no call (a state's
-    self-transition) is marked ↺ on its row instead."""
-    def at(nid, path):
+    end occurs — in the wire's own unit (homes: owner → its graph) where the
+    end is drawn there, so a node drawn in two expansions (a store each one
+    borrows) takes each one's lanes on its own row — shortest first; a
+    self-loop that is no call (a state's self-transition) is marked ↺ on its
+    row instead."""
+    def at(nid, path, home):
         ys = out.by_id.get(nid, [])
         if path:
             ys = [y for y in ys if out.chain_at[y][-len(path):] == tuple(path)]
-        return ys
+        return [y for y in ys if out.graph_at[y] is home] or ys
 
     lanes = []
     for w, idents in wires:
         (spath, dpath) = w.paths
-        sy, dy = at(w.src, spath), at(w.dst, dpath)
+        home = homes.get(w.owner)
+        sy, dy = at(w.src, spath, home), at(w.dst, dpath, home)
         if not sy or not dy:
             continue
         if w.src == w.dst and not spath and not dpath:

@@ -263,25 +263,41 @@ def _layer(lay: _Layout) -> None:
     if lay.wrap is not None:
         _wrap_layers(lay, ids, dag)
 
-    n_dummy = 0
+    # A long edge passes the layers between its ends as 1-wide dummies. When
+    # wrapping, the edges of one trunk (_trunk: a fan-out's) share them, so a
+    # wrapped fan-out passes its rows as one line, not a line per child.
+    n_dummy, shared, linked = 0, {}, set()          # (trunk, layer) → its dummy
     for a, b, e, rev in dag:
         chain = [a]
+        trunk = _trunk(a, e, rev) if lay.wrap is not None else None
         for layer in range(V[a].layer + 1, V[b].layer):
-            n_dummy += 1
-            did = f"\0d{n_dummy}"
-            V[did] = _V(did, 1, dummy=True, layer=layer)
+            did = shared.get((trunk, layer)) if trunk else None
+            if did is None:
+                n_dummy += 1
+                did = f"\0d{n_dummy}"
+                V[did] = _V(did, 1, dummy=True, layer=layer)
+                if trunk:
+                    shared[(trunk, layer)] = did
             chain.append(did)
         chain.append(b)
         for u, w in zip(chain, chain[1:]):
+            if (u, w) in linked:                    # a trunk's shared segment links once
+                continue
+            if trunk:
+                linked.add((u, w))
             V[u].outs.append(w)
             V[w].ins.append(u)
         lay.chains.append((e, rev, chain))
+    trunk_dummies = set(shared.values())
 
     # Edges of different kinds between one pair keep a stroke each: every one
     # after the first is offset (its own ports and track) instead of drawn over it.
+    # A trunk's shared segment is one stroke, never offset.
     seen = {}
     for ci, (_e, rev, chain) in enumerate(lay.chains):
         for si, (u, w) in enumerate(zip(chain, chain[1:])):
+            if w in trunk_dummies:
+                continue
             k = seen.get((u, w, rev), 0)
             if k:
                 lay.dup[(ci, si)] = k
@@ -301,7 +317,8 @@ def _wrap_layers(lay: _Layout, ids: list, dag: list) -> None:
     one) each take the first layer at or below where their parents allow that
     still has room, so an overfull layer wraps onto the next ones — a node only
     ever moves down, and a layout whose layers all fit is left as it is. The
-    edges passing a layer (a dummy each, 1 + NODE_GAP columns) take room too:
+    edges passing a layer (a dummy each, 1 + NODE_GAP columns; one for all the
+    edges of a fan-out's trunk, _trunk) take room too:
     each pass reserves what the last one's edges took, until nothing moves. A
     box wider than the wrap gets a layer to itself."""
     V, up = lay.V, {i: [] for i in ids}
@@ -322,12 +339,20 @@ def _wrap_layers(lay: _Layout, ids: list, dag: list) -> None:
         if layer == placed:
             break
         placed, passing = layer, Counter()
-        for a, b, _e, _rev in dag:
-            for k in range(layer[a] + 1, layer[b]):
-                passing[k] += 1 + NODE_GAP
+        lines = {(_trunk(a, e, rev) or (a, b, e.kind, rev), k)   # one per trunk
+                 for a, b, e, rev in dag for k in range(layer[a] + 1, layer[b])}
+        for _line, k in lines:
+            passing[k] += 1 + NODE_GAP
         reserve = reserve | passing                 # only grows: the passes settle
     for i in ids:
         V[i].layer = placed[i]
+
+
+def _trunk(top: str, e, rev: bool) -> Optional[tuple]:
+    """The trunk a wrapped layout's long edge shares with the other edges of
+    one fan-out (its top node and arrow kind) as it passes the layers between
+    its ends; None for a reversed (back) edge, which keeps a line of its own."""
+    return None if rev else (top, e.kind)
 
 
 def _order(lay: _Layout) -> None:

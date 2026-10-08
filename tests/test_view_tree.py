@@ -10,7 +10,9 @@ Covers:
     else the source's kind; a permission lane the access colour; an emitted
     event the event colour;
   - the moved annotations still land: payload chips (an emit's from both legs),
-    inline notes, join taps, branch-arm labels.
+    inline notes, join taps, branch-arm labels;
+  - a node drawn in two expansions (a store each one borrows) takes each
+    expansion's lanes on its own row, not its sibling's.
 
 Run:  python3 -m unittest discover tests
 """
@@ -121,6 +123,40 @@ class TestColourPolicy(unittest.TestCase):
         wires = vtree.tree_legend(triggers=True)[1]
         sample = next(st for t, st in wires if t.startswith("◎"))
         self.assertEqual(sample[0], kit.kind_color("event"))
+
+
+class TestLanesInTheirUnit(unittest.TestCase):
+    """A lane reaches an end's rows in the unit its wire is written in, where
+    the end is drawn there; else every row of the end."""
+    BORROWED = ("[Api] -> [Billing] & [Shipping]\n"
+                "[Billing] := {\n  [Charger] -> {Invoice}\n  [Charger] @borrow |Ledger|\n}\n"
+                "[Shipping] := {\n  [Packer] -> {Parcel}\n  [Packer] @borrow(read) |Ledger|\n}\n")
+
+    @staticmethod
+    def ends(rows, label: str) -> list:
+        """Per row drawing `label`: the lane ends and tees right of its ◀."""
+        return [sum(t.split("◀", 1)[1].count(c) for c in "┘┐┤├┴┬┼")
+                for t in plain(rows) if label in t]
+
+    def test_each_borrow_reaches_its_own_expansions_store(self):
+        rows = tree(self.BORROWED, depth=9, access=True)
+        self.assertEqual(self.ends(rows, "|Ledger|"), [1, 1], "\n".join(plain(rows)))
+        self.assertIn("b", plain([row(rows, "├┄┄ [Charger]")])[0])
+        self.assertIn("ƀ", plain([row(rows, "├┄┄ [Packer]")])[0])
+
+    def test_a_flow_stays_in_its_expansion(self):
+        text = ("[Api] -> [Billing] & [Shipping]\n[Billing] := {\n  [Charger] -> |Ledger|\n}\n"
+                "[Shipping] := {\n  [Packer] -> |Ledger|\n}\n")
+        rows = tree(text, depth=9)
+        self.assertEqual(self.ends(rows, "|Ledger|"), [1, 1], "\n".join(plain(rows)))
+
+    def test_an_end_drawn_only_elsewhere_still_takes_the_lane(self):
+        # the expansion's access list names a top-level principal: its lane
+        # climbs out of the expansion to [Boss]'s row
+        text = ("[Boss] -> [Team]\n[Team] := {\n  [Worker] -> |Results|\n"
+                "  |Results| @write(Boss)\n}\n")
+        rows = tree(text, depth=9, access=True)
+        self.assertIn("w", plain([row(rows, "[Boss]")])[0].split("●", 1)[1])
 
 
 class TestLegendEvents(unittest.TestCase):
