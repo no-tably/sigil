@@ -398,19 +398,27 @@
     el.style.setProperty("--o", p.o);
   }
 
-  /** The lead plane's place: right of the text column on a desktop, the top
-      half under the nav on a phone. w × h is the box it is fitted to (layout px). */
-  const leadBox = (small) => (small
-    ? { x: "0vw", y: "-15vh", w: innerWidth * 0.92, h: innerHeight * 0.4, ry: -4, rx: 4 }
-    : { x: "16vw", y: "1vh", w: innerWidth * 0.58, h: innerHeight * 0.7, ry: -9, rx: 3 });
+  // the gap kept between a phone's lead plane and the nav above / text below (px)
+  const ROOM_GAP = 10;
+
+  /** The lead plane's place: right of the text column on a desktop; on a phone
+      the room between the nav and the section's text ({top, bottom}, viewport
+      px), so the plane never lies under the text. w × h is the box it is fitted
+      to (layout px). */
+  function leadBox(small, room) {
+    if (!small) return { x: "16vw", y: "1vh", w: innerWidth * 0.58, h: innerHeight * 0.7, ry: -9, rx: 3 };
+    const top = room.top + ROOM_GAP, bottom = Math.max(top + 40, room.bottom - ROOM_GAP);
+    return { x: "0px", y: `${Math.round((top + bottom - innerHeight) / 2)}px`,
+             w: innerWidth * 0.92, h: bottom - top, ry: -4, rx: 4 };
+  }
 
   /** A plane k sections away from the lead (k < 0: seen, above; k > 0: coming,
       below), further back and dimmer the further it is. */
   function aside(k, small) {
     const a = Math.abs(k), s = Math.sign(k);
-    return small
+    return small   // a phone's coming planes wait unseen below, out from under the text
       ? { x: `${s * 6}vw`, y: `${s * (34 + 10 * a)}vh`, z: -900 - 250 * a, ry: -12, rx: s * -10,
-          d: 2.4 + a, o: 0.14 / a }
+          d: 2.4 + a, o: s < 0 ? 0.14 / a : 0 }
       : { x: `${40 + 3 * a}vw`, y: `${s * (30 + 12 * a)}vh`, z: -700 - 260 * a, ry: -30, rx: s * -8,
           d: 2 + 0.8 * a, o: 0.42 / a };
   }
@@ -423,8 +431,9 @@
   }
 
   /** The four planes, at home. scene.lead(name | null) brings one forward (null:
-      all home); scene.refit() after a plane's frame or the window changes. */
-  function buildScene() {
+      all home); scene.refit() after a plane's frame or the window changes.
+      phoneRoom(name) is the room a phone's lead plane may fill (leadBox). */
+  function buildScene(phoneRoom) {
     const stage = $("#stage");
     const planes = {};
     for (const name of PLANES) {
@@ -445,7 +454,7 @@
           p = (small ? HOME_SMALL : HOME)[name];
           s = 1;
         } else if (name === active) {
-          const b = leadBox(small);
+          const b = leadBox(small, small ? phoneRoom(name) : null);
           p = { x: b.x, y: b.y, z: 0, ry: b.ry, rx: b.rx, d: 0, o: 1 };
           s = fitScale(el, b.w, b.h);
         } else {
@@ -568,6 +577,9 @@
     };
   }
 
+  /** A view.py command with its --sim scenario set to the one playing. */
+  const withSim = (cmd, scenario) => cmd.replace(/--sim \S+/, `--sim ${scenario}`);
+
   /** A run's narration line: its label, view.py's words for the frame, and the
       outcome on the last frame. */
   function runSayHtml(run, i) {
@@ -581,11 +593,13 @@
   const RUN_HOLD = 2800;
 
   /** The runs (data.runs) played one after another into the run plane (el),
-      the narration in sayEl. While they play the plane's frame keeps the size
-      of their largest frame, so its fit holds still as the timeline grows.
+      the narration in sayEl, cmdEl's command naming the run playing. While
+      they play the plane's frame keeps the size of their largest frame, so its
+      fit holds still as the timeline grows.
       Reduced motion: the last run's last frame, still. */
-  function runLoop(data, disp, el, sayEl) {
+  function runLoop(data, disp, el, sayEl, cmdEl) {
     const runs = data.runs || [];
+    const cmd = cmdEl ? cmdEl.textContent : "";
     const frame = $(".frame", el);
     let timer = null, ri = 0, fi = 0, cols = 0, rows = 0;
     for (const r of runs) {
@@ -595,9 +609,10 @@
         for (const row of fr) cols = Math.max(cols, row.reduce((n, [t]) => n + [...String(t)].length, 0));
       }
     }
-    const show = () => {
-      disp.claim("run", runs[ri].frames[fi].run, true);
+    const show = () => {   // the text first: a phone fits the plane above it
       if (sayEl) sayEl.innerHTML = runSayHtml(runs[ri], fi);
+      if (cmdEl) cmdEl.textContent = withSim(cmd, runs[ri].scenario);
+      disp.claim("run", runs[ri].frames[fi].run, true);
     };
     const tick = () => {
       show();
@@ -623,18 +638,31 @@
         clearTimeout(timer);
         timer = null;
         frame.style.minWidth = frame.style.minHeight = "";
+        if (cmdEl) cmdEl.textContent = cmd;
       },
     };
   }
 
-  /** The section across the reading line (mid-screen; lower on a phone, where
-      the lead plane holds the top half), or null outside the strip. */
+  /** The section across the reading line (mid-screen; near the bottom on a
+      phone, where its text sits pinned under the lead plane), or null outside
+      the strip. */
   function currentSection(secs) {
-    const line = innerHeight * (isSmall() ? 0.7 : 0.52);
+    const line = innerHeight * (isSmall() ? 0.9 : 0.52);
     return secs.find((s) => {
       const r = s.getBoundingClientRect();
       return r.top <= line && r.bottom > line;
     }) || null;
+  }
+
+  /** The room on a phone for view `name`'s plane, in viewport px: from the nav's
+      foot to the top of the section's text, pinned at the screen's foot (CSS:
+      sticky, `bottom` from the foot). */
+  function phoneRoom(name) {
+    const nav = $(".nav"), text = $(`#view-${name} .vsec-text`);
+    const top = nav ? nav.getBoundingClientRect().bottom : 0;
+    if (!text) return { top, bottom: innerHeight };
+    const foot = parseFloat(getComputedStyle(text).bottom) || 0;
+    return { top, bottom: innerHeight - foot - text.offsetHeight };
   }
 
   /** The view strip: as its sections pass the reading line, the planes follow
@@ -645,12 +673,14 @@
     const ex = data.examples.find((e) => e.id === data.views);
     if (!secs.length || !ex) return;
     const done = ex.steps[ex.steps.length - 1];
-    const runs = runLoop(data, disp, scene.planes.run, $("#view-run .say"));
+    const runs = runLoop(data, disp, scene.planes.run, $("#view-run .say"), $("#view-run .cmd"));
+    const strip = $("#views");
     let active = null, queued = false;
     const focus = (name) => {
       const was = active;
       active = name;
       secs.forEach((s) => s.classList.toggle("current", s.dataset.view === name));
+      strip.classList.toggle("on", name !== null);
       if (was === null && name !== null) PLANES.forEach((n) => disp.claim(n, done[n]));
       if (was === "run") runs.stop();
       if (name === null) PLANES.forEach((n) => disp.release(n));
@@ -1534,7 +1564,7 @@
     initFocus();
     initInstall();
     initThemes();
-    const scene = buildScene();
+    const scene = buildScene(phoneRoom);
     let examples = [];
     try {
       const data = await loadFrames();

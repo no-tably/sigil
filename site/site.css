@@ -193,9 +193,13 @@ body.focused .plane.view { opacity: max(var(--o, 0.85), 0.9); }
 @media (max-width: 700px) {
   .vsecs { padding: 6vh var(--gutter) 40vh; }
   .vsec { min-height: 58vh; align-items: flex-end; }
-  .vsec-text { width: 100%; }
-  /* the cards pass under the lead plane: only the current one keeps its glass */
-  .vsec:not(.current) .vsec-text { opacity: 0.14; backdrop-filter: none; }
+  /* the text stays at the screen's foot while its section is read; the lead
+     plane is fitted into the room above it (site.js phoneRoom) */
+  .vsec-text { width: 100%; position: sticky; bottom: var(--gutter); }
+  /* only the current text shows: the others pass through the planes' room, so
+     they (and the intro, while a plane leads) are hidden, not drawn over a plane */
+  .vsec:not(.current) .vsec-text, .vsecs.on .vsecs-intro { opacity: 0; }
+  .vsecs-intro { transition: opacity 0.6s ease; }
 }
 
 /* ---------------------------------------------------------------- nav */
@@ -719,7 +723,7 @@ body[data-released="true"] .pending { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  #scene, .stage, .plane, .plane.view .frame, .plane.view .label, .vsec-text,
+  #scene, .stage, .plane, .plane.view .frame, .plane.view .label, .vsec-text, .vsecs-intro,
   .pg-findings { transition: none; }
   .caret { animation: none; }
 }

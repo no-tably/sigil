@@ -534,6 +534,17 @@ class TestSiteJs(unittest.TestCase):
         self.assertEqual(out[1], '<span class="run-name">not found</span> [B] fails'
                                  ' — <b>failed</b>')
 
+    def test_run_section_command_names_the_run_playing(self):
+        page = (SITE / "index.html").read_text(encoding="utf-8")
+        cmd = re.search(r'id="view-run".*?<pre class="snippet cmd">([^<]*)</pre>', page, re.S).group(1)
+        code = _js_section("  const withSim", "  /** A run's narration line")
+        scenarios = [scenario for scenario, _ in site.RUNS]
+        out = json.loads(self._run(code + f"\nprocess.stdout.write(JSON.stringify("
+                                   f"{json.dumps(scenarios)}.map((s) => withSim({json.dumps(cmd)}, s))));"))
+        self.assertEqual(out, [f"view.py shortener.sigil --run --sim {s}" for s in scenarios])
+        js = (SITE / "site.js").read_text()
+        self.assertIn('$("#view-run .cmd")', js)                # the loop is handed the line
+
     def test_live_narration_is_throttled(self):
         # the first line at once, then at most one a gap; the line a run stops on
         # is said, late
