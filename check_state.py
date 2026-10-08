@@ -475,10 +475,19 @@ class Facts:
                 and self.doc.access_mode(w) in ("write", "rw"))
 
     @cached_property
-    def store_flows(self) -> dict:
-        """{store id: [(wire, principal, mode)]} of the flows touching each store."""
+    def store_wires(self) -> list:
+        """The wires scene.all_writers reads a store's writers off: the flows and
+        every emit's flow legs."""
+        legs = [leg for w in self.doc.sc.wires if w.role == "emit"
+                for leg in w.legs if leg.role == "flow"]
+        return self.flows + legs
+
+    @cached_property
+    def all_store_flows(self) -> dict:
+        """{store id: [(wire, principal, mode)]} of every store_wires wire touching
+        each store, summary wires included (only summarised reads them)."""
         out = {}
-        for w in self.flows:
+        for w in self.store_wires:
             mode = self.doc.access_mode(w)
             if mode is None:
                 continue
@@ -494,14 +503,22 @@ class Facts:
         traffic. A summary and its detail are one access, counted by the detail."""
         return frozenset(self.doc.prog.summaries or ())
 
-    def counted_store_flows(self, sid: str) -> list:
-        """store_flows of sid without its summary wires."""
-        return [wpm for wpm in self.store_flows.get(sid, []) if wpm[0].ident not in self.summaries]
+    @cached_property
+    def store_flows(self) -> dict:
+        """{store id: [(wire, principal, mode)]} of the accesses to each store, a
+        summary and its detail counted once (by the detail): what every rule scans."""
+        out = {}
+        for sid, flows in self.all_store_flows.items():
+            kept = [wpm for wpm in flows if wpm[0].ident not in self.summaries]
+            if kept:
+                out[sid] = kept
+        return out
 
     def summarised(self, sid: str, principal: str) -> bool:
-        """Whether every flow by which principal writes sid is a summary (so its
-        detail's writer stands for it)."""
-        mine = [w for w, p, m in self.store_flows.get(sid, [])
+        """Whether every wire by which principal writes sid (a flow or an emit's
+        leg, as writers counts them) is a summary, so its detail's writer stands
+        for it."""
+        mine = [w for w, p, m in self.all_store_flows.get(sid, [])
                 if p == principal and m in ("write", "rw")]
         return bool(mine) and all(w.ident in self.summaries for w in mine)
 
@@ -688,7 +705,7 @@ def writer_roles(f: Facts, sid: str) -> dict:
     that makes it one reads its mode off a verb. A writer only by summary wires
     is not one: its expansion's detail writes in its place."""
     out = {}
-    flows = f.counted_store_flows(sid)
+    flows = f.store_flows.get(sid, [])
     for principal, srcs in f.writers(sid).items():
         if principal == sid or (srcs == frozenset({"flow"}) and f.summarised(sid, principal)):
             continue
@@ -718,7 +735,7 @@ def find_shared_writable(ck, f: Facts):
                          "writes resolved?",
                          anchor=("node", sid), scopes=store_scopes(sid), guess=guess)
             continue
-        unknown = sorted({f.role(p) for w, p, m in f.counted_store_flows(sid)
+        unknown = sorted({f.role(p) for w, p, m in f.store_flows.get(sid, [])
                           if m == "unknown" and f.role(p) not in roles})
         if len(roles) == 1 and unknown:
             who = listing(f"`{u}`" for u in unknown)
@@ -855,7 +872,7 @@ def find_race_static(ck, f: Facts):
         if not f.plain(sid) or f.resolution(sid):
             continue
         for p, (others, guessed) in sorted(racing_writers(f, sid).items()):
-            w = next(w for w, q, m in f.store_flows[sid] if q == p and m in ("write", "rw"))
+            w = next(w for w, q, m in f.store_flows.get(sid, []) if q == p and m in ("write", "rw"))
             peers = sorted(o for o in others if o != p)
             if peers:
                 verb = "touches" if len(peers) == 1 else "touch"

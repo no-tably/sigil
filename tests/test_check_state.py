@@ -12,6 +12,7 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
+import dataclasses
 import importlib.util
 import os
 import re
@@ -352,6 +353,69 @@ class SummarisedWriters(unittest.TestCase):
             }
             """, mode="spec")
         self.assertEqual(found(rep, "SGC131"), [(2, "SGC131")])
+
+    def facts(self, text):
+        doc = ck.Doc(textwrap.dedent(text).lstrip("\n"), "spec", 2, frozenset())
+        return cs.facts_of(doc)
+
+    def test_summarised_reads_an_emit_leg_writers_counts(self):
+        """summarised looks at every wire writers counts a writer by (an emit's
+        flow legs too): a non-summary leg writing the store keeps the writer."""
+        f = self.facts(self.SHOP)
+        summary = next(w for w in f.flows if w.src == "Shop_service" and w.dst == "Orders_store")
+        self.assertTrue(f.summarised("Orders_store", "Shop_service"))
+        leg = dataclasses.replace(summary, ident=("leg",))
+        emit = dataclasses.replace(summary, role="emit", ident=("emit",), legs=(leg,))
+        g = self.facts(self.SHOP)
+        g.doc.sc.wires.append(emit)
+        self.assertIn(leg, g.store_wires)
+        self.assertFalse(g.summarised("Orders_store", "Shop_service"))
+
+
+class SummaryCountedOnce(unittest.TestCase):
+    """SGC132, SGC133, static SGC204 and every store_flows scan count a
+    summarised outer flow and its expansion's detail once (by the detail)."""
+
+    def test_store_flows_leave_out_summary_wires(self):
+        doc = ck.Doc(textwrap.dedent(SummarisedWriters.SHOP).lstrip("\n"), "spec", 2,
+                     frozenset())
+        f = cs.facts_of(doc)
+        self.assertEqual([p for _w, p, _m in f.store_flows["Orders_store"]], ["Pay_service"])
+        self.assertEqual(sorted(p for _w, p, _m in f.all_store_flows["Orders_store"]),
+                         ["Pay_service", "Shop_service"])
+
+    def test_lost_update_once_by_the_detail(self):
+        rep = check_state("""
+            (User)×N -> [Shop]
+            [Shop] -> |Orders| : get() => {Order}
+            [Shop] -> |Orders| : put(${state.total})
+            [Shop] := {
+              [Checkout] -> [Pay]
+              [Pay] -> |Orders| : get() => {Order}
+              [Pay] -> |Orders| : put(${state.total})
+            }
+            """, mode="spec")
+        self.assertEqual(found(rep, "SGC133"), [])
+        self.assertEqual(found(rep, "SGC204"), [(7, "SGC204")])
+        self.assertEqual(folded(rep, "SGC204"), ["SGC133"])
+
+    def test_undeclared_access_once_by_the_detail(self):
+        rep = check_state(SummarisedWriters.SHOP
+                          + "        [Admin] -> |Orders| : put({Order})\n"
+                          + "        |Orders| @write(Admin)\n", mode="spec")
+        self.assertEqual(found(rep, "SGC132"), [(5, "SGC132")])
+
+    def test_static_race_once_by_the_detail(self):
+        rep = check_state("""
+            (User) -> [Shop]
+            (Admin) -> [Shop]
+            [Shop] -> |Orders| : put({Order})
+            [Shop] := {
+              [Checkout] -> [Pay]
+              [Pay] -> |Orders| : put({Order})
+            }
+            """, mode="spec")
+        self.assertEqual(found(rep, "SGC204"), [(6, "SGC204")])
 
 
 class Suppression(unittest.TestCase):
