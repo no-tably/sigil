@@ -154,10 +154,37 @@ class TestWiresBack(unittest.TestCase):
                          ["╰────────────────╯", "  ┆retry({Job})┆", "  ┆<Failed>┆"])
 
     def test_return_chips(self):
-        self.assertEqual(vflow._return_chips([3, 4], 8), [(0, 0), (4, 0)])     # side by side
-        self.assertEqual(vflow._return_chips([3, 4], 7), [(0, 0), (0, 1)])     # stacked
-        self.assertEqual(vflow._return_chips([9, 4], 7), [(0, 1), (0, 2)])     # first too wide
-        self.assertEqual(vflow._return_chips([], 0), [])
+        rc = vflow._return_chips
+        self.assertEqual(rc([3, 4], 2, 9, set()), [(2, 0), (6, 0)])       # side by side
+        self.assertEqual(rc([3, 4], 2, 8, set()), [(2, 0), (2, 1)])       # stacked
+        self.assertEqual(rc([9, 4], 2, 8, set()), [(2, 1), (2, 2)])       # first too wide
+        self.assertEqual(rc([], 2, 1, set()), [])
+        # an outer wire's vertical at x=2: every chip starts a cell clear after it
+        self.assertEqual(rc([3, 4], 2, 11, {2}), [(4, 0), (8, 0)])
+        self.assertEqual(rc([3, 4], 2, 10, {2}), [(4, 0), (4, 1)])
+        self.assertEqual(rc([3], 2, 20, {6}), [(2, 0)])                   # one blank before it
+        self.assertEqual(rc([3], 2, 20, {5}), [(7, 0)])                   # touching: moved past
+
+    def test_chips_keep_clear_of_an_outer_wire_back(self):
+        # [C] -> [A] returns under [B]'s bundle: its way up crosses the bundle's
+        # return row and stacked chip rows, and stays whole on every one of them
+        text = plain(flow("[A] -> [B] : {Job}\n[B] -> [A] : retry(job, attempts, deadline)\n"
+                          "[B] !> [A] : {FailureReport}\n[B] ~> [A] : {Note}\n"
+                          "[B] -> [C]\n[C] -> [A] : {Done}\n", payloads=True))
+        ret = next(i for i, ln in enumerate(text) if ln.startswith("╰─│"))
+        up = next(i for i, ln in enumerate(text) if ln.startswith("  ╰─┆{Done}┆"))
+        self.assertEqual(up - ret, 4, text)                            # three stacked chips
+        for ln in text[1:up]:
+            self.assertEqual(ln[2], "│", text)
+        self.assertEqual([ln.strip(" │") for ln in text[ret + 1:up]],
+                         ["┆retry(job, attempts, deadline)┆", "┆{FailureReport}┆", "┆{Note}┆"])
+
+    def test_chips_side_by_side_keep_clear_of_an_outer_wire_back(self):
+        text = plain(flow("[A] -> [B] : {Job}\n[B] -> [A] : {R}\n[B] !> [A] : {F}\n"
+                          "[B] -> [Cccccccccccccc]\n[Cccccccccccccc] -> [A] : {Done}\n",
+                          payloads=True))
+        self.assertTrue(text[2].startswith("╰─│─┆{R}┆─┆{F}┆──"), text)
+        self.assertTrue(text[3].startswith("  ╰─┆{Done}┆──"), text)
 
     def test_back_bundles(self):
         def path(src, dst, chip=None, back=True):

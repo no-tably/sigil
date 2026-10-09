@@ -718,17 +718,20 @@ def _channels(lay: _Layout) -> None:
             p.tin = lay.track[("in", lead[pi])]
     y = lay.bottom
     rets = {}                                   # group id → the return rows it turns into
-    for li in sorted(ins, key=lambda li: (paths[li].tout - paths[li].tin, paths[li].tin)):
+    order = sorted(ins, key=lambda li: (paths[li].tout - paths[li].tin, paths[li].tin))
+    for k, li in enumerate(order):
         bundle = [paths[pi] for pi, l in lead.items() if l == li]
         for p in bundle:                        # the shorter ones higher, a bundle on one row
             p.ret = y
         lead_p = paths[li]
         chipped = [p for p in bundle if p.chip is not None]
+        # the bundles still to come return lower: their ways down and up cross these rows
+        later = {x for lj in order[k + 1:] for x in (paths[lj].tin, paths[lj].tout)}
         spots = _return_chips([kit.row_len(p.chip) for p in chipped],
-                              lead_p.tout - lead_p.tin - 4)
-        for p, (dx, dy) in zip(chipped, spots):
-            p.chip_at = (p.tin + 2 + dx, y + dy)
-        y += 1 + max((dy for _dx, dy in spots), default=0)
+                              lead_p.tin + 2, lead_p.tout - 3, later)
+        for p, (x, dy) in zip(chipped, spots):
+            p.chip_at = (x, y + dy)
+        y += 1 + max((dy for _x, dy in spots), default=0)
         rets.setdefault(("out", lead_p.via[0]), set()).add(lead_p.ret)
         rets.setdefault(("in", li), set()).add(lead_p.ret)
     for gid, gr in lay.groups.items():          # the cells a vertical only passes
@@ -785,19 +788,32 @@ def _share_rank(ctx: "_Ctx", p: _Path) -> tuple:
     return vgraph.share_rank(p.stroke.kind, ctx.state(p.stroke))
 
 
-def _return_chips(widths: list, room: int) -> list:
-    """[(dx, dy)]: where the chips of one back bundle's chipped wires go
-    (`widths`, in order), from the return row's first chip cell: side by side,
-    one stroke apart, when they fit in `room` cells; else stacked a row each,
-    from the return row when the first fits there, else from the row under it."""
-    if sum(widths) + len(widths) - 1 <= room:
-        out, dx = [], 0
-        for w in widths:
-            out.append((dx, 0))
-            dx += w + 1
-        return out
-    first = int(widths[0] > room)
-    return [(0, first + k) for k in range(len(widths))]
+def _return_chips(widths: list, lo: int, hi: int, blocked: set) -> list:
+    """[(x, dy)]: where the chips of one back bundle's chipped wires go
+    (`widths`, in order): side by side, one stroke apart, when they fit in the
+    return row's cells lo..hi; else stacked a row each, from the return row
+    when the first fits there, else from the row under it. Each chip keeps a
+    cell clear of every vertical in `blocked` (the xs of other bundles' ways
+    down and up through these rows), starting after one it would cover."""
+    row, at = [], lo
+    for w in widths:
+        x = _clear_of(at, w, blocked)
+        row.append((x, 0))
+        at = x + w + 1
+    if not widths or at - 2 <= hi:
+        return row
+    first = int(_clear_of(lo, widths[0], blocked) + widths[0] - 1 > hi)
+    return [(_clear_of(lo, w, blocked), first + k) for k, w in enumerate(widths)]
+
+
+def _clear_of(x: int, w: int, blocked: set) -> int:
+    """The first x from `x` where a chip `w` cells wide keeps a cell clear of
+    every vertical in `blocked` on either side."""
+    while True:
+        hit = [b for b in blocked if x - 1 <= b <= x + w]
+        if not hit:
+            return x
+        x = max(hit) + 2
 
 
 def _tracks(gs: list) -> list:
