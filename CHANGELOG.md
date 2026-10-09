@@ -2,6 +2,56 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
+## 0.4.2 — 2026-10-09
+
+Fixes for what 0.4.1 left open. No new features.
+
+### Viewer
+
+- **`--once` draws the frame you ask for.** `view.py --once --sim NAME --frame N|last`
+  draws frame N in every view (the run view puts its playhead there) and says which
+  frame it drew. Before, `--once` always drew the last frame.
+- **The run view honours `--depth`.** Given `--depth`, an expansion's lanes fold into
+  its node's lane, and a run's narration and path name only the nodes drawn, so at
+  `--depth 0` they no longer talk about nodes you can't see. Without `--depth` the run
+  view draws every level, as `--run --json` does; the graph, tree and flow views still
+  open one level. A fold's own work (an emit inside an expansion) shows as one folded
+  activation on its node's lane, not as extra runs of it. The ruler's `≈` marks and
+  scale labels keep two blanks apart.
+- **The graph view:** a fan-out's shared cells take its most severe member's look,
+  wrapped or not, with or without a run, so an error wire reads red from its source; a
+  plain crossing with no run and no `!>` keeps its owner's look. A wrapped, joined
+  fan-out's join bar spans only its first row's branches and the trunk.
+- **The flow view:** with `--payloads`, chipped wires back to one target share one
+  return row (chips side by side, or stacked when they don't fit), and never cut an
+  outer wire going back. With no run, a bundle's shared way takes its most severe
+  member's look.
+- **The tree view** picks its wrap again when a run's marks, badges or chips change a
+  frame's width, instead of keeping the first frame's choice. A colour whose theme role
+  changed is repainted even when its hex value is the same.
+
+### Notation tools
+
+- `render.py` gives non-ASCII names their own Mermaid ids, so names like `(利用者)` and
+  `[転送器]` no longer collapse into one node.
+- An op verb may start with any letter, so `検索({符号})` and `op 決済.請求(…)` are
+  op-calls: `lint.py` accepts the external one, and the views draw both as op-calls
+  (a self-call `↺`, a host op `⇱`).
+
+### Checks
+
+- `SGC132`, `SGC133`, static `SGC204` and every store scan count an outer flow and the
+  expansion detail it summarises once, emit legs included.
+
+### Agent plugins and page
+
+- The Claude Code pane and pi widget draw wide characters as themselves over two cells,
+  not `??`, with the same width rule as the views.
+- A playing run in the pane or widget no longer pauses at a window boundary: the next
+  window of frames is drawn ahead.
+- The wide-character tables in the page and the Claude Code pane are generated from
+  Python's `unicodedata` (`tools/wide_table.py`), so they agree with the views.
+
 ## 0.4.1 — 2026-10-09
 
 Fixes and speed-ups for what 0.4.0 shipped. No new features.

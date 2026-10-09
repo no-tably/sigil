@@ -79,7 +79,11 @@ Options:
   in the tree view, `--run` in the run view (`--sim`'s run, else the happy one; `--unroll N|all` sets how many instances
   of one node it shows before the rest fold, 3 by default).
 - `--depth N|all` opens `X := { … }` expansions (in the tree view an expansion's
-  members hang off dotted rails, `├┄┄`, apart from a branch's solid `├──`).
+  members hang off dotted rails, `├┄┄`, apart from a branch's solid `├──`). The
+  graph, tree and flow views open one level by default. The run view draws every
+  level unless `--depth` is given; then a deeper expansion's lanes fold into its
+  node's lane, and a run's narration and path name only the nodes drawn
+  (`--run --json` and `--sim NAME --json` fold the same way when it is given).
 - `--payloads` shows flow payloads: chips on edges in the graph view, on the wire
   between two columns in the flow view (`─┆{Cart}┆─▶`; a self-call's on a stub under
   its subject), a list in the tree view (an error path's chip there led by `✖`). A `"""…"""` block-string shows its
@@ -114,7 +118,9 @@ Options:
   else the happy one.
 - `--frame N|last` and `--play` start the live view's run (`--sim`) at frame N
   (0-based) or its last, and playing. Without them it starts paused on the first
-  frame. The agent plugins' split passes them.
+  frame. The agent plugins' split passes them. With `--once`, `--frame` picks the
+  frame drawn in any view (the run view puts its playhead there) instead of the
+  last.
 - `--limit NAME=N` raises one simulator bound for `--sim` (repeatable): `iterations`
   (loop repetitions, 2), `depth` (recursion, 3), `spawn` / `spawns`, `visits`, `stack`,
   and the per-episode `frames` (2000) and `activations` (500). Each entry point runs
@@ -243,7 +249,7 @@ failed on arrival is marked `✖` (`✖×4` when repeated; `×N` alone a hop rep
 a cancelled one `⊘`, and the hop a token is on now is bold, as its wire is (`▸`
 before it with `--color never`). It takes two rows at most; a longer path folds its
 oldest branches into `①–③ …` so the newest stay readable. `--once --sim` prints
-the path at the run's last frame under its outcome line. The view follows the run's tokens
+the path at the run's last frame (or `--frame`'s) under its outcome line. The view follows the run's tokens
 and active nodes, panning only when they leave the window; `w` turns that off. The
 playground shows the same path and narration under its drawing (from the same
 `SimPlayer`), steps a frame (`,` `.`) or an event (`<` `>`) at a time, and picks its

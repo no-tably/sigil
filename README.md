@@ -244,7 +244,7 @@ in notation, numbered by branch — `① (Shopper) -> [API] -> [Payments] ✖×4
 !> <PaymentFailed>`, `✖` a failed hop, `⊘` a cancelled one, the hop a token is on
 now in bold — then come the last few events and the narration line (`›`, what is
 happening now). The view follows the run as it moves; `w` turns that off. For agents
-and CI, `--once --sim SCENARIO` prints the run's last frame, the outcome, its path
+and CI, `--once --sim SCENARIO` prints the run's last frame (or `--frame N`'s), the outcome, its path
 and the run in words (here
 [`examples/checkout.sigil`](https://no-tably.github.io/sigil/examples/checkout.sigil)
 with its card charge failing; legend and lint summary left out):
