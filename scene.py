@@ -134,9 +134,12 @@ A wire takes its arrow's own colour when it has one — `!>` edges-fail, `?>`
 edges-maybe, `~>` edges-async, `]>[` edges-split, arm edges-arm, access
 edges-access, trigger the event colour — an emit wire the event colour (a
 failure emission stays edges-fail), else its source node's kind colour. A row's
-`◀` / an edge's head takes its wire's colour; where wires share cells, the
-wire nearest its target owns them. A simulation overlay restyles on top
-(wire_style: active = full colour + bold, inactive = muted, failed = edges-fail).
+`◀` / an edge's head takes its wire's colour; where wires share cells (a
+fan-out's trunk, a back bundle's way), the wire nearest its target owns them,
+unless a member is an error wire or a run is playing: then the most severe member
+wins (view_graph.share_rank — run state first, then `!>`), wrapped or not. A
+simulation overlay restyles on top (wire_style: active = full colour + bold,
+inactive = muted, failed = edges-fail).
 
 Colours are theme roles named as Colour.role names them ("edges-fail",
 "kinds-service"), resolved through viewkit at call time, so a theme applied
