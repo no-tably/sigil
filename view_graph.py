@@ -1010,6 +1010,8 @@ def _most_severe_shared(members: list, lines: dict) -> dict:
         if len(sharing) < 2:
             continue
         top = max(members[m][1] for m in sharing)
+        if top == share_rank(""):               # no run, no `!>`: the drawn
+            continue                            # owner (e.g. a crossing) stays
         best = [m for m in sharing if members[m][1] == top]
         cur = lines[cell][2]
         if any(members[m][0].style == cur for m in best):

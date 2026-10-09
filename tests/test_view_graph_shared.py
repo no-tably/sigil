@@ -10,7 +10,11 @@ Covers:
      fan-out; a FrameMemo repaint draws it as a fresh drawing does;
   2. share_rank: run state first, then an error wire over the rest;
   3. a wrapped joined fan-out's bar takes a port per branch on its first row
-     and one for the trunk to the rows below, not one per branch.
+     and one for the trunk to the rows below, not one per branch;
+  4. no run and no `!>`: the rule leaves the drawing alone — a fan-out's
+     shared stem crossing another wire's channel does not take the crossing
+     cell (the coverage fixture's <OrderPlaced> broadcast over the produce
+     wires).
 
 Run:  python3 -m unittest discover tests
 """
@@ -48,6 +52,14 @@ ERROR_FAN = "\n".join(["#!spec", "[Api] -> [Store]", "[Store] -> [Disk]",
 RUN_FAN = "\n".join(["[Hub] -> [Alpha]", "[Alpha] -> [Gamma]", "[Hub] -> [Gamma]",
                      "[Hub] -> [Beta]", "[Gamma] -> |Db| : put => {R}",
                      "  !> <Oops>"]) + "\n"
+# <Tick>'s fan-out stem (shared by its two wires) crosses [Cfg]'s fan-out
+# channel (┼): every member is as severe as the next, so the crossing keeps
+# the channel's look, as the coverage fixture's <OrderPlaced> broadcast does
+# over the produce wires.
+CROSSED_FAN = "\n".join(["[Gateway] -> [Api]", "[Api] <-> [Cache]", "<Stop> -> ~|Counter|",
+                          "[Cfg] -> ~|Opts|", "[Cfg] -> ~|Limits|", "[Cfg] -> ~|Ratio|",
+                          "[Cfg] -> ~|Last|", "<Tick> -> ~|History|", "<Tick> -> ~|Total|",
+                          "[Api] -> [Shard]", "[Api] -> [Replica]"]) + "\n"
 TARGETS = [f"[Service{k:02d}]" for k in range(14)]
 JOINED = "[Hub] -> " + " & ".join(TARGETS) + "\n"
 
@@ -160,6 +172,34 @@ class WrappedJoinBar(unittest.TestCase):
         rows, _w = vgraph.compose(kit.render.parse_document(JOINED), 1, False)
         bar = next(kit.ansi(r, False) for r in rows if "━" in kit.ansi(r, False))
         self.assertEqual(len(bar.strip().split(" ")[0]), 2 * len(TARGETS) + 1)
+
+
+class CrossedFanNoRun(unittest.TestCase):
+    """4. no run, no `!>`: a crossing in a fan-out's channel keeps its owner."""
+
+    def compose(self):
+        rows, _w = vgraph.compose(kit.render.parse_document(CROSSED_FAN), 1, False,
+                                  width=100)
+        return rows
+
+    def test_crossing_keeps_the_channel_look(self):
+        grid = _grid(self.compose())
+        crossings = [(x, y) for (x, y), (c, _st) in grid.items() if c == "┼"
+                     and grid.get((x - 1, y), ("",))[0] == "─"
+                     and grid.get((x, y - 1), ("",))[0] == "│"
+                     and grid[(x - 1, y)][1] != grid[(x, y - 1)][1]]
+        self.assertTrue(crossings, "the fixture must cross two wires of different looks")
+        for x, y in crossings:
+            self.assertEqual(grid[(x, y)][1], grid[(x - 1, y)][1], (x, y))
+
+    def test_rule_changes_nothing(self):
+        real = vgraph._fan_out_looks
+        try:
+            vgraph._fan_out_looks = lambda *a: {}
+            plain = self.compose()
+        finally:
+            vgraph._fan_out_looks = real
+        self.assertEqual(_grid(self.compose()), _grid(plain))
 
 
 if __name__ == "__main__":
