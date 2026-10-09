@@ -9,13 +9,17 @@ Covers:
   - sim.narrate / sim.hops (hosts=…): name only the drawn nodes (no hidden
     [Checkout] at --depth 0), leave out what happens wholly inside a fold;
   - view_run.compose_run(depth=…): the lanes drawn, the notes naming hosts;
+  - view.py --once: the run folds only when --depth is given (the default draws
+    and tells every level, as --json does);
   - the ruler: the scale's labels and ≈ keep two blanks apart (no `100 104`).
 
 Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import re
 import sys
 import unittest
@@ -213,6 +217,32 @@ class ComposeRunDepthTest(unittest.TestCase):
         data = vrun.timeline_json(tr, depth=0)
         self.assertNotIn("[Cart]", [ln["label"] for ln in data["lanes"]])
         self.assertIn("[Cart]", [ln["label"] for ln in vrun.timeline_json(tr)["lanes"]])
+
+
+class OnceRunDepthTest(unittest.TestCase):
+    """The run (its lanes, narration and path) folds only when --depth is given."""
+
+    def printed(self, *extra) -> str:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            view.main([str(SHOP), "--once", "--run", "--sim", "Risk?>Review", "--no-lint",
+                       "--color", "never", "--width", "140", *extra])
+        return out.getvalue()
+
+    def test_default_draws_and_tells_every_level(self):
+        text = self.printed()
+        ls = labels([[(ln, None)] for ln in text.splitlines()])
+        for name in ("[Gateway]", "[Risk]", "[Model]", "{Verdict}", "[Review]"):
+            self.assertIn(name, ls)
+        self.assertIn("[Risk] takes the optional path to [Review]", text)
+
+    def test_depth_given_folds(self):
+        text = self.printed("--depth", "1")
+        ls = labels([[(ln, None)] for ln in text.splitlines()])
+        self.assertIn("[Payments]", ls)
+        for name in ("[Gateway]", "[Risk]", "[Review]"):
+            self.assertNotIn(name, ls)
+        self.assertNotIn("[Risk] takes", text)
 
 
 class RulerScaleGapTest(unittest.TestCase):
