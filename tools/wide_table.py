@@ -142,7 +142,7 @@ def parse_args(argv):
 def main(argv=None, root: Path = ROOT, cells: Callable[[str], int] | None = None) -> int:
     """root: where the two files are; cells: the width rule (viewkit's by default)."""
     check = parse_args(argv).check
-    ranges = wide_ranges(cells or load_char_cells(ROOT))
+    ranges = wide_ranges(cells or load_char_cells(root))
     stale = 0
     for table in TABLES:
         path = root / table.path

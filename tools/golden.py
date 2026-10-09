@@ -81,7 +81,7 @@ class Variant:
     """One way of drawing an input: the view.once() options (and their CLI flags)."""
     name: str
     view: str = "graph"         # "graph" | "tree" | "flow"
-    depth: int | str = 1        # a number, or ALL_DEPTH
+    depth: int | str | None = None  # None: not given (as the CLI); a number, or ALL_DEPTH
     payloads: bool = False
     notes: str = "off"
     access: bool = False
@@ -194,7 +194,7 @@ def next_scenario(view, path: Path) -> str:
 
 def draw(view, path: Path, v: Variant) -> str:
     """What `view.py path --once` prints for variant `v`."""
-    depth = view.ALL_DEPTH if v.depth == ALL_DEPTH else v.depth
+    depth = view.ALL_DEPTH if v.depth == ALL_DEPTH else v.depth   # None stays not given
     sim = next_scenario(view, path) if v.sim == NEXT_SCENARIO else v.sim
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
