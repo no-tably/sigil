@@ -10,7 +10,8 @@ Usage:
 Options:
     --depth N|all    Show `X := { … }` expansions as sections below the graph,
                      nested up to N levels (default: 1); the run view (and
-                     --run --json) folds deeper lanes into their node's lane.
+                     --run --json) folds deeper lanes into their node's lane
+                     (default: every level, none folded).
     --payloads       Show each flow's `: payload`: as a chip on its edge in the
                      graph view, in a list under the tree in the tree view.
     --no-lint        Skip lint diagnostics.
@@ -316,6 +317,7 @@ DEFAULT_EVENTS = {"graph": "nodes", "tree": "land", "flow": "nodes",
 RUN_NOTES = vrun.RUN_NOTES                      # n in the run view: run → design → off
 RUN_UNROLL = (vrun.sim.RUN_SHOW, 8, 0)          # u in the run view: instances shown before
                                                 # folding (0: all)
+DEFAULT_DEPTH = 1                               # --depth not given: graph, tree and flow
 
 
 def view_name(view) -> str:
@@ -333,6 +335,15 @@ def start_view(view: str | None, tree: bool = False) -> str:
     """The view to start in: `view` (a name in VIEWS) when given, else the tree
     view for the old tree flag, else DEFAULT_VIEW."""
     return view_name(view) if view else "tree" if tree else DEFAULT_VIEW
+
+
+def drawn_depth(view, depth: int | None) -> int:
+    """The expansion depth `view` (view_name's argument) is drawn to: `depth`
+    (--depth) when given; not given (None), the run view every level
+    (kit.ALL_DEPTH, as --run --json) and the others DEFAULT_DEPTH."""
+    if depth is not None:
+        return depth
+    return kit.ALL_DEPTH if view_name(view) == "run" else DEFAULT_DEPTH
 
 
 def view_keys() -> str:
@@ -468,8 +479,9 @@ def keys_legend(state):
             word = f"events:{state.events_mode}"
             bright = state.events_mode != DEFAULT_EVENTS[state.view]
         elif key == "d":
-            word = f"depth:{'all' if state.depth >= kit.ALL_DEPTH else state.depth}"
-            bright = state.depth > 0
+            depth = state.drawn_depth
+            word = f"depth:{'all' if depth >= kit.ALL_DEPTH else depth}"
+            bright = depth > 0
         elif key == "o":
             word = f"layout:{state.layout}"
             bright = state.layout != LAYOUTS[0]
@@ -1424,7 +1436,7 @@ def sim_focus(g, view, *, depth: int, payloads: bool, notes: str, triggers: bool
     return kit.probed_box(rows)
 
 
-def once(path: Path, depth: int, payloads: bool, do_lint: bool,
+def once(path: Path, depth: int | None, payloads: bool, do_lint: bool,
          dialect=None, colour: bool = False, tree: bool = False,
          triggers: bool = True, spaced: bool = True, notes: str = "off",
          width: int | None = None, access: bool = False, mods: bool = False,
@@ -1446,17 +1458,20 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
     the summary (raises UnknownScenario for an unknown one). `checks`: the checks overlay over the drawing, its
     legend, and the findings panel after lint (the checker failing: why, in
     its place; the exit status stays lint's).
+    `depth` (--depth; None: not given): the view is drawn to drawn_depth, the
+    run told (narration, path) at `depth` — every node when not given.
     The summary line ends with the document's `#!mode`, when it has one."""
     kit.use_dialect(dialect)
     text = path.read_text()
     g = kit._call(kit.render.parse_document, text, dialect)
     view = start_view(view, tree)
     tree = view == "tree"
+    told, depth = depth, drawn_depth(view, depth)
     events = events or DEFAULT_EVENTS[view]
     options = scene.SceneOptions(events, triggers, access, depth)
     player = shown = None
     if sim is not None:
-        player = SimPlayer(g, sim, limits, depth)
+        player = SimPlayer(g, sim, limits, told)
         player.at = frame_index(frame, player.last, default=player.last)
         shown = player.shown(options)
     overlay = check_failed = None
@@ -1518,7 +1533,6 @@ def once(path: Path, depth: int, payloads: bool, do_lint: bool,
 # ---------------------------------------------------------------------------
 
 DEPTHS = (0, 1, kit.ALL_DEPTH)
-DEFAULT_DEPTH = 1                       # --depth not given
 LINT_ROWS = 8
 SCROLL_X = 4                                    # columns per left / right key / wheel notch
 WHEEL_Y = 3                                     # rows per wheel notch
@@ -1575,7 +1589,7 @@ def wheel_step(code: int) -> tuple[int, int]:
 
 
 class ViewState:
-    def __init__(self, path: Path, depth: int = DEFAULT_DEPTH, payloads: bool = False,
+    def __init__(self, path: Path, depth: int | None = None, payloads: bool = False,
                  do_lint: bool = True, dialect=None, tree: bool = False,
                  triggers: bool = True, spaced: bool = True, notes: str = "off",
                  access: bool = False, mods: bool = False, events: str | None = None,
@@ -1589,7 +1603,8 @@ class ViewState:
         in (None: each view's default, DEFAULT_EVENTS); each view then keeps its
         own (key v). `sim`: a
         scenario to start in sim mode on (None: sim mode off until x).
-        `checks`: start with the checks overlay on (key c)."""
+        `checks`: start with the checks overlay on (key c). `depth` (--depth;
+        None: not given, see drawn_depth) the expansion depth (key d gives one)."""
         self.path = path
         self.limits = limits                   # the simulator's bounds (None: defaults)
         self.show_access = access
@@ -1602,7 +1617,8 @@ class ViewState:
         self.unroll = RUN_UNROLL[0] if unroll is None else unroll
         self.show_triggers = triggers
         self.spaced = spaced
-        self.depth = depth
+        self.depth = DEFAULT_DEPTH if depth is None else depth
+        self.depth_given = depth is not None   # --depth or d: every view drawn to self.depth
         self.payloads = payloads
         self.show_lint = do_lint
         self.dialect = dialect
@@ -1706,7 +1722,7 @@ class ViewState:
             self.sim_error = f"sim failed: {type(exc).__name__}: {exc}"
             return None
         self.sim_error = None
-        player.depth = self.depth      # its narration and path name the drawn nodes
+        player.depth = self.told_depth  # its narration and path name the drawn nodes
         return player
 
     def _ensure_player(self) -> None:
@@ -1745,10 +1761,22 @@ class ViewState:
             return self.checks.run_marks()
         return self.checks.marks(self._scene_options())
 
+    @property
+    def drawn_depth(self) -> int:
+        """The depth the active view is drawn to: self.depth, except that the run
+        view draws every level until a depth is given (drawn_depth)."""
+        return self.depth if self.depth_given or self.view != "run" else kit.ALL_DEPTH
+
+    @property
+    def told_depth(self) -> int | None:
+        """The depth a run is told at (SimPlayer.depth): self.depth once given,
+        else None — every node named, as --sim NAME --json."""
+        return self.depth if self.depth_given else None
+
     def _scene_options(self):
         """The SceneOptions the active view is drawn with."""
         return scene.SceneOptions(self.events_mode, self.show_triggers, self.show_access,
-                                  self.depth)
+                                  self.drawn_depth)
 
     def sim_trace(self):
         """The run named as the active view draws it (None: sim mode is off or
@@ -1798,7 +1826,8 @@ class ViewState:
     def _compose(self, width: int | None):
         if self.graph is None:
             return [], 0
-        return compose_view(self.graph, self.view, depth=self.depth, payloads=self.payloads,
+        return compose_view(self.graph, self.view, depth=self.drawn_depth,
+                            payloads=self.payloads,
                             notes=self.notes, run_notes=self.run_notes,
                             triggers=self.show_triggers, spaced=self.spaced,
                             width=width, access=self.show_access, mods=self.show_mods,
@@ -1832,9 +1861,10 @@ class ViewState:
             self.show_checks = not self.show_checks
             self._recompose()
         elif k == "d":                 # the next larger depth, wrapping to the first
-            self.depth = next((d for d in DEPTHS if d > self.depth), DEPTHS[0])
+            self.depth = next((d for d in DEPTHS if d > self.drawn_depth), DEPTHS[0])
+            self.depth_given = True
             if self.player is not None:
-                self.player.depth = self.depth
+                self.player.depth = self.told_depth
             self._recompose()
         elif k == "t" or (k.isdigit() and 1 <= int(k) <= len(VIEWS)):
             # t: the next view; a digit: that view (1 the first in VIEWS)
@@ -2022,9 +2052,9 @@ class ViewState:
         """drawn_call_marks of the drawing, worked out once per graph, depth and
         payloads (not once per frame of a run)."""
         if (self._calls is None or self._calls[0] is not self.graph
-                or self._calls[1:3] != (self.depth, self.payloads)):
-            self._calls = (self.graph, self.depth, self.payloads,
-                           drawn_call_marks(self.graph, self.depth, self.payloads))
+                or self._calls[1:3] != (self.drawn_depth, self.payloads)):
+            self._calls = (self.graph, self.drawn_depth, self.payloads,
+                           drawn_call_marks(self.graph, self.drawn_depth, self.payloads))
         return self._calls[3]
 
     def _legend_rule(self, cols: int):
@@ -2040,7 +2070,7 @@ class ViewState:
     def _bar(self, cols: int):
         """The status bar: file, #!mode, view · fit / pan, title, counts, depth, time,
         lint counts."""
-        d = "all" if self.depth >= kit.ALL_DEPTH else str(self.depth)
+        d = "all" if self.drawn_depth >= kit.ALL_DEPTH else str(self.drawn_depth)
         g = self.graph
         summary = f"{len(g.nodes)} nodes · {len(g.edges)} edges" if g is not None else "no graph"
         n_err = sum(1 for x in self.diags if x.severity == "error")
@@ -2067,13 +2097,14 @@ class ViewState:
         origin is the reader's to pan. Returns True when it moved the origin."""
         if not (self.sim_on and self.follow and self.player is not None):
             return False
-        key = (self.player.index, self.player.at, self.view, self.placing, cols, vh, self.depth,
-               self.unroll)
+        key = (self.player.index, self.player.at, self.view, self.placing, cols, vh,
+               self.drawn_depth, self.unroll)
         if key == self._followed:
             return False
         self._followed = key
         try:
-            box = sim_focus(self.graph, self.view, depth=self.depth, payloads=self.payloads,
+            box = sim_focus(self.graph, self.view, depth=self.drawn_depth,
+                            payloads=self.payloads,
                             notes=self.notes, triggers=self.show_triggers, spaced=self.spaced,
                             width=cols if self.placing == "wrap" else None,
                             access=self.show_access,
@@ -2433,7 +2464,6 @@ def main(argv=None) -> int:
         print("view.py: --frame and --play need --sim SCENARIO", file=sys.stderr)
         return 2
     view = next((v for v in VIEWS if getattr(a, v)), DEFAULT_VIEW)
-    depth = DEFAULT_DEPTH if a.depth is None else a.depth   # drawn to
     batch = a.sim in SIM_BATCH             # never drawn: the same live or --once
     tty_out = sys.stdout.isatty()
     once_out = a.once or not tty_out or not sys.stdin.isatty()
@@ -2455,14 +2485,14 @@ def main(argv=None) -> int:
         colour = a.color == "always" or (a.color == "auto" and tty_out)
         width = a.width or (shutil.get_terminal_size().columns if tty_out else ONCE_WIDTH)
         try:
-            return once(a.file, depth, a.payloads, not a.no_lint, dialect, colour, a.tree,
+            return once(a.file, a.depth, a.payloads, not a.no_lint, dialect, colour, a.tree,
                         not a.no_triggers, not a.compact, a.notes, width, a.access, a.mods,
                         a.events, a.sim, a.checks, limits, view, a.unroll, a.layout,
                         a.frame)
         except UnknownScenario as exc:     # the message lists the known ones
             print(f"view.py: --sim: {exc}", file=sys.stderr)
             return 2
-    state = ViewState(a.file, depth, a.payloads, not a.no_lint, dialect, a.tree,
+    state = ViewState(a.file, a.depth, a.payloads, not a.no_lint, dialect, a.tree,
                       not a.no_triggers, not a.compact, a.notes, a.access, a.mods, a.events,
                       a.sim, a.checks, limits, view, a.unroll, a.layout)
     if a.frame is not None or a.play:
