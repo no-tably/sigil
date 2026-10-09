@@ -465,6 +465,18 @@ class TestOverlays(unittest.TestCase):
         self.assertEqual(up[0][1], failed)
         self.assertEqual(up[0][0][0], "├")
 
+    def test_an_untouched_bundle_reads_as_its_error_wire_in_either_order(self):
+        # under a run, two untouched wires back to [A] rank alike by state; the
+        # graph view's share_rank breaks the tie for the `!>`, whatever its line
+        for text in ("[A] -> [B]\n[B] -> [A]\n[B] !> [A]\n",
+                     "[A] -> [B]\n[B] !> [A]\n[B] -> [A]\n"):
+            g, player, trace = self.frames(text)
+            rows = vflow.compose_flow(g, 1, False, trace=trace, tick=0)[0]
+            error = style_of(rows, "✖", "✖")          # the `!>`'s head
+            ret = next(r for r in rows if "".join(t for t, _ in r).startswith("╰"))
+            self.assertEqual({st for t, st in ret if t.strip()}, {error}, text)
+            self.assertEqual((rows[1][0][0][0], rows[1][0][1]), ("├", error), text)
+
     def test_checks_numbers_on_labels(self):
         text = "#!craft\n[LB] -> [App]×N\n[App] -> [Data]\n"
         g = view.render.parse_document(text)

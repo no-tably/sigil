@@ -752,10 +752,10 @@ def _back_bundles(paths: list) -> dict:
     return lead
 
 
-def _bundle_looks(paths: list, rank) -> dict:
+def _bundle_looks(paths: list, ctx: "_Ctx") -> dict:
     """{cell: style} for the cells a back bundle's wires share (their way down,
-    return row and way up): the look of its top-ranked member (`rank`: a path →
-    its rank: its run state's under a run, else _severity) — so a bundled wire the
+    return row and way up): the look of its most severe member (_share_rank:
+    the graph view's rule for a fan-out's shared cells) — so a bundled wire the
     run took reads as taken, and an error wire reads as one, along its whole
     way, not only at its head. A bundle whose top rank two members hold keeps
     the nearest-owner rule."""
@@ -766,7 +766,7 @@ def _bundle_looks(paths: list, rank) -> dict:
     for bundle in bundles.values():
         if len(bundle) < 2:
             continue
-        ranks = [rank(p) for p in bundle]
+        ranks = [_share_rank(ctx, p) for p in bundle]
         top = max(ranks)
         if ranks.count(top) > 1:
             continue
@@ -779,10 +779,10 @@ def _bundle_looks(paths: list, rank) -> dict:
     return out
 
 
-def _severity(p: _Path) -> int:
-    """A wire's rank by its colour with no run: an error wire (edges-fail) 1,
-    else 0 — the most severe member of a bundle reads along its shared way."""
-    return int(any(w.colour == "edges-fail" for w in p.stroke.wires))
+def _share_rank(ctx: "_Ctx", p: _Path) -> tuple:
+    """view_graph.share_rank of a path's wire, in its run state when there is
+    a run: the one rule both views share for cells several wires run along."""
+    return vgraph.share_rank(p.stroke.kind, ctx.state(p.stroke))
 
 
 def _return_chips(widths: list, room: int) -> list:
@@ -926,9 +926,7 @@ def _paint(cv: _Canvas, lay: _Layout, ctx: "_Ctx", paths: list, vids: list) -> N
         traces.append(tr)
     for cell, st in vgraph._nearest_owners(traces, cv.lines).items():
         cv.lines[cell][2] = st
-    rank = ((lambda p: vgraph._STATE_RANK.get(ctx.state(p.stroke), -1))
-            if ctx.look is not None else _severity)
-    for cell, st in _bundle_looks(paths, rank).items():
+    for cell, st in _bundle_looks(paths, ctx).items():
         if cell in cv.lines:
             cv.lines[cell][2] = st
     for p in paths:                             # heads, and a `<->`'s source end
