@@ -688,7 +688,7 @@ def _classify_payload(value_text: str):
 
     # External op-call: `op <ns>.<verb>(args)`.
     if re.match(r"^op\b", v):
-        m = re.match(r"^op\s+([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+)\s*\((.*)\)\s*$", v)
+        m = re.match(r"^op\s+([^\W\d]\w*(?:\.[^\W\d]\w*)+)\s*\((.*)\)\s*$", v)
         if m:
             return ("ext-op", v)
         return ("ext-op-bad", v)

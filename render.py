@@ -440,17 +440,19 @@ class Section(NamedTuple):
 def _id_char(ch: str) -> str:
     """One character of a node id: ASCII letters, digits and `_` stay; other
     ASCII (punctuation, space) becomes `_`; a non-ASCII character becomes `u` +
-    its code point in hex (`利` → `u5229`), so wide names keep distinct ids."""
+    its code point in six hex digits (`利` → `u005229`). The fixed width keeps
+    the encoding unambiguous: `Āb` (`u000100b`) and `ဋ` (`u00100b`) differ."""
     if ch.isascii():
         return ch if ch.isalnum() or ch == "_" else "_"
-    return f"u{ord(ch):x}"
+    return f"u{ord(ch):06x}"
 
 
 def mk_id(name: str) -> str:
     """Make a Mermaid-safe ID ([A-Za-z0-9_], never a digit first) from a glyph
     name. Lossy only for ASCII punctuation: `[a-b]` / `[a_b]` share an id, so
-    they draw as one node; two non-ASCII names (`[利用者]` / `[転送器]`) never do
-    (only an ASCII name spelt like an encoding, `[u5229]`, could meet `[利]`)."""
+    they draw as one node; two names that differ in a non-ASCII character
+    (`[利用者]` / `[転送器]`, `[Āb]` / `[ဋ]`) never do (only ASCII spelt like an
+    encoding, `[u005229]`, could meet `[利]`)."""
     safe = "".join(_id_char(ch) for ch in name.strip())
     if safe and safe[0].isdigit():
         safe = "n" + safe

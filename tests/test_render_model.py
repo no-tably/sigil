@@ -775,7 +775,13 @@ class WideNames(unittest.TestCase):
 
     def test_names_of_one_length_stay_apart(self):
         g = parse("[利用者] -> [転送器]\n")
-        self.assertEqual(keys(g), {("u5229u7528u8005_service", "u8ee2u9001u5668_service", "->")})
+        self.assertEqual(keys(g), {("u005229u007528u008005_service", "u008ee2u009001u005668_service", "->")})
+
+    def test_fixed_width_codes_never_run_together(self):
+        self.assertNotEqual(render.mk_id("Āb"), render.mk_id("ဋ"))
+        g = parse("[Āb] -> [ဋ]\n")
+        self.assertEqual(len(g.nodes), 2)
+        self.assertEqual(keys(g), {(render.mk_id("Āb") + "_service", render.mk_id("ဋ") + "_service", "->")})
 
     def test_ids_are_mermaid_safe_and_ascii_ids_unchanged(self):
         for name in ("利用者", "café", "cafe\u0301", "ガイド係", "１番", "a b-c"):
@@ -792,6 +798,13 @@ class WideNames(unittest.TestCase):
         self.assertEqual(edge(g, "Api_service", "Api_service").payload, "実行({仕事})")
         self.assertIsNotNone(render.OP_TARGET_RE.match("短縮({網址})"))
         self.assertIsNone(render.OP_TARGET_RE.match("１番({網址})"))
+
+    def test_a_wide_external_op_call_lints_clean(self):
+        lint = _load("sigil_lint_model", "lint.py")
+        codes = lambda doc: [d.rule for d in lint.lint(doc).diagnostics]
+        self.assertEqual(codes("#!sketch\n[A] -> [B] : op 外部.呼ぶ({X})\n"),
+                         codes("#!sketch\n[A] -> [B] : op ext.call({X})\n"))
+        self.assertIn("SGL102", codes("#!sketch\n[A] -> [B] : op １番.呼ぶ({X})\n"))
 
     def test_the_cjk_fixture_lints_clean(self):
         out = subprocess.run([sys.executable, str(_DIR / "lint.py"),
