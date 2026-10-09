@@ -705,6 +705,7 @@ def lane_notes(tl, scn, numbered: set, tick: int, final: bool) -> dict:
         fam = rows[ln.key]
         mine = _of_lanes(spans, span_at, fam)
         acts = {s.act for s in mine}
+        runs = {s.act for s in mine if not s.folded}   # its fold's work isn't a run
         into = [m for m in _of_lanes(moves, dst_at, fam) if not m.back]
         from_fam = _of_lanes(moves, src_at, fam)
         outof = [m for m in from_fam if not m.back]
@@ -780,8 +781,8 @@ def lane_notes(tl, scn, numbered: set, tick: int, final: bool) -> dict:
             cl.append(Clause("reached: an actor, no work of its own", ROLE, "reached"))
         elif any(m.how == "opaque" for m in into):
             cl.append(Clause("reached: the host's side, opaque", ROLE, "reached: opaque"))
-        if len(acts) > 1 and kind != "event":
-            cl.append(Clause(f"runs {len(acts)}×{so_far}", REPEAT))
+        if len(runs) > 1 and kind != "event":
+            cl.append(Clause(f"runs {len(runs)}×{so_far}", REPEAT))
         loops = {}
         for act in acts:
             for it in loops_at.get(act, ()):
@@ -791,7 +792,7 @@ def lane_notes(tl, scn, numbered: set, tick: int, final: bool) -> dict:
             cl.append(Clause(f"loops {max(loops.values())}×{so_far}", REPEAT))
         if ln.key in depth:
             cl.append(Clause(f"recurses to depth {depth[ln.key]}"
-                             + (" each time" if len(acts) > 1 else ""), REPEAT))
+                             + (" each time" if len(runs) > 1 else ""), REPEAT))
         attempts = [m for m in into if m.attempt]
         ended = [m for m in into if m.end is not None and m.end <= tick]
         failed_in = [m for m in ended if m.how == "failed"]
@@ -1173,7 +1174,8 @@ def timeline_json(trace, limits=None, show: Optional[int] = None,
                    "par": ln.par}
                   for ln in tl.lanes],
         "spans": [{"lane": key(s.lane), "act": s.act, "task": s.task, "enter": s.enter,
-                   "leave": s.leave, "how": s.how, "waits": [list(w) for w in s.waits]}
+                   "leave": s.leave, "how": s.how, "waits": [list(w) for w in s.waits],
+                   **({"folded": True} if s.folded else {})}
                   for s in tl.spans],
         "moves": [{"id": m.id, "kind": m.kind, "back": m.back, "start": m.start,
                    "end": m.end, "how": m.how, "src": [key(k) for k in m.src],

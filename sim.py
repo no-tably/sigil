@@ -3090,7 +3090,9 @@ class Lane(NamedTuple):
 class Span(NamedTuple):
     """One activation on one lane: [enter, leave) ticks; waits ((from, to), …)
     the ticks of it spent waiting (to exclusive) — on a call it made, a deeper
-    activation of its task, the members it awaits — the rest is work."""
+    activation of its task, the members it awaits — the rest is work. `folded`:
+    a folded node's activation moved onto its host's lane (_fold_into_hosts),
+    work the host's fold does, not another run of the host."""
     lane: tuple
     act: int
     task: int
@@ -3102,6 +3104,7 @@ class Span(NamedTuple):
     caller: Optional[int]
     wire: Optional[tuple]
     episode: int
+    folded: bool = False
 
 
 class Move(NamedTuple):
@@ -3307,8 +3310,9 @@ def timeline(trace: Trace, *, limits: Limits = Limits(),
                               sp[0] if sp else None, sp[1] if sp else None))
     born_at = {k: v["born"] for k, v in lanes.items()}
     if hosts:
-        lane_rows, spans, moves, marks, born_at = _fold_into_hosts(
+        lane_rows, spans, moves, marks, born_at, alias = _fold_into_hosts(
             lane_rows, spans, moves, marks, born_at, hosts, last)
+        move_acts = {h: tuple(alias.get(a, a) for a in ab) for h, ab in move_acts.items()}
     folded = {"show": show, "instances": 0, "levels": 0}
     if show is not None:
         lane_rows, spans, moves, marks, born_at = _fold_lanes(
@@ -3363,12 +3367,14 @@ def _fold_into_hosts(lanes: list, spans: list, moves: list, marks: list, born_at
                      hosts: dict, last: int) -> tuple:
     """The lanes of folded nodes (hosts) folded into their hosts' (_host_lanes):
     a folded span running inside a host span on its task is absorbed into it
-    (_absorbed), any other moves onto the host's lane; a move between two lanes
-    of one fold is left out (the host's own work), any other leaves or reaches
-    the host's lane; marks move with their lanes."""
+    (_absorbed), any other moves onto the host's lane, marked `folded`, those of
+    one task merged into its outermost (_merge_folded); a move between two
+    lanes of one fold is left out (the host's own work), any other leaves or
+    reaches the host's lane; marks move with their lanes. Also returns {act id
+    absorbed: the act id that absorbed it}."""
     to = _host_lanes(lanes, hosts)
     if not to:
-        return lanes, spans, moves, marks, born_at
+        return lanes, spans, moves, marks, born_at, {}
     r = lambda k: to.get(k, k)
     by_key = {ln.key: ln for ln in lanes}
     out_lanes, out_born = {}, {}
@@ -3388,13 +3394,16 @@ def _fold_into_hosts(lanes: list, spans: list, moves: list, marks: list, born_at
             inner.setdefault(to[s.lane], []).append(s)
         else:
             hosted.append(s)
-    out_spans, taken = [], set()
+    out_spans, taken, alias = [], set(), {}
     for s in hosted:
         mine = [x for x in inner.get(s.lane, ()) if _within(x, s)]
         taken.update(id(x) for x in mine)
+        alias.update((x.act, s.act) for x in mine)
         out_spans.append(_absorbed(s, mine, last) if mine else s)
-    out_spans += [s._replace(lane=r(s.lane)) for ss in inner.values() for s in ss
-                  if id(s) not in taken]
+    for lane, ss in inner.items():
+        merged, more = _merge_folded([s for s in ss if id(s) not in taken], last)
+        out_spans += [s._replace(lane=lane, folded=True) for s in merged]
+        alias.update(more)
     out_moves = []
     for m in moves:
         src = tuple(dict.fromkeys(map(r, m.src)))
@@ -3404,7 +3413,24 @@ def _fold_into_hosts(lanes: list, spans: list, moves: list, marks: list, born_at
         elif dst:
             out_moves.append(m._replace(src=src, dst=dst))
     out_marks = [mk._replace(lane=r(mk.lane)) for mk in marks]
-    return list(out_lanes.values()), out_spans, out_moves, out_marks, out_born
+    return list(out_lanes.values()), out_spans, out_moves, out_marks, out_born, alias
+
+
+def _merge_folded(spans: list, last: int) -> tuple:
+    """Folded spans bound for one host lane, each running inside an earlier
+    one on its task (_within) absorbed into that outermost one (_absorbed):
+    one activation per stretch of a task's work. Returns (the spans left,
+    {act id absorbed: the act id that absorbed it})."""
+    outer, inner, alias = [], {}, {}
+    for s in sorted(spans, key=lambda x: (x.enter, -(x.leave if x.leave is not None
+                                                     else last + 1), x.act)):
+        host = next((o for o in outer if _within(s, o)), None)
+        if host is None:
+            outer.append(s)
+        else:
+            inner.setdefault(host.act, []).append(s)
+            alias[s.act] = host.act
+    return [_absorbed(o, inner[o.act], last) if o.act in inner else o for o in outer], alias
 
 
 def _spans(acts: dict, moves: list, awaits: dict, last: int) -> list:

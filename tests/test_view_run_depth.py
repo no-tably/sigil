@@ -9,6 +9,9 @@ Covers:
   - sim.narrate / sim.hops (hosts=…): name only the drawn nodes (no hidden
     [Checkout] at --depth 0), leave out what happens wholly inside a fold;
   - view_run.compose_run(depth=…): the lanes drawn, the notes naming hosts;
+  - a fold's own task (an emit inside the expansion) on the host's lane: one
+    activation, marked folded, not another run of the host (no `runs 3×`,
+    no ∥ row);
   - view.py --once: the run folds only when --depth is given (the default draws
     and tells every level, as --json does);
   - the ruler: the scale's labels and ≈ keep two blanks apart (no `100 104`).
@@ -243,6 +246,56 @@ class OnceRunDepthTest(unittest.TestCase):
         for name in ("[Gateway]", "[Risk]", "[Review]"):
             self.assertNotIn(name, ls)
         self.assertNotIn("[Risk] takes", text)
+
+
+API = """#!spec
+(User) -> [Api]
+[Api] -> |Db|
+[Api] := {
+  [In] -> [Out]
+  [Out] ~> <Done> -> [Bg]
+  [Bg] -> |Db|
+}
+"""
+
+
+class FoldedTaskTest(unittest.TestCase):
+    """[Api] called once; its expansion's emit runs [Bg] on a task of its own."""
+
+    def setUp(self):
+        self.g = view.render.parse_document(API)
+        self.canon, self.tr = run_of(self.g)
+        self.tl = sim.timeline(self.tr, hosts=sim.folded_hosts(self.canon, 0))
+
+    def api_spans(self):
+        return [s for s in self.tl.spans if s.lane[0] == "Api_service"]
+
+    def test_the_folds_task_is_one_folded_activation(self):
+        spans = self.api_spans()
+        self.assertEqual([s.folded for s in spans], [False, True])
+        self.assertEqual(len({s.lane for s in spans}), 1)       # no ∥ sub-row
+
+    def test_the_folded_activation_works_while_its_fold_does(self):
+        folded = self.api_spans()[1]
+        bg = next(s for s in sim.timeline(self.tr).spans if s.node == "Bg_service")
+        waits = {t for a, b in folded.waits for t in range(a, b)}
+        self.assertTrue(set(range(bg.enter, bg.enter + 1)).isdisjoint(waits))
+
+    def test_the_moves_leave_the_hosts_lane(self):
+        lanes = {ln.key for ln in self.tl.lanes}
+        for m in self.tl.moves:
+            self.assertTrue(set(m.src) | set(m.dst) <= lanes)
+
+    def test_the_lane_says_it_ran_once(self):
+        rows, _w = vrun.compose_run(self.g, None, None, 140, depth=0)
+        text = "\n".join("".join(t for t, _ in r) for r in rows if isinstance(r, list))
+        api = next(ln for ln in text.splitlines() if ln.lstrip().startswith("[Api]"))
+        self.assertNotIn("runs", api)
+        self.assertNotIn("∥", text)
+
+    def test_json_marks_the_folded_activation(self):
+        data = vrun.timeline_json(self.tr, depth=0)
+        self.assertEqual(sum(1 for s in data["spans"] if s.get("folded")), 1)
 
 
 class RulerScaleGapTest(unittest.TestCase):
