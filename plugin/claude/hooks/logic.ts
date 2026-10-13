@@ -278,7 +278,7 @@ export function splitArgv(mux: Mux, follow: readonly string[], herdrPane?: strin
 
 /** Waits until a new herdr pane's shell has drawn anything (its prompt): a
  * command sent by `herdr pane run` before then is lost. */
-export function herdrReadyArgv(pane: string): string[] {
+export function herdrReadyArgv(pane: string): [string, ...string[]] {
   return ['herdr', 'pane', 'wait-output', pane, '--regex', '\\S', '--source', 'visible']
 }
 

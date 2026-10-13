@@ -32,7 +32,13 @@ file (`--sigil-layout`, `SIGIL_LAYOUT` for the layout); with none set it's
 ```sh
 ./build.py --target pi && pi -e dist/pi/extensions/sigil/index.ts   # try it
 python3 -m unittest tests.test_pi_extension
+npm install --no-save --prefix plugin/pi typescript@5.9.3 @types/node@22.20.5
+plugin/pi/node_modules/.bin/tsc -p plugin/pi/tsconfig.json             # type-check, as CI does
 ```
+
+`tsconfig.json` here type-checks the source in place. Its `rootDirs` let
+`./logic.ts` resolve to `../claude/hooks/logic.ts`, as `build.py` lays it out, so
+the logic the two plugins share is checked too. CI runs this check on every push.
 
 The tests drive the built extension twice. The first run uses a stand-in API and
 needs a node that runs `.ts` files itself (23.6 or newer). The second, which runs

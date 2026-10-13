@@ -42,7 +42,7 @@ type ExecResult = { stdout: string; stderr: string; code: number }
 type Component = { render(width: number): string[]; invalidate(): void }
 type Tui = { requestRender(): void }
 type Ui = {
-  setWidget(key: string, content: undefined | ((tui: Tui, theme: unknown) => Component)): void
+  setWidget(key: string, content: undefined | string[] | ((tui: Tui, theme: unknown) => Component)): void
   notify(message: string, level?: 'info' | 'warning' | 'error'): void
 }
 type Ctx = { cwd: string; hasUI: boolean; ui: Ui }

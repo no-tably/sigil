@@ -26,6 +26,11 @@ jobs:
       - name: Unit tests (node runs the site's JS checks)
         run: python -m unittest discover tests -v
 
+      - name: Type-check the pi extension and the logic it shares with the Claude Code mod
+        run: |
+          npm install --no-save --no-package-lock --prefix plugin/pi typescript@5.9.3 @types/node@22.20.5
+          plugin/pi/node_modules/.bin/tsc -p plugin/pi/tsconfig.json
+
       - name: Build all targets
         run: |
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then

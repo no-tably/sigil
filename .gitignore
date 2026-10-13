@@ -2,6 +2,7 @@ dist/
 __pycache__/
 *.pyc
 _site/
+node_modules/
 
 # local working notes for agents (not published)
 CLAUDE.md

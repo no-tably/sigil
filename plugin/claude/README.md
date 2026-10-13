@@ -34,7 +34,12 @@ claude plugin test plugin/claude              # tests/*.test.ts against the engi
 
 To type-check, use TypeScript 5.4 or newer with `tsconfig.json` here. When Claude
 Code loads the folder it writes the API's declarations to `.claude-plugin/types/`
-(gitignored).
+(gitignored). Those declarations come only from a Claude Code install, so CI
+can't type-check `hooks/sigil.tsx` or `tests/`. It does check `hooks/logic.ts`,
+through the pi extension's check ([`../pi`](../pi/README.md#develop)). Outside a loaded
+folder, the plugin-authoring skill writes the same file (`claude-code.d.ts`). Put it
+in a `tsconfig` that `extends` this one and `include` it with `hooks`, `types` and
+`tests`.
 
 `tests/test_claude_mod.py` covers `pane.py` and the packaging. When `claude` is on
 the PATH, it also runs the validate and test commands above.

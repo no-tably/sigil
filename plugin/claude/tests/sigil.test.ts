@@ -149,7 +149,7 @@ describe('mod display', () => {
     expect(await desk.find({ key: 'view-graph' })).toMatchObject({ props: { label: 'graph', hotkey: '1' } })
     expect(await desk.find({ key: 'view-flow' })).toMatchObject({ props: { label: '[flow]', hotkey: '3' } })
     expect(await desk.find({ key: 'view-run' })).toMatchObject({ props: { label: 'run', hotkey: '4' } })
-    expect(await desk.find({ type: 'Box', props: { height: 40 } })).toBeDefined()   // docked: fills, info at the bottom
+    expect((await desk.findAll({ type: 'Box' })).some(box => box.props.height === 40)).toBe(true)   // docked: fills, info at the bottom
   })
 
   test('a wide character in the drawing is itself over its two cells: such rows are text, not a Raster', { options: { display: 'mod' } }, async ($, on) => {
