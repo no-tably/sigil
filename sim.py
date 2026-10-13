@@ -3160,6 +3160,9 @@ class Timeline(NamedTuple):
     folded: dict               # {"show", "instances", "levels"}: what folding left out
     iterations: tuple = ()     # Iteration, by tick
     hosts: dict = {}           # folded_hosts: the folded nodes, each with its host
+    hidden: frozenset = frozenset()  # the ticks something happens inside a fold (change_ticks
+                               # of the folded lanes' spans and of the hops left out): the
+                               # host is busy on hidden internals then
 
 
 def timeline(trace: Trace, *, limits: Limits = Limits(),
@@ -3181,7 +3184,8 @@ def timeline(trace: Trace, *, limits: Limits = Limits(),
     show − 1 and every one that failed or was cancelled, the rest one lane
     (FOLD); levels past show + 1 keep ↻2 … ↻(show − 1) and the deepest, the
     middle one lane (lo‥hi). `hosts` (folded_hosts; None: every node drawn):
-    a folded node's lanes fold into its host's (_fold_into_hosts). Pure."""
+    a folded node's lanes fold into its host's (_fold_into_hosts), the ticks
+    something happens inside a fold kept as `hidden`. Pure."""
     prog = _program_of(trace.scene.graph)
     events = trace.end.get("events", ())
     wires = {w.ident: w for w in prog.scene.wires}
@@ -3309,8 +3313,9 @@ def timeline(trace: Trace, *, limits: Limits = Limits(),
                               owner_of.get(inst) if inst else None,
                               sp[0] if sp else None, sp[1] if sp else None))
     born_at = {k: v["born"] for k, v in lanes.items()}
+    hidden = frozenset()
     if hosts:
-        lane_rows, spans, moves, marks, born_at, alias = _fold_into_hosts(
+        lane_rows, spans, moves, marks, born_at, alias, hidden = _fold_into_hosts(
             lane_rows, spans, moves, marks, born_at, hosts, last)
         move_acts = {h: tuple(alias.get(a, a) for a in ab) for h, ab in move_acts.items()}
     folded = {"show": show, "instances": 0, "levels": 0}
@@ -3321,7 +3326,22 @@ def timeline(trace: Trace, *, limits: Limits = Limits(),
                                                      move_acts, last)
     return Timeline(_lane_order(lane_rows, born_at), tuple(sorted(spans, key=lambda s: (s.enter, s.act))),
                     tuple(moves), tuple(sorted(marks, key=lambda m: m.t)), tuple(episodes), last,
-                    folded, tuple(iterations), dict(hosts or {}))
+                    folded, tuple(iterations), dict(hosts or {}), hidden)
+
+
+def change_ticks(spans, moves) -> set:
+    """The ticks something happens: an activation enters or leaves, a hop sets
+    out, lands or is about to (its end's tick before)."""
+    out = set()
+    for s in spans:
+        out.add(s.enter)
+        if s.leave is not None:
+            out.add(s.leave)
+    for m in moves:
+        out.add(m.start)
+        if m.end is not None:
+            out |= {m.end, m.end - 1}
+    return out
 
 
 def _host_lanes(lanes: list, hosts: dict) -> dict:
@@ -3371,10 +3391,12 @@ def _fold_into_hosts(lanes: list, spans: list, moves: list, marks: list, born_at
     one task merged into its outermost (_merge_folded); a move between two
     lanes of one fold is left out (the host's own work), any other leaves or
     reaches the host's lane; marks move with their lanes. Also returns {act id
-    absorbed: the act id that absorbed it}."""
+    absorbed: the act id that absorbed it} and the ticks something happens
+    inside a fold (change_ticks of the folded lanes' spans and the moves left
+    out)."""
     to = _host_lanes(lanes, hosts)
     if not to:
-        return lanes, spans, moves, marks, born_at, {}
+        return lanes, spans, moves, marks, born_at, {}, frozenset()
     r = lambda k: to.get(k, k)
     by_key = {ln.key: ln for ln in lanes}
     out_lanes, out_born = {}, {}
@@ -3404,7 +3426,7 @@ def _fold_into_hosts(lanes: list, spans: list, moves: list, marks: list, born_at
         merged, more = _merge_folded([s for s in ss if id(s) not in taken], last)
         out_spans += [s._replace(lane=lane, folded=True) for s in merged]
         alias.update(more)
-    out_moves = []
+    out_moves, left_out = [], []
     for m in moves:
         src = tuple(dict.fromkeys(map(r, m.src)))
         dst = tuple(k for k in dict.fromkeys(map(r, m.dst)) if k not in src)
@@ -3412,8 +3434,12 @@ def _fold_into_hosts(lanes: list, spans: list, moves: list, marks: list, born_at
             out_moves.append(m)
         elif dst:
             out_moves.append(m._replace(src=src, dst=dst))
+        else:
+            left_out.append(m)
     out_marks = [mk._replace(lane=r(mk.lane)) for mk in marks]
-    return list(out_lanes.values()), out_spans, out_moves, out_marks, out_born, alias
+    hidden = change_ticks([s for ss in inner.values() for s in ss], left_out)
+    return (list(out_lanes.values()), out_spans, out_moves, out_marks, out_born, alias,
+            frozenset(hidden))
 
 
 def _merge_folded(spans: list, last: int) -> tuple:
@@ -4076,6 +4102,17 @@ def _event_sentence(wd: _Words, ev: dict, scn) -> Optional[str]:
     return None
 
 
+def _loop_subject(wd: _Words, owner: Optional[str]) -> str:
+    """Who a loop is said of, by the owner of the unit it runs in (None: the
+    document): `loop in [Checkout]`; an owner folded into a drawn host
+    (wd.hosts) is not drawn, so the host loops inside: `[Shop] loops (inside)`."""
+    if owner is None:
+        return "loop"
+    if owner in wd.hosts:
+        return f"{wd.name(owner)} loops (inside)"
+    return f"loop in {wd.name(owner)}"
+
+
 def _changes(wd: _Words, prev, f) -> list:
     """What changed from the previous frame that no event says: a loop's
     iteration, a store held or let go by an `owns` block, another instance, a
@@ -4087,8 +4124,7 @@ def _changes(wd: _Words, prev, f) -> list:
             out.append(f"{wd.name(nid)} is cancelled")
     for key, k in f.loops.items():
         if prev is None or prev.loops.get(key) != k:
-            where = f" in {wd.name(key[0])}" if key[0] is not None else ""
-            out.append(f"loop{where}: iteration {k}")
+            out.append(f"{_loop_subject(wd, key[0])}: iteration {k}")
     if prev is not None:
         for nid in sorted(f.held_resources - prev.held_resources - wd.hosts.keys(), key=str):
             out.append(f"{wd.name(nid)} is held")

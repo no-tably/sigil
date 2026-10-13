@@ -238,15 +238,10 @@ def _columns(tl, busy: set) -> _Cols:
 
 
 def _busy_ticks(tl) -> set:
-    out = {0, tl.last}
-    for s in tl.spans:
-        out.add(s.enter)
-        if s.leave is not None:
-            out.add(s.leave)
-    for m in tl.moves:
-        out.add(m.start)
-        if m.end is not None:
-            out |= {m.end, m.end - 1}
+    """The ticks never folded into ≈: the run's first and last, each where
+    something happens on a drawn lane or inside a fold (tl.hidden: a host busy
+    on hidden internals isn't quiet), a mark, an iteration, an episode's edge."""
+    out = {0, tl.last} | sim.change_ticks(tl.spans, tl.moves) | tl.hidden
     out |= {m.t for m in tl.marks}
     out |= {it.t for it in tl.iterations}
     for _k, t, _n in tl.episodes:
