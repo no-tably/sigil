@@ -555,7 +555,7 @@ class TestFollow(_Doc):
             st.key(">")
         st.frame(100, 30)
         self.assertGreater(st.sy, top)
-        box = view.sim_focus(st.graph, st.view, depth=st.depth, payloads=st.payloads,
+        box = view.sim_focus(st.graph, st.view, depth=st.drawn_depth, payloads=st.payloads,
                              notes=st.notes, triggers=True, spaced=True, width=100,
                              access=False, mods=False, events=st.events_mode,
                              trace=st.sim_trace(), tick=st.player.at)

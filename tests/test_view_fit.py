@@ -317,7 +317,7 @@ class TestLiveFit(unittest.TestCase):
         wide = text_rows(st.frame(200, 60))
         self.assertTrue(any("#>" in ln for ln in wide))       # natural layout again
         self.assertEqual(text_rows(st._rows), text_rows(view.compose_tree(
-            st.graph, st.depth, notes="callouts", payloads=True)[0]))
+            st.graph, st.drawn_depth, notes="callouts", payloads=True)[0]))
 
     def test_graph_view_frame(self):
         self.path.write_text(WIDE_CHIPS)

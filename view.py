@@ -1617,8 +1617,7 @@ class ViewState:
         self.unroll = RUN_UNROLL[0] if unroll is None else unroll
         self.show_triggers = triggers
         self.spaced = spaced
-        self.depth = DEFAULT_DEPTH if depth is None else depth
-        self.depth_given = depth is not None   # --depth or d: every view drawn to self.depth
+        self._depth = depth                    # --depth or d (None: not given, drawn_depth)
         self.payloads = payloads
         self.show_lint = do_lint
         self.dialect = dialect
@@ -1722,7 +1721,7 @@ class ViewState:
             self.sim_error = f"sim failed: {type(exc).__name__}: {exc}"
             return None
         self.sim_error = None
-        player.depth = self.told_depth  # its narration and path name the drawn nodes
+        player.depth = self.depth  # told where drawn (None: every node named, as --sim --json)
         return player
 
     def _ensure_player(self) -> None:
@@ -1762,16 +1761,23 @@ class ViewState:
         return self.checks.marks(self._scene_options())
 
     @property
-    def drawn_depth(self) -> int:
-        """The depth the active view is drawn to: self.depth, except that the run
-        view draws every level until a depth is given (drawn_depth)."""
-        return self.depth if self.depth_given or self.view != "run" else kit.ALL_DEPTH
+    def depth(self) -> int | None:
+        """The expansion depth given (--depth or d), None until one is."""
+        return self._depth
+
+    @depth.setter
+    def depth(self, depth: int | None) -> None:
+        """Give (or, None, take back) the depth: every view is drawn there and
+        the run told there, so the player is told it too."""
+        self._depth = depth
+        if self.player is not None:
+            self.player.depth = depth
 
     @property
-    def told_depth(self) -> int | None:
-        """The depth a run is told at (SimPlayer.depth): self.depth once given,
-        else None — every node named, as --sim NAME --json."""
-        return self.depth if self.depth_given else None
+    def drawn_depth(self) -> int:
+        """The depth the active view is drawn to: self.depth once given; until
+        then the run view every level, the others DEFAULT_DEPTH (drawn_depth)."""
+        return drawn_depth(self.view, self.depth)
 
     def _scene_options(self):
         """The SceneOptions the active view is drawn with."""
@@ -1862,9 +1868,6 @@ class ViewState:
             self._recompose()
         elif k == "d":                 # the next larger depth, wrapping to the first
             self.depth = next((d for d in DEPTHS if d > self.drawn_depth), DEPTHS[0])
-            self.depth_given = True
-            if self.player is not None:
-                self.player.depth = self.told_depth
             self._recompose()
         elif k == "t" or (k.isdigit() and 1 <= int(k) <= len(VIEWS)):
             # t: the next view; a digit: that view (1 the first in VIEWS)
