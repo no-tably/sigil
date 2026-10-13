@@ -2,6 +2,47 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
+## 0.4.3 — 2026-10-13
+
+Fixes for what 0.4.2 left open. No new features.
+
+### Viewer
+
+- **The run view at `--depth`:** a node busy on the work of an expansion folded into
+  its lane now counts as busy, so that stretch is no longer squeezed into a `≈`
+  column as if nothing happened. A loop inside a folded expansion is narrated as the
+  drawn node's ("[Shop] loops (inside)"), not as a loop of the node itself.
+- **The flow view** picks its wrap again when a run's badges change a frame's width
+  or turn blank, so every frame of a playing run draws as it does on its own. A run
+  that fits costs no more a frame than before.
+- **One depth everywhere.** Setting the viewer's depth (from `--depth`, `d`, or code
+  that drives the viewer) draws every view at that depth and tells the run the same
+  depth, so a run's drawing and its narration never disagree.
+- Two neighbouring stretches of one colour that come from different theme roles
+  stay apart, so each keeps its own role when the drawing is repainted. What you see
+  is unchanged.
+
+### Notation tools
+
+- An op verb written with a combining mark (a decomposed `ガ`, `カ` + U+3099) is one
+  op-call in `lint.py`, `render.py` and the views, as the composed form already was.
+- `render.py`'s Mermaid ids can no longer collide between an ASCII name spelt like an
+  encoded character (`[u005229]`) and a non-ASCII one (`[利]`). Ids of other ASCII
+  names are unchanged.
+
+### Agent plugins and CI
+
+- **CI type-checks the pi extension** and the logic it shares with the Claude Code
+  mod on every push, now through bun with pinned TypeScript and `@types/node`
+  (a dev-only `plugin/pi/package.json` and `bun.lock`, never shipped). Its first run
+  found three fixes: pi's widget type now takes the plain text lines that RPC mode
+  sends; the herdr wait command's first word can no longer read as undefined; and a
+  Claude Code mod test whose filter the test kit ignored now checks the docked
+  pane's height.
+- The Claude Code plugin's README says why pane rows holding a wide character are
+  drawn as text rather than repainted in place: the engine's `Raster` takes only
+  one-column cells.
+
 ## 0.4.2 — 2026-10-10
 
 Fixes for what 0.4.1 left open. No new features.

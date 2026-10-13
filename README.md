@@ -377,6 +377,7 @@ python3 -m unittest discover tests          # all tests
 ./build.py                                   # build every target into dist/
 ./build.py --target claude --version 1.2.3   # one target, explicit version
 ./build.py --check                           # validate dist/ (CI runs this)
+cd plugin/pi && bun install --frozen-lockfile && bun run typecheck   # type-check the pi extension
 ```
 
 ### Layout
@@ -423,8 +424,9 @@ Canonical packaging sources — edit these, never `dist/`:
 `check_state.py`, `check_trace.py` and `check_inv.py`), `dialects.py` and `themes.py`
 (with `themes/*.yaml`) into `skills/sigil/scripts/` and `language.md` / `examples.md` into
 `skills/sigil/references/`, then writes each agent's manifests. Archives are
-deterministic. CI (`.github/workflows/ci.yml`) tests, builds and validates on
-every push; pushing a `v*` tag builds with that version and attaches the
+deterministic. CI (`.github/workflows/ci.yml`) tests, type-checks the pi extension
+and the logic it shares with the Claude Code mod (through bun), builds and validates
+on every push; pushing a `v*` tag builds with that version and attaches the
 archives to a GitHub Release.
 
 ## License

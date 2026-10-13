@@ -83,7 +83,10 @@ Options:
   graph, tree and flow views open one level by default. The run view draws every
   level unless `--depth` is given; then a deeper expansion's lanes fold into its
   node's lane, and a run's narration and path name only the nodes drawn
-  (`--run --json` and `--sim NAME --json` fold the same way when it is given).
+  (`--run --json` and `--sim NAME --json` fold the same way when it is given). A
+  node busy on its folded expansion's work counts as busy, so that stretch never
+  folds into `≈`, and a loop inside the folded expansion is narrated as the node's
+  ("[Shop] loops (inside)").
 - `--payloads` shows flow payloads: chips on edges in the graph view, on the wire
   between two columns in the flow view (`─┆{Cart}┆─▶`; a self-call's on a stub under
   its subject), a list in the tree view (an error path's chip there led by `✖`). A `"""…"""` block-string shows its
