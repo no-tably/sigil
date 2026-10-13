@@ -1,0 +1,12 @@
+{
+  "name": "sigil-pi-dev",
+  "private": true,
+  "description": "Development only: type-checks the pi extension. build.py writes the published package's own package.json; this file is never shipped.",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3"
+  }
+}

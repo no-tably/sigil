@@ -32,11 +32,14 @@ file (`--sigil-layout`, `SIGIL_LAYOUT` for the layout); with none set it's
 ```sh
 ./build.py --target pi && pi -e dist/pi/extensions/sigil/index.ts   # try it
 python3 -m unittest tests.test_pi_extension
-npm install --no-save --prefix plugin/pi typescript@5.9.3 @types/node@22.20.5
-plugin/pi/node_modules/.bin/tsc -p plugin/pi/tsconfig.json             # type-check, as CI does
+cd plugin/pi && bun install --frozen-lockfile && bun run typecheck      # type-check, as CI does
 ```
 
-`tsconfig.json` here type-checks the source in place. Its `rootDirs` let
+`package.json` and `bun.lock` here are for development only: they pin the type
+checker (TypeScript 5.9.3, `@types/node` 22.20.5) and name the `typecheck`
+script. `build.py` never reads or ships them; it writes the published package's
+own `package.json`. After changing a pin, run `bun install` and commit the new
+`bun.lock`. `tsconfig.json` here type-checks the source in place. Its `rootDirs` let
 `./logic.ts` resolve to `../claude/hooks/logic.ts`, as `build.py` lays it out, so
 the logic the two plugins share is checked too. CI runs this check on every push.
 
