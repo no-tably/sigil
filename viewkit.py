@@ -758,7 +758,8 @@ class Canvas:
     def _span(cells: dict, lo: int, hi: int) -> list:
         """The runs of columns lo … hi-1 of a row (`cells`: its drawn cells
         there, {x: (char, style)}): merged by style, the blanks unstyled, up
-        to hi (no blanks cut)."""
+        to hi (no blanks cut). Neighbours merge only when they draw alike
+        (same_look): one hex in two theme roles stays two runs."""
         runs = []
         last = None                     # the open run: [chars, style]
         at = lo                         # the next column to fill
@@ -772,7 +773,7 @@ class Canvas:
             if x == hi:
                 break
             ch, st = cells[x]
-            if last is not None and last[1] == st:
+            if last is not None and same_look(last[1], st):
                 last[0].append(ch)
             else:
                 last = [[ch], st]
@@ -914,8 +915,9 @@ ROW_SPAN = 128      # a kept canvas works a row out in spans this wide (Canvas._
 
 
 def _join_runs(out: list, runs: list) -> None:
-    """runs appended to out, the first merged into out's last when they share a style."""
-    if out and runs and out[-1][1] == runs[0][1]:
+    """runs appended to out, the first merged into out's last when they draw
+    alike (same_look: same style, each colour of the same role)."""
+    if out and runs and same_look(out[-1][1], runs[0][1]):
         out[-1] = (out[-1][0] + runs[0][0], out[-1][1])
         out.extend(runs[1:])
     else:
