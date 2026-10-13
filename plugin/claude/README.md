@@ -17,6 +17,15 @@ scripts/pane.py      `draw`: a document as packed rows (JSON); `follow`: the spl
 tests/*.test.ts      run by `claude plugin test`
 ```
 
+On the terminal the pane draws the drawing as `Raster`s, which `$.ui.blit` repaints
+in place. Rows that hold a wide character (CJK, most emoji) are drawn as `Text`
+instead, so they can't be blitted. The engine's `RasterProps.cells` takes only
+"one printable width-1 BMP character" per cell, and a tree whose Raster holds a
+wide code point is refused ("Raster … cell 0 holds U+754C, which is not one
+printable width-1 code point"). A blit carries the same cells, so it is refused
+too. Writing the glyph as `?` would keep the Raster but lose the character, so
+those rows stay text until the engine's Raster takes wide cells.
+
 `/sigil` is the skill's own command, so the mod's command is `/sigil-pane`.
 `/sigil-pane display [mod|multiplex|auto]` says or sets where it draws, and
 `/sigil-pane layout [auto|wrap|pan]` how a wide drawing fits: each writes the
