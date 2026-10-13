@@ -15,7 +15,9 @@ Covers:
     draws without it, frame by frame, forward and back;
   - _extent: what of a frame the layout depends on — equal for two frames of
     a run, unequal when a badge's width differs; () without a frame;
-    _blanks: equal widths, unequal blank cells.
+    _blanks: equal widths, unequal blank cells;
+  - the blank cells are looked at only on a frame whose held step is past
+    the first (natural): a run that fits draws each frame without them.
 
 Run:  python3 -m unittest discover tests
 """
@@ -145,6 +147,18 @@ class TestBlankCellsFollowed(unittest.TestCase):
             with self.subTest(tick=t):
                 self.assertEqual(draw(self.g, self.trace, t, 72, memo),
                                  draw(self.g, self.trace, t, 72))
+
+    def test_blanks_only_past_the_first_step(self):
+        """Frames held at the natural step never work out _blanks; frames
+        held at a later step do (the step stands only on the same blanks)."""
+        for width, looked in ((None, False), (72, True)):
+            memo = kit.FrameMemo()
+            draw(self.g, self.trace, 25, width, memo)
+            with self.subTest(width=width), \
+                    mock.patch.object(vflow, "_blanks", wraps=vflow._blanks) as blanks:
+                self.assertEqual(draw(self.g, self.trace, 26, width, memo),
+                                 draw(self.g, self.trace, 26, width))
+                self.assertEqual(blanks.called, looked)
 
 
 if __name__ == "__main__":
