@@ -806,6 +806,34 @@ class WideNames(unittest.TestCase):
                          codes("#!sketch\n[A] -> [B] : op ext.call({X})\n"))
         self.assertIn("SGL102", codes("#!sketch\n[A] -> [B] : op １番.呼ぶ({X})\n"))
 
+    def test_an_ascii_name_spelt_like_an_encoding_keeps_apart(self):
+        # `u` + six hex digits in an id is always an encoded character.
+        self.assertEqual(render.mk_id("利"), "u005229")
+        self.assertEqual(render.mk_id("u005229"), "u_005229")
+        self.assertEqual(render.mk_id("u_005229"), "u__005229")
+        names = ("u005229", "u_005229", "u__005229", "利", "uu005229", "u利", "a利",
+                 "au005229", "Āb", "ဋ", "u000100b", "u00100b", "u_00e9ab", "u10ffff", "u")
+        ids = [render.mk_id(n) for n in names]
+        self.assertEqual(len(set(ids)), len(names), dict(zip(names, ids)))
+        g = parse("[u005229] -> [利]\n")
+        self.assertEqual(keys(g), {("u_005229_service", "u005229_service", "->")})
+
+    def test_ascii_ids_stay_as_written(self):
+        for name in ("Menu", "Queue_service", "u", "Menu_data", "u_abc", "U005229", "Succeeded",
+                     "u_cafe12", "u110000", "user_id", "a_b_c", "x9"):
+            self.assertEqual(render.mk_id(name), name)
+
+    def test_a_verb_holding_a_combining_mark_is_one_op_call(self):
+        verb = "\u30ab\u3099\u30b9"                     # カ + combining ゛ + ス (a decomposed ガス)
+        g = parse(f"[Api] -> {verb}({{仕事}})\n[Api] -> op ns.{verb}({{仕事}})\n")
+        self.assertEqual(keys(g), {("Api_service", "Api_service", "->")})
+        self.assertEqual(sorted(e.payload for e in g.edges),
+                         [f"op ns.{verb}({{仕事}})", f"{verb}({{仕事}})"])
+        self.assertIsNotNone(render.OP_TARGET_RE.match("\u0915\u093f()"))   # कि: Mc after a letter
+        self.assertIsNotNone(render.OP_TARGET_RE.match(f"x {verb}()", 2))
+        for text in ("a\u2192b()", "x.\u0301()", "\u0301x()"):        # a symbol; a mark after `.` or first
+            self.assertIsNone(render.OP_TARGET_RE.match(text), text)
+
     def test_the_cjk_fixture_lints_clean(self):
         out = subprocess.run([sys.executable, str(_DIR / "lint.py"),
                               str(_DIR / "tests" / "fixtures" / "cjk.sigil")],

@@ -52,6 +52,7 @@ The parsed model (parse_document → Graph) is described under "THE MODEL" below
 
 import sys
 import re
+import unicodedata
 from bisect import bisect_left
 from dataclasses import dataclass, field, replace
 from typing import NamedTuple, Optional
@@ -447,13 +448,26 @@ def _id_char(ch: str) -> str:
     return f"u{ord(ch):06x}"
 
 
+# What follows a `u` in an id that would read as an encoded character: a code
+# point in six hex digits (`0xxxxx` / `10xxxx`), or `_`s before one (a literal
+# `u` there takes one more `_`). Words rarely hold one: `Succeeded` stays.
+_CODE_AHEAD_RE = re.compile(r"_*(?:0[0-9a-f]|10)[0-9a-f]{4}")
+
+
 def mk_id(name: str) -> str:
     """Make a Mermaid-safe ID ([A-Za-z0-9_], never a digit first) from a glyph
     name. Lossy only for ASCII punctuation: `[a-b]` / `[a_b]` share an id, so
-    they draw as one node; two names that differ in a non-ASCII character
-    (`[利用者]` / `[転送器]`, `[Āb]` / `[ဋ]`) never do (only ASCII spelt like an
-    encoding, `[u005229]`, could meet `[利]`)."""
-    safe = "".join(_id_char(ch) for ch in name.strip())
+    they draw as one node. A non-ASCII character is `u` + six hex digits, and a
+    literal `u` that the rest of the id would make look like one gets one more
+    `_` (`[u005229]` → `u_005229`, `[u_00e9ab]` → `u__00e9ab`), so `u` + a code
+    point's six hex digits is always an encoded character: two names that
+    differ in a non-ASCII character (`[利用者]` / `[転送器]`, `[Āb]` / `[ဋ]`,
+    `[u005229]` / `[利]`) never share an id. Every other ASCII name keeps its
+    id as written."""
+    safe = ""
+    for ch in reversed(name.strip()):
+        lit_u = ch == "u" and _CODE_AHEAD_RE.match(safe)
+        safe = ("u_" if lit_u else _id_char(ch)) + safe
     if safe and safe[0].isdigit():
         safe = "n" + safe
     return safe or "anon"
@@ -592,11 +606,47 @@ ALIAS_REF = "alias"
 # Modifier names that are no `@name` (signs, cardinality, a stream bound).
 _SIGN_MODS = {"×", "!", "?", ".", "^"}
 
+def _is_mark(ch: str) -> bool:
+    """A combining mark that joins the letter before it (Mn/Mc)."""
+    return unicodedata.category(ch) in ("Mn", "Mc")
+
+
+def _marks_follow_letters(verb: str) -> bool:
+    """Every character of `verb` that is no word character or other ASCII is a
+    combining mark right after a letter or another mark: a decomposed `ガ`
+    (`カ` + U+3099) is one letter of a verb, a symbol is not."""
+    prev = ""
+    for ch in verb:
+        if not (ch.isascii() or ch.isalnum()) and not (
+                _is_mark(ch) and prev and (prev.isalpha() or _is_mark(prev))):
+            return False
+        prev = ch
+    return True
+
+
+class _VerbPattern:
+    """A compiled pattern whose `verb` group may also hold combining marks
+    (`re` has no class for them): `match` is `re.Pattern.match`, None when the
+    verb holds anything else that is no word character."""
+
+    _MARKISH = r"[^\s\w\x00-\x7f]"   # non-ASCII, no word character, no space
+
+    def __init__(self, pattern: str):
+        self.pattern = pattern.replace("{MARK}", self._MARKISH)
+        self._rx = re.compile(self.pattern)
+
+    def match(self, text: str, pos: int = 0):
+        m = self._rx.match(text, pos)
+        return m if m and _marks_follow_letters(m.group("verb")) else None
+
+
 # An internal op-call written as a flow's target: `[Worker] -> run()`,
 # `-> run({Job})`, `-> walk(.children)` (no space before the `(`: `-> x (Y)` is
 # a word and an actor). An `op ns.verb(…)` external reach is taken too. The
-# verb starts with any letter or `_` (`-> 短縮({網址})`), never a digit.
-OP_TARGET_RE = re.compile(r"(?:op\s+)?[^\W\d][\w.]*\((?:[^()]|\([^()]*\))*\)")
+# verb starts with any letter or `_` (`-> 短縮({網址})`), never a digit; a
+# combining mark after a letter stays in it (`-> カ\u3099ス()`).
+OP_TARGET_RE = _VerbPattern(
+    r"(?:op\s+)?(?P<verb>[^\W\d](?:[\w.]|{MARK})*)\((?:[^()]|\([^()]*\))*\)")
 
 
 # What may follow a modifier's `( … )` argument and still be other modifiers:

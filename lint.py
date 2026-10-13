@@ -35,6 +35,7 @@ Severities:
 import importlib.util
 import re
 import sys
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -670,6 +671,45 @@ def _is_list_body(body: str) -> bool:
                 or (inner.startswith("[") and inner.endswith("]")))
 
 
+def _is_mark(ch: str) -> bool:
+    """A combining mark that joins the letter before it (Mn/Mc)."""
+    return unicodedata.category(ch) in ("Mn", "Mc")
+
+
+def _marks_follow_letters(verb: str) -> bool:
+    """Every character of `verb` that is no word character or other ASCII is a
+    combining mark right after a letter or another mark (render's rule: a
+    decomposed `ガ`, `カ` + U+3099, is one letter of a verb, a symbol is not)."""
+    prev = ""
+    for ch in verb:
+        if not (ch.isascii() or ch.isalnum()) and not (
+                _is_mark(ch) and prev and (prev.isalpha() or _is_mark(prev))):
+            return False
+        prev = ch
+    return True
+
+
+class _VerbPattern:
+    """A compiled pattern whose `verb` group may also hold combining marks
+    (render._VerbPattern): `match` is `re.Pattern.match`, None when the verb
+    holds anything else that is no word character."""
+
+    _MARKISH = r"[^\s\w\x00-\x7f]"   # non-ASCII, no word character, no space
+
+    def __init__(self, pattern: str):
+        self._rx = re.compile(pattern.replace("{MARK}", self._MARKISH))
+
+    def match(self, text: str, pos: int = 0):
+        m = self._rx.match(text, pos)
+        return m if m and _marks_follow_letters(m.group("verb")) else None
+
+
+# A payload that is an op-call: `op ns.verb(args)` (external) / `verb(args)`.
+_EXT_OP_RE = _VerbPattern(
+    r"^op\s+(?P<verb>[^\W\d](?:\w|{MARK})*(?:\.[^\W\d](?:\w|{MARK})*)+)\s*\((.*)\)\s*$")
+_INT_OP_RE = _VerbPattern(r"^(?P<verb>[^\W\d](?:\w|{MARK})*)\s*\(.*\)\s*$")
+
+
 def _classify_payload(value_text: str):
     """Classify the *value text* (tags already stripped). Returns a tuple
     (kind, detail) where kind is one of:
@@ -688,8 +728,7 @@ def _classify_payload(value_text: str):
 
     # External op-call: `op <ns>.<verb>(args)`.
     if re.match(r"^op\b", v):
-        m = re.match(r"^op\s+([^\W\d]\w*(?:\.[^\W\d]\w*)+)\s*\((.*)\)\s*$", v)
-        if m:
+        if _EXT_OP_RE.match(v):
             return ("ext-op", v)
         return ("ext-op-bad", v)
 
@@ -723,7 +762,7 @@ def _classify_payload(value_text: str):
         return ("value", v)
 
     # Bare `verb(args)` — internal op-call (structural, by-shape).
-    if re.match(r"^[^\W\d]\w*\s*\(.*\)\s*$", v):
+    if _INT_OP_RE.match(v):
         return ("int-op", v)
 
     # Anything else (a bare identifier label like `reserve`, `charge`) is an
@@ -1131,7 +1170,7 @@ def code_line(raw: str, masks=()) -> Code:
 _CLOSER = {"[": "]", "{": "}", "<": ">", "(": ")", "|": "|"}
 _GENERIC_RE = re.compile(r"<[^\[\]{}<>()|]*(?:<[^\[\]{}<>()|]*>[^\[\]{}<>()|]*)*>")
 _WORD_RE = re.compile(r"[A-Za-z_\d][\w.-]*")
-_OP_HEAD_RE = re.compile(r"(?:op\s+)?[^\W\d][\w.]*\(")  # a letter or `_` first (render.OP_TARGET_RE)
+_OP_HEAD_RE = _VerbPattern(r"(?:op\s+)?(?P<verb>[^\W\d](?:[\w.]|{MARK})*)\(")  # render.OP_TARGET_RE
 _MOD_NAME_RE = re.compile(r"@([A-Za-z][\w-]*)")
 _CARD_RE = re.compile(r"×\s*(\w*)|(?<![\w.])x(\d+|N)\b(?=\s|$|@)|\*(\d+)\b")
 _BOUND_RE = re.compile(r"\^(\w*)(?:@[a-z]+)?")

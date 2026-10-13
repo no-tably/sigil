@@ -111,6 +111,23 @@ class Modifiers(unittest.TestCase):
         self.assertNotIn("SGL040", rules("#!spec\n[A] -> {Concept}@hash\n"))
 
 
+class CombiningMarkVerbs(unittest.TestCase):
+    VERB = "\u30ab\u3099\u30b9"      # カ + combining ゛ + ス: a decomposed ガス
+
+    def test_an_op_target_holding_a_mark_lints_as_its_composed_twin(self):
+        composed = "\u30ac\u30b9"
+        for tmpl in ("#!sketch\n[A] -> {v}({{X}})\n", "#!sketch\n[A] -> op ns.{v}({{X}})\n"):
+            self.assertEqual(rules(tmpl.format(v=self.VERB)), rules(tmpl.format(v=composed)))
+            self.assertNotIn("SGL120", rules(tmpl.format(v=self.VERB)))
+
+    def test_a_payload_holding_a_mark_is_an_op_call(self):
+        self.assertEqual(lint._classify_payload(f"op ns.{self.VERB}({{X}})")[0], "ext-op")
+        self.assertEqual(lint._classify_payload(f"{self.VERB}({{X}})")[0], "int-op")
+        self.assertEqual(lint._classify_payload("op ns.\u0915\u093f({X})")[0], "ext-op")
+        self.assertEqual(lint._classify_payload("op ns.a\u2192b({X})")[0], "ext-op-bad")
+        self.assertEqual(lint._classify_payload("op ns.\u0301b({X})")[0], "ext-op-bad")
+
+
 class ModeLines(unittest.TestCase):
     def test_duplicate_mode_line(self):
         self.assertIn("SGL080", rules("#!spec\n#!sketch\n[A] -> [B]\n"))
