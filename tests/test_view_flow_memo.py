@@ -1,0 +1,151 @@
+"""Tests for the flow view's frame memo (compose_flow's `memo`, kit.FrameMemo).
+
+Covers:
+  - the wrap ladder's step and each part's cut follow the frames' layout: a
+    run whose frames lay out unlike each other (badges not padded to one
+    width) draws with the memo what it draws without it, frame by frame, at
+    widths where the step or the cuts differ between frames;
+  - the padded run (as drawn) still draws with the memo what it draws
+    without it, and its extent holds still (the plan is kept);
+  - a width change during a run (the same memo, widths taken in turn) draws
+    each frame as it is drawn afresh;
+  - a padded run whose badge slot is blank on one frame and marked on
+    another (the same width) takes another step on each — the bottom-right
+    chip panel fits only in blank cells — and draws with the memo what it
+    draws without it, frame by frame, forward and back;
+  - _extent: what of a frame the layout depends on — equal for two frames of
+    a run, unequal when a badge's width differs; () without a frame;
+    _blanks: equal widths, unequal blank cells.
+
+Run:  python3 -m unittest discover tests
+"""
+from __future__ import annotations
+
+import importlib.util
+import sys
+import unittest
+from pathlib import Path
+from unittest import mock
+
+_DIR = Path(__file__).resolve().parents[1]
+
+
+def _load(name: str, fname: str):
+    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+vflow = _load("sigil_view_flow_memo_tests", "view_flow.py")
+sim = _load("sigil_sim_view_flow_memo_tests", "sim.py")
+kit, scene, vgraph = vflow.kit, vflow.scene, vflow.vgraph
+
+OPTIONS = dict(depth=1, payloads=True, notes="markers", triggers=True, access=False,
+               mods=True, events="land")
+# (document, scenario, widths, ticks): runs whose unpadded frames take another
+# step or cut at these widths than their first frame does.
+CASES = (
+    ("site/examples/02-shop.sigil", "happy", (37, 44, 93), (0, 56, 64, 1)),
+    ("site/examples/00-shortener.sigil", "Redirect.lookup:fails", (44,), (0, 27, 30, 1)),
+    ("site/examples/01-checkout.sigil", "happy", (100,), (0, 9, 14, 21, 1)),
+)
+
+
+def run(path: str, name: str):
+    """(graph, trace) — the trace named as the flow draws it (OPTIONS)."""
+    g = kit.render.parse_document((_DIR / path).read_text())
+    scn = scene.build_scene(g, events=OPTIONS["events"], triggers=OPTIONS["triggers"],
+                            access=OPTIONS["access"], depth=OPTIONS["depth"])
+    return g, sim.project(sim.simulate(scn, sim.scenario(scn, name)), scn)
+
+
+def draw(g, trace, tick: int, width, memo=None):
+    return vflow.compose_flow(g, width=width, trace=trace, tick=tick, memo=memo, **OPTIONS)
+
+
+def unpadded():
+    """Badges as wide as each frame's own (no slots): frames lay out unlike."""
+    return mock.patch.object(vgraph, "_trace_slots", lambda trace: {})
+
+
+def look(g, trace, tick: int):
+    scn = scene.build_scene(g, events=OPTIONS["events"], triggers=OPTIONS["triggers"],
+                            access=OPTIONS["access"], depth=OPTIONS["depth"])
+    return vgraph.sim_look(scn, trace.frames[tick], vgraph._trace_slots(trace))
+
+
+class TestLayoutFollowed(unittest.TestCase):
+
+    def test_frames_that_lay_out_unlike(self):
+        with unpadded():
+            for path, name, widths, ticks in CASES:
+                g, trace = run(path, name)
+                for width in widths:
+                    memo = kit.FrameMemo()
+                    for t in ticks:
+                        with self.subTest(doc=path, width=width, tick=t):
+                            self.assertEqual(draw(g, trace, t, width, memo),
+                                             draw(g, trace, t, width))
+
+    def test_frames_differ_in_layout(self):
+        """(The cases above are such: some frame's extent differs from the first's.)"""
+        with unpadded():
+            for path, name, _widths, ticks in CASES:
+                g, trace = run(path, name)
+                with self.subTest(doc=path):
+                    self.assertGreater(
+                        len({vflow._extent(look(g, trace, t)) for t in ticks}), 1)
+
+    def test_padded_run(self):
+        path, name, widths, ticks = CASES[0]
+        g, trace = run(path, name)
+        self.assertEqual(len({vflow._extent(look(g, trace, t)) for t in ticks}), 1)
+        for width in (None,) + widths:
+            memo = kit.FrameMemo()
+            for t in ticks:
+                with self.subTest(width=width, tick=t):
+                    self.assertEqual(draw(g, trace, t, width, memo), draw(g, trace, t, width))
+
+    def test_width_changes_during_a_run(self):
+        path, name, widths, ticks = CASES[0]
+        g, trace = run(path, name)
+        memo = kit.FrameMemo()
+        with unpadded():
+            for i, t in enumerate(ticks + ticks):
+                width = (None,) + widths
+                width = width[i % len(width)]
+                with self.subTest(width=width, tick=t):
+                    self.assertEqual(draw(g, trace, t, width, memo), draw(g, trace, t, width))
+
+    def test_extent_without_a_frame(self):
+        self.assertEqual(vflow._extent(None), ())
+        self.assertEqual(vflow._blanks(None), ())
+
+
+class TestBlankCellsFollowed(unittest.TestCase):
+    """The shortener's failing lookup at 72 columns: frame 1 (|Links| badge
+    blank) fits the chips' letters with their panel; frame 25 (|Links| ✕)
+    does not and hangs them."""
+
+    def setUp(self):
+        self.g, self.trace = run("site/examples/00-shortener.sigil", "Redirect.lookup:fails")
+
+    def test_steps_differ(self):
+        self.assertNotEqual(draw(self.g, self.trace, 1, 72)[0],
+                            draw(self.g, self.trace, 25, 72)[0])
+        one, late = look(self.g, self.trace, 1), look(self.g, self.trace, 25)
+        self.assertEqual(vflow._extent(one), vflow._extent(late))
+        self.assertNotEqual(vflow._blanks(one), vflow._blanks(late))
+
+    def test_forward_and_back(self):
+        memo = kit.FrameMemo()
+        for t in (0, 1, 25, 1, 25, 31, 1):
+            with self.subTest(tick=t):
+                self.assertEqual(draw(self.g, self.trace, t, 72, memo),
+                                 draw(self.g, self.trace, t, 72))
+
+
+if __name__ == "__main__":
+    unittest.main()

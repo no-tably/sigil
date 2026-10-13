@@ -1893,11 +1893,14 @@ def compose_flow(g, depth: int, payloads: bool, notes: str = "off", triggers: bo
     `checks` (kit.CheckMarks named the same way): the checks overlay. `probe`:
     the frame's tokens and active labels drawn in kit.Probe styles (sim_focus).
     The step and the cuts are chosen on the frame's drawing, whose badge slots
-    are the run's (view_graph._trace_slots): every frame of a run wraps alike —
-    so with a `memo` (kit.FrameMemo, kept by a caller drawing a run frame
-    after frame) they are chosen on the first frame and kept, and so is each
-    part's drawing, painted again only where a frame changes how it looks
-    (the drawing is the same as without it)."""
+    are the run's (view_graph._trace_slots), so a run's frames take the same
+    columns; the chip panel fits only in blank cells, so a badge marked on
+    one frame and blank on another may change the step. With a `memo`
+    (kit.FrameMemo, kept by a caller drawing a run frame after frame) the cuts
+    are kept while the frames lay out alike (_laid) and the step while their
+    badges are blank in the same cells (_start), and so is each part's
+    drawing, painted again only where a frame changes how it looks (the
+    drawing is the same as without it)."""
     plan = (memo.plan(("flow", depth, payloads, notes, triggers, width, access, mods, events,
                        probe), (g, trace, checks)) if memo is not None else None)
     scn = kit.held(plan, "scene", lambda: scene.build_scene(g, events=events, triggers=triggers,
@@ -1913,8 +1916,10 @@ def compose_flow(g, depth: int, payloads: bool, notes: str = "off", triggers: bo
         return kit.stretch_rules(rows + tail, w), w
 
     args = (scn, depth, payloads, mods, notes != "off", look, checks)
-    # A run's frames start down the ladder at the step its first frame took.
-    start = LADDER.index(plan.held.get("step", LADDER[0]) if plan is not None else LADDER[0])
+    # A run's frames start down the ladder at the step the last frame took
+    # while they lay out alike (_laid, _start).
+    plan = _laid(plan, look)
+    start = _start(plan, look)
     if start <= 0:
         rows, _w, drawing_w, _over = _part_rows(*args, None, width=width,
                                                 plan=_step(plan, "natural"))
@@ -1941,10 +1946,64 @@ def compose_flow(g, depth: int, payloads: bool, notes: str = "off", triggers: bo
 LADDER = ("natural", "letters", "hung")     # compose_flow's wrap ladder, its steps in order
 
 
+def _laid(plan, look):
+    """The plan (kit.Plan) of the layout drawn under `look` (a view_graph.SimLook,
+    None: no frame) — each wrap step's parts, cuts and drawings — kept while a
+    run's frames lay out alike: a fresh one when this frame's _extent differs
+    from the last frame's (a lead or badge of another width), so the cuts are
+    chosen again for it. None without a plan."""
+    if plan is None:
+        return None
+    extent = _extent(look)
+    kept = plan.held.get("laid")
+    if kept is None or kept[0] != extent:
+        kept = plan.held["laid"] = (extent, kit.Plan())
+    return kept[1].begin()
+
+
+def _start(plan, look) -> int:
+    """The wrap ladder's step a frame starts at (its index in LADDER): the
+    step the plan's last frame took while the frames' badges are blank in the
+    same cells (_blanks: a wrap step's panel sits in blank cells only,
+    kit._fit_panel), else the first — the ladder walked again over the kept
+    drawings. 0 without a plan."""
+    if plan is None:
+        return 0
+    blanks = _blanks(look)
+    if plan.held.get("blanks") != blanks:
+        plan.held["blanks"] = blanks
+        plan.held.pop("step", None)
+    return LADDER.index(plan.held.get("step", LADDER[0]))
+
+
+def _extent(look) -> tuple:
+    """The columns a frame's own runs take beside each label — its lead (a
+    machine's ◉ slot) and its badges: what of a frame the layout depends on
+    (a label's text, its style and the tokens take the same cells on every
+    frame). () without a frame."""
+    return _beside(look, kit.row_len)
+
+
+def _blanks(look) -> tuple:
+    """Which of the cells _extent counts are blank: each character's width, 0
+    for a blank (what it says and its style aside)."""
+    return _beside(look, lambda runs: tuple(0 if ch == " " else kit.cell_width(ch)
+                                            for text, _style in runs for ch in text))
+
+
+def _beside(look, cells) -> tuple:
+    """(lead, badges): each node's cells(runs) beside its label, by node id;
+    () without a frame."""
+    if look is None:
+        return ()
+    def by_node(runs: dict) -> tuple:
+        return tuple(sorted((nid, cells(r)) for nid, r in runs.items()))
+    return by_node(look.lead), by_node(look.badges)
+
+
 def _step(plan, name: str):
     """The plan of the wrap ladder's step `name` (kit.Plan.sub), the step the
-    plan's frames take from now on (each frame of a run takes the step the
-    first one took); None without a plan."""
+    plan's frames start at from now on (_start); None without a plan."""
     if plan is None:
         return None
     plan.held["step"] = name
