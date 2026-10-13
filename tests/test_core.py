@@ -303,6 +303,9 @@ _CORE_FILES = ("lint.py", "render.py", "dialects.py", "themes.py",
                "check_flow.py", "check_inv.py")
 # Directories whose every text file must also be free of dialect/host vocabulary.
 _SCANNED_DIRS = ("highlight", "tests", "site", "themes", "plugin")
+# Generated directories (gitignored) hold no files of ours: `bun install` in
+# plugin/pi puts third-party packages under node_modules.
+_SKIPPED_DIRS = {"__pycache__", "node_modules"}
 _WORDLIST_BEGIN = "# vocab-check: word list begin"
 _WORDLIST_END = "# vocab-check: word list end"
 
@@ -314,7 +317,7 @@ def _scanned_lines():
     paths = [_DIR / f for f in _CORE_FILES]
     for d in _SCANNED_DIRS:
         paths += sorted(p for p in (_DIR / d).rglob("*")
-                        if p.is_file() and "__pycache__" not in p.parts)
+                        if p.is_file() and not _SKIPPED_DIRS & set(p.parts))
     for path in paths:
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
