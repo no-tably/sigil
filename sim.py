@@ -34,9 +34,16 @@ view draws (events drawn where they land, a shallower depth).
   token       travels one wire, `at` 0 → 1 (a return 1 → 0 on the call's wire)
   tick        one Frame. A hop takes Limits.hop ticks (a self-call 1); the
               task's next turn is the tick after the arrival
-  episode     one per entry, run one after another: the next starts the tick
-              after the last went quiet. Entries: the document's nodes with
-              work and no incoming flow (or actors), in written order
+  episode     one per entry. An entry the scenario gives a start tick
+              (Scenario.starts) begins at that tick, whether or not earlier
+              episodes still run; the others run one after another, each the
+              tick after the run went quiet (no task with a turn or hop to
+              come). Running episodes share the tick: their tasks take turns in
+              task-id order, as one episode's do. A task belongs to its
+              parent's episode (an entry's root: the one it begins); per-episode
+              limits (visits, activations) count each episode's own. Entries:
+              the document's nodes with work and no incoming flow (or actors),
+              in written order
 
   Wires: `->` `→` `<->` sync call (and its return); `~>` fork, don't wait;
   `*>` and a `&` target fork all and wait for all; `&?` the scenario's winner;
@@ -91,8 +98,9 @@ outcomes, `?>`, `/`, `&?`, `parallel @any`, branch arms, `\\-_` siblings,
 ambiguous machine transitions), ordered by source line. A route makes what it
 guards a choice point: the calls on its line, and — when nothing in it fails
 on its own — the awaited calls of the block whose `}` it follows. scenario(scene,
-"a+b") combines deviations. Scenario(name, choices, label, entries): choices a
-tuple of (choice id, option).
+"a+b") combines deviations. Scenario(name, choices, label, entries, starts):
+choices a tuple of (choice id, option); starts the entries that begin at a tick
+of their own, ((entry node id, tick), …) (a dict reads the same).
 
 combinations(scene, k, budget=…) explores up to k deviations at once: a
 combination grows only by a deviation its own run meets after its first
@@ -114,7 +122,9 @@ THE TRACE
 Trace(scenario, frames, outcome, end, scene)
   outcome   "ok" | "failed" | "cut"
   end       {"machines", "routes", "stalled", "deposits", "cut", "visited", "log",
-             "events"}
+             "events", "episodes"}
+            episodes: every episode begun, in start order — [{"episode" (k, from
+            1), "entry" (node id), "start" (its first tick)}]
             deposits: the `&` source joins left open — [{"join": (unit, index),
             "target", "arrived", "missing"}] (node ids); a member deposits and goes
             on, so an open join is a deposit no last arrival consumed
@@ -181,11 +191,15 @@ Frame — a full, immutable snapshot (a view draws frame i alone)
   tick, episode, entry, tokens (Token, task order), lit, held, taken, failed,
   nodes {id: active|waiting|visited|failed|cancelled|opaque}, depth,
   machines {owner: state node id}, changed, instances, loops, blocks,
-  held_resources, log (lines added this frame, each led by `t` and the tick, zero-padded), done
+  held_resources, log (lines added this frame, each led by `t` and the tick, zero-padded), done,
+  episodes
+  episode, entry: the latest episode begun and its entry; episodes: the running
+  ones (a task of theirs with a turn or hop to come, or a token drawn) — more
+  than one only while episodes overlap
 
-Token(wire, at, dir, task, state, carries, reach, attempt, act)
+Token(wire, at, dir, task, state, carries, reach, attempt, act, episode)
   dir "out" | "back"; state "moving" | "failed" | "cancelled" | "fallback";
-  act the activation the hop set out from
+  act the activation the hop set out from; episode its task's
 
 INSTANCES
 
@@ -324,6 +338,8 @@ class Scenario(NamedTuple):
     choices: tuple = ()        # ((choice id, option), …)
     label: str = ""
     entries: Optional[tuple] = None    # node ids; None: the default entries
+    starts: tuple = ()         # ((entry node id, start tick), …): entries that begin
+                               # at their tick, overlapping earlier episodes
 
 
 class Token(NamedTuple):
@@ -336,6 +352,7 @@ class Token(NamedTuple):
     reach: int = 1
     attempt: Optional[tuple] = None
     act: Optional[int] = None
+    episode: int = 1           # its task's episode
 
 
 class Instance(NamedTuple):
@@ -374,6 +391,7 @@ class Frame(NamedTuple):
     held_resources: frozenset
     log: tuple
     done: bool
+    episodes: frozenset = frozenset()  # the running episodes (Frame doc)
 
 
 class Trace(NamedTuple):
@@ -957,9 +975,11 @@ class _Run:
     def __init__(self, prog: Program, sc: Scenario, limits: Limits, keep: bool = True):
         self.prog, self.limits, self.keep = prog, limits, keep
         self.choices = dict(sc.choices)
-        self.entries = list(_resolve_entries(prog, sc.entries))
+        self.entries = _scheduled(_resolve_entries(prog, sc.entries), sc.starts)
         self.t, self.episode, self.entry = 0, 0, None
-        self.episode_t = 0             # the tick the current episode began
+        self.episode_t = 0             # the tick the latest episode began
+        self.begun: list = []          # Trace.end["episodes"], in start order
+        self.quiet = False             # the run went quiet and no episode began since
         self.tasks: list = []          # every task forked (numbers the next id)
         self.alive: list = []          # the tasks not ended yet, in fork order
         self.status: dict = {}
@@ -975,7 +995,8 @@ class _Run:
         self.hop_n = 0                 # hops numbered so far (the `hop` event's id)
         self.loops, self.blocks, self.held = {}, Counter(), Counter()
         self.loops_most: dict = {}     # (owner, block index) → the most iterations it ran
-        self.visits, self.activations = Counter(), 0
+        self.visits = Counter()        # (episode, node) → task-root activations
+        self.activations = Counter()   # episode → activations
         self.gates: dict = {}
         self.one_of = _one_of_groups(prog)
         self.owned = _owned_stores(prog)
@@ -995,8 +1016,9 @@ class _Run:
         if t == 0:
             self._log(CONVENTIONS)
             self._log_setup()
-        if self.start_next:
-            self._begin_episode()
+        for i in reversed(_due(self.entries, t, self.start_next)):
+            self._begin_episode(self.entries.pop(i))
+        self.start_next = False
         k = 0
         while k < len(self.alive) and not self.done:
             task = self.alive[k]
@@ -1006,11 +1028,13 @@ class _Run:
         self._wake()
         pending = any(not x.ended and x.resume is not None for x in self.alive)
         if not self.done and not pending:
-            self._event("quiet", None, waiting=[x.id for x in self.alive
-                                                if not x.ended and x.wait is not None])
-            if self.entries:
+            if not self.quiet:
+                self.quiet = True
+                self._event("quiet", None, waiting=[x.id for x in self.alive
+                                                    if not x.ended and x.wait is not None])
+            if any(e.start is None for e in self.entries):
                 self.start_next = True
-            else:
+            elif not self.entries:
                 self.done = True
         if not self.done and t + 1 - self.episode_t >= self.limits.frames:
             self._cut("frames")
@@ -1022,13 +1046,13 @@ class _Run:
         self.changed, self.lit_now, self.ghosts, self.lines = set(), set(), [], []
         return frame
 
-    def _begin_episode(self) -> None:
-        self.start_next = False
-        ui, nid = self.entries.pop(0)
+    def _begin_episode(self, entry: _Entry) -> None:
+        ui, nid = entry.ui, entry.node
         self.episode += 1
         self.entry = nid
         self.episode_t = self.t
-        self.visits, self.activations = Counter(), 0
+        self.quiet = False
+        self.begun.append({"episode": self.episode, "entry": nid, "start": self.t})
         self._log(f"episode {self.episode}: {self._name(nid)}")
         self._fork(lambda task: self._entry_gen(task, ui, nid), why="entry", node=nid)
 
@@ -1037,9 +1061,9 @@ class _Run:
         """A new task running factory(task); it starts inside the control blocks its
         parent runs at the fork (a region it re-enters there is a plain scope).
         `why` names the fork site (the `fork` event); an "entry" task is an
-        episode's root."""
+        episode's root (the latest begun), any other is its parent's episode's."""
         task = _Task(len(self.tasks) + 1, resume=self.t, entry=why == "entry",
-                     episode=self.episode)
+                     episode=parent.episode if parent is not None else self.episode)
         if parent is not None:
             task.scopes = Counter(+parent.scopes)
             task.origin = self._sender(parent)
@@ -1067,8 +1091,10 @@ class _Run:
             self._end(task, failed=True)
             if task.entry:
                 self.failed_episode = True
-                self._event("stop", task, how="entry", node=self.entry, guard=f.guard)
-                self._log(f"episode {self.episode} failed")
+                ep = task.episode
+                self._event("stop", task, how="entry", node=self.begun[ep - 1]["entry"],
+                            guard=f.guard)
+                self._log(f"episode {ep} failed")
         except _Abort:
             self._abort()
         except _Cut as c:
@@ -1137,7 +1163,7 @@ class _Run:
         frac = (self.t - fl.start) / fl.dur if fl.dur else 1.0
         at = 1.0 - frac if fl.back else frac
         return Token(fl.wire, round(at, 4), "back" if fl.back else "out", task.id,
-                     state or fl.state, fl.carries, fl.reach, fl.attempt, fl.act)
+                     state or fl.state, fl.carries, fl.reach, fl.attempt, fl.act, task.episode)
 
     def _snapshot(self) -> Frame:
         tokens, in_flight = [], set()
@@ -1155,6 +1181,8 @@ class _Run:
                     if n > 1:
                         depth[nid] = max(depth.get(nid, 0), n)
         lit = _summed(self.prog, in_flight | open_ | self.lit_now)
+        running = {x.episode for x in self.alive if not x.ended and x.wait is None}
+        running |= {tok.episode for tok in tokens}
         return Frame(
             self.t, self.episode, self.entry, tuple(tokens),
             lit, frozenset(open_ - in_flight),
@@ -1162,7 +1190,8 @@ class _Run:
             dict(self.status), depth,
             dict(self.machines), frozenset(self.changed), self._instances(),
             dict(self.loops), frozenset(k for k, n in self.blocks.items() if n > 0),
-            frozenset(k for k, n in self.held.items() if n > 0), tuple(self.lines), self.done)
+            frozenset(k for k, n in self.held.items() if n > 0), tuple(self.lines), self.done,
+            frozenset(running))
 
     def _instances(self) -> dict:
         out = {}
@@ -1183,7 +1212,7 @@ class _Run:
                 "cut": list(self.cut),
                 "visited": list(self.status), "loops": dict(self.loops_most),
                 "log": list(self.log_all),
-                "events": list(self.events)}
+                "events": list(self.events), "episodes": [dict(b) for b in self.begun]}
 
     # ---- helpers -----------------------------------------------------------
 
@@ -1270,8 +1299,8 @@ class _Run:
         started it, None for an entry), numbered run-wide; an `enter` event
         names its caller (the activation whose hop or fork started it; None for
         an episode's entry), its level on the stack and its lanes."""
-        self.activations += 1
-        if self.activations > self.limits.activations:
+        self.activations[task.episode] += 1
+        if self.activations[task.episode] > self.limits.activations:
             raise _Cut("activations")
         if len(task.stack) >= self.limits.stack:
             raise _Cut("stack")
@@ -1601,8 +1630,8 @@ class _Run:
             yield ("turn",)
             return
         if not task.stack:              # a task's root: what an async cycle repeats
-            self.visits[dst] += 1
-            if self.visits[dst] > self.limits.visits:
+            self.visits[task.episode, dst] += 1
+            if self.visits[task.episode, dst] > self.limits.visits:
                 self._event("limit", task, name="visits", node=dst)
                 self._log(f"visit limit: {self._name(dst)}")
                 self._arrival(task, "visits")
@@ -2548,6 +2577,37 @@ def _one_of_groups(prog: Program) -> dict:
     return out
 
 
+class _Entry(NamedTuple):
+    """An entry still to begin: its unit, its node and the tick it begins at (None:
+    the tick after the run goes quiet, entries one after another)."""
+    ui: int
+    node: str
+    start: Optional[int]
+
+
+def _scheduled(entries: list, starts) -> list:
+    """[_Entry] in written order: each of `entries` ((ui, node id)) with the start
+    tick `starts` ((node id, tick) pairs or a dict) gives it. Raises KeyError for a
+    start naming no entry, ValueError for a tick that is not a whole number ≥ 0."""
+    ticks = dict(starts or ())
+    named = {nid for _ui, nid in entries}
+    for nid, t in ticks.items():
+        if nid not in named:
+            raise KeyError(f"no entry {nid!r} to start")
+        if isinstance(t, bool) or not isinstance(t, int) or t < 0:
+            raise ValueError(f"start of {nid!r}: {t!r} is not a tick")
+    return [_Entry(ui, nid, ticks.get(nid)) for ui, nid in entries]
+
+
+def _due(entries: list, t: int, quiet: bool) -> list:
+    """The indices of `entries` (_Entry) that begin at tick t, in written order:
+    each whose start tick has come, and — when the run went quiet (`quiet`) — the
+    first with none."""
+    free = next((i for i, e in enumerate(entries) if e.start is None), None) if quiet else None
+    return [i for i, e in enumerate(entries)
+            if i == free or (e.start is not None and e.start <= t)]
+
+
 def _resolve_entries(prog: Program, names) -> list:
     """[(ui, node id)]: the default entries, or the named ones in the first unit
     (document first) that has them."""
@@ -2574,7 +2634,8 @@ def simulate(sc, scenario: Scenario, *, limits: Limits = Limits(), keep: bool = 
     """Run a scenario over a Scene (any Scene of the document: the run uses the
     canonical one) and return its Trace. keep=False keeps only the final frame (its
     tick + 1 is the run's length; `end` holds the rest). Raises KeyError for an
-    unknown entry."""
+    unknown entry or a start (Scenario.starts) naming no entry, ValueError for a
+    start tick that is not a whole number ≥ 0."""
     return _simulate(_program_of(sc.graph), scenario, limits, keep)
 
 

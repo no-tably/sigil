@@ -328,6 +328,18 @@ class TestTimelineFacts(unittest.TestCase):
         self.assertEqual([(k, t) for k, t, _n in tl.episodes], [(1, 0), (2, 78), (3, 160)])
         self.assertEqual(tl.last, 162)
 
+    def test_overlapping_episodes(self):
+        # an entry given a start tick begins inside the run: its episode's start is
+        # that tick, and both episodes' spans share the ticks between
+        sc = canon("[A] -> [S] : a()\n[B] -> [S] : b()\n")
+        tr = sim.simulate(sc, sim.Scenario("B@2", starts=(("B_service", 2),)))
+        tl = sim.timeline(tr)
+        self.assertEqual([(k, t, n) for k, t, n in tl.episodes],
+                         [(1, 0, "A_service"), (2, 2, "B_service")])
+        self.assertEqual(sorted((s.episode, s.enter) for s in tl.spans
+                                if s.lane[0] in ("A_service", "B_service")), [(1, 0), (2, 2)])
+        self.assertEqual({(e["task"], e["episode"]) for e in events(tr, "fork")}, {(1, 1), (2, 2)})
+
 
 class TestTimelineFolds(unittest.TestCase):
     def test_instances_fold_by_owner_kind(self):

@@ -16,7 +16,9 @@ Covers:
      loop_count);
   8. the simulator defect fixes of RFC 0003 (B1, B2, B3, B4, B13) and NG6;
   9. the structured events of Trace.end["events"] (MG1, MG2, MG5, MG6, MG9, MG11);
- 10. combinations(): bounded k-deviation exploration (MG10).
+ 10. combinations(): bounded k-deviation exploration (MG10);
+ 11. episodes that overlap: Scenario.starts, Frame.episodes, Token.episode,
+     Trace.end["episodes"].
 
 Run:  python3 -m unittest discover tests
 """
@@ -1689,6 +1691,122 @@ class TestNarration(unittest.TestCase):
         got = {h.dst: (h.end, h.outcome) for h in sim.hops(tr)}
         self.assertEqual(got["A_service"], (9, ""))
         self.assertEqual(got["B_service"], (9, "cancelled"))
+
+
+# ---------------------------------------------------------------------------
+# 11. Episodes that overlap (Scenario.starts)
+# ---------------------------------------------------------------------------
+
+TWO = "[A] -> [S] : a()\n[B] -> [S] : b()\n"      # two entries, one shared callee
+
+
+def started(sc, starts, **kw):
+    return sim.simulate(sc, sim.Scenario("x", starts=starts), **kw)
+
+
+def running(tr) -> list:
+    return [(f.tick, f.episode, sorted(f.episodes)) for f in tr.frames]
+
+
+class TestOverlappingEpisodes(unittest.TestCase):
+    def setUp(self):
+        self.sc = build(TWO)
+
+    def test_without_starts_entries_run_one_after_another(self):
+        tr = run(self.sc)
+        self.assertEqual(tr.end["episodes"], [{"episode": 1, "entry": "A_service", "start": 0},
+                                              {"episode": 2, "entry": "B_service", "start": 6}])
+        self.assertEqual(running(tr)[4:7], [(4, 1, [1]), (5, 1, []), (6, 2, [2])])
+
+    def test_a_start_tick_begins_the_episode_while_another_runs(self):
+        tr = started(self.sc, (("B_service", 2),))
+        self.assertEqual(tr.outcome, "ok")
+        self.assertEqual(tr.end["episodes"][1], {"episode": 2, "entry": "B_service", "start": 2})
+        self.assertEqual(running(tr), [(0, 1, [1]), (1, 1, [1]), (2, 2, [1, 2]), (3, 2, [1, 2]),
+                                       (4, 2, [1, 2]), (5, 2, [2]), (6, 2, [2]), (7, 2, [])])
+        self.assertEqual(tr.frames[2].entry, "B_service")      # the latest begun
+        # each token says its task's episode: the two are told apart
+        self.assertEqual([(t.task, t.episode) for t in tr.frames[3].tokens], [(1, 1), (2, 2)])
+        # one quiet, at the end: the overlap never went quiet in between
+        self.assertEqual([e["t"] for e in tr.end["events"] if e["kind"] == "quiet"], [7])
+
+    def test_a_start_tick_at_zero_begins_with_the_first_entry(self):
+        tr = started(self.sc, {"B_service": 0})                 # a dict reads the same
+        self.assertEqual([(e["episode"], e["start"]) for e in tr.end["episodes"]], [(1, 0), (2, 0)])
+        self.assertEqual(tr.frames[0].episodes, {1, 2})
+        self.assertEqual(tr.frames[0].tokens[0].episode, 1)    # written order, task-id order
+
+    def test_a_later_start_idles_after_the_run_went_quiet(self):
+        tr = started(self.sc, (("B_service", 30),))
+        self.assertEqual(tr.end["episodes"][1]["start"], 30)
+        idle = [f for f in tr.frames if 5 <= f.tick < 30]
+        self.assertTrue(idle and all(not f.episodes and not f.tokens for f in idle))
+        self.assertEqual([e["t"] for e in tr.end["events"] if e["kind"] == "quiet"], [5, 35])
+        self.assertTrue(tr.frames[-1].done)
+
+    def test_an_entry_without_a_start_takes_the_sequential_turn(self):
+        tr = started(self.sc, (("A_service", 5),))
+        self.assertEqual([(e["entry"], e["start"]) for e in tr.end["episodes"]],
+                         [("B_service", 0), ("A_service", 5)])
+
+    def test_a_forked_task_keeps_its_parent_episode(self):
+        sc = build("[A] -> [S] : a()\n[S] ~> [T] : t()\n[B] -> [U] : u()\n")
+        tr = started(sc, (("B_service", 1),))
+        forks = [(e["t"], e["why"], e["episode"]) for e in tr.end["events"] if e["kind"] == "fork"]
+        self.assertIn(("entry", 2), [(why, ep) for _t, why, ep in forks])
+        async_ = [(t, ep) for t, why, ep in forks if why == "async"]
+        self.assertEqual(len(async_), 1)
+        self.assertGreater(async_[0][0], 1)                   # forked after episode 2 began
+        self.assertEqual(async_[0][1], 1)                     # still episode 1's work
+        by_task = {e["task"]: e["episode"] for e in tr.end["events"] if e["kind"] == "fork"}
+        for f in tr.frames:
+            self.assertTrue(all(t.episode == by_task[t.task] for t in f.tokens))
+            self.assertTrue({t.episode for t in f.tokens} <= f.episodes)
+
+    def test_per_episode_limits_count_each_episode_alone(self):
+        limits = sim.Limits(activations=2)
+        self.assertEqual(run(self.sc, limits=limits).outcome, "ok")
+        self.assertEqual(started(self.sc, (("B_service", 1),), limits=limits).outcome, "ok")
+        self.assertEqual(started(self.sc, (("B_service", 1),),
+                                 limits=sim.Limits(activations=1)).outcome, "cut")
+
+    def test_a_failed_entry_is_said_of_its_own_episode(self):
+        sc = build("[A] -> [S] : a()\n[S] -> [X] : x()\n[S] !> <Failed>\n[B] -> [U] : u()\n")
+        tr = sim.simulate(sc, sim.scenario(sc, "S:fails")._replace(starts=(("B_service", 1),)))
+        self.assertEqual(tr.outcome, "failed")
+        stop = [e for e in tr.end["events"] if e["kind"] == "stop" and e["how"] == "entry"]
+        self.assertEqual([(e["episode"], e["node"]) for e in stop], [(1, "A_service")])
+        self.assertTrue(logs(tr, "episode 1 failed"))
+
+    def test_overlapping_runs_are_deterministic(self):
+        a, b = (started(self.sc, (("B_service", 3),)) for _ in range(2))
+        self.assertEqual(a.frames, b.frames)
+        self.assertEqual(a.end, b.end)
+
+    def test_bad_starts_are_refused(self):
+        with self.assertRaises(KeyError):
+            started(self.sc, (("Nope_service", 3),))
+        for bad in (-1, 1.5, True):
+            with self.assertRaises(ValueError):
+                started(self.sc, (("B_service", bad),))
+
+    def test_due_entries(self):
+        E = sim._Entry
+        entries = [E(0, "a", None), E(0, "b", 4), E(0, "c", None)]
+        self.assertEqual(sim._due(entries, 0, True), [0])
+        self.assertEqual(sim._due(entries, 3, False), [])
+        self.assertEqual(sim._due(entries, 4, False), [1])
+        self.assertEqual(sim._due(entries, 4, True), [0, 1])
+        self.assertEqual(sim._due(entries[1:], 9, True), [0, 1])
+
+    def test_no_corpus_run_overlaps_without_starts(self):
+        # every existing scenario keeps one episode at a time: views draw as before
+        for path in EXAMPLES + FIXTURES:
+            sc = build(path.read_text())
+            for s in sim.scenarios(sc):
+                for f in sim.simulate(sc, s).frames:
+                    self.assertLessEqual(len(f.episodes), 1, (path.name, s.name, f.tick))
+                    self.assertTrue(all(t.episode == f.episode for t in f.tokens))
 
 
 if __name__ == "__main__":
