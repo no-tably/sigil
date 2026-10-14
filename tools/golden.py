@@ -25,11 +25,13 @@ Each input gets a directory `tests/golden/<input>/` with one file per variant:
   wrap ladder's hung chips and bands);
 - `run-<v>.txt` — the run view (`--run`), for the site examples and the
   executions fixture only: run-default (the happy run, no scenario chosen,
-  --width 140, lint on), run-sim (the first scenario after `happy`, its final
+  --width 140, lint on), run-sim (the first deviation after `happy`, its final
   frame, --sim NAME --width 140; the happy one when there is none; the run in
   words, its `tNNN …` lines, left out — tests/ holds no task-like ids, and the
   path and outcome stay), run-width-80
   (the happy run at --width 80: notes shortened or below, bands);
+- `run-json-depth-<d>.txt` — what `view.py <input>.sigil --run --json --depth <d>`
+  prints (the happy run's timeline as JSON), for RUN_JSON_INPUTS at RUN_JSON_DEPTHS;
 - `mermaid.txt` — what `render.py <input>.sigil` prints.
 
 Drawings are made in-process (view.once, its stdout captured) with the built-in
@@ -62,7 +64,9 @@ NARROW = 60
 FLOW_WRAPS = (80, 50)           # the flow view wrapped, chips and notes on
 RUN_WIDE, RUN_NARROW = 140, 80  # the run view: a wide pane, and one that wraps
 RUN_INPUTS = ("executions",)    # beside the site examples, the inputs drawn in the run view
-NEXT_SCENARIO = "@next"         # Variant.sim: the first scenario after `happy`
+NEXT_SCENARIO = "@next"         # Variant.sim: the first deviation after `happy`
+RUN_JSON_INPUTS = ("02-shop",)  # the inputs whose `--run --json` is kept, at each RUN_JSON_DEPTHS
+RUN_JSON_DEPTHS = (0, 1)
 ALL_DEPTH = "all"
 # Set iteration order (string hashing) must not change a drawing; pinning the seed
 # keeps the goldens stable while a drawing that still depends on it gets fixed.
@@ -89,7 +93,9 @@ class Variant:
     width: int = WIDTH
     colour: bool = False
     lint: bool = False
-    sim: str | None = None      # a scenario (NEXT_SCENARIO: the first after happy)
+    sim: str | None = None      # a scenario (NEXT_SCENARIO: the first deviation after happy)
+    json: bool = False          # `--run --json` (the timeline as JSON), not a drawing
+    inputs: tuple[str, ...] | None = None   # only these inputs (None: as the view says)
 
 
 def _variants() -> tuple[Variant, ...]:
@@ -109,8 +115,10 @@ def _variants() -> tuple[Variant, ...]:
     runs = (Variant("run-default", view="run", width=RUN_WIDE, lint=True),
             Variant("run-sim", view="run", width=RUN_WIDE, sim=NEXT_SCENARIO),
             Variant("run-width-80", view="run", width=RUN_NARROW))
+    run_json = tuple(Variant(f"run-json-depth-{d}", view="run", depth=d, json=True,
+                             inputs=RUN_JSON_INPUTS) for d in RUN_JSON_DEPTHS)
     return tuple(replace(v, name=f"{view}-{v.name}", view=view)
-                 for view in ("graph", "tree", "flow") for v in flavours) + wraps + runs
+                 for view in ("graph", "tree", "flow") for v in flavours) + wraps + runs + run_json
 
 
 VARIANTS = _variants()
@@ -185,11 +193,12 @@ def load_view(root: Path):
 
 
 def next_scenario(view, path: Path) -> str:
-    """The first scenario after `happy` of the document at `path` (happy when
-    it has no other)."""
+    """The first deviation after `happy` of the document at `path`: a listed
+    scenario that starts no entry at a tick (an overlap, `Entry@t`, is not one);
+    happy when there is none."""
     g = view.render.parse_document(path.read_text(encoding="utf-8"))
-    names = [sc.name for sc in view.simulator.scenarios(view.simulator.canonical(g))]
-    return names[1] if len(names) > 1 else names[0]
+    found = view.simulator.scenarios(view.simulator.canonical(g))
+    return next((sc.name for sc in found[1:] if not sc.starts), found[0].name)
 
 
 def draw(view, path: Path, v: Variant) -> str:
@@ -198,6 +207,9 @@ def draw(view, path: Path, v: Variant) -> str:
     sim = next_scenario(view, path) if v.sim == NEXT_SCENARIO else v.sim
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
+        if v.json:
+            view.run_json(path, sim, dialect=None, depth=depth)
+            return buf.getvalue()
         view.once(path, depth, v.payloads, v.lint, dialect=None, colour=v.colour,
                   notes=v.notes, width=v.width, access=v.access, mods=v.mods,
                   view=v.view, sim=sim)
@@ -209,8 +221,10 @@ def draw(view, path: Path, v: Variant) -> str:
 
 def drawn_in(v: Variant, inp: "Input", runs: frozenset) -> bool:
     """Whether input `inp` gets variant `v`: every input every view but the run
-    view, which only the inputs named in `runs` get."""
-    return v.view != "run" or inp.name in runs
+    view, which only the inputs named in `runs` get; a variant naming its
+    `inputs` only those."""
+    return ((v.view != "run" or inp.name in runs)
+            and (v.inputs is None or inp.name in v.inputs))
 
 
 def draw_input(view, workdir: Path, inp: Input, runs: frozenset = frozenset()) -> dict[str, str]:
