@@ -90,7 +90,9 @@ happy                    ok       47 frames  every default: the happy path
 Redirect.lookup:fails    failed   32 frames  lookup fails 1×, no fallback
   failed: [Redirect] -> |Links| · (Visitor) -> [Redirect]
   routes: [Redirect] !> (Visitor)
-2 scenarios: 1 ok, 1 failed, 0 cut
+Visitor@0                ok       31 frames
+    (Visitor) starts at t0, reaching |Links| as (User) writes it
+3 scenarios: 2 ok, 1 failed, 0 cut
 ```
 
 **Try it:** the [project page](https://no-tably.github.io/sigil/) has a
@@ -318,7 +320,14 @@ Payments:fails           failed   32 frames  Payments fails → Declined
   states: [Checkout] Idle · {Order} Cancelled
   failed: [Payments]
   routes: [Payments] !> <Declined>
-2 scenarios: 1 ok, 1 failed, 0 cut
+Payments@0               ok       21 frames
+    [Payments] starts at t0, reaching {Order} while (Shopper) is there
+  states: [Checkout] Busy · {Order} Open
+  ignored: <Paid> in {Order} + · <Paid> in [Checkout] Idle
+Payments@10              ok       21 frames
+    [Payments] starts at t10, reaching [Checkout] as (Shopper) changes its state
+  states: [Checkout] Idle · {Order} Settled
+4 scenarios: 3 ok, 1 failed, 0 cut
 ```
 
 ## Themes
