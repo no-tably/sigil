@@ -1,0 +1,37 @@
+flowchart TD
+    Operator_actor(("Operator"))
+    Builder_service["Builder"]
+    Status_service["Status"]
+    Export_store[("Export")]
+    Ledger_store[("Ledger")]
+    Stale_event>"Stale"]
+    Author_actor(("Author"))
+    Exporter_service["Exporter"]
+    Gate_service["Gate"]
+    Operator_actor --> Builder_service
+    Builder_service --> Status_service
+    Status_service --> Export_store
+    Status_service --> Ledger_store
+    Builder_service --> Ledger_store
+    Builder_service -- "!" --> Status_service
+    Builder_service -. "?" .-> Ledger_store
+    Stale_event --> Builder_service
+    Builder_service --> Status_service
+    Builder_service -. "?" .-> Ledger_store
+    Author_actor --> Exporter_service
+    Exporter_service --> Gate_service
+    Exporter_service --> Export_store
+    Exporter_service -.-> Stale_event
+    class Builder_service,Status_service,Exporter_service,Gate_service service
+    class Stale_event event
+    class Operator_actor,Author_actor actor
+    class Export_store,Ledger_store store
+
+    classDef service fill:#E3F2FD,stroke:#1976D2,color:#0D47A1
+    classDef data    fill:#F3E5F5,stroke:#7B1FA2,color:#4A148C
+    classDef event   fill:#FFF3E0,stroke:#F57C00,color:#E65100
+    classDef actor   fill:#E8F5E9,stroke:#388E3C,color:#1B5E20
+    classDef store   fill:#FFF9C4,stroke:#F9A825,color:#F57F17
+    classDef state   fill:#E0F2F1,stroke:#00897B,color:#004D40
+    classDef hole    stroke-dasharray:5 5,opacity:0.7
+    classDef mutable stroke-width:3px

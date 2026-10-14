@@ -1,0 +1,39 @@
+── run · happy — no scenario chosen: the happy run ─────────────────────────────────────────────────────────────────────────────────────────
+
+             0         10        20        30        40        50    ep2 60        70        80        90        100       110
+  (Operator) █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░┆
+  [Builder]  ╰──▶██░░░░░░░░░░░░░░░░░░░█░░░░░░░░░█░░░░░░░░░░░░░░░░░░░┆                         ╭──▶██░░░░░░░░░░░░░░░░░░░█░░░░░░░░
+  [Status]        ╰──▶██░░░░█░░░░───↩ │         ╰──▶██░░░░█░░░░───↩ ┆                         │    ╰──▶██░░░░█░░░░───↩ │
+  |Export|             ╰──▶█│         │              ╰──▶█│         ┆               ╭──▶█     │         ╰──▶█│         │
+  |Ledger|                  ╰──▶█     ╰──▶█───↩           ╰──▶█     ┆               │         │              ╰──▶█     ╰──▶█───↩
+  (Author)                                                          ┆█░░░░░░░░░░░░░░░░░░░░░░░░│
+  [Exporter]                                                        ┆╰──▶██░░░░░░░░░█░░░░┬──↩ │
+  [Gate]                                                            ┆     ╰──▶█───↩      ╎    │
+  <Stale>                                                           ┆                    ╰╌╌▶◆█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+
+                  120       130   136
+  [Builder]  ░█░░░░░░░░░░░░░░░░░░░
+  [Status]    ╰──▶██░░░░█░░░░───↩
+  |Export|         ╰──▶█│
+  |Ledger|              ╰──▶█
+  <Stale>    ░░░░░░░░░░░░░░░░░░░░░
+
+  (Operator) episode 1's entry; calls [Builder]
+  [Builder]  calls [Status], then |Ledger|; runs 2×
+  [Status]   calls |Export|, then |Ledger|; returns {Verdict}; runs 4×
+  |Export|   runs 5×
+  |Ledger|   returns {Lease}; runs 6×
+  (Author)   episode 2's entry; calls [Exporter]
+  [Exporter] calls [Gate], then |Export|; emits <Stale>, doesn't wait; returns {Delta}
+  [Gate]     returns {Verdict}
+  <Stale>    lands; calls [Builder]
+
+happy run (every default) · ok · 137 frames   x plays it   [ ] another scenario
+
+run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  ╰══▶ broadcast
+       ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  ⊘ cancelled  ↺ self-call  ↻k depth k
+       ∥k at once  ┤ base case  ⇱ host  • reached  ◌ spawning  ┆ episode  ≈ quiet ticks
+       ↺k iteration k  ▼ now  ▸ running
+
+06-overlap.sigil: 9 nodes, 14 edges, 0 expansions · #!sketch
+lint: OK

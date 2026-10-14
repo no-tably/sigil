@@ -1,0 +1,39 @@
+── build ────────────────────────────────
+(Operator) ─────────●
+[Builder] <Stale> ◀─┴─●─✖─────●─◇───┐┄┆a┆
+[Status] ◀────────────┴─┴─●─●┄│┄┆┄┄┄│┄┆b┆
+|Export| ◀────────────────┴─│─│─┆─┐┄│┄┆c┆
+|Ledger| ◀──────────────────┴─┴┄┘┄│┄│┄┆d┆
+── export ───────────────────────────────
+(Author) ───────────●             │ │
+[Exporter] ◀────────┴─●───────────●─›┄┆e┆
+[Gate] ◀──────────────┘┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┆f┆
+
+┆a┆ start()
+    {Delta} *> [Builder] · recheck({Delta})
+┆b┆ next() ↩ {System}
+    current({Lease}) ↩ {Verdict}
+    ✖ next()
+┆c┆ read({Manifest})
+    write({Manifest})
+┆d┆ read({Hash})
+    claim({System}) ↩ {Lease}
+    built({System}, {Hash})
+    release({Lease})
+┆e┆ export({Spec}) ↩ {Delta}
+┆f┆ verify({Spec}) ↩ {Verdict}
+
+── payloads ──
+
+  <Stale> -> [Builder] : recheck({Delta})
+  [Exporter] ~> <Stale> : {Delta} *> [Builder]
+
+tree   ─ contains  & has  * spawns  ? when  $ from data  @ attached  ! alerts  = gathers  _ one of
+       (N) weight
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  ↩ returns
+       ┄┆{…}┆ payload, on its target row
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of
+       ── ── section
+
+06-overlap.sigil: 9 nodes, 14 edges, 0 expansions · #!sketch

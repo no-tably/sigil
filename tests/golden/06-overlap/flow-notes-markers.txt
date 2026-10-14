@@ -1,0 +1,22 @@
+── build ───────────────────────────────────────────────────────────────────
+
+(Operator) ─┬─▶ [Builder] ─┬─▶┐[Status] ─┬─────▶ |Export|
+<Stale> #1 ─╯              ├─✖┘          ╰─┬───▶┐|Ledger|
+                           ├───────────────╯ ╭┄▶┘
+                           ╰┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄╯
+
+── export ──────────────────────────────────────────────────────────────────
+
+         (Author) ──▶ [Exporter] ─┬─▶ [Gate]
+                                  ├─▶ |Export|
+                                  ╰╌▶ <Stale> #1
+
+── notes ───────────────────────────────────────────────────────────────────
+
+¶ runs that overlap: an export lands while a builder is mid-build the notice
+  is only a hint, the hashes stay the truth: a late or repeated notice costs
+  time, never a wrong build (try --sim Author@25)
+#1 on a notice a builder asks again; one building a changed system drops its
+   lease
+
+06-overlap.sigil: 9 nodes, 14 edges, 0 expansions · #!sketch

@@ -1,0 +1,758 @@
+{
+  "scenario": "happy",
+  "outcome": "ok",
+  "last": 66,
+  "episodes": [
+    {
+      "episode": 1,
+      "tick": 0,
+      "entry": "(Shopper)"
+    }
+  ],
+  "folded": {
+    "show": 3,
+    "instances": 0,
+    "levels": 0
+  },
+  "iterations": [],
+  "lanes": [
+    {
+      "key": [
+        "Shopper_actor",
+        null,
+        1
+      ],
+      "label": "(Shopper)",
+      "parent": null,
+      "born": 0,
+      "owner": null,
+      "spawned": null,
+      "fold": [],
+      "levels": [],
+      "par": 1
+    },
+    {
+      "key": [
+        "Edge_service",
+        null,
+        1
+      ],
+      "label": "[Edge]",
+      "parent": null,
+      "born": 0,
+      "owner": null,
+      "spawned": null,
+      "fold": [],
+      "levels": [],
+      "par": 1
+    },
+    {
+      "key": [
+        "Shop_service",
+        null,
+        1
+      ],
+      "label": "[Shop]",
+      "parent": null,
+      "born": 5,
+      "owner": null,
+      "spawned": null,
+      "fold": [],
+      "levels": [],
+      "par": 1
+    },
+    {
+      "key": [
+        "Cart_service",
+        null,
+        1
+      ],
+      "label": "[Cart]",
+      "parent": [
+        "Shop_service",
+        null,
+        1
+      ],
+      "born": 10,
+      "owner": null,
+      "spawned": null,
+      "fold": [],
+      "levels": [],
+      "par": 1
+    },
+    {
+      "key": [
+        "Checkout_service",
+        null,
+        1
+      ],
+      "label": "[Checkout]",
+      "parent": [
+        "Shop_service",
+        null,
+        1
+      ],
+      "born": 10,
+      "owner": null,
+      "spawned": null,
+      "fold": [],
+      "levels": [],
+      "par": 1
+    },
+    {
+      "key": [
+        "Payments_service",
+        null,
+        1
+      ],
+      "label": "[Payments]",
+      "parent": [
+        "Shop_service",
+        null,
+        1
+      ],
+      "born": 15,
+      "owner": null,
+      "spawned": null,
+      "fold": [],
+      "levels": [],
+      "par": 1
+    },
+    {
+      "key": [
+        "OrderPlaced_event",
+        null,
+        1
+      ],
+      "label": "<OrderPlaced>",
+      "parent": [
+        "Shop_service",
+        null,
+        1
+      ],
+      "born": 45,
+      "owner": null,
+      "spawned": null,
+      "fold": [],
+      "levels": [],
+      "par": 1
+    },
+    {
+      "key": [
+        "Catalog_store",
+        null,
+        1
+      ],
+      "label": "|Catalog|",
+      "parent": null,
+      "born": 45,
+      "owner": null,
+      "spawned": null,
+      "fold": [],
+      "levels": [],
+      "par": 1
+    },
+    {
+      "key": [
+        "Fulfilment_service",
+        null,
+        1
+      ],
+      "label": "[Fulfilment]",
+      "parent": null,
+      "born": 50,
+      "owner": null,
+      "spawned": null,
+      "fold": [],
+      "levels": [],
+      "par": 1
+    },
+    {
+      "key": [
+        "Picker_service",
+        null,
+        1
+      ],
+      "label": "[Picker]",
+      "parent": [
+        "Fulfilment_service",
+        null,
+        1
+      ],
+      "born": 55,
+      "owner": null,
+      "spawned": null,
+      "fold": [],
+      "levels": [],
+      "par": 1
+    },
+    {
+      "key": [
+        "Packer_service",
+        null,
+        1
+      ],
+      "label": "[Packer]",
+      "parent": [
+        "Fulfilment_service",
+        null,
+        1
+      ],
+      "born": 55,
+      "owner": null,
+      "spawned": null,
+      "fold": [],
+      "levels": [],
+      "par": 1
+    },
+    {
+      "key": [
+        "Courier_actor",
+        null,
+        1
+      ],
+      "label": "(Courier)",
+      "parent": [
+        "Fulfilment_service",
+        null,
+        1
+      ],
+      "born": 60,
+      "owner": null,
+      "spawned": null,
+      "fold": [],
+      "levels": [],
+      "par": 1
+    },
+    {
+      "key": [
+        "Ledger_store",
+        null,
+        1
+      ],
+      "label": "|Ledger|",
+      "parent": null,
+      "born": 50,
+      "owner": null,
+      "spawned": null,
+      "fold": [],
+      "levels": [],
+      "par": 1
+    }
+  ],
+  "spans": [
+    {
+      "lane": [
+        "Shopper_actor",
+        null,
+        1
+      ],
+      "act": 1,
+      "task": 1,
+      "enter": 0,
+      "leave": 55,
+      "how": "ok",
+      "waits": [
+        [
+          1,
+          55
+        ]
+      ]
+    },
+    {
+      "lane": [
+        "Edge_service",
+        null,
+        1
+      ],
+      "act": 2,
+      "task": 1,
+      "enter": 4,
+      "leave": 55,
+      "how": "ok",
+      "waits": [
+        [
+          6,
+          55
+        ]
+      ]
+    },
+    {
+      "lane": [
+        "Shop_service",
+        null,
+        1
+      ],
+      "act": 3,
+      "task": 1,
+      "enter": 9,
+      "leave": 55,
+      "how": "ok",
+      "waits": [
+        [
+          10,
+          45
+        ],
+        [
+          46,
+          55
+        ]
+      ]
+    },
+    {
+      "lane": [
+        "Cart_service",
+        null,
+        1
+      ],
+      "act": 4,
+      "task": 1,
+      "enter": 10,
+      "leave": 45,
+      "how": "ok",
+      "waits": [
+        [
+          11,
+          45
+        ]
+      ]
+    },
+    {
+      "lane": [
+        "Checkout_service",
+        null,
+        1
+      ],
+      "act": 5,
+      "task": 1,
+      "enter": 14,
+      "leave": 45,
+      "how": "ok",
+      "waits": [
+        [
+          16,
+          45
+        ]
+      ]
+    },
+    {
+      "lane": [
+        "Payments_service",
+        null,
+        1
+      ],
+      "act": 6,
+      "task": 1,
+      "enter": 19,
+      "leave": 40,
+      "how": "ok",
+      "waits": [
+        [
+          21,
+          24
+        ],
+        [
+          26,
+          29
+        ],
+        [
+          31,
+          34
+        ],
+        [
+          35,
+          40
+        ]
+      ]
+    },
+    {
+      "lane": [
+        "Catalog_store",
+        null,
+        1
+      ],
+      "act": 12,
+      "task": 1,
+      "enter": 49,
+      "leave": 50,
+      "how": "ok",
+      "waits": []
+    },
+    {
+      "lane": [
+        "OrderPlaced_event",
+        null,
+        1
+      ],
+      "act": 13,
+      "task": 2,
+      "enter": 49,
+      "leave": 66,
+      "how": "ok",
+      "waits": [
+        [
+          51,
+          66
+        ]
+      ]
+    },
+    {
+      "lane": [
+        "Fulfilment_service",
+        null,
+        1
+      ],
+      "act": 14,
+      "task": 3,
+      "enter": 54,
+      "leave": 65,
+      "how": "ok",
+      "waits": [
+        [
+          55,
+          65
+        ]
+      ]
+    },
+    {
+      "lane": [
+        "Ledger_store",
+        null,
+        1
+      ],
+      "act": 15,
+      "task": 4,
+      "enter": 54,
+      "leave": 55,
+      "how": "ok",
+      "waits": []
+    },
+    {
+      "lane": [
+        "Picker_service",
+        null,
+        1
+      ],
+      "act": 16,
+      "task": 3,
+      "enter": 55,
+      "leave": 65,
+      "how": "ok",
+      "waits": [
+        [
+          56,
+          65
+        ]
+      ]
+    },
+    {
+      "lane": [
+        "Packer_service",
+        null,
+        1
+      ],
+      "act": 17,
+      "task": 3,
+      "enter": 59,
+      "leave": 65,
+      "how": "ok",
+      "waits": [
+        [
+          61,
+          65
+        ]
+      ]
+    }
+  ],
+  "moves": [
+    {
+      "id": 1,
+      "kind": "->",
+      "back": false,
+      "start": 0,
+      "end": 4,
+      "how": "entered",
+      "src": [
+        [
+          "Shopper_actor",
+          null,
+          1
+        ]
+      ],
+      "dst": [
+        [
+          "Edge_service",
+          null,
+          1
+        ]
+      ],
+      "attempt": null,
+      "carries": null
+    },
+    {
+      "id": 2,
+      "kind": "->",
+      "back": false,
+      "start": 5,
+      "end": 9,
+      "how": "entered",
+      "src": [
+        [
+          "Edge_service",
+          null,
+          1
+        ]
+      ],
+      "dst": [
+        [
+          "Shop_service",
+          null,
+          1
+        ]
+      ],
+      "attempt": null,
+      "carries": "{Request}"
+    },
+    {
+      "id": 3,
+      "kind": "->",
+      "back": false,
+      "start": 10,
+      "end": 14,
+      "how": "entered",
+      "src": [
+        [
+          "Cart_service",
+          null,
+          1
+        ]
+      ],
+      "dst": [
+        [
+          "Checkout_service",
+          null,
+          1
+        ]
+      ],
+      "attempt": null,
+      "carries": "{Cart}"
+    },
+    {
+      "id": 4,
+      "kind": "->",
+      "back": false,
+      "start": 15,
+      "end": 19,
+      "how": "entered",
+      "src": [
+        [
+          "Checkout_service",
+          null,
+          1
+        ]
+      ],
+      "dst": [
+        [
+          "Payments_service",
+          null,
+          1
+        ]
+      ],
+      "attempt": null,
+      "carries": "charge(total)"
+    },
+    {
+      "id": 9,
+      "kind": "->",
+      "back": true,
+      "start": 40,
+      "end": 44,
+      "how": "returned",
+      "src": [
+        [
+          "Payments_service",
+          null,
+          1
+        ]
+      ],
+      "dst": [
+        [
+          "Checkout_service",
+          null,
+          1
+        ]
+      ],
+      "attempt": null,
+      "carries": "{Receipt}"
+    },
+    {
+      "id": 10,
+      "kind": "->",
+      "back": false,
+      "start": 45,
+      "end": 49,
+      "how": "entered",
+      "src": [
+        [
+          "Shop_service",
+          null,
+          1
+        ]
+      ],
+      "dst": [
+        [
+          "Catalog_store",
+          null,
+          1
+        ]
+      ],
+      "attempt": null,
+      "carries": "lookup(sku)"
+    },
+    {
+      "id": 11,
+      "kind": "~>",
+      "back": false,
+      "start": 45,
+      "end": 49,
+      "how": "entered",
+      "src": [
+        [
+          "Checkout_service",
+          null,
+          1
+        ]
+      ],
+      "dst": [
+        [
+          "OrderPlaced_event",
+          null,
+          1
+        ]
+      ],
+      "attempt": null,
+      "carries": null
+    },
+    {
+      "id": 12,
+      "kind": "->",
+      "back": true,
+      "start": 50,
+      "end": 54,
+      "how": "returned",
+      "src": [
+        [
+          "Catalog_store",
+          null,
+          1
+        ]
+      ],
+      "dst": [
+        [
+          "Shop_service",
+          null,
+          1
+        ]
+      ],
+      "attempt": null,
+      "carries": "{Item}"
+    },
+    {
+      "id": 13,
+      "kind": "*>",
+      "back": false,
+      "start": 50,
+      "end": 54,
+      "how": "entered",
+      "src": [
+        [
+          "OrderPlaced_event",
+          null,
+          1
+        ]
+      ],
+      "dst": [
+        [
+          "Fulfilment_service",
+          null,
+          1
+        ]
+      ],
+      "attempt": null,
+      "carries": null
+    },
+    {
+      "id": 14,
+      "kind": "*>",
+      "back": false,
+      "start": 50,
+      "end": 54,
+      "how": "entered",
+      "src": [
+        [
+          "OrderPlaced_event",
+          null,
+          1
+        ]
+      ],
+      "dst": [
+        [
+          "Ledger_store",
+          null,
+          1
+        ]
+      ],
+      "attempt": null,
+      "carries": null
+    },
+    {
+      "id": 15,
+      "kind": "->",
+      "back": false,
+      "start": 55,
+      "end": 59,
+      "how": "entered",
+      "src": [
+        [
+          "Picker_service",
+          null,
+          1
+        ]
+      ],
+      "dst": [
+        [
+          "Packer_service",
+          null,
+          1
+        ]
+      ],
+      "attempt": null,
+      "carries": null
+    },
+    {
+      "id": 16,
+      "kind": "->",
+      "back": false,
+      "start": 60,
+      "end": 64,
+      "how": "reached",
+      "src": [
+        [
+          "Packer_service",
+          null,
+          1
+        ]
+      ],
+      "dst": [
+        [
+          "Courier_actor",
+          null,
+          1
+        ]
+      ],
+      "attempt": null,
+      "carries": "{Parcel}"
+    }
+  ],
+  "marks": []
+}

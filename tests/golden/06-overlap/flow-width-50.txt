@@ -1,0 +1,63 @@
+── build ─────────────────────────────────────────
+
+(Operator) ───────────▶①
+a┆start()
+<Stale> ──────────────▶②
+#1
+h┆recheck({Delta})
+
+①─a┬─▶ [Builder] ─────────────────▶③
+②─h╯   ×N
+       @inv idempotent(manife…
+       b┆next() ↩ {System}
+        ┆current({Lease})
+        ┆↩ {Verdict}
+       e┆claim({System})
+        ┆↩ {Lease}
+        ┆@timeout 1h
+        ┆@fallback "taken"
+       f┆next()
+       g┆built({System},
+        ┆{Hash})
+        ┆release({Lease})
+
+③──┬b▶┐[Status] ───────────╮
+   ├f✖┘                    │
+   │   @sla p99<50ms       │
+   │   c┆read({Manifest})  │
+   │   d┆read({Hash})      │
+   ├──────────────────────e┼d▶┐|Ledger|
+   ╰┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄│g▶┘
+                           │   @inv cas(hash)
+                           ╰c▶ |Export|
+
+── export ────────────────────────────────────────
+
+ (Author) ───────────▶①
+ a┆export({Spec})
+  ┆↩ {Delta}
+
+                                ╭c▶ |Export|
+                                ├d▶ <Stale>
+                                │   #1
+ ①──a▶ [Exporter] ──────────────┴b▶ [Gate]
+       @sla p99<5s
+       b┆verify({Spec})
+        ┆↩ {Verdict}
+       c┆write({Manifest})
+        ┆@inv atomic(manifest)
+       d┆{Delta} *>
+        ┆[Builder]
+
+── notes ─────────────────────────────────────────
+
+¶ runs that overlap: an export lands while a
+  builder is mid-build the notice is only a hint,
+  the hashes stay the truth: a late or repeated
+  notice costs time, never a wrong build (try
+  --sim Author@25)
+#1 on a notice a builder asks again; one building
+   a changed system drops its lease
+
+06-overlap.sigil: 9 nodes, 14 edges, 0 expansions
+  · #!sketch

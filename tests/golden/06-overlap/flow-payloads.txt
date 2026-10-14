@@ -1,0 +1,31 @@
+── build ───────────────────────────────────────────────────────────────────────────────────────────
+
+(Operator) ────┆a┆──┬─▶ [Builder] ─┬───┆b┆──┬───────▶┐[Status] ─┬───┆d┆────────▶ |Export|
+<Stale> ───────┆j┆──╯              ├───┆c┆──╯ ╭─────✖┘          ╰───┆e┆──┬─────▶┐|Ledger|
+                                   ├───┆f┆────│──────────────────────────╯ ╭┄┬┄▶┘
+                                   ├───┆g┆────╯ ╭┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄╯ ┆
+                                   ├┄┄┄┆h┆┄┄┄┄┄┄╯ ╭┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄╯
+                                   ╰┄┄┄┆i┆┄┄┄┄┄┄┄┄╯
+
+── export ──────────────────────────────────────────────────────────────────────────────────────────
+
+                  (Author) ────┆k┆───▶ [Exporter] ─┬───┆l┆───▶ [Gate]
+                                                   ├───┆m┆───▶ |Export|
+                                                   ╰╌╌╌┆n┆╌╌╌▶ <Stale>
+
+                                                                    ┆a┆ start()
+                                                                    ┆b┆ next() ↩ {System}
+                                                                    ┆c┆ current({Lease}) ↩ {Verdict}
+                                                                    ┆d┆ read({Manifest})
+                                                                    ┆e┆ read({Hash})
+                                                                    ┆f┆ claim({System}) ↩ {Lease}
+                                                                    ┆g┆ next()
+                                                                    ┆h┆ built({System}, {Hash})
+                                                                    ┆i┆ release({Lease})
+                                                                    ┆j┆ recheck({Delta})
+                                                                    ┆k┆ export({Spec}) ↩ {Delta}
+                                                                    ┆l┆ verify({Spec}) ↩ {Verdict}
+                                                                    ┆m┆ write({Manifest})
+                                                                    ┆n┆ {Delta} *> [Builder]
+
+06-overlap.sigil: 9 nodes, 14 edges, 0 expansions · #!sketch

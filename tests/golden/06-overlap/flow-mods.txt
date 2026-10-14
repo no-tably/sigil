@@ -1,0 +1,15 @@
+── build ───────────────────────────────────────────────────────────────────────────────────────────
+
+(Operator) ─┬─▶ [Builder] ───────────────┬─▶┐[Status] ──────┬───▶ |Export|
+<Stale> ────╯   ×N                       ├─✖┘               ╰─┬─▶┐|Ledger|
+                @inv idempotent(manife…  │   @sla p99<50ms  ╭┄│┄▶┘
+                a┆@timeout 1h            ├──────────────────┆a╯   @inv cas(hash)
+                 ┆@fallback "taken"      ╰┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄╯
+
+── export ──────────────────────────────────────────────────────────────────────────────────────────
+
+               (Author) ──▶ [Exporter] ──────────────┬─▶ [Gate]
+                            @sla p99<5s              ├a▶ |Export|
+                            a┆@inv atomic(manifest)  ╰╌▶ <Stale>
+
+06-overlap.sigil: 9 nodes, 14 edges, 0 expansions · #!sketch

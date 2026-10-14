@@ -1,0 +1,43 @@
+── run · Builder.claim:fallback — claim fails 1×, falls back to "taken" ────────────────────────────────────────────────────────────────────
+
+                                                                                    ep2
+             0         10        20        30        40        50        60        70        80        90        100       110
+  (Operator) █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░┆
+  [Builder]  ╰──▶██░░░░░░░░░░░░░░░░░░░█░░░░█░░░░░░░░░░░░░░░░░░░█░░░░░░░░░░░░░░░░░░░┆                         ╭──▶██░░░░░░░░░░░░░░░░░░
+  [Status]        ╰──▶██░░░░█░░░░───↩ │    ╰──✖██░░░░█░░░░     ╰──▶██░░░░█░░░░───↩ ┆                         │    ╰──▶██░░░░█░░░░───↩
+  |Export|             ╰──▶█│         │         ╰──▶█│              ╰──▶█│         ┆               ╭──▶█     │         ╰──▶█│
+  |Ledger|                  ╰──▶█     ╰───✖          ╰──▶█───↩           ╰──▶█     ┆               │         │              ╰──▶█
+  (Author)                                                                         ┆█░░░░░░░░░░░░░░░░░░░░░░░░│
+  [Exporter]                                                                       ┆╰──▶██░░░░░░░░░█░░░░┬──↩ │
+  [Gate]                                                                           ┆     ╰──▶█───↩      ╎    │
+  <Stale>                                                                          ┆                    ╰╌╌▶◆█░░░░░░░░░░░░░░░░░░░░░░░
+
+             120       130       140       150       160   166
+  [Builder]  ░█░░░░█░░░░░░░░░░░░░░░░░░░█░░░░░░░░░░░░░░░░░░░
+  [Status]    │    ╰──✖██░░░░█░░░░     ╰──▶██░░░░█░░░░───↩
+  |Export|    │         ╰──▶█│              ╰──▶█│
+  |Ledger|    ╰───✖          ╰──▶█───↩           ╰──▶█
+  <Stale>    ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+
+  (Operator) episode 1's entry; calls [Builder]
+  [Builder]  calls [Status], then |Ledger|; routes the failure; runs 2×
+  [Status]   calls |Export|, then |Ledger|; returns {Verdict}; runs 6×
+  |Export|   runs 7×
+  |Ledger|   runs 6×; 2 attempts, each fails; falls back to "taken"
+  (Author)   episode 2's entry; calls [Exporter]
+  [Exporter] calls [Gate], then |Export|; emits <Stale>, doesn't wait; returns {Delta}
+  [Gate]     returns {Verdict}
+  <Stale>    lands; calls [Builder]
+
+run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces  ╰══▶ broadcast
+       ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed  ⊘ cancelled  ↺ self-call  ↻k depth k
+       ∥k at once  ┤ base case  ⇱ host  • reached  ◌ spawning  ┆ episode  ≈ quiet ticks
+       ↺k iteration k  ▼ now  ▸ running
+path   the hops taken so far:  ①② its branches  ✖ failed  ⊘ cancelled  ×N repeated
+       ▸ the hop now (bold in colour)
+
+06-overlap.sigil: 9 nodes, 14 edges, 0 expansions · #!sketch
+
+sim Builder.claim:fallback (claim fails 1×, falls back to "taken"): ok · 167 frames
+path   ①–④ …   ⑤ [Builder] -> |Ledger| ✖   ⑥ [Builder] !> [Status] -> |Export|
+       ⑦ [Status] -> |Ledger|   ⑧ [Builder] -> [Status] -> |Export|   ⑨ [Status] -> |Ledger|
