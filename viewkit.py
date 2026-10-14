@@ -112,6 +112,10 @@ _BUILTIN_THEME = {
                "keyword": "#c850e0", "ref": "#bc8cff", "string": "#a5d6ff",
                "number": "#79c0ff", "punct": "#586e75", "tag": "#c9d1d9",
                "call": "#5abea0", "call_name": "#f08cac"},
+    # A run whose episodes overlap: each episode's tokens in its own colour
+    # (episode k: episode_((k - 1) mod 6 + 1)).
+    "run": {"episode_1": "#a5d6ff", "episode_2": "#ffbf47", "episode_3": "#7ee787",
+            "episode_4": "#f59cc4", "episode_5": "#bc8cff", "episode_6": "#5abea0"},
 }
 EDGE_ROLE = {"!>": "fail", "?>": "maybe", "~>": "async", "]>[": "split",
              "arm": "arm", "access": "access"}       # (+ a branch arm, a permission edge)
@@ -218,6 +222,7 @@ def _theme_styles(t: dict) -> dict:
         "KEY_STYLE": (pick("ui", "key_fg"), pick("ui", "key_bg"), True),
         "OK_COLOR": pick("ui", "ok"),
         "SEVERITY_COLOR": {"error": pick("ui", "error"), "warn": pick("ui", "warn")},
+        "EPISODE_COLORS": tuple(pick("run", key) for key in _BUILTIN_THEME["run"]),
         "_KIND_COLOR": {kind: pick("kinds", kind) for kind in CORE_KINDS},
     }
 
@@ -273,7 +278,7 @@ def _refresh_kinds() -> None:
 
 # The built-in colours until a theme is applied (view.main() applies --theme /
 # $SIGIL_THEME). Defines BG, FILL, HOLE_COLOR, GREY, EDGE_COLOR, EDGE_DEFAULT,
-# the *_STYLE tuples, OK_COLOR and SEVERITY_COLOR — see _theme_styles().
+# the *_STYLE tuples, OK_COLOR, SEVERITY_COLOR and EPISODE_COLORS — see _theme_styles().
 apply_theme({})
 
 
@@ -294,6 +299,33 @@ def edge_style(kind: str):
     if kind == "trigger":                     # event ⇢ the owner of the state it drives
         return (kind_color("event"), None, False)
     return (EDGE_COLOR.get(_base_kind(kind), EDGE_DEFAULT), None, False)
+
+
+# A run whose episodes overlap (sim.Frame.episodes holds more than one): each
+# token moving or returning is drawn as its episode's number, one cell, in that
+# episode's colour from the run palette (theme section `run`); a failed or
+# cancelled token keeps its ✕ / ⊘. With one episode running, tokens are as ever.
+EPISODE_MARKS = "123456789abcdefghijklmnopqrstuvwxyz"
+
+
+def episode_mark(k: int) -> str:
+    """Episode k's one-cell mark: 1 … 9, then a … z, then `+`."""
+    return EPISODE_MARKS[k - 1] if 1 <= k <= len(EPISODE_MARKS) else "+"
+
+
+def episode_colour(k: int) -> Colour:
+    """Episode k's colour: the run palette's (run.episode_1 …), in turn."""
+    return EPISODE_COLORS[(k - 1) % len(EPISODE_COLORS)]
+
+
+def episode_glyph(tok, mark: str, style: tuple, overlap: bool) -> tuple:
+    """(mark, style) of the token `tok` (a sim.Token) a view draws as (mark,
+    style): while episodes overlap (`overlap`: more than one runs in its frame)
+    its episode's mark and colour, bold as it was — unless it failed or was
+    cancelled; otherwise as it is."""
+    if not overlap or tok.state in ("failed", "cancelled"):
+        return mark, style
+    return episode_mark(tok.episode), (episode_colour(tok.episode), None, style[2])
 
 
 def _base_kind(kind: str) -> str:

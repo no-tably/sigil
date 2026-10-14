@@ -530,7 +530,7 @@ def _draw_base(setup: _TreeSetup, look: _TreeLook, way: _Way,
     _draw_lanes(cv, shown, out.ends, muted_sources=frame is not None)
     _draw_join_taps(cv, shown, out.ends, s.joins)
     if frame is not None:
-        for x, y, mark, style in _token_cells(frame.tokens, lanes,
+        for x, y, mark, style in _token_cells(frame, lanes,
                                               _self_call_cells(s.calls, out), look.probe):
             cv.put(x, y, mark, style)
     moved = [] if way.right else None
@@ -574,7 +574,7 @@ def _base_looks(setup: _TreeSetup, look: _TreeLook, out: _Outline, lanes: list) 
     for y, row in chips.items():
         now[("chips", y)] = ((y,), row)
     if look.frame is not None:
-        cells = _token_cells(look.frame.tokens, lanes, _self_call_cells(setup.calls, out),
+        cells = _token_cells(look.frame, lanes, _self_call_cells(setup.calls, out),
                              look.probe)
         now[("tokens",)] = (frozenset(y for _x, y, _m, _s in cells), cells)
     return now
@@ -1434,7 +1434,8 @@ def _token_glyph(tok, wire) -> tuple:
     """(mark, style) of a token on a wire (sim.md §7.1): `●` out in the wire's
     colour + bold, `○` a return (produces' colour), a fallback return `○`
     muted, `✕` a failed attempt or route (edges-fail), `⊘` a cancelled one
-    (CANCELLED_MARK) muted."""
+    (CANCELLED_MARK) muted — as drawn while one episode runs (_token_cells
+    marks them by episode while more do, kit.episode_glyph)."""
     produces = kit.EDGE_DEFAULT
     if tok.state == "failed":
         return "✕", scene.wire_style(wire, "failed")
@@ -1458,15 +1459,17 @@ def _token_row(lane: _Lane, at: float) -> int:
     return round(src + at * (dst - src))
 
 
-def _token_cells(tokens, lanes, self_cells: dict, probe: bool = False) -> tuple:
-    """((x, y, mark, style), …): each token as drawn over the drawing, in task
-    order (a later token on the same cell wins): in its lane's gutter column on
-    _token_row, or on a self-call's mark (self_cells, _self_call_cells).
-    Tokens on wires the tree does not draw are left out. `probe`: each in a
-    kit.Probe style (sim_focus)."""
+def _token_cells(frame, lanes, self_cells: dict, probe: bool = False) -> tuple:
+    """((x, y, mark, style), …): each of a sim frame's tokens as drawn over the
+    drawing, in task order (a later token on the same cell wins): in its lane's
+    gutter column on _token_row, or on a self-call's mark (self_cells,
+    _self_call_cells); marked by episode while more than one runs
+    (kit.episode_glyph). Tokens on wires the tree does not draw are left out.
+    `probe`: each in a kit.Probe style (sim_focus)."""
     lane_of = {i: ln for ln in lanes for i in ln.idents}
+    overlap = len(frame.episodes) > 1
     out = []
-    for tok in tokens:
+    for tok in frame.tokens:
         if tok.wire in lane_of:
             ln = lane_of[tok.wire]
             x, y, wire = ln.x, _token_row(ln, tok.at), ln.wire
@@ -1474,7 +1477,7 @@ def _token_cells(tokens, lanes, self_cells: dict, probe: bool = False) -> tuple:
             x, y, wire = self_cells[tok.wire]
         else:
             continue
-        mark, style = _token_glyph(tok, wire)
+        mark, style = kit.episode_glyph(tok, *_token_glyph(tok, wire), overlap)
         out.append((x, y, mark, kit.Probe(style) if probe else style))
     return tuple(out)
 

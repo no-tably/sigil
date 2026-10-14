@@ -121,6 +121,16 @@ ui:
   section: $slate         # `--- section ---` divider rules
   mode: $gold             # the `#!mode` line, in the status bar
 
+# A run whose episodes overlap: while more than one runs, each token is drawn as
+# its episode's number in its episode's colour (episode 7 takes episode_1's, …).
+run:
+  episode_1: $sky
+  episode_2: $amber
+  episode_3: $green
+  episode_4: $softpink
+  episode_5: $lilac
+  episode_6: $teal
+
 # Page-only roles for the site.
 site:
   accent: $magenta

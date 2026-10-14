@@ -1760,21 +1760,29 @@ def _key_states(scn, frame) -> dict:
     return out
 
 
-def _token(tok, w) -> _Token:
+def _token(tok, w, overlap: bool = False) -> _Token:
     """A frame's token (sim.Token) as drawn on the wire w (sim.md §7.1): ● out
     in the wire's colour + bold, ○ a return in the produces role (`=>`'s) +
     bold, a fallback return ○ muted produces, ✕ a failed attempt or route in
-    edges.fail, a cancelled token ⊘ muted wire colour (the tree's mark too)."""
-    produces = kit.edge_style("=>")[0]
+    edges.fail, a cancelled token ⊘ muted wire colour (the tree's mark too).
+    `overlap` (more than one episode runs): ● and ○ become the token's episode
+    number in its run colour (kit.episode_glyph)."""
+    mark, style = kit.episode_glyph(tok, *_token_glyph(tok, w), overlap)
+    return _Token(w.ident, tok.at, mark, style)
+
+
+def _token_glyph(tok, w) -> tuple:
+    """(mark, style) of a token on the wire w, one episode running (_token)."""
     if tok.state == "failed":
-        return _Token(w.ident, tok.at, TOKEN_MARK["failed"], scene.wire_style(w, "failed"))
+        return TOKEN_MARK["failed"], scene.wire_style(w, "failed")
     if tok.state == "cancelled":
-        return _Token(w.ident, tok.at, TOKEN_MARK["cancelled"], scene.wire_style(w, "inactive"))
+        return TOKEN_MARK["cancelled"], scene.wire_style(w, "inactive")
+    produces = kit.edge_style("=>")[0]
     if tok.state == "fallback":
-        return _Token(w.ident, tok.at, TOKEN_MARK["back"], (kit.muted(produces), None, False))
+        return TOKEN_MARK["back"], (kit.muted(produces), None, False)
     if tok.dir == "back":
-        return _Token(w.ident, tok.at, TOKEN_MARK["back"], (produces, None, True))
-    return _Token(w.ident, tok.at, TOKEN_MARK["out"], scene.wire_style(w, "active"))
+        return TOKEN_MARK["back"], (produces, None, True)
+    return TOKEN_MARK["out"], scene.wire_style(w, "active")
 
 
 def _badge_runs(frame, nid: str, stage: _Stage) -> list:
@@ -1876,7 +1884,8 @@ def sim_look(scn, frame, slots: dict | None = None, probe: bool = False) -> SimL
     stage = _stage(scn)
     keyed = _key_states(scn, frame)
     by_ident = {w.ident: w for w in scn.wires}
-    tokens = tuple(_token(tok, by_ident[tok.wire]) for tok in frame.tokens
+    overlap = len(frame.episodes) > 1
+    tokens = tuple(_token(tok, by_ident[tok.wire], overlap) for tok in frame.tokens
                    if tok.wire in by_ident)
     if probe:
         tokens = tuple(tok._replace(style=_Probe(tok.style)) for tok in tokens)
