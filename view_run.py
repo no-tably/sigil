@@ -29,6 +29,12 @@ work of its own •. A spawned instance's lane forks from its spawner by the `=>
 hop itself and carries ◌ while that hop flies. Each lane has a note in plain
 words (n: run notes → the design's notes on the node → off).
 
+Episodes: one beginning after the run went quiet has a ┆ boundary before it
+and `epN` on the ruler at its start; one beginning while another runs (a
+scenario's `Entry@t`) only the `epN` start mark — its lanes run beside the
+others', a lane busy in two at once on a `∥k` sub-row — and under the drawing
+a legend names each episode begun, `ep2 (Author)@40`, ▸ on the running ones.
+
 During a run the playhead (▼ on the ruler, ┊ down the blank cells) is the
 frame's tick: nothing right of it is drawn and lanes appear when they are born;
 tokens ride the transits (● out, ○ a reply). Without a scenario chosen the view
@@ -264,10 +270,13 @@ class _Frame(NamedTuple):
 
 
 def _paint(tl, scn, tick: int, final: bool, probe: bool = False,
-           keep: frozenset = frozenset()) -> _Frame:
+           keep: frozenset = frozenset(), together: frozenset = frozenset()) -> _Frame:
     """The grid of the timeline clipped at `tick`: bars, transits and their
     verticals, marks, the episode boundaries, the playhead and the tokens.
-    `keep`: ticks never folded into ≈ (where the ruler marks a finding)."""
+    `keep`: ticks never folded into ≈ (where the ruler marks a finding).
+    `together`: the episodes (k) that begin while another runs (overlaps):
+    each has only its start mark on the ruler (_marks), no ┆ boundary — a
+    boundary is drawn before an episode that begins after the run went quiet."""
     cols = _columns(tl, _busy_ticks(tl) | ({tick} if not final else set()) | keep)
     lanes = tuple(ln for ln in tl.lanes if ln.born <= tick)
     rows = {ln.key: r for r, ln in enumerate(lanes)}
@@ -318,6 +327,8 @@ def _paint(tl, scn, tick: int, final: bool, probe: bool = False,
             continue
         _paint_move(g, m, rows, col, tick, scn, st)
     for k, t, _n in tl.episodes[1:]:                           # episode boundaries
+        if k in together:
+            continue
         c = col.get(t - 1)
         if c is not None and t - 1 <= tick:
             for r in range(len(lanes)):
@@ -691,8 +702,7 @@ def lane_notes(tl, scn, numbered: set, tick: int, final: bool) -> dict:
     moves = [m for m in tl.moves if m.start <= tick]
     marks = [m for m in tl.marks if m.t <= tick]
     by_key = {ln.key: ln for ln in tl.lanes}
-    entries = {(t, n) for _k, t, n in tl.episodes}
-    ep_of = {t: k for k, t, _n in tl.episodes}
+    ep_of = {(t, n): k for k, t, n in tl.episodes}     # two may begin at one tick
     depth = {}
     for ln in tl.lanes:
         if ln.level > 1 and ln.born <= tick:
@@ -740,8 +750,8 @@ def lane_notes(tl, scn, numbered: set, tick: int, final: bool) -> dict:
         elif ln.owner:
             cl.append(Clause(f"{_inst_name(scn, ln.owner, numbered)}'s", WHO))
         for s in mine:
-            if s.caller is None and s.wire is None and (s.enter, s.node) in entries:
-                cl.append(Clause(f"episode {ep_of[s.enter]}'s entry", ENTRY))
+            if s.caller is None and s.wire is None and (s.enter, s.node) in ep_of:
+                cl.append(Clause(f"episode {ep_of[s.enter, s.node]}'s entry", ENTRY))
                 break
         if kind == "event" and mine:
             n = len(acts)
@@ -878,6 +888,50 @@ def _design_notes(scn, ln) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Episodes that overlap
+# ---------------------------------------------------------------------------
+
+def overlaps(trace) -> dict:
+    """{k: (the other episodes running at the tick episode k began, ascending)}
+    for each episode the run began (Trace.end["episodes"]; running:
+    Frame.episodes) — () for one that began alone, after the run went quiet
+    (or with no frame kept at its tick)."""
+    running = {f.tick: f.episodes for f in trace.frames}
+    return {e["episode"]: tuple(sorted(running.get(e["start"], frozenset()) - {e["episode"]}))
+            for e in trace.end.get("episodes", ())}
+
+
+def _episode_items(tl, scn, running: frozenset, tick: int) -> list:
+    """[[(text, style)]]: an item per episode begun by `tick` — its number,
+    entry and start tick as a scenario starts it, `▸ep2 (Author)@40`; ▸ and
+    bright while it runs (`running`: Frame.episodes), else a blank and mid."""
+    st = _styles()
+    out = []
+    for k, t, n in tl.episodes:
+        if t > tick:
+            continue
+        on = k in running
+        out.append([((RUNNING if on else " ") + f"ep{k} {_name(scn, n)}@{t}",
+                     st["now"] if on else st["mid"])])
+    return out
+
+
+def _episode_rows(items: list, width: Optional[int]) -> list:
+    """The episodes' legend as rows: `episodes` and the items 3 blanks apart,
+    a row holding as many as fit `width` (None: one row), the next ones
+    under the first."""
+    head = [("episodes ", _styles()["dim"])]
+    rows, row = [], list(head)
+    for item in items:
+        if (width is not None and len(row) > len(head)
+                and kit.row_len(row) + 2 + kit.row_len(item) > width):
+            rows.append(row)
+            row = [(" " * kit.row_len(head), None)]
+        row += ([("  ", None)] if len(row) > len(head) else []) + item
+    return rows + [row]
+
+
+# ---------------------------------------------------------------------------
 # compose_run
 # ---------------------------------------------------------------------------
 
@@ -943,7 +997,8 @@ def compose_run(g, trace=None, tick: Optional[int] = None, width: Optional[int] 
     witnessed = tuple(sorted(((at, m) for name, at, m in getattr(checks, "witnesses", ())
                               if name == trace.scenario.name and at <= tl.last),
                              key=lambda x: (x[1].number, x[0])))
-    fr = _paint(tl, scn, t, final, probe, frozenset(at for at, _m in witnessed))
+    together = frozenset(k for k, others in overlaps(trace).items() if others)
+    fr = _paint(tl, scn, t, final, probe, frozenset(at for at, _m in witnessed), together)
     numbered = _shows_ordinal(tl, prog)
     st = _styles()
     node_marks = checks.nodes if checks is not None else {}
@@ -1026,6 +1081,10 @@ def compose_run(g, trace=None, tick: Optional[int] = None, width: Optional[int] 
                 lab = [(" " * GUTTER, None)] + labels[ln.key]
                 lab.append((" " * (x0 - kit.row_len(lab)), None))
                 rows.append(lab + [(_fit_note(said[ln.key], budget), st["note"])])
+    if together:                                # the episodes, the running ones bright
+        running = frozenset() if final else trace.frames[i].episodes
+        rows.append([])
+        rows += _episode_rows(_episode_items(tl, scn, running, t), width)
     if not chosen:
         head = f"happy run (every default) · {trace.outcome} · {len(trace.frames)} frames"
         keys = "x plays it   [ ] another scenario"
@@ -1165,10 +1224,12 @@ def timeline_json(trace, limits=None, show: Optional[int] = None,
     prog = sim._program_of(trace.scene.graph)
     scn = prog.scene
     numbered = _shows_ordinal(tl, prog)
+    ov = overlaps(trace)
     key = lambda k: list(k)
     return {
         "scenario": trace.scenario.name, "outcome": trace.outcome, "last": tl.last,
-        "episodes": [{"episode": k, "tick": t, "entry": _name(scn, n)}
+        "episodes": [{"episode": k, "tick": t, "entry": _name(scn, n),
+                      **({"with": list(ov[k])} if ov.get(k) else {})}
                      for k, t, n in tl.episodes],
         "folded": tl.folded,
         "iterations": [{"t": it.t, "k": it.k, "of": it.of, "owner": it.block[0],
