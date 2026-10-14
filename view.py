@@ -1024,7 +1024,8 @@ def sim_facts(trace, limits=None) -> dict:
     taken, `ignored` events a machine's state had no transition for, `waiting`
     nodes still blocked at the end, `open` `&` joins left open, `bounds` every
     simulator bound hit (base case, visit limit, spawn cap, a loop capped or run
-    at the cap with no `@times`, a cut)."""
+    at the cap with no `@times`, a cut). An overlap run (`Entry@t`) also lists
+    `episodes`: each one's number, entry and start tick, in start order."""
     limits = limits or simulator.Limits()
     scn, end, sc = trace.scene, trace.end, trace.scenario
     name = lambda nid: kit.node_label(scn.nodes[nid].node) if nid in scn.nodes else str(nid)
@@ -1052,8 +1053,11 @@ def sim_facts(trace, limits=None) -> dict:
     facts["open"] = [f"{name(d['target'])} missing "
                      + ", ".join(name(m) for m in d["missing"]) for d in end["deposits"]]
     facts = {k: list(dict.fromkeys(v)) for k, v in facts.items()}
-    return {"name": sc.name, "label": sc.label, "outcome": trace.outcome,
-            "frames": trace.frames[-1].tick + 1, **facts}
+    out = {"name": sc.name, "label": sc.label, "outcome": trace.outcome,
+           "frames": trace.frames[-1].tick + 1, **facts}
+    if sc.starts:   # an overlap run: when each episode began
+        out["episodes"] = [{**e, "entry": name(e["entry"])} for e in end.get("episodes", ())]
+    return out
 
 
 _BOUND_TEXT = {"depth": "base case", "visits": "visit limit", "spawns": "spawn cap",

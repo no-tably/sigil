@@ -114,7 +114,8 @@ Options:
   [Payments] with charge(total) — attempt 2 of 4`; see
   [Simulation](../README.md#simulation)). With `--json` it prints that run as JSON
   instead, with no drawing: the facts `--sim all` lists, `steps` (frame, tick, text)
-  and the simulator's raw `log`. `--sim list`
+  and the simulator's raw `log`; an overlap run (`Entry@t`) adds `episodes`, each
+  one's number, entry and start tick. `--sim list`
   prints the scenarios, one per line with its label: `happy`, the deviations, then
   the overlap scenarios `Entry@t` (a later entry started at tick t, while an earlier
   one's episode is touching something it touches; at most 3 per pair of entries, 12

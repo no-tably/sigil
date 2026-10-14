@@ -47,6 +47,14 @@ class TestFacts(unittest.TestCase):
         self.assertEqual([(o["name"], o["outcome"]) for o in overlaps],
                          [("Payments@0", "ok"), ("Payments@10", "ok")])   # listed overlaps run too
 
+    def test_an_overlap_run_lists_its_episodes_and_no_other_run_does(self):
+        by = {f["name"]: f for f in facts(ROOT / "tests" / "fixtures" / "overlap.sigil")}
+        self.assertEqual(by["Author@5"]["episodes"],
+                         [{"episode": 1, "entry": "(Operator)", "start": 0},
+                          {"episode": 2, "entry": "(Author)", "start": 5}])
+        self.assertNotIn("episodes", by["happy"])
+        self.assertNotIn("episodes", by["Builder.claim:fallback"])
+
     def test_a_failing_call_names_its_wire_and_its_fallback(self):
         by = {f["name"]: f for f in facts(EXECUTIONS)}
         self.assertEqual(by["Crawler.fetch:fallback"]["failed"],

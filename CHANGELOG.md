@@ -28,7 +28,7 @@ them. (More of 0.5.0 is still to come.)
   section `run`. The run view marks where each episode starts on the ruler, in its
   colour, and lists the episodes under the drawing (`▸` on the running ones while
   it plays). `--run --json` lists each episode's start tick, entry and the episodes
-  it began alongside. A run with one episode at a time looks exactly as before.
+  it began alongside, and `--sim Entry@t --json` lists the episodes too. A run with one episode at a time looks exactly as before.
 - **A new example**, `overlap.sigil` (on the page and in `site/examples/`): an
   author exports while a builder is mid-build, and the stale notice lands between
   two of the builder's steps.
