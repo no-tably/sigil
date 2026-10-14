@@ -36,7 +36,7 @@ CORPUS = [
 
 # Each case dotted after a namespace, as `op ns.verb(…)`.
 # (A segment after the dot starting with a digit is left out: see
-# test_a_dotted_digit_segment_is_lint_strictness.)
+# test_a_dotted_digit_segment_is_one_malformed_op_call.)
 DOTTED = [(f"ns.{v}", f"ns.{want}" if want else None) for v, want in CORPUS
           if not v[0].isdigit()]
 # A mark after the dot joins no letter.
@@ -83,13 +83,23 @@ class VerbRulesAgree(unittest.TestCase):
                 self.assertEqual(render._marks_follow_letters(written),
                                  lint._marks_follow_letters(written))
 
-    def test_a_dotted_digit_segment_is_lint_strictness(self):
-        # Both read `ns.9x(` as a flow target's head; only lint's payload rule
-        # asks every dotted segment to start with a letter (and reports it).
+    def test_a_dotted_digit_segment_is_one_malformed_op_call(self):
+        # Both read `op ns.9x(` as one op-call (render draws it as written);
+        # lint reports it as malformed wherever it stands, payload or target.
         self.assertEqual(verb(render.OP_TARGET_RE, "ns.9x()"), "ns.9x")
         self.assertEqual(verb(lint._OP_HEAD_RE, "ns.9x("), "ns.9x")
         self.assertIsNone(verb(lint._EXT_OP_RE, "op ns.9x({X})"))
+        for line in ("[Api] -> op ns.9x({Job})", "[Api] -> [Db] : op ns.9x({Job})"):
+            g = render.parse_document(line + "\n")
+            self.assertIn("op ns.9x({Job})", [e.payload for e in g.edges])
+            codes = [d.rule for d in lint.lint("#!spec\n" + line + "\n").diagnostics]
+            self.assertIn("SGL102", codes, line)
 
+    def test_a_well_formed_op_target_lints_clean(self):
+        for line in ("[Api] -> op ns.run({Job})", "[Api] -> op ns.a⃝b()",
+                     "[Api] -> op db.query(${sql}) -> [Db]"):
+            codes = [d.rule for d in lint.lint("#!spec\n" + line + "\n").diagnostics]
+            self.assertNotIn("SGL102", codes, line)
 
 class EnclosingMarkVerbs(unittest.TestCase):
     VERB = "a⃝b"

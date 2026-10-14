@@ -26,6 +26,10 @@ Fixes for what 0.4.3 left open. No new features.
   combining marks already were. One shared set of test verbs now checks that
   `lint.py` and `render.py` read verbs alike (each keeps its own copy of the rule, so
   `lint.py` stays a standalone tool).
+- **`lint.py` reports a malformed `op` call written as an arrow's target**, as it
+  already did for one written as a payload: `[Api] -> op ns.9x({Job})` is SGL102 (each
+  part of the dotted name must start with a letter). `render.py` and the views still
+  draw it as written, one op-call, as they do every malformed op-call.
 
 ## 0.4.3 — 2026-10-14
 

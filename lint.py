@@ -793,8 +793,9 @@ def lint_payloads(lines: list, result: LintResult, checks=(),
 
       - a `{...}` with a top-level ':' that is not pure key/value pairs is
         ambiguous and rejected (SGL100);
-      - a malformed external op-call (`op` without a dotted ns) is rejected
-        (SGL102).
+      - a malformed external op-call (`op` without a dotted ns, or a dotted
+        part that starts with no letter) is rejected (SGL102), as a payload
+        and as an arrow's target alike.
     Core Sigil does NOT require a tag on a value payload. A dialect may add
     per-payload rules (`checks`, see dialects.py `lint_payload_checks`), declare
     blocks whose bodies are declarations rather than flows (`blocks` — skipped),
@@ -838,6 +839,22 @@ def lint_payloads(lines: list, result: LintResult, checks=(),
         # Skip aliases (`name := ...`) and state-block transitions.
         if ":=" in line or "-<" in line:
             continue
+        # An `op …(…)` written as an arrow's target (a self-call) holds to the
+        # same rule as one written as a payload: render reads both as an op-call.
+        for am in ARROW_RE.finditer(line):
+            j = len(line) - len(line[am.end():].lstrip())
+            om = _OP_HEAD_RE.match(line, j)
+            if not om or not line.startswith("op", j):
+                continue
+            end = _balanced_end(line, om.end() - 1)
+            target = line[j:end] if end > 0 else ""
+            if target and _classify_payload(target)[0] == "ext-op-bad":
+                result.add(
+                    "error", i, "SGL102",
+                    f"malformed external op-call {target!r}. Expected "
+                    f"`op <ns>.<verb>(args)`, every part of the dotted name "
+                    f"starting with a letter (e.g. `op db.query(${{sql}})`)."
+                )
         # Find each `: payload` segment: a `:` that is not part of `:=`,
         # running to the next arrow or end of line.
         for m in re.finditer(r"(?<![:=]):(?!=)", line):
@@ -863,8 +880,8 @@ def lint_payloads(lines: list, result: LintResult, checks=(),
                 result.add(
                     "error", i, "SGL102",
                     f"malformed external op-call {value_text!r}. Expected "
-                    f"`op <ns>.<verb>(args)` with a dotted host-registered op "
-                    f"name (e.g. `op db.query(${{sql}})`)."
+                    f"`op <ns>.<verb>(args)`, every part of the dotted name "
+                    f"starting with a letter (e.g. `op db.query(${{sql}})`)."
                 )
             if checks:
                 site = PayloadSite(i, value_text, tags, kind, known)

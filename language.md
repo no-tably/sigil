@@ -204,8 +204,9 @@ Edges and op-calls fall in two classes; what a consumer validates differs:
   treated as **opaque**. A consumer validates only that the op-call is
   **well-formed** (the op is named with a dotted ns, its param payloads resolve,
   it sits in a sound internal composition); it does **not** reach into or
-  validate the external system. A malformed external op-call (no dotted name) is
-  rejected (`SGL102`). A result bound back into state is type-checked at that
+  validate the external system. A malformed external op-call (no dotted name, or
+  a part of it starting with no letter, as `op ns.9x()`) is rejected (`SGL102`),
+  as a payload or as an arrow's target. A result bound back into state is type-checked at that
   bind, by the consumer.
 
 By contrast, an **internal** dispatch stays a bare op-call `: verb(args)` (no
