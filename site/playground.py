@@ -8,7 +8,7 @@ the tools for a drawing and packs it (frames.py) the way frames.json is packed.
 
     draw(request)    the document drawn in one view, its lint and its scenarios
     sim(request)     one frame of a scenario's run, drawn over the same view
-    check(request)   the document's composition findings (check.py at k = 1)
+    check(request)   the document's composition findings (check.py at k = 1, CHECK_RUNS runs)
 
 A request: {"text", "view": "tree"|"graph"|"flow"|"run", "width": cols|null, "depth",
 "payloads", "notes", "events"} (+ "scenario", "frame" for sim; "text" and
@@ -48,6 +48,10 @@ view.use_theme(None)
 
 MAX_DEPTH = 99
 CHECK_K = 1                 # failure combinations per scenario: the RFC's playground k
+CHECK_RUNS = 96             # runs per exploration: below check.py's default, since overlap
+                            # runs fill whatever budget a large many-entry document is given
+                            # (coverage.sigil craft: ~5.5s at the default, ~1.6s here, natively);
+                            # the bundled examples find exactly what the default finds
 STYLES = frames.Styles()
 _player: dict = {}          # the run being shown: {"key": (text, scenario), "player",
                             # "graph", "memo": its frames' kit.FrameMemo}
@@ -179,12 +183,14 @@ def check(request: str) -> str:
     """{"mode", "k", "findings": [{severity, line, rule, name, message, tier, why,
     fix}], "hidden": count, "acknowledged": [… + "acknowledged" (the reason)]};
     a document check.py cannot read: {"error"}. "mode" in the request overrides
-    the document's mode line (null: the document's). Always k = CHECK_K with the
-    trace module's run budget: the page bounds the time a check may take itself."""
+    the document's mode line (null: the document's). Always k = CHECK_K and at
+    most CHECK_RUNS runs per exploration (what that leaves unrun is SGC090's
+    finding, as on the command line); the page also bounds the wall time itself."""
     req = json.loads(request)
     text = frames.autoclose(req.get("text", "").split("\n"))
     try:
-        report = checker.check(text, mode=req.get("mode") or None, k=CHECK_K)
+        report = checker.check(text, mode=req.get("mode") or None, k=CHECK_K,
+                               budget=CHECK_RUNS)
     except ValueError as exc:                # an unknown mode
         return json.dumps({"error": str(exc)})
     except Exception as exc:                 # a half-typed document must not break the page

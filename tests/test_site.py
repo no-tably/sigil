@@ -234,6 +234,20 @@ class TestBuild(unittest.TestCase):
                     asked += len(r["findings"])
         self.assertGreater(asked, 0, "no example raised a finding in craft or spec")
 
+    def test_playground_check_runs_at_its_own_budget(self):
+        # Overlap runs fill the budget a many-entry document is given, so the page
+        # asks for fewer runs than check.py's default (the examples above still find
+        # what the default finds); what that leaves unrun is SGC090's count.
+        pg = _load("sigil_playground_t2", SITE / "playground.py")
+        check = _load("sigil_check_site_t2", _DIR / "check.py")
+        self.assertLess(pg.CHECK_RUNS, check.default_budget())
+        text = (_DIR / "tests" / "fixtures" / "coverage.sigil").read_text(encoding="utf-8")
+        r = json.loads(pg.check(json.dumps({"text": text, "mode": "craft"})))
+        want = check.check(text, mode="craft", k=1, budget=pg.CHECK_RUNS)
+        self.assertEqual([(f["line"], f["rule"], f["message"]) for f in r["findings"]],
+                         [(f.line, f.rule.id, f.message) for f in want.shown])
+        self.assertTrue(any(f["rule"] == "SGC090" for f in r["findings"]))
+
     def test_playground_check_reports_a_bad_mode(self):
         pg = _load("sigil_playground_t2", SITE / "playground.py")
         r = json.loads(pg.check(json.dumps({"text": "[A] -> [B]", "mode": "strict"})))
@@ -298,6 +312,25 @@ class TestBuild(unittest.TestCase):
         run = json.loads(pg.sim(json.dumps({"text": text, "view": "run", "scenario": name,
                                             "frame": 10**6})))
         self.assertEqual((run["frame"], run["say"]), (player.last, player.narration()))
+
+    def test_overlap_example_is_on_the_page_and_its_named_run_plays(self):
+        """06-overlap is found by glob; its menu puts only the Author@t starts under
+        "overlaps" (Builder?>Ledger@14/@20 are branches told apart by line, not
+        starts); Author@25, the run its comment names, plays to its end."""
+        self.assertIn(SITE / "examples" / "06-overlap.sigil", site.example_paths())
+        pg = _load("sigil_playground_t7", SITE / "playground.py")
+        text = (SITE / "examples" / "06-overlap.sigil").read_text()
+        self.assertIn("--sim Author@25", text)
+        got = json.loads(pg.draw(json.dumps({"text": text})))["scenarios"]
+        groups = {s["name"]: s["group"] for s in got}
+        self.assertEqual([n for n, g in groups.items() if g == "overlaps"],
+                         ["Author@0", "Author@5", "Author@25"])
+        self.assertEqual((groups["Builder?>Ledger@14"], groups["Builder?>Ledger@20"]), ("", ""))
+        run = json.loads(pg.sim(json.dumps({"text": text, "view": "run", "scenario": "Author@25",
+                                            "frame": 10**6})))
+        self.assertEqual((run["frame"], run["outcome"]), (run["last"], "ok"))
+        self.assertTrue(any(line.startswith(f"t{25:03d} ep2: episode 2 begins at (Author)")
+                            for line in run["story"]))
 
     def test_playground_flow_view_has_its_legend(self):
         pg = _load("sigil_playground_t4", SITE / "playground.py")
