@@ -63,6 +63,12 @@ def names(sc) -> list:
     return [s.name for s in sim.scenarios(sc)]
 
 
+def deviated(listed) -> list:
+    """The listed single-deviation scenarios: neither happy nor an overlap (`B@t`,
+    which has starts and no choices; tests/test_sim_overlap.py covers those)."""
+    return [s for s in listed[1:] if not s.starts]
+
+
 def run(sc, name: str = "happy", **kw):
     return sim.simulate(sc, sim.scenario(sc, name), **kw)
 
@@ -85,11 +91,14 @@ def logs(trace, needle: str) -> list:
 
 class TestScenarioLists(unittest.TestCase):
     def test_examples(self):
-        self.assertEqual(names(load("00-shortener.sigil")), ["happy", "Redirect.lookup:fails"])
+        # happy, the failure scenarios, then the overlap family (`B@t`)
+        self.assertEqual(names(load("00-shortener.sigil")),
+                         ["happy", "Redirect.lookup:fails", "Visitor@0"])
         self.assertEqual(names(load("01-checkout.sigil")), ["happy", "API.charge:fails"])
         self.assertEqual(names(load("02-shop.sigil")), ["happy", "Risk?>Review"])
-        self.assertEqual(names(load("03-arena.sigil")), ["happy"])
-        self.assertEqual(names(load("04-orders.sigil")), ["happy", "Payments:fails"])
+        self.assertEqual(names(load("03-arena.sigil")), ["happy", "Homing@0"])
+        self.assertEqual(names(load("04-orders.sigil")),
+                         ["happy", "Payments:fails", "Payments@0", "Payments@10"])
 
     def test_shortener_paths(self):
         # the page's first example: follow redirects and counts the click, or a
@@ -105,7 +114,8 @@ class TestScenarioLists(unittest.TestCase):
     def test_executions_fixture_in_line_order(self):
         self.assertEqual(names(load("executions.sigil")), [
             "happy", "Crawler.throttle:fails", "Crawler.fetch:fallback",
-            "Fetcher.http.get:fails", "Indexer.write:fails", "Notifier.mail.send:fails"])
+            "Fetcher.http.get:fails", "Indexer.write:fails", "Notifier.mail.send:fails",
+            "Indexer@24", "Indexer@25"])
 
     def test_names_are_unique_and_safe(self):
         for path in EXAMPLES + FIXTURES:
@@ -1243,7 +1253,7 @@ class TestDefectFixes(unittest.TestCase):
             listed = sim.scenarios(sc, limits=ALL)
             happy = sim.simulate(sc, listed[0])
             met = {e["cid"] for e in events(happy, "choice")}
-            for s in listed[1:]:
+            for s in deviated(listed):
                 with self.subTest(doc=name, scenario=s.name):
                     ((cid, _opt),) = s.choices
                     if cid in met:
@@ -1493,9 +1503,12 @@ CROSS_EPISODE = ("(A) -> [P]\n[P] -> (Ext) : op x.get() @timeout(1s)\n  !> <Decl
 
 class TestCombinations(unittest.TestCase):
     def test_k1_is_happy_and_every_single_deviation(self):
+        # deviations only: overlap runs (`B@t`) are explored apart from combinations
         sc = load("executions.sigil")
         ex = sim.combinations(sc, 1)
-        self.assertEqual([t.scenario.name for t in ex.traces], names(sc))
+        listed = sim.scenarios(sc)
+        self.assertEqual([t.scenario.name for t in ex.traces],
+                         [s.name for s in listed[:1] + deviated(listed)])
         self.assertEqual((ex.duplicates, ex.left_out), (0, 0))
 
     def test_k0_is_the_happy_run(self):
@@ -1804,6 +1817,8 @@ class TestOverlappingEpisodes(unittest.TestCase):
         for path in EXAMPLES + FIXTURES:
             sc = build(path.read_text())
             for s in sim.scenarios(sc):
+                if s.starts:
+                    continue
                 for f in sim.simulate(sc, s).frames:
                     self.assertLessEqual(len(f.episodes), 1, (path.name, s.name, f.tick))
                     self.assertTrue(all(t.episode == f.episode for t in f.tokens))
