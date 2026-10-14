@@ -607,8 +607,9 @@ ALIAS_REF = "alias"
 _SIGN_MODS = {"×", "!", "?", ".", "^"}
 
 def _is_mark(ch: str) -> bool:
-    """A combining mark that joins the letter before it (Mn/Mc)."""
-    return unicodedata.category(ch) in ("Mn", "Mc")
+    """A combining mark that joins the letter before it: nonspacing (Mn),
+    spacing (Mc) or enclosing (Me, e.g. U+20DD around a letter)."""
+    return unicodedata.category(ch) in ("Mn", "Mc", "Me")
 
 
 def _marks_follow_letters(verb: str) -> bool:
@@ -627,7 +628,11 @@ def _marks_follow_letters(verb: str) -> bool:
 class _VerbPattern:
     """A compiled pattern whose `verb` group may also hold combining marks
     (`re` has no class for them): `match` is `re.Pattern.match`, None when the
-    verb holds anything else that is no word character."""
+    verb holds anything else that is no word character.
+
+    lint.py keeps its own copy of this rule (`_is_mark`, `_marks_follow_letters`,
+    `_VerbPattern`) because it is a standalone tool that imports nothing from
+    here; tests/test_lint_verb_rules.py asserts the two copies agree."""
 
     _MARKISH = r"[^\s\w\x00-\x7f]"   # non-ASCII, no word character, no space
 

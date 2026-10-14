@@ -672,8 +672,9 @@ def _is_list_body(body: str) -> bool:
 
 
 def _is_mark(ch: str) -> bool:
-    """A combining mark that joins the letter before it (Mn/Mc)."""
-    return unicodedata.category(ch) in ("Mn", "Mc")
+    """A combining mark that joins the letter before it: nonspacing (Mn),
+    spacing (Mc) or enclosing (Me, e.g. U+20DD around a letter)."""
+    return unicodedata.category(ch) in ("Mn", "Mc", "Me")
 
 
 def _marks_follow_letters(verb: str) -> bool:
@@ -692,7 +693,11 @@ def _marks_follow_letters(verb: str) -> bool:
 class _VerbPattern:
     """A compiled pattern whose `verb` group may also hold combining marks
     (render._VerbPattern): `match` is `re.Pattern.match`, None when the verb
-    holds anything else that is no word character."""
+    holds anything else that is no word character.
+
+    A copy of render's rule (with `_is_mark` and `_marks_follow_letters`): lint.py
+    is a standalone tool and imports nothing from render.py;
+    tests/test_lint_verb_rules.py asserts the two copies agree."""
 
     _MARKISH = r"[^\s\w\x00-\x7f]"   # non-ASCII, no word character, no space
 
