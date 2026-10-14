@@ -220,7 +220,9 @@ random; the run is a function of the design and the chosen **scenario**.
   plain call with `×N` / `@timeout` / `@fallback` / a `!>` route fails),
   `Risk?>Review` (a conditional taken), `Payments:fails` (a node with a `!>` route
   fails), `Api&?PspB` (another race winner), `Api/Err` (another alternative), a
-  branch arm, … Join two with `a+b`. An unknown name prints the known ones (exit 2).
+  branch arm, … Join two with `a+b`. After them come a few **overlap** scenarios,
+  `Entry@t` (see [Runs that overlap](#runs-that-overlap)). An unknown name prints
+  the known ones (exit 2).
 - **What moves:** `->` calls wait for their return, `~>` forks without waiting,
   `*>` and `&` fork to all and wait for all, `!>` fires only on failure, retries
   count their attempts, events drive the state machines that name them (each
@@ -330,14 +332,55 @@ Payments@10              ok       21 frames
 4 scenarios: 3 ok, 1 failed, 0 cut
 ```
 
+### Runs that overlap
+
+A run plays its entries one after another: the next entry's episode starts the tick
+after the one before it went quiet. A scenario can instead start an entry at a tick
+of its own — `Author@25` starts `(Author)`'s episode at tick 25 while the earlier
+ones still run — so two things can happen at once from two starting points. It
+combines with the others: `Builder.claim:fallback+Author@25`. Running episodes take
+turns in a fixed order each tick, so an overlapping run is as repeatable as any.
+
+The scenario list ends with a few of these, chosen for you: each later entry started
+so that it reaches something an earlier entry's episode is busy with (a store, a
+state machine, a node, an event) just as it is — the moments a race could happen (the
+`Payments@0` and `Payments@10` rows above). There are at most 3 per pair of entries
+and 12 in all (`--limit pair_overlaps=N`, `--limit overlaps=N`); any other `Entry@t`
+works by name. While more than one episode runs, each narrated sentence starts with
+its episode, the graph, tree and flow views draw each token as its episode's number
+in that episode's colour, and the run view marks where each episode starts on the
+ruler and lists the episodes under the drawing. Here
+[`examples/overlap.sigil`](https://no-tably.github.io/sigil/examples/overlap.sigil):
+an author exports while a builder is mid-build, and the stale notice lands between
+two of the builder's steps (the log from t020):
+
+```sh
+view.py overlap.sigil --once --sim Author@25
+```
+
+```
+t020 [Status] returns {System} to [Builder]
+t025 ep2: episode 2 begins at (Author); ep1: [Builder] calls |Ledger| with claim({System}); ep2: (Author) calls [Exporter] with export({Spec})
+t030 ep2: [Exporter] calls [Gate] with verify({Spec}); ep1: |Ledger| returns {Lease} to [Builder]
+…
+t045 ep1: [Status] calls |Ledger| with read({Hash}); ep2: [Exporter] emits <Stale>; ep2: [Exporter] returns {Delta} to (Author)
+t050 ep2: <Stale> calls [Builder] with recheck({Delta}); ep1: [Status] returns {Verdict} to [Builder]
+```
+
+`check.py` looks further than the list: its behavioural rules start each later
+entry at *every* tick of an earlier entry's episode (within `--budget`), so a race
+between two entries — two writers from two episodes, an event landing in a state
+that exists only mid-episode — is found, and its witness names the run
+(`SGC204: race: … holds it too in the Bob@0 run`) for `--sim Bob@0` to replay.
+
 ## Themes
 
 One YAML file colours both the terminal viewer and the web page:
 `themes/sigil.yaml` (the default) holds a `palette` of named colours and the roles
 built from it — `kinds` (box colours by glyph; `kinds.service` colours
 `[component]` glyphs), `edges`, `syntax` (code highlighting), `ui` (viewer
-chrome) and `site`. A value `$name` refers to `palette.name`, so a role follows
-its palette colour; a new theme can start with `extends: sigil` and override
+chrome), `run` (a colour per episode, for runs that overlap) and `site`. A value
+`$name` refers to `palette.name`, so a role follows its palette colour; a new theme can start with `extends: sigil` and override
 only what it changes. Drop it in `themes/` or a directory on `SIGIL_THEME_PATH`.
 The format is a small YAML subset (nested maps, scalars, `#` comments) that
 `themes.py` and the page both parse without a YAML library.
@@ -357,8 +400,9 @@ The **playground** runs the tools themselves in the browser: the build copies
 [Pyodide](https://pyodide.org) runs them when a visitor presses *start*
 (`site/playground.py` is the thin JSON layer the page calls). Write a design, switch
 views (graph, tree, flow, run — `1` `2` `3` `4` or `t` on the drawing, as in the viewer), read
-the lint, pick a scenario and step through its run, a frame or an event at a time,
-with the viewer's path and narration line under the drawing; *share* puts the
+the lint, pick a scenario (the overlap runs grouped under "overlaps") and step
+through its run, a frame or an event at a time, with the viewer's path and
+narration line under the drawing; *share* puts the
 document in the link. Nothing about the notation is re-implemented in JavaScript, so
 the page cannot drift from the CLI (`tests/test_site.py` checks the copies and that
 the playground draws what `view.py` draws).

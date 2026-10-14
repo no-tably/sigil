@@ -987,8 +987,10 @@ the findings on the drawing in every view (graph, tree, flow).
 **Three sources of rules.** *Structural* rules read the wiring (call policy, store
 access, failure routes, state machines, cycles, bounds). *Behavioural* rules read the
 simulator's runs of the design (`view.py --sim`), exploring single and combined
-failures: races on a store, joins that stall, events a machine drops, orders a
-machine cannot absorb. *Invariant* rules check the document's own `@inv` lines where
+failures, and runs where a later entry starts while an earlier one's episode is
+still running (each start tick of that episode, within `--budget`; the witness is
+named `Entry@t`): races on a store, joins that stall, events a machine drops, orders
+a machine cannot absorb. *Invariant* rules check the document's own `@inv` lines where
 the head is a recognised one (see "Recognised invariants" under "Invariants,
 capabilities, resource ownership"); any other `@inv` is listed as unchecked, never
 failed. A dialect can add rules and `@inv` heads of its own (see "Dialects").
@@ -1363,9 +1365,10 @@ GLYPH ∈ `{ [ ( { < | }`, matched by its closing counterpart.
 - **No algorithm or data-structure notation.** Sigil describes wiring between components, not what happens *inside* one. A component `[QuickSort]` is a valid glyph; its recursion depth, partition strategy, or complexity bound is not Sigil's concern. If the user asks to encode an algorithm, direct them to prose or code — Sigil stays language-agnostic by keeping implementation internals opaque.
 - **No execution semantics** (no runtime, no types beyond declaration). `view.py --sim`
   walks a design's pathways for a reader — tokens along the flows, one scenario at a
-  time (happy path, each failure route, branch arm, race) — but its choices (written
-  order, bounded loops and recursion, the first member wins by default) are the
-  viewer's reading, not part of the language.
+  time (happy path, each failure route, branch arm, race, two entries overlapping) —
+  but its choices (written order, entries one after another unless a scenario starts
+  one at a tick, bounded loops and recursion, the first member wins by default) are
+  the viewer's reading, not part of the language.
 - **No schema syntax for data *entities*** — a `{X}` entity payload is named, not schema'd; expand it elsewhere if you need a full record shape. (A payload *may* carry a concrete **value** — a literal/ref from the closed value vocabulary; see "Payloads & values". That is a value, not an entity schema.)
 - **No absolute layout / visual coordinates** — Sigil is textual; placement is the renderer's concern. (A dialect may describe **relational** layout intent; none names coordinates or pixel sizes.)
 - **No module/import system** — use `:=` expansions and section headers for scoping.

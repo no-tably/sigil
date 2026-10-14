@@ -41,8 +41,12 @@ binding rules errors. The line format and [exit codes](#exit-codes) match lint.
 
 - `--mode sketch|craft|spec` checks as another mode.
 - `--k N` explores up to N failures per run.
-- `--budget N` caps the runs one exploration may make; `--limit NAME=N` raises one
-  simulator limit (repeatable, e.g. `depth=5`).
+- `--budget N` caps the runs one exploration may make: the failure combinations
+  first, then the overlap runs (each later entry started at every tick of an earlier
+  entry's episode; see [Runs that overlap](../README.md#runs-that-overlap)), so a
+  race between two entries is found and its witness names the `Entry@t` run.
+  `--limit NAME=N` raises one simulator limit (repeatable, e.g. `depth=5`;
+  `window=N` the start ticks tried per pair of entries, 64).
 - `--all` also shows hidden findings.
 - `--json` prints one object per run: rule, tier, why, how to satisfy, witness (and
   `at`, the tick in the witness run where a behavioural finding shows).
@@ -111,15 +115,20 @@ Options:
   [Simulation](../README.md#simulation)). With `--json` it prints that run as JSON
   instead, with no drawing: the facts `--sim all` lists, `steps` (frame, tick, text)
   and the simulator's raw `log`. `--sim list`
-  prints the scenarios, one per line with its label. `--sim all` runs every scenario
+  prints the scenarios, one per line with its label: `happy`, the deviations, then
+  the overlap scenarios `Entry@t` (a later entry started at tick t, while an earlier
+  one's episode is touching something it touches; at most 3 per pair of entries, 12
+  in all). Any `Entry@t` runs by name and combines with `+`
+  (`Builder.claim:fallback+Author@25`). `--sim all` runs every scenario
   and prints no drawing: a line per run (name, outcome, frames, label), indented
   facts (`states:` each machine's end state, `failed:`, `routes:` the failure routes
   taken, `ignored:` events a state had no transition for, `waiting:`, `open:` joins
   left open, `bounds:` base case, visit limit, spawn cap, a capped loop, a cut) and a
   summary line. It always exits 0; diff two versions' tables to see what changed.
   `--json` prints either as JSON. `--run --json` prints the run's timeline as data
-  (lanes with their labels, spans with their waits, moves, marks) — the scenario's,
-  else the happy one.
+  (lanes with their labels, spans with their waits, moves, marks, and `episodes`:
+  each episode's number, start tick, entry and the episodes still running when it
+  began, `with`) — the scenario's, else the happy one.
 - `--frame N|last` and `--play` start the live view's run (`--sim`) at frame N
   (0-based) or its last, and playing. Without them it starts paused on the first
   frame. The agent plugins' split passes them. With `--once`, `--frame` picks the
@@ -127,9 +136,11 @@ Options:
   last.
 - `--limit NAME=N` raises one simulator bound for `--sim` (repeatable): `iterations`
   (loop repetitions, 2), `depth` (recursion, 3), `spawn` / `spawns`, `visits`, `stack`,
-  and the per-episode `frames` (2000) and `activations` (500). Each entry point runs
-  as its own episode with its own `frames` and `activations`, so a large design runs
-  every entry in full; a run that still ends `cut` names the bound it hit.
+  and the per-episode `frames` (2000) and `activations` (500); `overlaps` (12) and
+  `pair_overlaps` (3) cap the overlap scenarios listed. Each entry point runs
+  as its own episode with its own `frames` and `activations` (`frames` counted from
+  the latest episode's start), so a large design runs every entry in full; a run that
+  still ends `cut` names the bound it hit.
 - `--checks` marks composition-check findings on the drawing, with a checks legend.
   Each finding's question follows the lint summary.
 - `--compact` starts without the blank row between top-level units.
@@ -224,7 +235,10 @@ transit along the receiver's lane in its arrow's stroke (`╰──▶` `╰╌�
 no bar, and retries repeat the segment; a race's loser ends `⊘`; a reply runs on the
 callee's lane to `↩`. `↺` is a self-call's pulse, `┤` where the depth limit stopped
 a recursion, `⇱` a host op, `•` an actor reached with no work of its own, `┆` the
-boundary between episodes, `↺2` where a loop's next iteration starts ("loops 2×"
+boundary between episodes (an episode that begins while another runs gets no
+boundary, only its start mark `ep2`, in its run colour, and a line under the drawing
+lists the episodes, `episodes  ep1 (Operator)@0   ep2 (Author)@25`, with `▸` on the
+running ones while it plays), `↺2` where a loop's next iteration starts ("loops 2×"
 in the note of the lane running it), and with the checks overlay (`c`) a finding's
 number at the tick this run shows it, when the run is its witness. These marks (and
 `ep2` for an episode) sit on a row of their own above the ruler's scale, so they
@@ -245,7 +259,10 @@ In sim mode every view draws the same run. The wire a token is on now is bright,
 wires taken before are faded (`ui.sim_trail`), and wires never taken are
 fainter (`ui.sim_faint`). Under the footer, in words that read without colour:
 `path` and the episode's hops so far in notation, the last few events, and the
-narration line, `›` and what is happening now. The path is numbered by branch: a
+narration line, `›` and what is happening now. While more than one episode runs
+(a run that overlaps), each narrated sentence starts with its episode (`ep2: `), and
+the graph, tree and flow views draw each token as its episode's number in that
+episode's colour (theme section `run`); with one episode nothing changes. The path is numbered by branch: a
 run of hops that starts again from a node already on the path is a new branch,
 `①` `②` … (`(21)` past `⑳`), three spaces apart —
 `① (Shopper) -> [API] -> [Payments] ✖×4   ② [API] !> <PaymentFailed>`. A hop that
@@ -289,7 +306,9 @@ The tool's input:
 - `view` — `flow` (the default), `graph`, `tree` or `run` (one run as a
   timeline: the scenario's, else the happy one).
 - `depth` — a number, or `"all"`.
-- `scenario` — a scenario to simulate, as `--sim` names it. `""` ends the run.
+- `scenario` — a scenario to simulate, as `--sim` names it: a listed name, or
+  `Entry@t` to start that entry at tick t while earlier episodes still run,
+  combined with `+` (`Api.charge:fails+Author@40`). `""` ends the run.
 - `frame` — the frame of the run to show: a 0-based number, as view.py's
   `--frame` counts them, or `"last"`. A new run starts on its last frame. The
   pane and widget play every frame of a run, however long, drawing it a window

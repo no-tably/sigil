@@ -228,6 +228,9 @@ are errors); in sketch they are hidden (`--all` shows them).
 2. Put each finding to the user **as its question** (craft prints it; in spec turn
    the statement into one), in the design's own terms, and let the user answer.
    A finding marked `(guessed: …)` rests on a guess about a name — say so.
+   A behavioural finding names its witness run; one named `Entry@t` (`race: … in
+   the Bob@0 run`) is two entries running at once — replay it with
+   `view.py FILE --once --run --sim Bob@0` and show the user where they meet.
 3. Resolve it in one of two ways only:
    - **declare** the handling in the notation the spec already has — `@timeout(t)`,
      `@deadline(t)`, `×N` with `@after(…)`, `@fallback(x)`, a `!>` route, a
@@ -261,8 +264,10 @@ run it to find out what the design does, not only to show the user.
    default (calls succeed, `?>` skipped, the first member of a race / alternative /
    branch wins); each other row is one deviation — `Caller.verb:fails` / `:fallback`,
    `Src->Dst:fails`, `Node:fails`, `Src?>Dst`, `Src&?Member`, `Src/Member`,
-   `header=arm`, `Owner.State-ev->Other`. `--sim list` lists them; `a+b` combines two
-   for a single run.
+   `header=arm`, `Owner.State-ev->Other`. The last rows are overlap runs, `Entry@t`:
+   a later entry started at tick t while an earlier entry's episode still runs, at
+   the moments it reaches something that episode is busy with. `--sim list` lists
+   them all; `a+b` combines two for a single run (`Builder.claim:fallback+Author@25`).
 2. Judge each row against the intent: every failure ends somewhere intended (a
    `routes:` entry, a fallback, or a `failed` the user accepts — `failed` with no
    route is a failure nobody handles); machines end in the expected `states:`; a
@@ -272,6 +277,13 @@ run it to find out what the design does, not only to show the user.
    or spawn the design leaves open, and a loop at the cap has no `@times`. To see
    past a bound, rerun with `--limit NAME=N` (e.g. `depth=6`, `frames=5000`); that
    explores further, it never fixes the design.
+   Entries run one after another unless a scenario starts one at a tick, so a design
+   with two or more entries (two actors, a job and a user) also needs the question
+   "what if they happen at once?": read the `Entry@t` rows, try other ticks by name
+   (`--once --sim Author@40`; the log leads each sentence with its episode, `ep2:`),
+   and run `check.py`, which starts each later entry at every tick of an earlier
+   one's episode and names the run where two entries race (two writers, an event
+   landing in a state that exists only mid-episode).
 3. A surprising row: `--once --tree --sim NAME` draws its last frame and prints the
    run in plain words, one `tNNN …` line per step; find where the run diverged from
    the intent, and quote those lines to the user (`--sim NAME --json` has them as

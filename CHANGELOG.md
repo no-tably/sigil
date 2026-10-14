@@ -2,6 +2,56 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
+## 0.5.0 — unreleased
+
+Runs whose entries happen at the same time, and checks that look for races between
+them. (More of 0.5.0 is still to come.)
+
+### Runs that overlap
+
+- **An entry can start at a tick of its own.** A run used to play its entries one
+  after another, each starting once the one before it went quiet. Now a scenario can
+  say `Author@25`: `(Author)`'s episode starts at tick 25 while the earlier ones are
+  still running. It combines with any other scenario (`Builder.claim:fallback+Author@25`).
+  Entries without a start tick keep the old rule. The run is still the same every
+  time: running episodes take turns in a fixed order each tick.
+- **A few overlap runs are listed for you.** After the failure scenarios,
+  `--sim list` and `--sim all` add runs that start each later entry just as it would
+  reach something an earlier entry is busy with (a store, a state machine, a node,
+  an event): the moments a race could happen. At most 3 per pair of entries and 12
+  in all (`--limit pair_overlaps=N`, `--limit overlaps=N`); their labels say what
+  meets ("(Author) starts at t25, reaching |Export| as (Operator) reads it"). Any
+  other `Entry@t` runs by name.
+- **You can tell the episodes apart.** While more than one runs, each narrated
+  sentence starts with its episode (`ep2: `). The graph, tree and flow views draw
+  each token as its episode's number in that episode's colour, from a new theme
+  section `run`. The run view marks where each episode starts on the ruler, in its
+  colour, and lists the episodes under the drawing (`▸` on the running ones while
+  it plays). `--run --json` lists each episode's start tick, entry and the episodes
+  it began alongside. A run with one episode at a time looks exactly as before.
+- **A new example**, `overlap.sigil` (on the page and in `site/examples/`): an
+  author exports while a builder is mid-build, and the stale notice lands between
+  two of the builder's steps.
+
+### Checks
+
+- **Races between entries are found.** `check.py`'s behavioural rules now also try
+  each later entry started at every tick of an earlier entry's episode, not only the
+  listed few, so a race that shows a few ticks after the first contact is still
+  found: two writers from two episodes, or an event landing in a state that exists
+  only mid-episode. The finding's witness names the run (`… in the Bob@0 run`), which
+  `--sim Bob@0` replays. These runs share `--budget` with the failure combinations
+  (the listed overlap runs first, so a small budget still reaches every pair);
+  `--limit window=N` sets how many start ticks one pair may try (64).
+
+### Agent plugins and page
+
+- The Claude Code and pi viewers list and play the overlap runs like any other, and
+  the viewer tool's `scenario` field takes `Entry@t`.
+- The playground groups the overlap runs under "overlaps" in its scenario menu. Its
+  checks make at most 96 runs per exploration, so a large document stays quick in
+  the browser; every bundled example finds what `check.py` finds.
+
 ## 0.4.4 — 2026-10-14
 
 Fixes for what 0.4.3 left open. No new features.
