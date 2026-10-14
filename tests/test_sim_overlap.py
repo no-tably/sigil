@@ -118,8 +118,16 @@ class TestListedOverlaps(unittest.TestCase):
         sc = build("[A] -> |Db| : w()\n[A] -> [S] : a()\n[B] -> [C] : c()\n[C] -> |Db| : r()\n")
         (s,) = sim.overlaps(sc)
         self.assertEqual(s.name, "B@0")
-        self.assertEqual(s.label, f"[B] starts at {at(0)}, as [A] begins; "
-                                  f"[A] writes |Db| at {at(4)}")
+        self.assertEqual(s.label, f"[B] starts at {at(0)} with [A], reaching |Db| after it does")
+
+    def test_the_example_labels_each_listed_overlap_on_its_name_line(self):
+        """`--sim list` keeps a label beside its name when it fits the list's
+        width: the example's overlap labels are short enough, and none is empty."""
+        view = _load("sigil_view_sim_overlap_test", _DIR / "view.py")
+        sc = build((_DIR / "tests" / "fixtures" / "overlap.sigil").read_text(encoding="utf-8"))
+        listed = sim.scenarios(sc)
+        self.assertTrue(all(s.label for s in listed if s.starts))
+        self.assertEqual(len(view.sim_list(listed)), len(listed))
 
     def test_a_machine_the_earlier_entry_moves(self):
         sc = build("[A] -> [W] : w()\n[W] ~> <Go>\n[B] ~> <Go>\n"

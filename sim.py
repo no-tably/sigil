@@ -3148,17 +3148,15 @@ def _pairs(prog: Program, limits: Limits) -> list:
     return [(a, b) for j, b in enumerate(eps) for a in eps[:j]]
 
 
-def _touch_clause(wd: _Words, who: str, t: _Touch, *, aligned: bool) -> str:
-    """What the earlier entry is doing to the shared item, read with the later
-    one reaching it (`aligned`: "as [A] writes it"), or not ("[A] writes |Db| at" the tick)."""
+def _touch_clause(who: str, t: _Touch) -> str:
+    """What the earlier entry is doing to the shared item as the later one
+    reaches it: "as [A] writes it", "as [A] changes its state", "while [A] is there"."""
     verb = {"read": "reads", "write": "writes", "rw": "reads and writes"}.get(t.mode, "uses")
-    item = wd.name(t.item)
     if t.kind == "store":
-        return f"as {who} {verb} it" if aligned else f"{who} {verb} {item} at t{t.tick}"
+        return f"as {who} {verb} it"
     if t.kind == "machine":
-        return (f"as {who} changes its state" if aligned
-                else f"{who} changes {item}'s state at t{t.tick}")
-    return f"while {who} is there" if aligned else f"{who} is at {item} at t{t.tick}"
+        return f"as {who} changes its state"
+    return f"while {who} is there"
 
 
 def _pair_overlaps(prog: Program, a: _Episode, b: _Episode, wd: _Words, cap: int) -> list:
@@ -3178,10 +3176,12 @@ def _pair_overlaps(prog: Program, a: _Episode, b: _Episode, wd: _Words, cap: int
     bname, aname = wd.name(b.entry), wd.name(a.entry)
     out = []
     for start, (t, late) in sorted(picked.items()):
-        how = (f"as {aname} begins; {_touch_clause(wd, aname, t, aligned=False)}" if late
-               else f"reaching {wd.name(t.item)} {_touch_clause(wd, aname, t, aligned=True)}")
-        out.append(Scenario(f"{_node_part(prog, b.entry)}@{start}", (),
-                            f"{bname} starts at t{start}, {how}", None, ((b.entry, start),)))
+        item = wd.name(t.item)
+        label = (f"{bname} starts at t{start} with {aname}, reaching {item} after it does"
+                 if late else
+                 f"{bname} starts at t{start}, reaching {item} {_touch_clause(aname, t)}")
+        out.append(Scenario(f"{_node_part(prog, b.entry)}@{start}", (), label, None,
+                            ((b.entry, start),)))
     return out
 
 
