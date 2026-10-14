@@ -102,6 +102,17 @@ on its own — the awaited calls of the block whose `}` it follows. scenario(sce
 choices a tuple of (choice id, option); starts the entries that begin at a tick
 of their own, ((entry node id, tick), …) (a dict reads the same).
 
+After them come the overlap scenarios (overlaps(scene)): for each later entry B
+and earlier entry A of the happy run, B started so it reaches something A's
+episode touches (a store A accesses, a machine A moves, a node or event A is
+busy at) as A touches it: the moments a race could happen; at most
+Limits.pair_overlaps per pair and Limits.overlaps in all, named `B@t`.
+scenario() also reads any `Entry@t` part (the entry as scenario names write
+nodes, a whole tick): `Builder.claim:fallback+Author@40`. overlap_windows(scene)
+gives each pair's window (A's first to last busy tick) and overlap_runs(scene)
+one `B@t` per tick of it (at most Limits.window per pair): what a checker tries
+beyond the listed few.
+
 combinations(scene, k, budget=…) explores up to k deviations at once: a
 combination grows only by a deviation its own run meets after its first
 deviation took effect; runs that repeat an earlier one are dropped; the budget
@@ -243,7 +254,8 @@ NARRATION (pure, over a Trace and the scene it names)
   narrate(trace, hosts)  (Beat(frame, tick, text), …): the run in plain words,
                   one Beat per frame where something happens ("[API] calls
                   [Payments] with charge(total) — attempt 2 of 4"), read from
-                  the frames and the events, never from the log's text
+                  the frames and the events, never from the log's text; while
+                  episodes overlap each sentence is led by `ep{k}: `
   hops(trace, hosts)     (Hop(frame, src, kind, dst, end, outcome), …): every hop
                   set out on, in order, with the frame it ends and how (failed,
                   cancelled)
@@ -314,6 +326,9 @@ class Limits(NamedTuple):
     stack: int = 64            # activations on one task's stack (nested sync work)
     frames: int = 2000         # frames per episode
     scenarios: int = 64        # scenarios listed
+    overlaps: int = 12         # overlap scenarios listed (scenarios())
+    pair_overlaps: int = 3     # overlap scenarios listed per pair of entries
+    window: int = 64           # start ticks tried per pair of entries (overlap_runs)
 
 
 def limits_from(pairs, base: Limits = Limits()) -> Limits:
@@ -1016,8 +1031,11 @@ class _Run:
         if t == 0:
             self._log(CONVENTIONS)
             self._log_setup()
-        for i in reversed(_due(self.entries, t, self.start_next)):
-            self._begin_episode(self.entries.pop(i))
+        due = set(_due(self.entries, t, self.start_next))
+        begin = [e for i, e in enumerate(self.entries) if i in due]
+        self.entries = [e for i, e in enumerate(self.entries) if i not in due]
+        for entry in begin:                     # written order
+            self._begin_episode(entry)
         self.start_next = False
         k = 0
         while k < len(self.alive) and not self.done:
@@ -2757,7 +2775,7 @@ def choice_points(prog: Program, limits: Limits = Limits(), *,
     own: the checks judge routes against that, not against themselves."""
     wires, nodes, regions = reachable(prog)
     order = prog.order
-    name = lambda nid: _part(prog.scene.nodes[nid].node.name) if nid in prog.scene.nodes else nid
+    name = lambda nid: _node_part(prog, nid)
     points = []
     work = {id(w) for items in prog.bodies.values() for w in _flat(items)}
     work |= {id(w) for body in prog.arm_bodies.values() for items in body.values()
@@ -2990,30 +3008,255 @@ def _suffix_shared(names: list, suffix) -> list:
 
 def scenarios(sc, *, limits: Limits = Limits()) -> list:
     """`happy`, then one scenario per non-default option of each reachable choice
-    point, in source order; capped at limits.scenarios."""
+    point, in source order, then the overlap scenarios (overlaps()); capped at
+    limits.scenarios."""
     prog = _program_of(sc.graph)
     out = [Scenario("happy", (), "every default: the happy path")]
     for p in choice_points(prog, limits):
         for opt, nm, label in zip(p.options[1:], p.names[1:], p.labels[1:]):
             out.append(Scenario(nm, ((p.cid, opt),), label))
+    if len(out) < limits.scenarios:
+        out += _overlaps(prog, limits)
     return out[:limits.scenarios]
 
 
 def scenario(sc, name: str, *, limits: Limits = Limits()) -> Scenario:
-    """The scenario of that name; `a+b` combines deviations (later wins on one
-    choice point). Raises KeyError listing the names when one is unknown."""
+    """The scenario of that name; `a+b` combines its parts (later wins on one
+    choice point or one entry's start). A part is a listed scenario or `Entry@t`
+    (an entry, named as scenario names write nodes, beginning at tick t: any t,
+    listed or not). Raises KeyError listing the names when one is unknown."""
+    prog = _program_of(sc.graph)
     listed = {s.name: s for s in scenarios(sc, limits=limits._replace(scenarios=10 ** 6))}
+    entries = _entry_parts(prog)
     parts = name.split("+")
-    missing = [p for p in parts if p not in listed]
+    picked = [listed.get(p) or _start_scenario(prog, p, entries) for p in parts]
+    missing = [p for p, s in zip(parts, picked) if s is None]
     if missing:
-        raise KeyError(f"unknown scenario {', '.join(missing)}; known: {', '.join(listed)}")
+        hint = f" (an entry start is Entry@tick, one of {', '.join(entries)})" if entries else ""
+        raise KeyError(f"unknown scenario {', '.join(missing)}{hint}; known: {', '.join(listed)}")
     if len(parts) == 1:
-        return listed[name]
-    choices = {}
-    for p in parts:
-        choices.update(dict(listed[p].choices))
+        return picked[0]
+    choices, starts = {}, {}
+    for s in picked:
+        choices.update(dict(s.choices))
+        starts.update(dict(s.starts))
     return Scenario(name, tuple(choices.items()),
-                    " + ".join(listed[p].label for p in parts if listed[p].label))
+                    " + ".join(s.label for s in picked if s.label), None, tuple(starts.items()))
+
+
+# ---------------------------------------------------------------------------
+# Overlaps — entries that begin while an earlier one's episode runs
+# ---------------------------------------------------------------------------
+
+_START_RE = re.compile(r"^(.+)@(\d+)$")
+_TOUCH_RANK = {"store": 0, "machine": 1, "node": 2}   # the likeliest race first
+
+
+class OverlapWindow(NamedTuple):
+    """An earlier entry's episode in the happy run, as a later one may overlap it:
+    `first` and `later` entry node ids, `start` and `end` the first and last tick
+    the earlier episode is busy (a task of it acts)."""
+    first: str
+    later: str
+    start: int
+    end: int
+
+
+class _Touch(NamedTuple):
+    """An episode touching something: at `tick`, `item` (a node id, or a machine's
+    owner) as `kind` ("store": an access, `mode` its mode; "machine": a
+    transition; "node": the middle of an activation there)."""
+    tick: int
+    item: str
+    kind: str
+    mode: str = ""
+
+
+class _Episode(NamedTuple):
+    entry: str
+    start: int
+    end: int                   # its last busy tick
+    touches: tuple             # _Touch, in tick order
+
+
+def _node_part(prog: Program, nid: str) -> str:
+    """A node as scenario names write it."""
+    return _part(prog.scene.nodes[nid].node.name) if nid in prog.scene.nodes else nid
+
+
+def _entry_parts(prog: Program) -> dict:
+    """{name as scenario names write it: node id} of the default entries that are
+    nodes of the scene (the first entry of a name keeps it)."""
+    out = {}
+    for nid in prog.entries.get(0, ()):
+        if nid in prog.scene.nodes:             # a decision has no name to write
+            out.setdefault(_node_part(prog, nid), nid)
+    return out
+
+
+def _start_scenario(prog: Program, part: str, entries: dict) -> Optional[Scenario]:
+    """The scenario `Entry@t` names (an entry of `entries` beginning at tick t),
+    or None when part is not one."""
+    m = _START_RE.match(part)
+    if m is None or m.group(1) not in entries:
+        return None
+    nid, t = entries[m.group(1)], int(m.group(2))
+    return Scenario(part, (), f"{_Words(prog.scene).name(nid)} starts at t{t}", None, ((nid, t),))
+
+
+def _touches(events: list) -> tuple:
+    """The _Touches of one episode's events: each store access, each machine
+    transition, and the middle tick of each activation (a node the access
+    already names counts as the store only)."""
+    entered, out = {}, []
+    accessed = {e["store"] for e in events if e["kind"] == "access"}
+    for e in events:
+        if e["kind"] == "access":
+            out.append(_Touch(e["t"], e["store"], "store", e["mode"]))
+        elif e["kind"] == "transition":
+            out.append(_Touch(e["t"], e["owner"], "machine"))
+        elif e["kind"] == "enter":
+            entered[e["act"]] = (e["t"], e["node"])
+        elif e["kind"] == "leave" and e["act"] in entered:
+            t, nid = entered.pop(e["act"])
+            if nid not in accessed:
+                out.append(_Touch((t + e["t"]) // 2, nid, "node"))
+    return tuple(sorted(out, key=lambda x: x.tick))
+
+
+def _episodes(trace: Trace) -> list:
+    """[_Episode] of a run, in start order (an episode no task of which acted is
+    left out)."""
+    events = [e for e in trace.end["events"] if e["task"] is not None]
+    out = []
+    for ep in trace.end["episodes"]:
+        own = [e for e in events if e["episode"] == ep["episode"]]
+        if own:
+            out.append(_Episode(ep["entry"], ep["start"], max(e["t"] for e in own),
+                                _touches(own)))
+    return out
+
+
+def _pairs(prog: Program, limits: Limits) -> list:
+    """[(earlier _Episode, later _Episode)] of the happy run, by the later one's
+    written order, then the earlier's; [] for a document with one entry."""
+    named = set(_entry_parts(prog).values())
+    if len(named) < 2:
+        return []
+    eps = [e for e in _episodes(_simulate(prog, Scenario("happy"), limits, keep=False))
+           if e.entry in named]
+    return [(a, b) for j, b in enumerate(eps) for a in eps[:j]]
+
+
+def _touch_clause(wd: _Words, who: str, t: _Touch, *, aligned: bool) -> str:
+    """What the earlier entry is doing to the shared item, read with the later
+    one reaching it (`aligned`: "as [A] writes it"), or not ("[A] writes |Db| at" the tick)."""
+    verb = {"read": "reads", "write": "writes", "rw": "reads and writes"}.get(t.mode, "uses")
+    item = wd.name(t.item)
+    if t.kind == "store":
+        return f"as {who} {verb} it" if aligned else f"{who} {verb} {item} at t{t.tick}"
+    if t.kind == "machine":
+        return (f"as {who} changes its state" if aligned
+                else f"{who} changes {item}'s state at t{t.tick}")
+    return f"while {who} is there" if aligned else f"{who} is at {item} at t{t.tick}"
+
+
+def _pair_overlaps(prog: Program, a: _Episode, b: _Episode, wd: _Words, cap: int) -> list:
+    """Up to `cap` scenarios starting b's entry so it reaches something a's episode
+    touches (a's own entry aside: a is busy there throughout) as a touches it,
+    in tick order: one per shared item and start tick, those b can reach in time
+    first, then stores, machines, nodes, then the earliest. A start that would
+    fall before a's episode begins is a's start (b then reaches it later)."""
+    reach = {}
+    for t in b.touches:
+        reach.setdefault(t.item, t.tick - b.start)
+    picked, items = {}, set()
+    for late, _rank, start, t in sorted(_meetings(a, reach)):
+        if start not in picked and t.item not in items and len(picked) < cap:
+            picked[start] = (t, late)
+            items.add(t.item)
+    bname, aname = wd.name(b.entry), wd.name(a.entry)
+    out = []
+    for start, (t, late) in sorted(picked.items()):
+        how = (f"as {aname} begins; {_touch_clause(wd, aname, t, aligned=False)}" if late
+               else f"reaching {wd.name(t.item)} {_touch_clause(wd, aname, t, aligned=True)}")
+        out.append(Scenario(f"{_node_part(prog, b.entry)}@{start}", (),
+                            f"{bname} starts at t{start}, {how}", None, ((b.entry, start),)))
+    return out
+
+
+def _meetings(a: _Episode, reach: dict) -> list:
+    """[(late, rank, start, _Touch)] for each touch of a's episode on an item the
+    other entry reaches `reach[item]` ticks after it starts: the start that has it
+    arrive as a touches it (no earlier than a's start; `late` when it had to be
+    moved later) and the touch's rank (_TOUCH_RANK)."""
+    out = []
+    for t in a.touches:
+        if t.item in reach and t.item != a.entry:
+            start = t.tick - reach[t.item]
+            out.append((start < a.start, _TOUCH_RANK[t.kind], max(start, a.start), t))
+    return out
+
+
+_LAST_OVERLAPS: list = [None, None, None]     # [Program, Limits, its overlap scenarios]
+
+
+def _overlaps(prog: Program, limits: Limits) -> list:
+    """The listed overlap scenarios (overlaps()), built once per program and limits."""
+    if _LAST_OVERLAPS[0] is not prog or _LAST_OVERLAPS[1] != limits:
+        wd, out = _Words(prog.scene), {}
+        for a, b in _pairs(prog, limits):
+            for s in _pair_overlaps(prog, a, b, wd, limits.pair_overlaps):
+                out.setdefault(s.name, s)
+        _LAST_OVERLAPS[:] = [prog, limits, list(out.values())[:limits.overlaps]]
+    return list(_LAST_OVERLAPS[2])
+
+
+def overlaps(sc, *, limits: Limits = Limits()) -> list:
+    """The overlap scenarios scenarios() lists after the failure ones: for each
+    later entry B and earlier entry A (the happy run's episodes), B started so it
+    reaches something A's episode touches — a store A accesses, a machine A
+    moves, a node or event A is busy at — as A touches it: the moments a race
+    could happen. Named `B@t`; at most limits.pair_overlaps per pair and
+    limits.overlaps in all; [] with one entry."""
+    return _overlaps(_program_of(sc.graph), limits)
+
+
+def overlap_windows(sc, *, limits: Limits = Limits()) -> list:
+    """[OverlapWindow] for each later entry and earlier one of the happy run, by
+    the later one's written order: the ticks the earlier episode is busy."""
+    return [OverlapWindow(a.entry, b.entry, a.start, a.end)
+            for a, b in _pairs(_program_of(sc.graph), limits)]
+
+
+def overlap_runs(sc, *, limits: Limits = Limits()) -> list:
+    """Every start of a later entry inside an earlier one's window (overlap_windows):
+    one scenario `B@t` per tick t from the window's start to its end — at most
+    limits.window ticks per window, spread evenly over it when it is longer — in
+    window order, then tick order; a start two windows share is listed once.
+    What a checker tries beyond the listed overlaps (combine with a deviation by
+    `_replace(choices=…)`)."""
+    prog = _program_of(sc.graph)
+    wd, out = _Words(prog.scene), {}
+    for w in overlap_windows(sc, limits=limits):
+        bname = _node_part(prog, w.later)
+        for t in _spread(w.start, w.end, limits.window):
+            label = (f"{wd.name(w.later)} starts at t{t}, during {wd.name(w.first)}'s "
+                     f"episode (t{w.start}–t{w.end})")
+            out.setdefault(f"{bname}@{t}", Scenario(f"{bname}@{t}", (), label, None,
+                                                    ((w.later, t),)))
+    return list(out.values())
+
+
+def _spread(lo: int, hi: int, cap: int) -> list:
+    """The ticks lo … hi, or `cap` of them spread evenly (both ends kept) when
+    there are more."""
+    n = hi - lo + 1
+    if n <= cap:
+        return list(range(lo, hi + 1))
+    if cap == 1:
+        return [lo]
+    return sorted({lo + round(i * (n - 1) / (cap - 1)) for i in range(cap)})
 
 
 # ---------------------------------------------------------------------------
@@ -4044,71 +4287,84 @@ def _self_call_text(wd: _Words, w, tok, frame) -> str:
 
 
 def _departures(wd: _Words, tokens: list, frame) -> list:
-    """The sentences of the tokens setting out in a frame: one per wire, a fan-out
-    (several wires of one kind out of one source, one payload) as one."""
+    """The (episode, sentence) pairs of the tokens setting out in a frame: one per
+    wire, a fan-out (several wires of one kind out of one source, one payload,
+    one episode) as one."""
     groups: dict = {}
     for tok in tokens:
         w = wd.wires[tok.wire]
-        groups.setdefault((w.src, w.kind, tok.carries, tok.attempt), []).append((w, tok))
+        groups.setdefault((w.src, w.kind, tok.carries, tok.attempt, tok.episode),
+                          []).append((w, tok))
     out = []
-    for (src, kind, what, _a), members in groups.items():
-        w, tok = members[0]
-        dsts = _listed(list(dict.fromkeys(wd.name(m.dst) for m, _t in members)))
-        who = wd.name(src)
-        with_ = f" with {what}" if what else ""
-        if w.role == "trigger":
-            owners = _listed(list(dict.fromkeys(wd.name(m.machine or m.dst)
-                                                for m, _t in members)))
-            out.append(f"{who} drives {owners}")
-        elif w.src == w.dst or (w.call is not None and w.call.self_call):
-            out.append(_self_call_text(wd, w, tok, frame))
-        elif kind == "~>":
-            if all(wd.kind(m.dst) == "event" for m, _t in members):
-                out.append(f"{who} emits {dsts}")
-            else:
-                out.append(f"{who} sends {what + ' ' if what else ''}to {dsts} without waiting")
-        elif kind == "*>":
-            out.append(f"{who} fans out to {dsts}")
-        elif kind == "=>":
-            out.append(f"{who} produces {dsts}" if all(wd.kind(m.dst) == "data"
-                                                      for m, _t in members)
-                       else f"{who} produces {what + ' ' if what else ''}into {dsts}")
-        elif kind == "?>":
-            out.append(f"{who} takes the optional path to {dsts}")
-        elif kind in ("->", "→") and all(wd.kind(m.dst) == "data" for m, _t in members):
-            out.append(f"{who} produces {dsts}")
-        elif kind in ("->", "→", "<->"):
-            out.append(f"{who} calls {dsts}{with_}{_attempt(tok)}")
-        else:
-            out.append(f"{who} {kind} {dsts}{with_}")
+    for (src, kind, what, _a, ep), members in groups.items():
+        out.append((ep, _departure(wd, src, kind, what, members, frame)))
     return out
 
 
+def _departure(wd: _Words, src: str, kind: str, what, members: list, frame) -> str:
+    """The sentence of one group of departing tokens (_departures): [(wire, token)]
+    out of `src` along `kind` wires, carrying `what`."""
+    w, tok = members[0]
+    dsts = _listed(list(dict.fromkeys(wd.name(m.dst) for m, _t in members)))
+    who = wd.name(src)
+    with_ = f" with {what}" if what else ""
+    if w.role == "trigger":
+        owners = _listed(list(dict.fromkeys(wd.name(m.machine or m.dst) for m, _t in members)))
+        return f"{who} drives {owners}"
+    if w.src == w.dst or (w.call is not None and w.call.self_call):
+        return _self_call_text(wd, w, tok, frame)
+    if kind == "~>":
+        if all(wd.kind(m.dst) == "event" for m, _t in members):
+            return f"{who} emits {dsts}"
+        return f"{who} sends {what + ' ' if what else ''}to {dsts} without waiting"
+    if kind == "*>":
+        return f"{who} fans out to {dsts}"
+    if kind == "=>":
+        return (f"{who} produces {dsts}" if all(wd.kind(m.dst) == "data" for m, _t in members)
+                else f"{who} produces {what + ' ' if what else ''}into {dsts}")
+    if kind == "?>":
+        return f"{who} takes the optional path to {dsts}"
+    if kind in ("->", "→") and all(wd.kind(m.dst) == "data" for m, _t in members):
+        return f"{who} produces {dsts}"
+    if kind in ("->", "→", "<->"):
+        return f"{who} calls {dsts}{with_}{_attempt(tok)}"
+    return f"{who} {kind} {dsts}{with_}"
+
+
 def _token_sentences(wd: _Words, frame) -> list:
-    """What a frame's tokens say: hops setting out (a `!>` route is said by its
-    route event, a branch arm by its choice), replies and fallbacks setting
-    back, attempts failing on arrival, calls cancelled."""
+    """What a frame's tokens say, as (episode, sentence) pairs: hops setting out
+    (a `!>` route is said by its route event, a branch arm by its choice),
+    replies and fallbacks setting back, attempts failing on arrival, calls
+    cancelled."""
     leaving, out = [], []
     for tok in frame.tokens:
         w = wd.wires.get(tok.wire)
         if w is None or w.kind == "!>" or w.role == "arm" or folded_wire(w, wd.hosts):
             continue
-        if tok.state == "cancelled":
-            out.append(f"the call to {wd.name(w.dst)} is cancelled")
-        elif tok.dir == "out" and tok.at == 0.0 and tok.state == "moving":
+        if tok.dir == "out" and tok.at == 0.0 and tok.state == "moving":
             leaving.append(tok)
-        elif tok.dir == "out" and tok.at == 1.0 and tok.state == "failed":
-            if w.src == w.dst or (w.call is not None and w.call.self_call):
-                out.append(f"{wd.name(w.src)}'s {tok.carries or 'call'} fails{_attempt(tok)}")
-            else:
-                out.append(f"{tok.carries or 'the call'} to {wd.name(w.dst)} fails"
-                           f"{_attempt(tok)}")
-        elif tok.dir == "back" and tok.at == 1.0 and tok.state == "fallback":
-            out.append(f"{wd.name(w.src)} falls back to {tok.carries}")
-        elif tok.dir == "back" and tok.at == 1.0:
-            out.append(f"{wd.name(w.dst)} returns {tok.carries} to {wd.name(w.src)}"
-                       if tok.carries else f"{wd.name(w.dst)} replies to {wd.name(w.src)}")
+            continue
+        text = _token_sentence(wd, w, tok)
+        if text:
+            out.append((tok.episode, text))
     return _departures(wd, leaving, frame) + out
+
+
+def _token_sentence(wd: _Words, w, tok) -> Optional[str]:
+    """What one token on wire `w` says that is not a departure (_token_sentences),
+    or None."""
+    if tok.state == "cancelled":
+        return f"the call to {wd.name(w.dst)} is cancelled"
+    if tok.dir == "out" and tok.at == 1.0 and tok.state == "failed":
+        if w.src == w.dst or (w.call is not None and w.call.self_call):
+            return f"{wd.name(w.src)}'s {tok.carries or 'call'} fails{_attempt(tok)}"
+        return f"{tok.carries or 'the call'} to {wd.name(w.dst)} fails{_attempt(tok)}"
+    if tok.dir == "back" and tok.at == 1.0 and tok.state == "fallback":
+        return f"{wd.name(w.src)} falls back to {tok.carries}"
+    if tok.dir == "back" and tok.at == 1.0:
+        return (f"{wd.name(w.dst)} returns {tok.carries} to {wd.name(w.src)}"
+                if tok.carries else f"{wd.name(w.dst)} replies to {wd.name(w.src)}")
+    return None
 
 
 def _fail_text(wd: _Words, ev: dict) -> str:
@@ -4193,26 +4449,59 @@ def _loop_subject(wd: _Words, owner: Optional[str]) -> str:
 
 
 def _changes(wd: _Words, prev, f) -> list:
-    """What changed from the previous frame that no event says: a loop's
-    iteration, a store held or let go by an `owns` block, another instance, a
-    node cancelled (a race lost, a waiter's other members)."""
+    """What changed from the previous frame that no event says, as (subject node
+    id or None, sentence) pairs: a loop's iteration (its unit's owner), a store
+    held or let go by an `owns` block, another instance, a node cancelled (a
+    race lost, a waiter's other members)."""
     out = []
     for nid, st in f.nodes.items():
         if (st == "cancelled" and nid not in wd.hosts
                 and (prev is None or prev.nodes.get(nid) != st)):
-            out.append(f"{wd.name(nid)} is cancelled")
+            out.append((nid, f"{wd.name(nid)} is cancelled"))
     for key, k in f.loops.items():
         if prev is None or prev.loops.get(key) != k:
-            out.append(f"{_loop_subject(wd, key[0])}: iteration {k}")
+            out.append((key[0], f"{_loop_subject(wd, key[0])}: iteration {k}"))
     if prev is not None:
         for nid in sorted(f.held_resources - prev.held_resources - wd.hosts.keys(), key=str):
-            out.append(f"{wd.name(nid)} is held")
+            out.append((nid, f"{wd.name(nid)} is held"))
         for nid in sorted(prev.held_resources - f.held_resources - wd.hosts.keys(), key=str):
-            out.append(f"{wd.name(nid)} is released")
+            out.append((nid, f"{wd.name(nid)} is released"))
         for nid, k in f.instances.items():
             if nid not in wd.hosts and k > prev.instances.get(nid, k):
-                out.append(f"{wd.name(nid)} gets another instance ({k} now)")
+                out.append((nid, f"{wd.name(nid)} gets another instance ({k} now)"))
     return out
+
+
+_SUBJECT_KEYS = ("node", "store", "owner")
+
+
+def _subject_episodes(events, known: dict) -> dict:
+    """`known` ({node id: episode}) updated by `events`: each node, store or
+    machine owner an event names belongs to the episode of the task that acted
+    on it last (events of the run itself, task None, name none)."""
+    out = dict(known)
+    for ev in events:
+        if ev.get("task") is not None:
+            for key in _SUBJECT_KEYS:
+                if ev.get(key) is not None:
+                    out[ev[key]] = ev["episode"]
+    return out
+
+
+def _begun(trace: Trace, f, episode: int) -> list:
+    """[(k, entry node id)] of the episodes begun since `episode` by frame f, in
+    start order (the frame's own episode and entry when the trace lists none)."""
+    listed = [(b["episode"], b["entry"]) for b in trace.end.get("episodes", ())
+              if episode < b["episode"] <= f.episode]
+    return listed or [(f.episode, f.entry)]
+
+
+def _prefixed(pairs: list, overlapping: bool) -> list:
+    """The sentences of (episode or None, sentence) pairs, each led by `ep{k}: `
+    while episodes overlap (one with no episode as it is)."""
+    if not overlapping:
+        return [text for _k, text in pairs]
+    return [f"ep{k}: {text}" if k is not None else text for k, text in pairs]
 
 
 def narrate(trace: Trace, hosts: Optional[dict] = None) -> tuple:
@@ -4222,28 +4511,37 @@ def narrate(trace: Trace, hosts: Optional[dict] = None) -> tuple:
     failing, a call giving up, a route, a transition, a join, a bound, the end.
     Over the scene the trace names (the canonical one, or project()'s). `hosts`
     (folded_hosts; None: every node drawn): a folded node is named by its host
-    and what happens wholly inside a fold is not said. Pure."""
+    and what happens wholly inside a fold is not said. While a frame's episodes
+    overlap (more than one runs), each sentence is led by its episode, `ep2: `
+    (an event's, a token's task's, a change's subject's last acting task's;
+    the run's end is not). Pure."""
     scn = trace.scene
     wd = _Words(scn, hosts)
     by_tick: dict = {}
     for ev in trace.end.get("events", ()):
         by_tick.setdefault(ev["t"], []).append(ev)
-    beats, prev, episode = [], None, 0
+    ticks = sorted(by_tick)
+    beats, prev, episode, subjects, folded = [], None, 0, {}, 0
     for i, f in enumerate(trace.frames):
-        said = []
+        pairs = []
         events = by_tick.get(f.tick, ())
+        while folded < len(ticks) and ticks[folded] <= f.tick:   # subjects as of f.tick
+            subjects = _subject_episodes(by_tick[ticks[folded]], subjects)
+            folded += 1
         if f.episode != episode and f.entry is not None:
+            pairs += [(k, f"episode {k} begins at {wd.name(nid)}")
+                      for k, nid in _begun(trace, f, episode)]
             episode = f.episode
-            said.append(f"episode {f.episode} begins at {wd.name(f.entry)}")
-        said += _changes(wd, prev, f)
-        said += [s for s in (_event_sentence(wd, ev, scn) for ev in events) if s]
-        said += _token_sentences(wd, f)
+        pairs += [(subjects.get(nid), text) for nid, text in _changes(wd, prev, f)]
+        pairs += [(ev["episode"], s) for ev in events
+                  for s in (_event_sentence(wd, ev, scn),) if s]
+        pairs += _token_sentences(wd, f)
         if f.done:
-            said.append(f"the run ends: {trace.outcome}")
+            pairs.append((None, f"the run ends: {trace.outcome}"))
             stalled = trace.end.get("stalled") or []
             if stalled:
-                said.append("left waiting: " + _listed([wd.name(n) for n in stalled]))
-        said = list(dict.fromkeys(said))
+                pairs.append((None, "left waiting: " + _listed([wd.name(n) for n in stalled])))
+        said = list(dict.fromkeys(_prefixed(pairs, len(f.episodes) > 1)))
         if said:
             beats.append(Beat(i, f.tick, "; ".join(said)))
         prev = f
