@@ -1,0 +1,33 @@
+#!sketch
+# runs that overlap: an export lands while a builder is mid-build
+# the notice is only a hint, the hashes stay the truth: a late or repeated
+# notice costs time, never a wrong build (try --sim Author@25)
+
+--- build ---
+
+(Operator) -> [Builder] : start()
+[Builder]×N -> [Status] : next() => {System}
+[Status] -> |Export| : read({Manifest})
+[Status] -> |Ledger| : read({Hash})
+[Builder]×N -> |Ledger| : claim({System}) @timeout(1h) @fallback("taken") => {Lease}
+  !> [Status] : next()
+[Builder]×N ?> |Ledger| : built({System}, {Hash})
+
+# on a notice a builder asks again; one building a changed system drops its lease
+<Stale> -> [Builder] : recheck({Delta})
+[Builder] @inv idempotent(manifest)
+[Builder]×N -> [Status] : current({Lease}) => {Verdict}
+[Builder]×N ?> |Ledger| : release({Lease})
+
+|Ledger| @write(Builder) @read(Status) @inv cas(hash)
+[Status] @sla(p99<50ms)
+
+--- export ---
+
+(Author) -> [Exporter] : export({Spec}) => {Delta}
+[Exporter] -> [Gate] : verify({Spec}) => {Verdict}
+[Exporter] -> |Export| : write({Manifest}) @inv atomic(manifest)
+[Exporter] ~> <Stale> : {Delta} *> [Builder]
+
+|Export| @write(Exporter) @read(Status)
+[Exporter] @sla(p99<5s)
