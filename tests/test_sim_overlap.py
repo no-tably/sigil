@@ -24,6 +24,7 @@ def _load(name: str, path: Path):
 
 
 sim = _load("sigil_sim_overlap_test", _DIR / "sim.py")
+golden = _load("sigil_golden_sim_overlap_test", _DIR / "tools" / "golden.py")
 scene = sim.scene_mod
 render = sim.kit.render
 
@@ -176,6 +177,22 @@ class TestListedOverlaps(unittest.TestCase):
                     tr = sim.simulate(sc, s)
                     self.assertTrue(any(len(f.episodes) > 1 for f in tr.frames), s.name)
                     self.assertEqual(sim.scenario(sc, s.name).starts, s.starts)
+
+    def test_every_listed_overlap_changes_the_trace_over_the_corpus(self):
+        """The overlap side of the deviation test in test_sim: over every golden
+        input and language.md block, a listed `B@t` starts no choice and runs
+        differently from the happy run (B begins before the earlier one is quiet)."""
+        spec = golden.examples_inputs((_DIR / "language.md").read_text(encoding="utf-8"))
+        corpus = ([(i.name, i.text) for i in golden.collect_inputs(_DIR)]
+                  + [("language-" + i.name, i.text) for i in spec])
+        for name, text in corpus:
+            sc = build(text)
+            listed = sim.scenarios(sc, limits=sim.Limits(scenarios=10 ** 6))
+            happy = sim.simulate(sc, listed[0]).end["log"]
+            for s in (s for s in listed if s.starts):
+                with self.subTest(doc=name, scenario=s.name):
+                    self.assertEqual(s.choices, ())
+                    self.assertNotEqual(sim.simulate(sc, s).end["log"], happy)
 
 
 class TestWindows(unittest.TestCase):
