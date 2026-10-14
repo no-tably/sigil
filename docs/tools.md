@@ -86,7 +86,8 @@ Options:
   (`--run --json` and `--sim NAME --json` fold the same way when it is given). A
   node busy on its folded expansion's work counts as busy, so that stretch never
   folds into `≈`, and a loop inside the folded expansion is narrated as the node's
-  ("[Shop] loops (inside)").
+  ("[Shop] loops (inside)") and counted in its lane's note ("loops 3× (inside)";
+  `--json` marks those iterations `"inside": true`).
 - `--payloads` shows flow payloads: chips on edges in the graph view, on the wire
   between two columns in the flow view (`─┆{Cart}┆─▶`; a self-call's on a stub under
   its subject), a list in the tree view (an error path's chip there led by `✖`). A `"""…"""` block-string shows its

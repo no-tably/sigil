@@ -2,6 +2,31 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
+## 0.4.4 — 2026-10-14
+
+Fixes for what 0.4.3 left open. No new features.
+
+### Viewer
+
+- **The run view at `--depth`:** a loop inside an expansion folded into a node's lane
+  now shows in that lane's note as well as in the narration ("loops 3× (inside)"), its
+  iterations counted as the node's. `--run --json` marks those iterations
+  `"inside": true`.
+- **Changing the depth redraws at once.** Code that drives the viewer and sets its
+  depth gets a drawing at the new depth straight away, as the `d` key always did; it
+  no longer has to ask for a redraw itself.
+- **The flow view** remembers which wrap each pattern of blank badges needed, so a
+  playing run whose badges turn blank and back no longer repaints earlier wrap steps
+  first. Every frame draws exactly as before, with fewer repaints.
+
+### Notation tools
+
+- An op verb holding an enclosing mark after a letter (such as U+20DD, a circle drawn
+  around the letter) is one op-call in `lint.py`, `render.py` and the views, as
+  combining marks already were. One shared set of test verbs now checks that
+  `lint.py` and `render.py` read verbs alike (each keeps its own copy of the rule, so
+  `lint.py` stays a standalone tool).
+
 ## 0.4.3 — 2026-10-14
 
 Fixes for what 0.4.2 left open. No new features.
