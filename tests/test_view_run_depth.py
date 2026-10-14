@@ -14,6 +14,8 @@ Covers:
     no ∥ row);
   - view.py --once: the run folds only when --depth is given (the default draws
     and tells every level, as --json does);
+  - ViewState: assigning depth composes the drawing again (natural and fitted),
+    no stale drawing at the old depth;
   - the ruler: the scale's labels and ≈ keep two blanks apart (no `100 104`).
 
 Run:  python3 -m unittest discover tests
@@ -239,13 +241,43 @@ class OnceRunDepthTest(unittest.TestCase):
             self.assertIn(name, ls)
         self.assertIn("[Risk] takes the optional path to [Review]", text)
 
-    def test_depth_given_folds(self):
+    def test_given_depth_folds_lanes_and_narration(self):
         text = self.printed("--depth", "1")
         ls = labels([[(ln, None)] for ln in text.splitlines()])
         self.assertIn("[Payments]", ls)
         for name in ("[Gateway]", "[Risk]", "[Review]"):
             self.assertNotIn(name, ls)
         self.assertNotIn("[Risk] takes", text)
+
+
+class StateDepthRecomposeTest(unittest.TestCase):
+    """Assigning ViewState.depth is all a caller does: the next drawing is at it."""
+
+    def state(self):
+        st = view.ViewState(SHOP, do_lint=False, sim="Risk?>Review", view="run")
+        st.sim_start = (-1, False)                 # the last frame: every lane drawn
+        st.reload()
+        st.frame(140, 60)                          # natural / fitted drawings cached
+        return st
+
+    def text(self, rows) -> str:
+        return "\n".join("".join(t for t, _ in r) for r in rows if isinstance(r, list))
+
+    def test_assigning_depth_draws_there(self):
+        st = self.state()
+        self.assertIn("[Gateway]", self.text(st.natural()[0]))
+        st.depth = 1
+        self.assertNotIn("[Gateway]", self.text(st.natural()[0]))
+        self.assertNotIn("[Gateway]", self.text(st.fitted(140)[0]))
+        self.assertEqual(self.text(st.natural()[0]), self.text(st._compose(None)[0]))
+
+    def test_taking_depth_back_draws_every_level_again(self):
+        st = self.state()
+        st.depth = 0
+        st.frame(140, 60)
+        self.assertNotIn("[Gateway]", self.text(st.natural()[0]))
+        st.depth = None
+        self.assertIn("[Gateway]", self.text(st.natural()[0]))
 
 
 API = """#!spec

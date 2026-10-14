@@ -1768,10 +1768,12 @@ class ViewState:
     @depth.setter
     def depth(self, depth: int | None) -> None:
         """Give (or, None, take back) the depth: every view is drawn there and
-        the run told there, so the player is told it too."""
+        the run told there, so the player is told it too and the drawing is
+        composed again (no caller keeps one drawn at the old depth)."""
         self._depth = depth
         if self.player is not None:
             self.player.depth = depth
+        self._recompose()
 
     @property
     def drawn_depth(self) -> int:
@@ -1868,7 +1870,6 @@ class ViewState:
             self._recompose()
         elif k == "d":                 # the next larger depth, wrapping to the first
             self.depth = next((d for d in DEPTHS if d > self.drawn_depth), DEPTHS[0])
-            self._recompose()
         elif k == "t" or (k.isdigit() and 1 <= int(k) <= len(VIEWS)):
             # t: the next view; a digit: that view (1 the first in VIEWS)
             at = VIEWS.index(self.view)
