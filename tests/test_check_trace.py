@@ -629,7 +629,7 @@ class Exploration(unittest.TestCase):
                       "earlier one runs) unrun (budget=2 runs", f.hit.statement)
         self.assertEqual(cause_of(ck.check(text, registry=REGISTRY), "exploration budget"), [])
 
-    def test_every_start_tick_is_tried_then_the_listed_ones_with_each_deviation(self):
+    def test_the_listed_starts_come_first_then_each_deviation_then_every_tick(self):
         d = make_doc(fixture("trace-204-overlap.sigil"))
         ticks = sim.overlap_runs(d.sc, limits=d.limits)
         (window,) = sim.overlap_windows(d.sc, limits=d.limits)
@@ -638,10 +638,46 @@ class Exploration(unittest.TestCase):
         deviated = ct.Run(sim.Scenario("X.f:fails", (("cid", "fail"),), "x fails"), {}, "ok")
         got = ct.overlap_scenarios(sim, d.sc, (deviated,), d.limits)
         listed = sim.overlaps(d.sc, limits=d.limits)
+        head = [s.name for s in listed] + [f"X.f:fails+{s.name}" for s in listed]
         self.assertEqual([s.name for s in got],
-                         [s.name for s in ticks] + [f"X.f:fails+{s.name}" for s in listed])
-        self.assertEqual(got[-1].choices, (("cid", "fail"),))
-        self.assertEqual(got[-1].starts, listed[-1].starts)
+                         head + [s.name for s in ticks if s.name not in head])
+        self.assertEqual(got[len(listed)].choices, (("cid", "fail"),))
+        self.assertEqual(got[len(listed)].starts, listed[0].starts)
+
+    def test_the_sweep_takes_the_windows_round_robin(self):
+        w = [sim.OverlapWindow("A", "B", 0, 9), sim.OverlapWindow("A", "C", 0, 9)]
+        start = lambda e, t: sim.Scenario(f"{e}@{t}", starts=((e, t),))
+        groups = ct.by_window(w, [start("B", 0), start("B", 1), start("B", 2),
+                                  start("C", 5), start("D", 1)])
+        self.assertEqual([[s.name for s in g] for g in groups],
+                         [["B@0", "B@1", "B@2"], ["C@5"], ["D@1"]])
+        self.assertEqual([s.name for s in ct.round_robin(groups)],
+                         ["B@0", "C@5", "D@1", "B@1", "B@2"])
+        self.assertEqual(ct.round_robin([]), [])
+
+    def test_a_small_budget_runs_every_listed_overlap_before_the_sweep(self):
+        text = COVERAGE.read_text(encoding="utf-8")
+        d = make_doc(text)
+        listed = [s.name for s in sim.overlaps(d.sc, limits=d.limits)]
+        self.assertGreater(len(listed), 3)
+        made = []
+
+        class Recording:
+            def __getattr__(self, name):
+                return getattr(sim, name)
+
+            def simulate(self, sc, s, **kw):
+                made.append(s)
+                return sim.simulate(sc, s, **kw)
+
+        combos = sim.combinations(d.sc, 0, limits=d.limits, budget=10)
+        budget = len(combos.traces) - 1 + combos.duplicates + len(listed) + 4
+        ex = ct.explore(Recording(), d.sc, 0, budget, d.limits)
+        overlap = [s.name for s in made if s.starts]
+        self.assertEqual(overlap[:len(listed)], listed)
+        swept = {s.starts[0][0] for s in made[len(listed):] if s.starts}
+        self.assertGreater(len(swept), 1)
+        self.assertGreater(ex.overlaps_left_out, 0)
 
     def test_a_deviated_overlap_run_reads_back_by_name(self):
         text = fixture("trace-204-overlap.sigil") + "[Sync] -> (Ext) : op x.put() @timeout(1s)\n"

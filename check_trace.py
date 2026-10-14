@@ -5,9 +5,10 @@ Not a command: check.py loads it (RULE_MODULES) and calls `rules(ck)`,
 `exploration_causes(ck)` and `extend_rules(ck, rules)` with itself as `ck`, so
 this module never imports check.py. Every rule here reads the runs of the
 document's bounded exploration (sim.combinations over the canonical scene, up
-to `doc.k` deviations at once, then the overlap runs — each later entry started
-at every tick of each earlier entry's busy window (sim.overlap_runs), then the
-listed overlap starts (sim.overlaps) with each deviated run's choices — at most
+to `doc.k` deviations at once, then the overlap runs — the listed overlap
+starts (sim.overlaps), then those with each deviated run's choices, then each
+later entry started at every tick of each earlier entry's busy window
+(sim.overlap_runs), round-robin over the windows — at most
 `doc.budget` runs in all (default BUDGET), each under `doc.limits`) and reports a
 candidate as a trace Hit: its witness is the scenario that shows it (`B@t`, or
 `dev+B@t`, for an overlap run), `k` the deviations that scenario takes
@@ -144,14 +145,51 @@ def with_deviation(start, s):
 
 
 def overlap_scenarios(sim, sc, deviated: tuple, limits) -> list:
-    """What the checks run beyond the deviations: every start tick of each later
-    entry inside each earlier entry's busy window (sim.overlap_runs, at most
-    limits.window per window) on the default choices, then each deviated run's
-    choices with the listed overlap starts (sim.overlaps: the moments a race
-    could happen)."""
+    """What the checks run beyond the deviations, most likely race first, each
+    name once: the listed overlap starts on the default choices (sim.overlaps:
+    the moments a race could happen), then each deviated run's choices with
+    them, then the sweep — every start tick of each later entry inside each
+    earlier entry's busy window (sim.overlap_runs, at most limits.window per
+    window) taken round-robin over the windows (each window's first tick, then
+    each one's second, …), so a small budget still reaches every window."""
     listed = sim.overlaps(sc, limits=limits)
-    return (list(sim.overlap_runs(sc, limits=limits))
-            + [with_deviation(s, run.scenario) for run in deviated for s in listed])
+    windows = sim.overlap_windows(sc, limits=limits)
+    sweep = round_robin(by_window(windows, sim.overlap_runs(sc, limits=limits)))
+    return unique_names(listed
+                        + [with_deviation(s, run.scenario) for run in deviated for s in listed]
+                        + sweep)
+
+
+def by_window(windows: list, starts: list) -> list:
+    """`starts` (one-start scenarios `B@t`) grouped by the first window holding
+    their start — its later entry, a tick from its start to its end — in window
+    order, each group in its given order; a start no window holds ends up in a
+    last group of its own."""
+    groups, rest = [[] for _ in windows], []
+    for s in starts:
+        home = next((g for w, g in zip(windows, groups) if in_window(w, s.starts)), rest)
+        home.append(s)
+    return [g for g in groups + [rest] if g]
+
+
+def in_window(w, starts: tuple) -> bool:
+    """A scenario's starts are the one start of window w's later entry inside it."""
+    return (len(starts) == 1 and starts[0][0] == w.later
+            and w.start <= starts[0][1] <= w.end)
+
+
+def round_robin(groups: list) -> list:
+    """The first of each group, then the second of each, … until all are taken."""
+    return [g[i] for i in range(max(map(len, groups), default=0))
+            for g in groups if i < len(g)]
+
+
+def unique_names(scenarios: list) -> list:
+    """`scenarios` with each name's first only."""
+    first = {}
+    for s in scenarios:
+        first.setdefault(s.name, s)
+    return list(first.values())
 
 
 def signature(run: Run) -> tuple:
