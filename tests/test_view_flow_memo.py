@@ -17,7 +17,12 @@ Covers:
     a run, unequal when a badge's width differs; () without a frame;
     _blanks: equal widths, unequal blank cells;
   - the blank cells are looked at only on a frame whose held step is past
-    the first (natural): a run that fits draws each frame without them.
+    the first (natural): a run that fits draws each frame without them;
+  - a frame whose badges are blank where an earlier frame's were starts at
+    the step that frame took (one step painted), and one with blank cells
+    not met yet starts past the first step: over every frame of the
+    executions fixture's happy run only the first frame of each blank-cell
+    pattern paints more than one step (each frame as drawn without the memo).
 
 Run:  python3 -m unittest discover tests
 """
@@ -159,6 +164,61 @@ class TestBlankCellsFollowed(unittest.TestCase):
                 self.assertEqual(draw(self.g, self.trace, 26, width, memo),
                                  draw(self.g, self.trace, 26, width))
                 self.assertEqual(blanks.called, looked)
+
+
+
+def painted(g, trace, ticks, width, memo, check=lambda t: True):
+    """For each tick, (tick, the wrap steps drawn — _part_rows calls — with
+    `memo`, whether the frame is as drawn without one: None when check(tick)
+    is false)."""
+    real, counts = vflow._part_rows, []
+
+    def counting(*args, **kw):
+        counts[-1] += 1
+        return real(*args, **kw)
+
+    out = []
+    for t in ticks:
+        counts.append(0)
+        with mock.patch.object(vflow, "_part_rows", counting):
+            got = draw(g, trace, t, width, memo)
+        out.append((t, counts[-1], got == draw(g, trace, t, width) if check(t) else None))
+    return out
+
+
+class TestStepsKeptByBlankCells(unittest.TestCase):
+
+    def test_shortener_back_and_forth(self):
+        """Frames 1 (letters) and 25 (hung) in turn at 72 columns: each paints
+        one step once its blank cells were met."""
+        g, trace = run("site/examples/00-shortener.sigil", "Redirect.lookup:fails")
+        got = painted(g, trace, (1, 25, 1, 25, 1), 72, kit.FrameMemo())
+        self.assertTrue(all(same for _t, _n, same in got))
+        self.assertEqual([n for _t, n, _same in got[2:]], [1, 1, 1])
+
+    def test_executions_run(self):
+        """Every frame of the happy run, narrow (every frame hung) and wide
+        (letters on some frames): a frame paints more than one step only on
+        the first frame or the first with its blank cells. (Every 8th frame
+        checked against its drawing without the memo, to keep the test quick.)"""
+        g, trace = run("tests/fixtures/executions.sigil", "happy")
+        scn = scene.build_scene(g, events=OPTIONS["events"], triggers=OPTIONS["triggers"],
+                                access=OPTIONS["access"], depth=OPTIONS["depth"])
+        ticks, slots = range(len(trace.frames)), vgraph._trace_slots(trace)
+        for width in (60, 200):
+            with self.subTest(width=width):
+                got = painted(g, trace, ticks, width, kit.FrameMemo(), lambda t: t % 8 == 0)
+                self.assertTrue(all(same is not False for _t, _n, same in got))
+                met, firsts = set(), set()
+                for t in ticks:
+                    blanks = vflow._blanks(vgraph.sim_look(scn, trace.frames[t], slots))
+                    if blanks not in met:
+                        met.add(blanks)
+                        firsts.add(t)
+                again = [t for t, n, _same in got if n > 1 and t not in firsts | {0}]
+                self.assertEqual(again, [])
+                self.assertLess(sum(n > 1 for _t, n, _same in got), len(firsts) + 1)
+                self.assertLess(len(firsts), len(ticks) // 4)
 
 
 if __name__ == "__main__":

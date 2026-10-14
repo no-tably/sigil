@@ -1897,8 +1897,8 @@ def compose_flow(g, depth: int, payloads: bool, notes: str = "off", triggers: bo
     columns; the chip panel fits only in blank cells, so a badge marked on
     one frame and blank on another may change the step. With a `memo`
     (kit.FrameMemo, kept by a caller drawing a run frame after frame) the cuts
-    are kept while the frames lay out alike (_laid) and the step while their
-    badges are blank in the same cells (_start), and so is each part's
+    are kept while the frames lay out alike (_laid) and the step each took
+    by the cells its badges leave blank (_start), and so is each part's
     drawing, painted again only where a frame changes how it looks (the
     drawing is the same as without it)."""
     plan = (memo.plan(("flow", depth, payloads, notes, triggers, width, access, mods, events,
@@ -1916,20 +1916,21 @@ def compose_flow(g, depth: int, payloads: bool, notes: str = "off", triggers: bo
         return kit.stretch_rules(rows + tail, w), w
 
     args = (scn, depth, payloads, mods, notes != "off", look, checks)
-    # A run's frames start down the ladder at the step the last frame took
-    # while they lay out alike (_laid, _start).
+    # A run's frames start down the ladder at the step frames laid out alike
+    # took (_laid, _start); `settled`: whatever the frame's blank cells.
     plan = _laid(plan, look)
-    start = _start(plan, look)
+    start, settled = _start(plan, look)
     if start <= 0:
         rows, _w, drawing_w, _over = _part_rows(*args, None, width=width,
-                                                plan=_step(plan, "natural", look))
+                                                plan=_step(plan, "natural", look, True))
         if width is None or drawing_w <= width:
             return done(rows)
     if (payloads or mods) and start <= 1:                         # (a)
         marks = []
         fitted, fitted_w, _dw, _over = _part_rows(*args, marks, width=width,
-                                                  plan=_step(plan, "letters", look))
-        if marks:
+                                                  plan=_step(plan, "letters", look, False))
+        if marks:                               # (no chips: no frame takes this step)
+            settled = False
             side = [(kit._chip_marker(letter), [(text, "code")]) for letter, text in marks]
             fitted = kit.stretch_rules(fitted, max(fitted_w, width))   # a title row is taken
             fitted = kit._fit_panel(fitted, lambda tw, most=None: kit._panel_rows(side, tw, most), width, "br",
@@ -1937,7 +1938,7 @@ def compose_flow(g, depth: int, payloads: bool, notes: str = "off", triggers: bo
             if max(kit.row_len(r) for r in fitted if not isinstance(r, kit.RuleRow)) <= width:
                 return done(fitted)
     hung, _w, _dw, over = _part_rows(*args, None, hang=True, width=width,   # (b), (c)
-                                     plan=_step(plan, "hung", look))
+                                     plan=_step(plan, "hung", look, settled))
     if over:                                    # (d)
         hung += [[]] + kit.wide_hint("flow", "a band", over, width)
     return done(hung, width)
@@ -1961,20 +1962,24 @@ def _laid(plan, look):
     return kept[1].begin()
 
 
-def _start(plan, look) -> int:
-    """The wrap ladder's step a frame starts at (its index in LADDER): the
-    step the plan's last frame took while the frames' badges are blank in the
-    same cells (_blanks: a wrap step's panel sits in blank cells only,
-    kit._fit_panel), else the first — the ladder walked again over the kept
-    drawings. The blank cells are looked at only when the step held is past
-    the first (a frame starts there anyway). 0 without a plan."""
-    if plan is None:
-        return 0
-    name, blanks = plan.held.get("step", (LADDER[0], None))
-    if name != LADDER[0] and blanks != _blanks(look):
-        plan.held.pop("step")
-        return 0
-    return LADDER.index(name)
+def _start(plan, look) -> tuple:
+    """(the wrap ladder's step a frame starts at — its index in LADDER —,
+    whether every frame laid out alike starts there whatever its blank
+    cells), from the steps the plan's frames took (_step): a step taken by
+    every frame (the first while it fits; the last while the one before it
+    can't fit, whatever the badges say); else the step taken by a frame
+    whose badges were blank in the same cells (_blanks: a wrap step's panel
+    sits in blank cells only, kit._fit_panel), or the second for blank cells
+    not met yet — the rest of the ladder walked again over the kept
+    drawings. The blank cells are looked at only when no step is taken by
+    every frame. (0, True) without a plan or before its first frame."""
+    taken = plan.held.get("steps") if plan is not None else None
+    if not taken:
+        return 0, True
+    if None in taken:
+        return taken[None], True
+    blanks = _blanks(look)
+    return (taken[blanks], False) if blanks in taken else (1, True)
 
 
 def _extent(look) -> tuple:
@@ -2002,15 +2007,21 @@ def _beside(look, cells) -> tuple:
     return by_node(look.lead), by_node(look.badges)
 
 
-def _step(plan, name: str, look):
-    """The plan of the wrap ladder's step `name` (kit.Plan.sub), the step the
-    plan's frames start at from now on while their badges are blank where
-    this frame's (`look`) are (_start); None without a plan."""
+def _step(plan, name: str, look, settled: bool):
+    """The plan of the wrap ladder's step `name` (kit.Plan.sub), noted as the
+    step taken by the frames laid out alike (_start) — by every one when
+    `settled` (whatever their blank cells), else by those whose badges are
+    blank where this frame's (`look`) are. The last step tried on a frame is
+    the one it takes. None without a plan."""
     if plan is None:
         return None
-    held = plan.held.get("step")
-    if held is None or held[0] != name:         # one _start let stand: its blanks are look's
-        plan.held["step"] = (name, None if name == LADDER[0] else _blanks(look))
+    taken = plan.held.setdefault("steps", {})
+    if settled:
+        taken.clear()
+        taken[None] = LADDER.index(name)        # any blank cells
+    else:
+        taken.pop(None, None)
+        taken[_blanks(look)] = LADDER.index(name)
     return plan.sub(name)
 
 
