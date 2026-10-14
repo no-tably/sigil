@@ -5,9 +5,13 @@ Not a command: check.py loads it (RULE_MODULES) and calls `rules(ck)`,
 `exploration_causes(ck)` and `extend_rules(ck, rules)` with itself as `ck`, so
 this module never imports check.py. Every rule here reads the runs of the
 document's bounded exploration (sim.combinations over the canonical scene, up
-to `doc.k` deviations at once, at most `doc.budget` runs (default BUDGET), each
-under `doc.limits`) and reports a candidate as a trace Hit: its witness is the scenario that shows it, `k` the deviations that
-scenario takes (rfcs/0003-composition-checks.catalog.md §3).
+to `doc.k` deviations at once, then the overlap runs — each later entry started
+at every tick of each earlier entry's busy window (sim.overlap_runs), then the
+listed overlap starts (sim.overlaps) with each deviated run's choices — at most
+`doc.budget` runs in all (default BUDGET), each under `doc.limits`) and reports a
+candidate as a trace Hit: its witness is the scenario that shows it (`B@t`, or
+`dev+B@t`, for an overlap run), `k` the deviations that scenario takes
+(rfcs/0003-composition-checks.catalog.md §3).
 
 Rules this module registers:
   SGC203 event-ignored      an event reaches its machine in a state with no
@@ -21,7 +25,8 @@ Rules this module registers:
 
 Rules other modules register, extended here (`extend_rules`):
   SGC204 race (trace half)  vector clocks over the run's fork / await / gate
-                            events; two accesses to one store in one episode, one
+                            events; two accesses to one store in one episode, or in
+                            two episodes running at once (an overlap run), one
                             a write, unordered and lockset-disjoint; two tasks
                             holding one `owns` at once (concurrent ownership); a
                             `(User)×N` entry's writes race with their own copies (RFC 0003 Q10)
@@ -35,8 +40,10 @@ Happens-before. Each task's vector clock starts as its parent's at the fork;
 an awaiting task joins the clocks its members ended with; a join's target (run
 by the last arrival) joins every arrival's clock. Deliveries from one sender to
 one machine arrive in send order (per-sender FIFO): a `~>` send into an event
-counts as its sender's. Runs are deterministic and the analysis does not depend
-on the scheduler, so no interleaving search is needed.
+counts as its sender's. Episodes are independent roots: nothing orders two of
+them, and two that run at once (an entry given a start tick) may race. Runs are
+deterministic and the analysis does not depend on the scheduler, so no
+interleaving search is needed (the overlap runs search start ticks, not orders).
 
 Trace caps (catalog §1.2): a rule's trace findings cap at warn until every
 simulator fix it relies on is in FIXED; a fix joins FIXED only with a passing
@@ -101,20 +108,71 @@ class Run(NamedTuple):
 
 class Explored(NamedTuple):
     """One bounded exploration: the runs kept (happy first, fewest deviations
-    first), what the budget left unrun, and the bounds it ran under."""
+    first, then the overlap runs), what the budget left unrun (deviation
+    combinations, overlap runs), and the bounds it ran under."""
     runs: tuple
     left_out: int
     k: int
     budget: int
     limits: object           # sim.Limits
+    overlaps_left_out: int = 0
 
 
 def explore(sim, sc, k: int, budget: int, limits) -> Explored:
-    """The runs of up to k deviations at once (sim.combinations), at most
-    `budget` of them, each under `limits` (a sim.Limits)."""
+    """The runs of up to k deviations at once (sim.combinations), then the
+    overlap runs (overlap_scenarios), at most `budget` runs in all (the happy
+    run aside), each under `limits` (a sim.Limits). A run that repeats an
+    earlier one's log and outcome is dropped."""
     ex = sim.combinations(sc, k, limits=limits, budget=budget)
     runs = tuple(Run(t.scenario, t.end, t.outcome) for t in ex.traces)
-    return Explored(runs, ex.left_out, k, budget, limits)
+    made = len(ex.traces) - 1 + ex.duplicates
+    starts = overlap_scenarios(sim, sc, runs[1:], limits)
+    simulate = lambda s: sim.simulate(sc, s, limits=limits, keep=False)
+    more, left = run_new(simulate, starts, budget - made, {signature(r) for r in runs})
+    return Explored(runs + more, ex.left_out, k, budget, limits, left)
+
+
+# ---------------------------------------------------------------------------
+# Overlap runs: a later entry started while an earlier one's episode runs
+# ---------------------------------------------------------------------------
+
+def with_deviation(start, s):
+    """The overlap scenario `start` (`B@t`) taking a deviated scenario `s`'s
+    choices too, named as sim.scenario reads it back (`Api.charge:fails+B@t`)."""
+    return start._replace(name=f"{s.name}+{start.name}", choices=s.choices,
+                          label=" + ".join(x for x in (s.label, start.label) if x))
+
+
+def overlap_scenarios(sim, sc, deviated: tuple, limits) -> list:
+    """What the checks run beyond the deviations: every start tick of each later
+    entry inside each earlier entry's busy window (sim.overlap_runs, at most
+    limits.window per window) on the default choices, then each deviated run's
+    choices with the listed overlap starts (sim.overlaps: the moments a race
+    could happen)."""
+    listed = sim.overlaps(sc, limits=limits)
+    return (list(sim.overlap_runs(sc, limits=limits))
+            + [with_deviation(s, run.scenario) for run in deviated for s in listed])
+
+
+def signature(run: Run) -> tuple:
+    """What makes two runs the same run (sim.combinations drops repeats by it)."""
+    return run.outcome, tuple(run.end.get("log", ()))
+
+
+def run_new(simulate: Callable, scenarios: list, budget: int, seen: set) -> tuple:
+    """(the Runs of `scenarios` whose signature `seen` lacks, in order; how many
+    the budget left unrun): at most `budget` runs are made. `seen` grows."""
+    out = []
+    for n, s in enumerate(scenarios):
+        if n >= budget:
+            return tuple(out), len(scenarios) - n
+        t = simulate(s)
+        run = Run(t.scenario, t.end, t.outcome)
+        sig = signature(run)
+        if sig not in seen:
+            seen.add(sig)
+            out.append(run)
+    return tuple(out), 0
 
 
 # ---------------------------------------------------------------------------
@@ -358,16 +416,37 @@ def clash(a: Access, b: Access) -> Optional[Clash]:
     return Clash(writer, other, a.store in a.held and a.store in b.held)
 
 
-def clashes(acc: list, self_concurrent: frozenset) -> list:
-    """The clashes of one run: pairs of accesses in one episode by two tasks with
-    concurrent clocks, plus each write of an episode whose entry runs
+def busy_spans(events: list) -> dict:
+    """{episode: (first, last) tick a task of it acts}."""
+    out = {}
+    for e in events:
+        if e["task"] is not None:
+            lo, hi = out.get(e["episode"], (e["t"], e["t"]))
+            out[e["episode"]] = (min(lo, e["t"]), max(hi, e["t"]))
+    return out
+
+
+def running_together(events: list) -> frozenset:
+    """The pairs of episodes (frozensets) busy at once somewhere in the run: an
+    entry started while an earlier episode still runs (sim Scenario.starts). An
+    episode that begins after the one before went quiet overlaps none."""
+    spans = sorted(busy_spans(events).items())
+    return frozenset(frozenset((a, b)) for i, (a, (alo, ahi)) in enumerate(spans)
+                     for b, (blo, bhi) in spans[i + 1:] if alo <= bhi and blo <= ahi)
+
+
+def clashes(acc: list, self_concurrent: frozenset, together: frozenset = frozenset()) -> list:
+    """The clashes of one run: pairs of accesses by two tasks with concurrent
+    clocks, in one episode or in two episodes running together (`together`,
+    running_together), plus each write of an episode whose entry runs
     concurrently with itself (`(User)×N`, RFC 0003 Q10) against its own copy."""
     out = []
     for i, a in enumerate(acc):
         if a.mode in WRITES and a.episode in self_concurrent:
             out.append(clash(a, a))
         for b in acc[i + 1:]:
-            if a.task != b.task and a.episode == b.episode and concurrent(a.clock, b.clock):
+            if a.task != b.task and concurrent(a.clock, b.clock) and (
+                    a.episode == b.episode or frozenset((a.episode, b.episode)) in together):
                 found = clash(a, b)
                 if found is not None:
                     out.append(found)
@@ -601,8 +680,10 @@ def race_text(f, tf: TraceFacts, run: Run, c: Clash) -> tuple:
     s = f"`{f.g(sid)}`"
     me = tf.principal(tf.wires[c.writer.wire])
     them = tf.principal(tf.wires[c.other.wire])
+    across = c.writer.episode != c.other.episode      # two entries running at once
     if c.shared:
-        return (f"`{f.g(me)}` holds `@owns {f.g(sid)}` while another task holds it too "
+        other = "a task of another entry" if across else "another task"
+        return (f"`{f.g(me)}` holds `@owns {f.g(sid)}` while {other} holds it too "
                 f"{in_run(run)}, and nothing orders them",
                 f"Two tasks hold `{f.g(sid)}` at once {in_run(run)}. Which write wins?",
                 f"`@inv serialised({f.g(sid)})` (one holder at a time), `@inv cas(version)` "
@@ -610,9 +691,10 @@ def race_text(f, tf: TraceFacts, run: Run, c: Clash) -> tuple:
     if c.writer is c.other:
         who = f"`{f.g(me)}` writes {s} and its entry has concurrent callers"
     elif me == them:
-        who = f"`{f.g(me)}` writes {s} from two tasks"
+        who = f"`{f.g(me)}` writes {s} from two {'entries at once' if across else 'tasks'}"
     else:
-        who = f"`{f.g(me)}` writes {s} and `{f.g(them)}` also touches it"
+        who = (f"`{f.g(me)}` writes {s} and `{f.g(them)}` also touches it"
+               + (" from another entry" if across else ""))
     return (f"{who}, with nothing ordering them {in_run(run)}",
             f"{who} {in_run(run)}. Which write wins?", "")
 
@@ -622,7 +704,7 @@ def race_hits(ck, doc):
     tf = trace_facts(ck, doc)
     st, f, seen = state_module(ck), tf.state, set()
     for run, acc in zip(tf.runs, tf.accesses):
-        for c in clashes(acc, tf.self_concurrent(run)):
+        for c in clashes(acc, tf.self_concurrent(run), running_together(run.events)):
             w = tf.wires.get(c.writer.wire)
             if w is None or c.other.wire not in tf.wires or w.ident in seen \
                     or resolved(st, f, c):
@@ -883,15 +965,38 @@ def first_line(doc) -> int:
     return doc.layout.first or 1
 
 
+def plural(n: int, word: str) -> str:
+    return f"{n} {word}{'s' if n != 1 else ''}"
+
+
+def unrun_parts(ex: Explored) -> list:
+    """What the budget left unrun, as phrases (none when it ran everything)."""
+    parts = []
+    if ex.left_out:
+        parts.append(f"{plural(ex.left_out, 'combination')} of up to {ex.k} deviations")
+    if ex.overlaps_left_out:
+        parts.append(f"{plural(ex.overlaps_left_out, 'overlap run')} (an entry started "
+                     "while an earlier one runs)")
+    return parts
+
+
+def short_unrun(ex: Explored) -> str:
+    """unrun_parts in a few words, for the question."""
+    return " and ".join(f"{n} {what}" for n, what in ((ex.left_out, "combinations"),
+                                                     (ex.overlaps_left_out, "overlap runs"))
+                        if n)
+
+
 def budget_cause(ck):
     def match(doc):
         ex = trace_facts(ck, doc).explored
-        if ex.left_out:
+        parts = unrun_parts(ex)
+        if parts:
+            what = " and ".join(parts)
             yield ck.Hit(first_line(doc),
-                         f"the exploration budget left {ex.left_out} combination"
-                         f"{'s' if ex.left_out != 1 else ''} of up to {ex.k} deviations "
-                         f"unrun (budget={ex.budget} runs, k={ex.k})",
-                         f"The exploration budget left {ex.left_out} combinations unrun. "
+                         f"the exploration budget left {what} unrun "
+                         f"(budget={ex.budget} runs, k={ex.k})",
+                         f"The exploration budget left {short_unrun(ex)} unrun. "
                          "Is what it ran enough evidence?",
                          anchor=("document", "budget"),
                          fix="run with a larger budget, or a smaller --k")

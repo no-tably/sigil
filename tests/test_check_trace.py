@@ -394,6 +394,35 @@ class Races(unittest.TestCase):
         rep = ck.check(block, mode="spec", registry=REGISTRY)
         self.assertEqual([f for f in rep.findings + rep.folded if f.rule.id == "SGC204"], [])
 
+    def test_a_cross_entry_race_shows_in_an_overlap_run(self):
+        (f,) = of(ck.check(fixture("trace-204-overlap.sigil"), registry=REGISTRY), "SGC204")
+        self.assertEqual((f.severity, f.hit.trace, f.hit.k), ("error", True, 0))
+        self.assertRegex(f.hit.witness, r"^Bob@\d+$")
+        self.assertIn("a task of another entry holds it too", f.hit.statement)
+        self.assertIn(f"in the `{f.hit.witness}` run", f.hit.statement)
+        rep = ck.check(fixture("trace-204-overlap-declared.sigil"), registry=REGISTRY)
+        self.assertEqual(of(rep, "SGC204"), [])
+
+    def test_the_witness_replays_by_name(self):
+        d = make_doc(fixture("trace-204-overlap.sigil"))
+        (h,) = ct.race_hits(ck, d)
+        t = sim.simulate(d.sc, sim.scenario(d.sc, h.witness), limits=d.limits, keep=False)
+        self.assertEqual(ct.running_together(t.end["events"]), frozenset({frozenset({1, 2})}))
+
+    def test_episodes_one_after_the_other_never_run_together(self):
+        runs = runs_of(fixture("trace-204-overlap.sigil"))
+        self.assertEqual(ct.running_together(by_name(runs, "happy").events), frozenset())
+        spans = ct.busy_spans(by_name(runs, "happy").events)
+        self.assertEqual(sorted(spans), [1, 2])
+        self.assertLess(spans[1][1], spans[2][0])
+
+    def test_two_episodes_clash_only_while_they_run_together(self):
+        a = ct.Access(1, 1, "S", "write", ("w",), frozenset(), {1: 1})
+        b = ct.Access(2, 2, "S", "write", ("w",), frozenset(), {2: 1})
+        self.assertEqual(ct.clashes([a, b], frozenset()), [])
+        self.assertEqual(len(ct.clashes([a, b], frozenset(), frozenset({frozenset({1, 2})}))),
+                         1)
+
     def test_an_unknown_mode_never_clashes(self):
         a = ct.Access(1, 1, "S", "unknown", ("w",), frozenset(), {1: 1})
         b = ct.Access(2, 1, "S", "read", ("w",), frozenset(), {2: 1})
@@ -589,6 +618,59 @@ class Exploration(unittest.TestCase):
                        registry=REGISTRY)
         (f,) = cause_of(rep, "exploration budget")
         self.assertIn("budget=1 runs", f.hit.statement)
+
+    def test_the_budget_counts_the_overlap_runs_it_left_out(self):
+        text = fixture("trace-204-overlap.sigil")
+        d = make_doc(text)
+        starts = ct.overlap_scenarios(sim, d.sc, (), d.limits)
+        rep = ck.check(text, budget=2, registry=REGISTRY)
+        (f,) = cause_of(rep, "exploration budget")
+        self.assertIn(f"left {len(starts) - 2} overlap runs (an entry started while an "
+                      "earlier one runs) unrun (budget=2 runs", f.hit.statement)
+        self.assertEqual(cause_of(ck.check(text, registry=REGISTRY), "exploration budget"), [])
+
+    def test_every_start_tick_is_tried_then_the_listed_ones_with_each_deviation(self):
+        d = make_doc(fixture("trace-204-overlap.sigil"))
+        ticks = sim.overlap_runs(d.sc, limits=d.limits)
+        (window,) = sim.overlap_windows(d.sc, limits=d.limits)
+        self.assertEqual([s.name for s in ticks],
+                         [f"Bob@{t}" for t in range(window.start, window.end + 1)])
+        deviated = ct.Run(sim.Scenario("X.f:fails", (("cid", "fail"),), "x fails"), {}, "ok")
+        got = ct.overlap_scenarios(sim, d.sc, (deviated,), d.limits)
+        listed = sim.overlaps(d.sc, limits=d.limits)
+        self.assertEqual([s.name for s in got],
+                         [s.name for s in ticks] + [f"X.f:fails+{s.name}" for s in listed])
+        self.assertEqual(got[-1].choices, (("cid", "fail"),))
+        self.assertEqual(got[-1].starts, listed[-1].starts)
+
+    def test_a_deviated_overlap_run_reads_back_by_name(self):
+        text = fixture("trace-204-overlap.sigil") + "[Sync] -> (Ext) : op x.put() @timeout(1s)\n"
+        d = make_doc(text)
+        deviated = [r for r in ct.trace_facts(ck, d).runs if r.k and r.scenario.starts]
+        self.assertTrue(deviated)
+        for r in deviated:
+            with self.subTest(run=r.scenario.name):
+                self.assertRegex(r.scenario.name, r"^Sync\.x\.put:fails\+Bob@\d+$")
+                back = sim.scenario(d.sc, r.scenario.name)
+                self.assertEqual((back.choices, back.starts),
+                                 (r.scenario.choices, r.scenario.starts))
+
+    def test_run_new_drops_repeats_and_stops_at_the_budget(self):
+        logs = {"a": ["x"], "b": ["x"], "c": ["y"], "d": ["z"]}
+        made = []
+
+        def simulate(s):
+            made.append(s.name)
+            return sim.Trace(s, (), "ok", {"log": logs[s.name]})
+        scen = [sim.Scenario(n) for n in "abcd"]
+        runs, left = ct.run_new(simulate, scen, 3, {("ok", ())})
+        self.assertEqual(([r.scenario.name for r in runs], left), (["a", "c"], 1))
+        self.assertEqual(made, ["a", "b", "c"])
+
+    def test_the_overlap_runs_follow_the_deviation_runs(self):
+        names = [r.scenario.name for r in runs_of(fixture("trace-204-overlap.sigil"))]
+        self.assertEqual(names[0], "happy")
+        self.assertTrue(all(re.match(r"^Bob@\d+$", n) for n in names[1:]), names)
 
     def test_a_cut_run(self):
         rep = ck.check(COVERAGE.read_text(encoding="utf-8"), mode="spec", limits=sim.Limits(frames=10),

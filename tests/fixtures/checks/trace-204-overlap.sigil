@@ -1,0 +1,14 @@
+# SGC204 race — across entries: `(Alice)` and `(Bob)` each reach `[W]`, which
+# holds `@owns |Doc|` while it writes. Played one after the other the runs never
+# overlap; an overlap run (`Bob@t`: Bob starting while Alice's episode runs) has
+# both holding it at once. The witness names that run.
+# expect: error:13:SGC204
+#!spec
+(Alice) -> [Editor] : save()
+(Bob) -> [Sync] : pull()
+[Editor] -> [W] : save()
+[Sync] -> [W] : save()
+|Doc| @write(W)
+[W] @owns |Doc| {
+  [W] -> |Doc| : put({Doc})
+}

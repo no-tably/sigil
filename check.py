@@ -19,7 +19,9 @@ Usage:
 Options:
     --mode M     check as mode M (default: the document's mode line; none = sketch)
     --k N        failure combinations explored per scenario (default: 1, spec 2)
-    --budget N   runs one exploration may make (default: check_trace.BUDGET)
+    --budget N   runs one exploration may make: deviation combinations, then
+                 overlap runs (each later entry started at every tick of an
+                 earlier one's episode) (default: check_trace.BUDGET)
     --limit NAME=N  raise one simulator bound (sim.Limits: depth, iterations,
                  spawn, activations, …); repeatable
     --json       one JSON object: mode, k, limits (with budget), findings,
@@ -1189,7 +1191,8 @@ def main(argv=None) -> int:
     ap.add_argument("file", nargs="?", help="a .sigil file, or - for stdin")
     ap.add_argument("--mode", choices=MODES, help="check as this mode")
     ap.add_argument("--k", type=int, help="failure combinations per scenario")
-    ap.add_argument("--budget", type=int, help="runs one exploration may make")
+    ap.add_argument("--budget", type=int,
+                    help="runs one exploration may make (deviations, then overlap runs)")
     ap.add_argument("--limit", action="append", default=[], metavar="NAME=N",
                     help="raise one simulator limit (repeatable; e.g. depth=5)")
     ap.add_argument("--json", action="store_true", help="print one JSON object")

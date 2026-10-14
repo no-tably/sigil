@@ -1,0 +1,12 @@
+# SGC204 race — the cross-entry design with its resolution stated: one holder
+# of `|Doc|` at a time.
+# expect: (none)
+#!spec
+(Alice) -> [Editor] : save()
+(Bob) -> [Sync] : pull()
+[Editor] -> [W] : save()
+[Sync] -> [W] : save()
+|Doc| @write(W) @inv serialised(|Doc|)
+[W] @owns |Doc| {
+  [W] -> |Doc| : put({Doc})
+}
