@@ -97,6 +97,41 @@ class TestStartNames(unittest.TestCase):
         self.assertEqual([(e["episode"], e["entry"]) for e in tr.end["episodes"]],
                          [(1, "A_service"), (2, "B_service")])
 
+    def test_the_first_entry_at_its_own_opening_tick_runs_as_happy(self):
+        tr = sim.simulate(self.sc, sim.scenario(self.sc, "A@0"))
+        happy = sim.simulate(self.sc, sim.scenarios(self.sc)[0])
+        self.assertEqual(tr.frames, happy.frames)
+        self.assertEqual(tr.end["episodes"], happy.end["episodes"])
+
+    def test_an_entry_without_a_start_follows_one_begun_at_the_opening(self):
+        tr = sim.simulate(self.sc, sim.scenario(self.sc, "A@0"))
+        a, b = tr.end["episodes"]
+        self.assertEqual((a["entry"], a["start"]), ("A_service", 0))
+        self.assertGreater(b["start"], 0)
+
+    def test_an_entry_without_a_start_opens_the_run_when_none_is_due(self):
+        tr = sim.simulate(self.sc, sim.scenario(self.sc, "A@3"))
+        self.assertEqual([(e["entry"], e["start"]) for e in tr.end["episodes"]],
+                         [("B_service", 0), ("A_service", 3)])
+
+    def test_due_at_the_opening(self):
+        E = sim._Entry
+        entries = [E(0, "a", 0), E(0, "b", None), E(0, "c", 5)]
+        self.assertEqual(sim._due(entries, 0, True, opening=True), [0])
+        self.assertEqual(sim._due(entries[1:], 0, True, opening=True), [0])
+        self.assertEqual(sim._due([E(0, "b", None), E(0, "a", 0)], 0, True, opening=True),
+                         [0, 1])
+        self.assertEqual(sim._due(entries, 0, True, opening=False), [0, 1])
+        self.assertEqual(sim._due(entries[1:], 5, True, opening=True), [0, 1])
+
+    def test_the_overlap_example_entry_at_zero_runs_as_happy(self):
+        sc = build((_DIR / "tests" / "fixtures" / "overlap.sigil").read_text())
+        happy = sim.simulate(sc, sim.scenarios(sc)[0])
+        tr = sim.simulate(sc, sim.scenario(sc, "Operator@0"))
+        self.assertEqual(tr.frames, happy.frames)
+        self.assertEqual([e["start"] for e in tr.end["episodes"]],
+                         [e["start"] for e in happy.end["episodes"]])
+
 
 class TestListedOverlaps(unittest.TestCase):
     def test_after_the_failure_scenarios(self):

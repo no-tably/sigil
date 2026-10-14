@@ -1031,7 +1031,7 @@ class _Run:
         if t == 0:
             self._log(CONVENTIONS)
             self._log_setup()
-        due = set(_due(self.entries, t, self.start_next))
+        due = set(_due(self.entries, t, self.start_next, opening=not self.begun))
         begin = [e for i, e in enumerate(self.entries) if i in due]
         self.entries = [e for i, e in enumerate(self.entries) if i not in due]
         for entry in begin:                     # written order
@@ -2617,13 +2617,17 @@ def _scheduled(entries: list, starts) -> list:
     return [_Entry(ui, nid, ticks.get(nid)) for ui, nid in entries]
 
 
-def _due(entries: list, t: int, quiet: bool) -> list:
+def _due(entries: list, t: int, quiet: bool, opening: bool = False) -> list:
     """The indices of `entries` (_Entry) that begin at tick t, in written order:
     each whose start tick has come, and — when the run went quiet (`quiet`) — the
-    first with none."""
+    first with none. At the run's opening (`opening`: no episode begun yet) that one
+    waits when an entry written before it begins at t: it follows that episode as it
+    would follow any other (`Operator@0` runs as the happy run does)."""
+    timed = [i for i, e in enumerate(entries) if e.start is not None and e.start <= t]
     free = next((i for i, e in enumerate(entries) if e.start is None), None) if quiet else None
-    return [i for i, e in enumerate(entries)
-            if i == free or (e.start is not None and e.start <= t)]
+    if free is not None and opening and timed and timed[0] < free:
+        free = None
+    return sorted(timed + ([free] if free is not None else []))
 
 
 def _resolve_entries(prog: Program, names) -> list:
