@@ -108,6 +108,43 @@ class OverlapDrawn(unittest.TestCase):
         self.assertIn(f"episode {k[AUTHOR]}'s entry", _lane(lines, "(Author)"))
 
 
+class OverlapColoured(unittest.TestCase):
+    """The run view colours an overlapping episode as the other views colour
+    its tokens: kit.episode_colour(k)."""
+
+    def setUp(self):
+        self.g = _graph()
+        self.trace = _run(self.g, ((AUTHOR, 3),))
+
+    def _runs(self, tick=None) -> list:
+        rows, _w = vrun.compose_run(self.g, self.trace, tick, None)
+        return [run for r in rows if not isinstance(r, kit.RuleRow) for run in r]
+
+    def test_the_start_mark_takes_its_episode_colour(self):
+        mark = next(st for t, st in self._runs() if t == "ep2")
+        self.assertEqual(mark[0], kit.episode_colour(2))
+
+    def test_a_start_after_the_run_went_quiet_keeps_the_section_look(self):
+        happy = _run(self.g, ())
+        rows, _w = vrun.compose_run(self.g, happy, None, None)
+        mark = next(st for r in rows if not isinstance(r, kit.RuleRow)
+                    for t, st in r if t == "ep2")
+        self.assertEqual(mark, kit.SECTION_STYLE)
+
+    def test_legend_items_take_their_episode_colour_bold_while_running(self):
+        i = next(i for i, f in enumerate(self.trace.frames) if len(f.episodes) > 1)
+        items = {t.lstrip(vrun.RUNNING + " ")[:3]: st for t, st in self._runs(i)
+                 if t.lstrip(vrun.RUNNING + " ").startswith("ep") and "@" in t}
+        self.assertEqual(items["ep1"], (kit.episode_colour(1), None, True))
+        self.assertEqual(items["ep2"], (kit.episode_colour(2), None, True))
+        ended = {t.strip()[:3]: st for t, st in self._runs() if "@" in t}
+        self.assertEqual(ended["ep2"], (kit.episode_colour(2), None, False))
+
+    def test_past_nine_the_label_names_the_token_mark(self):
+        self.assertEqual(vrun._episode_label(2), "ep2")
+        self.assertEqual(vrun._episode_label(10), f"ep10={kit.episode_mark(10)}")
+
+
 class OneAtATime(unittest.TestCase):
     def setUp(self):
         self.g = _graph()

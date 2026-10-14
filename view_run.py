@@ -34,6 +34,8 @@ and `epN` on the ruler at its start; one beginning while another runs (a
 scenario's `Entry@t`) only the `epN` start mark — its lanes run beside the
 others', a lane busy in two at once on a `∥k` sub-row — and under the drawing
 a legend names each episode begun, `ep2 (Author)@40`, ▸ on the running ones.
+Such an episode's start mark and legend item take its run colour (theme
+section `run`), as its tokens do in the graph, tree and flow views.
 
 During a run the playhead (▼ on the ruler, ┊ down the blank cells) is the
 frame's tick: nothing right of it is drawn and lanes appear when they are born;
@@ -267,6 +269,7 @@ class _Frame(NamedTuple):
     cols: _Cols
     tick: int                  # the playhead's tick
     final: bool                # the run's last frame
+    together: frozenset = frozenset()   # episodes (k) begun while another ran
 
 
 def _paint(tl, scn, tick: int, final: bool, probe: bool = False,
@@ -344,7 +347,7 @@ def _paint(tl, scn, tick: int, final: bool, probe: bool = False,
         for (r, cc), (glyph, style, kind) in list(g.cells.items()):
             if cc == c and kind in ("bar", "token", "mark", "head"):
                 g.cells[(r, cc)] = (glyph, kit.Probe(style or (None, None, False)), kind)
-    return _Frame(g, rows, lanes, frozenset(running), cols, tick, final)
+    return _Frame(g, rows, lanes, frozenset(running), cols, tick, final, together)
 
 
 def _paint_move(g: _Grid, m, rows: dict, col: dict, tick: int, scn, st: dict) -> None:
@@ -545,13 +548,14 @@ def _scale(fr: _Frame, tl) -> list:
 def _marks(fr: _Frame, tl, witnessed: tuple, step: int = 1) -> list:
     """The ruler's run marks, in the order they are placed, whatever the
     playhead: each finding's number at the tick this run shows it, `epN` where
-    an episode starts, `↺k` where a loop's k-th iteration starts (k ≥ 2; only
+    an episode starts (in its run colour when it began while another ran:
+    _start_style), `↺k` where a loop's k-th iteration starts (k ≥ 2; only
     every step-th k when step > 1)."""
     st = _styles()
     out = [_Mark(fr.cols.of[t], kit.check_glyph(m), kit.check_mark_style(m), t)
            for t, m in witnessed if t in fr.cols.of]
-    out += [_Mark(fr.cols.of[t], f"ep{k}", st["section"]) for k, t, _n in tl.episodes[1:]
-            if t in fr.cols.of]
+    out += [_Mark(fr.cols.of[t], f"ep{k}", _start_style(k, fr.together, st))
+            for k, t, _n in tl.episodes[1:] if t in fr.cols.of]
     out += [_Mark(fr.cols.of[it.t], f"{ITERATION}{it.k}", st["op"], it.t)
             for it in tl.iterations
             if it.k > 1 and it.t in fr.cols.of and (step == 1 or it.k % step == 0)]
@@ -901,18 +905,32 @@ def overlaps(trace) -> dict:
             for e in trace.end.get("episodes", ())}
 
 
+def _start_style(k: int, together: frozenset, st: dict) -> tuple:
+    """The style of episode k's `epN` start mark on the ruler: its run colour
+    (kit.episode_colour, as its tokens in the graph, tree and flow views) when
+    it began while another ran (`together`), else the section rule's."""
+    return (kit.episode_colour(k), None, False) if k in together else st["section"]
+
+
+def _episode_label(k: int) -> str:
+    """Episode k as the legend names it: `ep2`; past 9, with the one-cell
+    mark its tokens carry (kit.episode_mark), `ep10=a`."""
+    mark = kit.episode_mark(k)
+    return f"ep{k}" if mark == str(k) else f"ep{k}={mark}"
+
+
 def _episode_items(tl, scn, running: frozenset, tick: int) -> list:
     """[[(text, style)]]: an item per episode begun by `tick` — its number,
-    entry and start tick as a scenario starts it, `▸ep2 (Author)@40`; ▸ and
-    bright while it runs (`running`: Frame.episodes), else a blank and mid."""
-    st = _styles()
+    entry and start tick as a scenario starts it, `▸ep2 (Author)@40`, in the
+    episode's run colour (kit.episode_colour); ▸ and bold while it runs
+    (`running`: Frame.episodes), else a blank."""
     out = []
     for k, t, n in tl.episodes:
         if t > tick:
             continue
         on = k in running
-        out.append([((RUNNING if on else " ") + f"ep{k} {_name(scn, n)}@{t}",
-                     st["now"] if on else st["mid"])])
+        out.append([((RUNNING if on else " ") + f"{_episode_label(k)} {_name(scn, n)}@{t}",
+                     (kit.episode_colour(k), None, on))])
     return out
 
 
