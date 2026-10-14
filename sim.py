@@ -3142,12 +3142,15 @@ class Mark(NamedTuple):
 class Iteration(NamedTuple):
     """A loop starting its k-th iteration (of `of`) at tick t: `block` (unit
     owner node id | None, block index), `act` the activation running it (its
-    spans say on which lanes; None: none)."""
+    spans say on which lanes; None: none; a folded node's: the one on its
+    drawn host's lane standing for it). `inside`: the loop's owner is folded
+    too, so the host loops inside its hidden expansion (_hosted_iterations)."""
     t: int
     k: int
     of: int
     block: tuple
     act: Optional[int]
+    inside: bool = False
 
 
 class Timeline(NamedTuple):
@@ -3185,7 +3188,8 @@ def timeline(trace: Trace, *, limits: Limits = Limits(),
     (FOLD); levels past show + 1 keep ↻2 … ↻(show − 1) and the deepest, the
     middle one lane (lo‥hi). `hosts` (folded_hosts; None: every node drawn):
     a folded node's lanes fold into its host's (_fold_into_hosts), the ticks
-    something happens inside a fold kept as `hidden`. Pure."""
+    something happens inside a fold kept as `hidden`, a loop run inside one
+    said of the host's activation (_hosted_iterations). Pure."""
     prog = _program_of(trace.scene.graph)
     events = trace.end.get("events", ())
     wires = {w.ident: w for w in prog.scene.wires}
@@ -3318,6 +3322,8 @@ def timeline(trace: Trace, *, limits: Limits = Limits(),
         lane_rows, spans, moves, marks, born_at, alias, hidden = _fold_into_hosts(
             lane_rows, spans, moves, marks, born_at, hosts, last)
         move_acts = {h: tuple(alias.get(a, a) for a in ab) for h, ab in move_acts.items()}
+        iterations = _hosted_iterations(iterations, alias,
+                                        {sp.act for sp in spans if sp.folded}, hosts)
     folded = {"show": show, "instances": 0, "levels": 0}
     if show is not None:
         lane_rows, spans, moves, marks, born_at = _fold_lanes(
@@ -3342,6 +3348,18 @@ def change_ticks(spans, moves) -> set:
         if m.end is not None:
             out |= {m.end, m.end - 1}
     return out
+
+
+def _hosted_iterations(iterations: list, alias: dict, folded_acts: set, hosts: dict) -> list:
+    """Iterations run by a folded node's activation, said of the activation on
+    its host's lane: one absorbed into another (alias: {act id absorbed: the
+    act id that absorbed it}) by the one that absorbed it, one moved onto the
+    host's lane as it is (folded_acts) by itself. Such a loop is `inside` when
+    its owner is folded too (hosts), as the narration says `[Host] loops
+    (inside)`; a drawn owner's loop stays its own (`loop in [Owner]`). The
+    rest as they are."""
+    return [it._replace(act=alias.get(it.act, it.act), inside=it.block[0] in hosts)
+            if it.act in alias or it.act in folded_acts else it for it in iterations]
 
 
 def _host_lanes(lanes: list, hosts: dict) -> dict:

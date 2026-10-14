@@ -662,6 +662,22 @@ def _of_lanes(items: list, at: dict, fam) -> list:
     return [items[i] for i in sorted({i for k in fam for i in at.get(k, ())})]
 
 
+def _loop_clauses(iterations: list, so_far: str) -> list:
+    """[Clause]: how often a lane's loops ran, from the iterations its
+    activations started — `loops k×` (k the most any one loop ran, k ≥ 2),
+    `loops k× (inside)` for those run inside its hidden expansion (inside);
+    `so_far` follows the count."""
+    out = []
+    for inside, where in ((False, ""), (True, " (inside)")):
+        most = {}
+        for it in iterations:
+            if it.inside == inside:
+                most[it.block] = max(most.get(it.block, 0), it.k)
+        if most and max(most.values()) > 1:
+            out.append(Clause(f"loops {max(most.values())}×{where}{so_far}", REPEAT))
+    return out
+
+
 def lane_notes(tl, scn, numbered: set, tick: int, final: bool) -> dict:
     """{lane key: [Clause, …]}: each lane's run in plain words as far as
     `tick` — who (whose instance, who spawned it, a fold's), its role (an
@@ -778,13 +794,8 @@ def lane_notes(tl, scn, numbered: set, tick: int, final: bool) -> dict:
             cl.append(Clause("reached: the host's side, opaque", ROLE, "reached: opaque"))
         if len(runs) > 1 and kind != "event":
             cl.append(Clause(f"runs {len(runs)}×{so_far}", REPEAT))
-        loops = {}
-        for act in acts:
-            for it in loops_at.get(act, ()):
-                if it.t <= tick:
-                    loops[it.block] = max(loops.get(it.block, 0), it.k)
-        if loops and max(loops.values()) > 1:
-            cl.append(Clause(f"loops {max(loops.values())}×{so_far}", REPEAT))
+        cl += _loop_clauses([it for act in acts for it in loops_at.get(act, ())
+                             if it.t <= tick], so_far)
         if ln.key in depth:
             cl.append(Clause(f"recurses to depth {depth[ln.key]}"
                              + (" each time" if len(runs) > 1 else ""), REPEAT))
@@ -1161,7 +1172,8 @@ def timeline_json(trace, limits=None, show: Optional[int] = None,
                      for k, t, n in tl.episodes],
         "folded": tl.folded,
         "iterations": [{"t": it.t, "k": it.k, "of": it.of, "owner": it.block[0],
-                        "block": it.block[1], "act": it.act} for it in tl.iterations],
+                        "block": it.block[1], "act": it.act,
+                        **({"inside": True} if it.inside else {})} for it in tl.iterations],
         "lanes": [{"key": key(ln.key), "label": _label_text(ln, scn, numbered),
                    "parent": key(ln.parent) if ln.parent else None, "born": ln.born,
                    "owner": list(ln.owner) if ln.owner else None, "spawned": ln.spawned,
