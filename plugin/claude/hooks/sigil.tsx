@@ -55,7 +55,12 @@ const TOOL_SCHEMA = {
     file: { type: 'string', description: 'The .sigil file (relative to the working directory, or absolute).' },
     view: { type: 'string', enum: ['graph', 'tree', 'flow', 'run'], description: 'Which view (default flow).' },
     depth: { oneOf: [{ type: 'integer', minimum: 0 }, { const: 'all' }], description: 'Expansion depth (default 1).' },
-    scenario: { type: 'string', description: 'A scenario to simulate; "" ends the run.' },
+    scenario: {
+      type: 'string',
+      description: 'A scenario to simulate: a name from the scenarios list, or `Entry@t` to start that' +
+        ' entry at tick t while earlier episodes still run (an overlap); combine with "+", e.g.' +
+        ' `Api.charge:fails+Author@40`. "" ends the run.',
+    },
     frame: { oneOf: [{ type: 'integer', minimum: 0 }, { const: 'last' }], description: 'The run frame to show (default: the last).' },
     play: { type: 'boolean', description: 'Play the run from the frame shown (true) or pause it (false).' },
     payloads: { type: 'boolean', description: 'Show flow payloads.' },

@@ -623,6 +623,20 @@
   /** A view.py command with its --sim scenario set to the one playing. */
   const withSim = (cmd, scenario) => cmd.replace(/--sim \S+/, `--sim ${scenario}`);
 
+  /** The playground's scenario menu: off, then each scenario as an option (name ·
+      label), those in a group (the overlaps: entries started at a tick) gathered
+      under it in the order the groups first appear. */
+  function scenarioOptions(scenarios) {
+    const option = (s) => `<option value="${esc(s.name)}">${esc(s.name)}${s.label ? ` · ${esc(s.label)}` : ""}</option>`;
+    const groups = new Map();
+    for (const s of scenarios.filter((x) => x.group)) {
+      if (!groups.has(s.group)) groups.set(s.group, []);
+      groups.get(s.group).push(s);
+    }
+    return `<option value="">— off —</option>` + scenarios.filter((s) => !s.group).map(option).join("") +
+      [...groups].map(([g, ss]) => `<optgroup label="${esc(g)}">${ss.map(option).join("")}</optgroup>`).join("");
+  }
+
   /** A run's narration line: its label, view.py's words for the frame, and the
       outcome on the last frame. */
   function runSayHtml(run, i) {
@@ -1209,8 +1223,7 @@
       };
       scheduleCheck();
       const keep = r.scenarios.some((s) => s.name === st.scenario) ? st.scenario : "";
-      el.scenario.innerHTML = `<option value="">— off —</option>` + r.scenarios.map((s) =>
-        `<option value="${esc(s.name)}">${esc(s.name)}${s.label ? ` · ${esc(s.label)}` : ""}</option>`).join("");
+      el.scenario.innerHTML = scenarioOptions(r.scenarios);
       el.scenario.value = keep;
       st.scenario = keep;
       if (keep) frame(0);

@@ -106,13 +106,15 @@ def _scenarios(g) -> list:
     try:
         sc = view.simulator.scenarios(view.simulator.canonical(g))
     except Exception as exc:              # a half-typed document must not break the page
-        return [{"name": "happy", "label": f"(no run: {type(exc).__name__})"}]
-    return [{"name": s.name, "label": s.label or ""} for s in sc]
+        return [{"name": "happy", "label": f"(no run: {type(exc).__name__})", "group": ""}]
+    return [{"name": s.name, "label": s.label or "", "group": "overlaps" if s.starts else ""}
+            for s in sc]
 
 
 def draw(request: str) -> str:
     """{"rows", "legend", "lint": [{severity, line, rule, message}], "nodes",
-    "edges", "scenarios": [{name, label}], "styles"}."""
+    "edges", "scenarios": [{name, label, group}], "styles"}; group is "overlaps" for a
+    scenario that starts an entry at a tick (Scenario.starts), else ""."""
     req = json.loads(request)
     text, o = req.get("text", ""), _opts(req)
     g = _graph(text)

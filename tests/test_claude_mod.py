@@ -195,6 +195,32 @@ class DrawTest(unittest.TestCase):
         self.assertEqual(len(run["frames"]), len(run["status"]))
         self.assertTrue(any("▼" in ln for ln in text_of(run["frames"][1])))   # the playhead
 
+    def test_overlap_scenarios_are_listed_and_play_like_any_other(self):
+        """The listed overlaps (`Entry@t`) come after the failure scenarios, and one
+        plays every frame: the narration view.py gives, both episodes' marks while
+        they overlap; a start no list names is taken by name too."""
+        orders = ROOT / "site" / "examples" / "04-orders.sigil"
+        g = view.render.parse_document(orders.read_text(encoding="utf-8"))
+        listed = [s.name for s in view.simulator.overlaps(view.simulator.canonical(g))]
+        self.assertTrue(listed)
+        out = run_pane("draw", str(orders))
+        self.assertEqual(out["scenarios"][-len(listed):], listed)
+        name = listed[-1]
+        player = view.SimPlayer(g, name)
+        both = next(i for i, f in enumerate(player.trace.frames) if len(f.episodes) > 1)
+        run = run_pane("draw", str(orders), "--view", "run", "--width", "100", "--scenario", name)
+        self.assertEqual((run["scenario"], len(run["frames"])), (name, player.last + 1))
+        player.at = both
+        self.assertEqual(run["say"][both], player.narration())
+        self.assertIn("ep2:", run["say"][both])                 # sentences led by episode
+        self.assertTrue(any(ln.startswith("episodes ") for ln in text_of(run["frames"][both])))
+        graph = run_pane("draw", str(orders), "--view", "graph", "--width", "100",
+                         "--scenario", name, "--from", str(both), "--count", "1")
+        self.assertEqual(len(graph["frames"]), 1)
+        named = run_pane("draw", str(orders), "--scenario", "Payments@3", "--from", "last")
+        self.assertNotIn("error", named)
+        self.assertEqual(named["scenario"], "Payments@3")
+
     def test_a_view_py_without_the_flow_view_is_named(self):
         old = types.SimpleNamespace(VIEWS=("graph", "tree"))
         with self.assertRaisesRegex(LookupError, "no flow view"):

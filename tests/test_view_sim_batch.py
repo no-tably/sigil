@@ -36,7 +36,7 @@ def fact(name="happy", label="", outcome="ok", frames=3, **kw) -> dict:
 
 class TestFacts(unittest.TestCase):
     def test_orders_machines_failures_and_routes(self):
-        happy, fails = facts(ORDERS)
+        happy, fails, *overlaps = facts(ORDERS)
         self.assertEqual((happy["name"], happy["outcome"]), ("happy", "ok"))
         self.assertEqual(happy["states"], ["[Checkout] Idle", "{Order} Settled"])
         self.assertEqual(happy["failed"], [])
@@ -44,6 +44,8 @@ class TestFacts(unittest.TestCase):
         self.assertEqual(fails["states"], ["[Checkout] Idle", "{Order} Cancelled"])
         self.assertEqual(fails["failed"], ["[Payments]"])
         self.assertEqual(fails["routes"], ["[Payments] !> <Declined>"])
+        self.assertEqual([(o["name"], o["outcome"]) for o in overlaps],
+                         [("Payments@0", "ok"), ("Payments@10", "ok")])   # listed overlaps run too
 
     def test_a_failing_call_names_its_wire_and_its_fallback(self):
         by = {f["name"]: f for f in facts(EXECUTIONS)}
@@ -76,7 +78,7 @@ class TestTable(unittest.TestCase):
         self.assertEqual(rows[1], "  states: [Checkout] Idle · {Order} Settled")
         self.assertIn("  failed: [Payments]", rows)
         self.assertIn("  routes: [Payments] !> <Declined>", rows)
-        self.assertEqual(rows[-1], "2 scenarios: 1 ok, 1 failed, 0 cut")
+        self.assertEqual(rows[-1], "4 scenarios: 3 ok, 1 failed, 0 cut")   # 2 of them overlaps
 
     def test_lines_fit_100_columns(self):
         for path in DOCS:
@@ -140,9 +142,10 @@ class TestCommandLine(unittest.TestCase):
         res = self.run_view(ORDERS, "--once", "--sim", "all", "--json")
         data = json.loads(res.stdout)
         self.assertEqual(data["scenarios"], facts(ORDERS))
-        self.assertEqual(data["summary"], "2 scenarios: 1 ok, 1 failed, 0 cut")
+        self.assertEqual(data["summary"], "4 scenarios: 3 ok, 1 failed, 0 cut")
         res = self.run_view(ORDERS, "--once", "--sim", "list", "--json")
-        self.assertEqual([s["name"] for s in json.loads(res.stdout)], ["happy", "Payments:fails"])
+        self.assertEqual([s["name"] for s in json.loads(res.stdout)],
+                         ["happy", "Payments:fails", "Payments@0", "Payments@10"])
 
     def test_json_needs_sim(self):
         res = self.run_view(ORDERS, "--once", "--json")

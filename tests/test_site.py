@@ -278,6 +278,27 @@ class TestBuild(unittest.TestCase):
                     want.pop()
                 self.assertEqual(drawn, want)
 
+    def test_playground_groups_overlaps_and_plays_them(self):
+        """draw() marks the scenarios that start an entry at a tick (the listed
+        overlaps) as group "overlaps", the rest group ""; sim() plays one as
+        view.py does."""
+        pg = _load("sigil_playground_t6", SITE / "playground.py")
+        view = pg.view
+        text = (SITE / "examples" / "04-orders.sigil").read_text()
+        g = view.render.parse_document(text)
+        got = json.loads(pg.draw(json.dumps({"text": text})))["scenarios"]
+        overlaps = [s.name for s in view.simulator.overlaps(view.simulator.canonical(g))]
+        self.assertTrue(overlaps)
+        self.assertEqual([s["name"] for s in got if s["group"] == "overlaps"], overlaps)
+        self.assertEqual([s["group"] for s in got if s["name"] in ("happy", "Payments:fails")],
+                         ["", ""])
+        name = overlaps[-1]
+        player = view.SimPlayer(g, name)
+        player.at = player.last
+        run = json.loads(pg.sim(json.dumps({"text": text, "view": "run", "scenario": name,
+                                            "frame": 10**6})))
+        self.assertEqual((run["frame"], run["say"]), (player.last, player.narration()))
+
     def test_playground_flow_view_has_its_legend(self):
         pg = _load("sigil_playground_t4", SITE / "playground.py")
         text = (SITE / "examples" / "00-shortener.sigil").read_text()
@@ -601,6 +622,20 @@ class TestSiteJs(unittest.TestCase):
         self.assertEqual(out, [f"view.py shortener.sigil --run --sim {s}" for s in scenarios])
         js = (SITE / "site.js").read_text()
         self.assertIn('$("#view-run .cmd")', js)                # the loop is handed the line
+
+    def test_scenario_menu_groups_overlaps_after_the_rest(self):
+        code = _js_section("  function scenarioOptions", "  /** A run's narration line")
+        menu = [{"name": "happy", "label": "", "group": ""},
+                {"name": "B@4", "label": "B starts at tick 4", "group": "overlaps"},
+                {"name": "A:fails", "label": "a <fails>", "group": ""}]
+        out = self._run(code + f"\nprocess.stdout.write(scenarioOptions({json.dumps(menu)}));")
+        self.assertEqual(out, '<option value="">— off —</option>'
+                              '<option value="happy">happy</option>'
+                              '<option value="A:fails">A:fails · a &lt;fails&gt;</option>'
+                              '<optgroup label="overlaps">'
+                              '<option value="B@4">B@4 · B starts at tick 4</option></optgroup>')
+        none = self._run(code + "\nprocess.stdout.write(scenarioOptions([]));")
+        self.assertEqual(none, '<option value="">— off —</option>')
 
     def test_live_narration_is_throttled(self):
         # the first line at once, then at most one a gap; the line a run stops on
