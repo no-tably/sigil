@@ -48,6 +48,8 @@ from dataclasses import replace
 from functools import cached_property
 from typing import NamedTuple, Optional
 
+from sigil.core import graph as core_graph
+
 
 # ---------------------------------------------------------------------------
 # SGC003 ack-unused (catalog §5)
@@ -366,7 +368,7 @@ class Facts:
     @cached_property
     def lines(self) -> dict:
         """{node id: the first line naming it} over every graph."""
-        node_lines = self.doc.scene.kit.node_lines
+        node_lines = core_graph.node_lines
         out = {}
         for g, _o, _l, _t in self.units:
             for nid, line in node_lines(g, notes=False).items():

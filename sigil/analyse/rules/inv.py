@@ -35,6 +35,8 @@ import re
 from functools import cached_property
 from typing import NamedTuple, Optional
 
+from sigil.core import graph as core_graph
+
 
 SYNC_KINDS = ("->", "→", "<->", "*>", "?>")       # the caller waits (as check_flow)
 BOUND_HEADS = ("depth", "hops", "concurrency")
@@ -233,7 +235,7 @@ class Facts:
 
     def label(self, nid: str) -> str:
         n = self.nodes.get(nid)
-        return f"`{self.doc.scene.kit.node_label(n)}`" if n is not None else f"`{nid}`"
+        return f"`{core_graph.node_label(n)}`" if n is not None else f"`{nid}`"
 
     def ids_named(self, kind: str, name: str) -> list:
         return [nid for nid, n in self.nodes.items() if n.kind == kind and n.name == name]
@@ -242,7 +244,7 @@ class Facts:
     def invs(self) -> list:
         """Every `@inv` of the document, in line order, each once."""
         found = {}
-        walk, node_lines = self.doc.render._walk, self.doc.scene.kit.node_lines
+        walk, node_lines = self.doc.render._walk, core_graph.node_lines
         for g, _o, _l in self.doc.graphs:
             lines = node_lines(g, notes=False)
             for nid, n in g.nodes.items():
@@ -279,8 +281,7 @@ class Facts:
             found[key] = first._replace(actors=merged)
 
     def delims(self, kind: str) -> Optional[dict]:
-        kit = self.doc.scene.kit
-        return kit.KINDS.get(kind) or kit.CORE_KINDS.get(kind)
+        return core_graph.kind_spec(kind) or core_graph.GLYPH_KINDS.get(kind)
 
     def recognised(self) -> list:
         return [i for i in self.invs if i.head in self.doc.inv_heads]

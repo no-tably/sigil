@@ -21,6 +21,7 @@ from collections import Counter
 from dataclasses import dataclass, field, replace
 from typing import NamedTuple, Optional
 
+from sigil.core import parse
 from sigil.present import kit
 from sigil.model import scene
 
@@ -1085,7 +1086,7 @@ def _draw_box(cv: kit.Canvas, x, y, w, label, n, look: Optional["_BoxLook"] = No
     lx = kit._put_runs(cv, x + 2, y + 1, lead)
     if look and look.runs is not None:              # one run in the look's colour
         kit._put_runs(cv, lx, y + 1, look.runs)
-    elif n.kind == kit.CHIP and "text" in n.attrs:  # a flow's chip: scene.chip_text (_chip_runs)
+    elif n.kind == kit.CHIP and "text" in n.attrs:  # a flow's chip: kit.wire_chip_text (_chip_runs)
         kit._put_runs(cv, lx, y + 1, _chip_runs(n.attrs["text"], n.attrs["mods"]))
     elif n.kind == kit.CHIP:                        # a payload reads as the code it is
         kit._put_runs(cv, lx, y + 1, kit.chip_runs(n))
@@ -1172,7 +1173,7 @@ def _code_runs(text: str) -> list:
 
 
 def _chip_runs(text: str, mtext) -> list:
-    """A chip's text (scene.chip_text: `payload ┆ mods`, a call's payload as
+    """A chip's text (kit.wire_chip_text: `payload ┆ mods`, a call's payload as
     call_text shows it) as runs: the payload part as _code_runs, then `┆` and
     the modifiers `mtext` (mod_runs) when the text ends with them."""
     if not (mtext and text.endswith(mtext)):
@@ -1184,7 +1185,7 @@ def _chip_runs(text: str, mtext) -> list:
 
 def _edge_chips(g, chip_lists: dict, payloads: bool, mods: bool) -> dict:
     """{id(edge): chip text} for g's edges that carry a chip (not self-edges:
-    _self_calls hangs theirs): each key's chips (scene.chip_lists, written
+    _self_calls hangs theirs): each key's chips (kit.chip_lists, written
     order) dealt to its chipped edges in g's order — the edge objects the drawn
     parts and frames keep, so two calls on one key keep two chips."""
     dealt = {key: iter(texts) for key, texts in chip_lists.items()}
@@ -1202,7 +1203,7 @@ def _self_calls(g, calls: dict, payloads: bool, mods: bool,
     """{node id: _Selfs} for each node with a self-edge drawn in g: `calls` is
     scene.self_calls of g's unit ({node id: [call wire]}). Its mark
     (scene.self_mark over all its calls in the unit) and a stub per call whose
-    self-edge g draws and whose chip shows anything (scene.chip_text: payloads
+    self-edge g draws and whose chip shows anything (kit.wire_chip_text: payloads
     the call, mods its modifiers), in written order. With `marks` (a list), a
     stub shows a marker letter and its text joins marks (as with_chips does for
     edge chips)."""
@@ -1214,7 +1215,7 @@ def _self_calls(g, calls: dict, payloads: bool, mods: bool,
             continue
         stubs = []
         for w in here:
-            text = scene.chip_text(w, payloads, mods)
+            text = kit.wire_chip_text(w, payloads, mods)
             if not text:
                 continue
             runs = _chip_runs(text, kit.chip_parts(w, payloads, mods)[1])
@@ -1259,8 +1260,8 @@ def with_chips(g, payloads: bool = False, scn=None, marks: list | None = None,
     def join_node(idx, e):
         jid = f"\0j{idx}"
         if jid not in nodes:
-            nodes[jid] = kit.render.Node(id=jid, name=g.joins[idx].kind, kind=kit.JOIN,
-                                         attrs={"key": e.key})
+            nodes[jid] = parse.Node(id=jid, name=g.joins[idx].kind, kind=kit.JOIN,
+                                    attrs={"key": e.key})
         return jid
 
     for k, e in enumerate(g.edges):
@@ -1287,7 +1288,7 @@ def with_chips(g, payloads: bool = False, scn=None, marks: list | None = None,
                 letter = kit._letter(len(marks))
                 marks.append((letter, name))
                 name, attrs = letter, {"key": e.key}
-            nodes[cid] = kit.render.Node(id=cid, name=name, kind=kit.CHIP, attrs=attrs)
+            nodes[cid] = parse.Node(id=cid, name=name, kind=kit.CHIP, attrs=attrs)
             edges += [replace(e, src=src, dst=cid, label=None, payload=None),
                       replace(e, src=cid, payload=None)]
         else:
@@ -1381,7 +1382,7 @@ def _frame_content(g, bi: int, eb: dict, draw, tags: dict | None = None,
         dec = f"\0b{bi}"
         name = b.header if b.header else "branch"
         stands = {"key": (b.refs[0], None)} if b.refs else {}
-        nodes = {dec: kit.render.Node(id=dec, name=name, kind=kit.DECISION, attrs=stands),
+        nodes = {dec: parse.Node(id=dec, name=name, kind=kit.DECISION, attrs=stands),
                  **nodes}
         refs = set(b.refs)
         edges = [replace(e, src=dec) if e.src in refs and e.key in b.after else e
@@ -1390,9 +1391,9 @@ def _frame_content(g, bi: int, eb: dict, draw, tags: dict | None = None,
             if not ids or ids[0] not in nodes:
                 continue
             cid = f"\0a{bi}.{ai}"
-            nodes[cid] = kit.render.Node(id=cid, name=label, kind=kit.CHIP, attrs={"arm": True})
-            edges += [kit.render.Edge(src=dec, dst=cid, kind="arm"),
-                      kit.render.Edge(src=cid, dst=ids[0], kind="arm")]
+            nodes[cid] = parse.Node(id=cid, name=label, kind=kit.CHIP, attrs={"arm": True})
+            edges += [parse.Edge(src=dec, dst=cid, kind="arm"),
+                      parse.Edge(src=cid, dst=ids[0], kind="arm")]
     sub = replace(g, nodes=nodes, edges=edges, blocks=[], access=[])
     own_cv = draw(sub, wrap) if nodes else kit.Canvas()
     inner = None if wrap is None else max(wrap - FRAME_PAD, 1)
@@ -1512,7 +1513,7 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
     eb = kit.edge_blocks(g)
     secs = (getattr(g, "sections", None) or []) if level == 0 else (_secs or [])
     calls = scene.self_calls(scn, _owner)
-    chips = _edge_chips(g, scene.chip_lists(scn, payloads, mods, unit=_owner), payloads, mods)
+    chips = _edge_chips(g, kit.chip_lists(scn, payloads, mods, unit=_owner), payloads, mods)
     chipped = (payloads or mods) and any(any(kit.chip_parts(e, payloads, mods))
                                          and (e.src != e.dst or e.src in calls)
                                          for e in g.edges)
@@ -1600,18 +1601,18 @@ def _landed(g, scn, owner: Optional[str]):
              if w.role == "emit" and w.owner == owner and w.legs[1].role == "flow"}
     for w in flows.values():
         payload = " · ".join(leg.payload for leg in w.legs if leg.payload) or None
-        edges.append(kit.render.Edge(src=w.src, dst=w.dst, kind=w.kind, payload=payload,
-                                     src_path=w.paths[0], dst_path=w.paths[1],
-                                     mods=[m for leg in w.legs for m in leg.mods], line=w.line))
+        edges.append(parse.Edge(src=w.src, dst=w.dst, kind=w.kind, payload=payload,
+                                src_path=w.paths[0], dst_path=w.paths[1],
+                                mods=[m for leg in w.legs for m in leg.mods], line=w.line))
     return replace(g, nodes=nodes, edges=edges)
 
 
 def _wire_styles(scn) -> dict:
-    """{wire key: stroke style} per the colour policy (scene.wire_style), the
+    """{wire key: stroke style} per the colour policy (kit.wire_style), the
     first wire of a key winning."""
     out = {}
     for w in scn.wires:
-        out.setdefault(w.key, scene.wire_style(w))
+        out.setdefault(w.key, kit.wire_style(w))
     return out
 
 
@@ -1628,7 +1629,7 @@ def _landed_tags(scn) -> dict:
             keys.append((w.src, w.machine, "trigger"))
         for key in keys:
             names.setdefault(key, {})[w.via] = None
-    style = (scene.colour_of("kinds-event"), None, False)
+    style = (kit.colour_of("kinds-event"), None, False)
     return {key: [(" · ".join(kit.node_label(scn.nodes[ev].node) for ev in evs), style)]
             for key, evs in names.items()}
 
@@ -1636,7 +1637,7 @@ def _landed_tags(scn) -> dict:
 # ---------------------------------------------------------------------------
 # Simulation overlay — a sim Frame (sim.py, projected onto the Scene this
 # drawing is built from: sim.project) drawn over the graph (sim.md §7): each
-# stroke by its wire's state (scene.wire_style), tokens on the edges' cells,
+# stroke by its wire's state (kit.wire_style), tokens on the edges' cells,
 # boxes by their node's status with badges (… ✕ ×n ↻k), a drawn state
 # machine's current state led by ◉ (a machine not drawn: `◉ State` after its
 # owner). Badges are padded to a slot (badge_slots, worked out once per trace:
@@ -1745,15 +1746,15 @@ def _token(tok, w, overlap: bool = False) -> _Token:
 def _token_glyph(tok, w) -> tuple:
     """(mark, style) of a token on the wire w, one episode running (_token)."""
     if tok.state == "failed":
-        return TOKEN_MARK["failed"], scene.wire_style(w, "failed")
+        return TOKEN_MARK["failed"], kit.wire_style(w, "failed")
     if tok.state == "cancelled":
-        return TOKEN_MARK["cancelled"], scene.wire_style(w, "inactive")
+        return TOKEN_MARK["cancelled"], kit.wire_style(w, "inactive")
     produces = kit.edge_style("=>")[0]
     if tok.state == "fallback":
         return TOKEN_MARK["back"], (kit.muted(produces), None, False)
     if tok.dir == "back":
         return TOKEN_MARK["back"], (produces, None, True)
-    return TOKEN_MARK["out"], scene.wire_style(w, "active")
+    return TOKEN_MARK["out"], kit.wire_style(w, "active")
 
 
 def _badge_runs(frame, nid: str, stage: _Stage) -> list:
@@ -1767,7 +1768,7 @@ def _badge_runs(frame, nid: str, stage: _Stage) -> list:
     if status == "waiting":
         runs.append((" …", colour))
     elif status == "failed":
-        runs.append((" ✕", (scene.colour_of("edges-fail"), None, True)))
+        runs.append((" ✕", (kit.colour_of("edges-fail"), None, True)))
     count = frame.instances.get(nid)
     if count is not None and count != 1:
         runs.append((f" ×{count}", colour))
@@ -1868,7 +1869,7 @@ def sim_look(scn, frame, slots: dict | None = None, probe: bool = False) -> SimL
         runs += [(" " * pad, None)] if pad > 0 else []
         if runs:
             badges[nid] = runs
-    return SimLook({key: scene.wire_style(w, st) for key, (st, w) in keyed.items()},
+    return SimLook({key: kit.wire_style(w, st) for key, (st, w) in keyed.items()},
                    {key: st for key, (st, _w) in keyed.items()}, tokens,
                    _node_looks(scn, frame, stage), badges, _leads(frame, stage),
                    frozenset(nid for nid, st in frame.nodes.items() if st == "active")
@@ -1893,7 +1894,7 @@ def _box_look(n, sim: SimLook) -> Optional[_BoxLook]:
     if look == "plain":
         return _BoxLook(border, text, None, False)
     if look == "failed":
-        st = (scene.colour_of("edges-fail"), None, True)
+        st = (kit.colour_of("edges-fail"), None, True)
         return _BoxLook(st, st, [(kit.node_label(n), st)], True)
     st = (kit.muted(border[0]), None, False)
     return _BoxLook(st, st, [(kit.node_label(n), st)], False)
@@ -2236,7 +2237,7 @@ def graph_legend(triggers: bool = True, payloads: bool = False, access: bool = F
         row += [(kit._stroke_sample("trigger") * 2 + "▼", kit.edge_style("trigger")),
                 (" trigger  ", mid)]
     if events == "land":
-        ev = (scene.colour_of("kinds-event"), None, False)
+        ev = (kit.colour_of("kinds-event"), None, False)
         row += [(kit._stroke_sample("->") * 2 + _head("->") + " <E>", ev),
                 (" emits  ", mid)]
     row += [("╭╌ ↺ ∥ ◇ □", kit.FRAME_STYLE), (" block frame  ", mid),

@@ -68,6 +68,9 @@ from dataclasses import replace
 from functools import cached_property
 from typing import Callable, NamedTuple, Optional
 
+from sigil.core import graph as core_graph
+from sigil.analyse.rules import state as state_rules   # the shared static facts
+
 # The modifiers that bound a wait on a join (catalog §3 SGC206 "Declare").
 BOUNDING_MODS = ("timeout", "fallback")
 
@@ -560,14 +563,9 @@ def trace_facts(ck, doc) -> TraceFacts:
     """The TraceFacts of a document, built once, under the document's own bounds."""
     found = _FACTS.get(doc)
     if found is None:
-        found = _FACTS[doc] = TraceFacts(doc, state_module(ck).facts_of(doc),
+        found = _FACTS[doc] = TraceFacts(doc, state_rules.facts_of(doc),
                                          budget=doc.budget, limits=doc.limits)
     return found
-
-
-def state_module(ck):
-    """check_state.py, the module that holds the shared static facts."""
-    return ck._rule_module("state")
 
 
 def in_run(run: Run) -> str:
@@ -635,7 +633,7 @@ def events_ignored(ck, doc):
     """SGC203: a drop no reordering explains, outside `+`; one per (machine,
     event, state), with its first witness."""
     tf = trace_facts(ck, doc)
-    st, seen = state_module(ck), set()
+    st, seen = state_rules, set()
     for m, run, ds, pairs in per_machine(tf):
         for d in drops(m, ds, pairs).always:
             key = (m.owner, d.label, d.state)
@@ -685,7 +683,7 @@ def ordering_hits(ck, doc):
     """SGC205 (trace): per machine with no stated order, its first reordering
     or drop in `+`, with its first witness."""
     tf = trace_facts(ck, doc)
-    st, f, seen = state_module(ck), tf.state, set()
+    st, f, seen = state_rules, tf.state, set()
     for m, run, ds, pairs in per_machine(tf):
         if m.owner in seen or ordering_declared(st, f, m):
             continue
@@ -748,7 +746,7 @@ def race_text(f, tf: TraceFacts, run: Run, c: Clash) -> tuple:
 def race_hits(ck, doc):
     """SGC204 (trace): one hit per writing wire, with its first witness."""
     tf = trace_facts(ck, doc)
-    st, f, seen = state_module(ck), tf.state, set()
+    st, f, seen = state_rules, tf.state, set()
     for run, acc in zip(tf.runs, tf.accesses):
         for c in clashes(acc, tf.self_concurrent(run), running_together(run.events)):
             w = tf.wires.get(c.writer.wire)
@@ -878,7 +876,7 @@ def stalled_joins(ck, doc):
     runs = trace_facts(ck, doc).runs
     units, wires = doc.prog.units, doc.sc.wires
     joins_of = lambda run: open_joins(run, units, wires, doc.scene.call_policy)
-    label = node_namer(doc.sc, doc.sim.kit.node_label)
+    label = node_namer(doc.sc, core_graph.node_label)
     for oj, run in first_witnesses(runs, joins_of):
         if not oj.bounded:
             yield stall_hit(ck, oj, run, label)
@@ -992,7 +990,7 @@ def unreached_hit(ck, prog, f, listing, x: Unreached):
 
 def match_unreached(ck, doc):
     """SGC175: the complement of sim.reachable (field branches run: catalog §6 B4)."""
-    st = state_module(ck)
+    st = state_rules
     f = st.facts_of(doc)
     links = [(w.src, w.dst) for w in doc.sc.wires if w.role == "flow"]
     for x in unreached(doc.prog, doc.sim.reachable(doc.prog), f.line_of, links):

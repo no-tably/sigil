@@ -24,7 +24,7 @@ Standard library only. Deterministic: the model's order, never set order.
 
 from __future__ import annotations
 
-from sigil.publish import systems
+from sigil.model import systems
 
 
 TOP_STEM = "top"                     # the top system's key in the model; never shown

@@ -127,7 +127,7 @@ def tree_legend(triggers: bool = True, payloads: bool = False, access: bool = Fa
     wires = [("wires  ", dim)]
     for kind, word in kit.ARROW_LEGEND + ((("trigger", "trigger"),) if triggers else ()):
         own = scene.arrow_colour(kind)
-        colour = scene.colour_of(own) if own else kit.EDGE_DEFAULT
+        colour = kit.colour_of(own) if own else kit.EDGE_DEFAULT
         sample = ("◀─▶" if kind == "<->"
                   else kit.SOURCE_MARK.get(kind, "●") + kit._stroke_sample(kind))
         wires += [(sample, (colour, None, False)), (f" {word}  ", mid)]
@@ -174,7 +174,7 @@ def _sim_legend() -> list:
     wire = (kit.EDGE_DEFAULT, None, True)
     trail = (kit.faded(kit.EDGE_DEFAULT, kit.SIM_TRAIL, "trail"), None, False)
     faint = (kit.faded(kit.EDGE_DEFAULT, kit.SIM_FAINT, "faint"), None, False)
-    fail = (scene.colour_of("edges-fail"), None, True)
+    fail = (kit.colour_of("edges-fail"), None, True)
     light = (kit.GREY["light"], None, False)
     state = (kit.kind_color("state"), None, True)
     return [("run    ", dim),
@@ -390,7 +390,7 @@ def _tree_setup(g, depth: int, triggers: bool, spaced: bool, notes: str, payload
     return _TreeSetup(scn, rows, idx, _lane_wires(scn), {u.owner: u.graph for u in scn.units},
                       brackets, xs, x0, after_label, _self_call_rows(scn, rows),
                       scene.join_marks(scn), blocks,
-                      scene.chip_lists(scn, payloads, mods) if payloads or mods else {},
+                      kit.chip_lists(scn, payloads, mods) if payloads or mods else {},
                       scene.wire_notes(scn) if notes != "off" else {}, notes, checks)
 
 
@@ -525,7 +525,7 @@ def _restyled(lanes: list, frame, checks, styles: dict) -> list:
         state = _stroke_state(ln.idents, frame)
         style = styles.get((i, state))
         if style is None:
-            style = scene.wire_style(ln.wire, state)
+            style = kit.wire_style(ln.wire, state)
             if checks is not None:              # a marked lane: its finding's style
                 style = _check_lanes([ln._replace(style=style)], checks)[0].style
             styles[(i, state)] = style
@@ -973,11 +973,11 @@ def _call_marks(scn, rows, calls: dict, frame=None) -> dict:
         if y in calls:
             mark = scene.self_mark([w.call for w in calls[y]])
             state = _stroke_state({w.ident for w in calls[y]}, frame)
-            runs.append((" " + mark, scene.wire_style(calls[y][0], state)))
+            runs.append((" " + mark, kit.wire_style(calls[y][0], state)))
         if r.node.id in far:
             w = far[r.node.id]
             runs.append((" " + EXTERNAL_MARK,
-                         scene.wire_style(w, _stroke_state({w.ident}, frame))))
+                         kit.wire_style(w, _stroke_state({w.ident}, frame))))
         if runs:
             marks[y] = runs
     return marks
@@ -985,13 +985,13 @@ def _call_marks(scn, rows, calls: dict, frame=None) -> dict:
 
 def _self_call_chips(calls: dict, payloads: bool, mods: bool, frame=None) -> dict:
     """{row index: [(chip text, stroke style)]}: each self-call's chip on its
-    subject's row (`↺ plan({Seed}) ↩ {Plan}`, scene.chip_text) in its wire's
+    subject's row (`↺ plan({Seed}) ↩ {Plan}`, kit.wire_chip_text) in its wire's
     stroke (its simulation state in `frame`), those with nothing to show left
     out. calls: _self_call_rows."""
     out = {}
     for y, ws in calls.items():
-        chips = [(w, text, scene.wire_style(w, _stroke_state({w.ident}, frame)))
-                 for w in ws for text in [scene.chip_text(w, payloads, mods)] if text]
+        chips = [(w, text, kit.wire_style(w, _stroke_state({w.ident}, frame)))
+                 for w in ws for text in [kit.wire_chip_text(w, payloads, mods)] if text]
         if chips:
             out[y] = chips
     return out
@@ -1000,7 +1000,7 @@ def _self_call_chips(calls: dict, payloads: bool, mods: bool, frame=None) -> dic
 def _row_chips(lanes, chip_lists: dict, self_chips: dict) -> tuple:
     """({row index: [(chip text, stroke style)]}, {key}): each row's chips in
     order — its own self-calls' (_self_call_chips), then every chip
-    (scene.chip_lists) of each lane it is the target of, one per call, never
+    (kit.chip_lists) of each lane it is the target of, one per call, never
     merged — each in its wire's stroke. A chip is one call, not one text: two
     calls with equal text both show, while the same call reaching a row twice
     (two lanes of one stroke) shows once; an error path's chip leads with `✖`
@@ -1079,11 +1079,11 @@ def _collect_lanes(cv: kit.Canvas, wires, out: _Outline, homes: dict) -> list:
 
 def _pack_lanes(lanes, left: int, frame=None) -> list:
     """Each lane with its gutter column (interval-packed from `left`) and its
-    stroke style (its wire's colour, scene.wire_style — in its simulation state
+    stroke style (its wire's colour, kit.wire_style — in its simulation state
     in `frame`, _stroke_state)."""
     cols = []
     return [lane._replace(x=left + kit._first_fit(cols, lane.lo, lane.hi) * LANE_GAP,
-                          style=scene.wire_style(lane.wire, _stroke_state(lane.idents, frame)))
+                          style=kit.wire_style(lane.wire, _stroke_state(lane.idents, frame)))
             for lane in lanes]
 
 
@@ -1164,7 +1164,7 @@ def _draw_lanes(cv: kit.Canvas, lanes, ends, *, muted_sources: bool = False):
         for y in ln.sy:
             taps.setdefault(y, []).append((ln.x, ln.wire.kind, ln.style, "src", mark))
             if muted_sources:
-                source_style[(ln.x, y)] = scene.wire_style(ln.wire, "inactive")
+                source_style[(ln.x, y)] = kit.wire_style(ln.wire, "inactive")
         for y in ln.dy:
             taps.setdefault(y, []).append((ln.x, ln.wire.kind, ln.style, "dst", mark))
 
@@ -1245,7 +1245,7 @@ class _SimRow(NamedTuple):
 
 
 def _stroke_state(idents, frame) -> str:
-    """The scene.wire_style state of a stroke standing for the wires `idents` in
+    """The kit.wire_style state of a stroke standing for the wires `idents` in
     a frame ("plain" without one): failed > lit (active) > taken (trail) >
     never taken (inactive)."""
     if frame is None:
@@ -1277,7 +1277,7 @@ def _badge_runs(n, frame, hidden: set, names: dict) -> list:
     if status == "waiting":
         runs.append((" …", colour))
     elif status == "failed":
-        runs.append((" ✕", (scene.colour_of("edges-fail"), None, True)))
+        runs.append((" ✕", (kit.colour_of("edges-fail"), None, True)))
     count = frame.instances.get(nid)
     if count is not None and count != 1:
         runs.append((f" ×{count}", colour))
@@ -1379,7 +1379,7 @@ def _status_style(n, status: str) -> tuple:
     a current state in full kind colour + bold, failed edges-fail, quiet ones
     muted, the rest the kind colour."""
     if status == "failed":
-        return (scene.colour_of("edges-fail"), None, True)
+        return (kit.colour_of("edges-fail"), None, True)
     colour = kit.kind_color(n.kind)
     if status in QUIET:
         return (kit.muted(colour), None, False)
@@ -1409,14 +1409,14 @@ def _token_glyph(tok, wire) -> tuple:
     marks them by episode while more do, kit.episode_glyph)."""
     produces = kit.EDGE_DEFAULT
     if tok.state == "failed":
-        return "✕", scene.wire_style(wire, "failed")
+        return "✕", kit.wire_style(wire, "failed")
     if tok.state == "cancelled":
-        return CANCELLED_MARK, scene.wire_style(wire, "inactive")
+        return CANCELLED_MARK, kit.wire_style(wire, "inactive")
     if tok.state == "fallback":
         return "○", (kit.muted(produces), None, False)
     if tok.dir == "back":
         return "○", (produces, None, True)
-    return "●", scene.wire_style(wire, "active")
+    return "●", kit.wire_style(wire, "active")
 
 
 def _token_row(lane: _Lane, at: float) -> int:

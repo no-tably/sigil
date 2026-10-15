@@ -29,7 +29,7 @@ Scene
               dedups; the simulator may not).
   sections    the document's `--- sections ---` (render.Section)
   blocks      [BlockRef(owner, index, block)]: the control blocks of every unit
-  notes       {node id: [(number, text, kind, edges)]}: viewkit.note_index()
+  notes       {node id: [(number, text, kind, edges)]}: core.comments.note_index()
   collapsed   the event ids drawn where they land (events="land"): no row or box
               of their own; their emit wires replace them
 
@@ -138,12 +138,13 @@ failure emission stays edges-fail), else its source node's kind colour. A row's
 fan-out's trunk, a back bundle's way), the wire nearest its target owns them,
 unless a member is an error wire or a run is playing: then the most severe member
 wins (view_graph.share_rank — run state first, then `!>`), wrapped or not. A
-simulation overlay restyles on top (wire_style: active = full colour + bold,
-inactive = muted, failed = edges-fail).
+simulation overlay restyles on top (the kit's wire_style: active = full colour
++ bold, inactive = muted, failed = edges-fail).
 
 Colours are theme roles named as Colour.role names them ("edges-fail",
-"kinds-service"), resolved through viewkit at call time, so a theme applied
-later still reaches a built Scene.
+"kinds-service"); the drawing kit resolves them at call time (kit.colour_of), so
+a theme applied later still reaches a built Scene. A wire's chip text is the
+kit's too (kit.wire_chip_text, kit.chip_lists).
 """
 
 from __future__ import annotations
@@ -152,7 +153,10 @@ import re
 from dataclasses import dataclass, field, replace
 from typing import NamedTuple, Optional
 
-from sigil.present import kit
+from sigil.core import parse
+from sigil.core.comments import note_index
+from sigil.core.graph import (ALL_DEPTH, access_kind, base_kind, drawn_join, edge_blocks,
+                              node_label, node_lines, section_of, writer_badges)
 
 
 # ---------------------------------------------------------------------------
@@ -161,7 +165,6 @@ from sigil.present import kit
 
 ROLES = ("flow", "emit", "trigger", "access", "arm", "compose")
 EVENTS = ("land", "nodes")          # an event drawn where it lands, or as a node
-STATES = ("plain", "active", "trail", "inactive", "failed")     # wire_style overlays
 ANY_UNIT = object()     # a `unit` filter's default: the wires of every unit
 
 
@@ -169,7 +172,7 @@ class SceneOptions(NamedTuple):
     events: str = "nodes"
     triggers: bool = True
     access: bool = False
-    depth: int = kit.ALL_DEPTH
+    depth: int = ALL_DEPTH
 
 
 class Unit(NamedTuple):
@@ -251,7 +254,7 @@ class Scene:
 
 
 def build_scene(graph, *, events: str = "nodes", triggers: bool = True,
-                access: bool = False, depth: int = kit.ALL_DEPTH) -> Scene:
+                access: bool = False, depth: int = ALL_DEPTH) -> Scene:
     """The Scene of a Graph drawn to `depth` (0: the document only). `events`:
     "land" draws a pass-through event where it lands (see land_events), "nodes"
     as a node of its own; `triggers`: wire events to the states they drive;
@@ -261,7 +264,7 @@ def build_scene(graph, *, events: str = "nodes", triggers: bool = True,
     options = SceneOptions(events, triggers, access, depth)
     units = drawn_units(graph, depth)
     nodes = scene_nodes(graph, units)
-    idx = kit.note_index(graph)
+    idx = note_index(graph)
     inline = trailing_notes(idx)
     wires = []
     for u in units:
@@ -337,7 +340,7 @@ def drawn_units(g, depth: int) -> list:
 
 def walked_units(g) -> list:
     """Every graph of the document, drawn or not — g, then its expansions
-    breadth-first in document order (viewkit._walk's order) — as Units."""
+    breadth-first in document order (core.graph.walk_breadth's order) — as Units."""
     out, queue = [], [Unit(None, 0, g)]
     while queue:
         u = queue.pop(0)
@@ -360,9 +363,9 @@ def scene_nodes(g, units) -> dict:
 def _annotate(nodes: dict, g, units, idx: dict, collapsed: frozenset) -> None:
     """Fill each SceneNode's section, blocks, notes and branch-arm labels."""
     secs = getattr(g, "sections", None) or []
-    est = kit.node_lines(g) if secs else {}
+    est = node_lines(g) if secs else {}
     for nid in g.nodes:
-        nodes[nid].section = kit.section_of(secs, est.get(nid, 0)) if secs else -1
+        nodes[nid].section = section_of(secs, est.get(nid, 0)) if secs else -1
     for nid, entries in idx.items():
         if nid in nodes:
             nodes[nid].notes = entries
@@ -390,7 +393,7 @@ def branch_arms(u: Unit, collapsed: frozenset = frozenset()) -> list:
 def _badge(nodes: dict, g) -> None:
     """Writer badges (`1w` / `Nw`) on every store, from every graph's access."""
     for u in walked_units(g):
-        for sid, badge in kit.writer_badges(u.graph).items():
+        for sid, badge in writer_badges(u.graph).items():
             if sid in nodes:
                 nodes[sid].badges.append(badge)
 
@@ -403,7 +406,7 @@ def unit_wires(u: Unit, inline: dict, nodes: dict) -> list:
     """A flow wire per edge of the unit graph, in document order, each call with
     its Call (none in a state machine) and an op-call target's return linked."""
     g = u.graph
-    eb = kit.edge_blocks(g)
+    eb = edge_blocks(g)
     alias = _alias_of(u, nodes)
     calls = getattr(g, "role", "") != "state"
     out = []
@@ -432,7 +435,7 @@ def _joins_of(g, e) -> dict:
     """{"src" | "dst": join kind} of the drawn joins an edge leaves / enters."""
     out = {}
     for side in ("src", "dst"):
-        idx = kit.drawn_join(g, e, side)
+        idx = drawn_join(g, e, side)
         if idx is not None:
             out[side] = g.joins[idx].kind
     return out
@@ -467,7 +470,7 @@ def access_wires(g) -> list:
     for u in walked_units(g):
         for a in getattr(u.graph, "access", None) or []:
             if a.principal and a.store and a.principal != a.store:
-                kind = kit.access_kind(a)
+                kind = access_kind(a)
                 w = Wire(a.principal, a.store, kind, "access", (a.principal, a.store, kind),
                          line=a.line, owner=u.owner, level=u.level, label=a.mode)
                 w.colour = wire_colour(w, "")
@@ -552,7 +555,7 @@ def split_op(text: str) -> Optional[tuple]:
     either followed by `=> X` — with the `op ` keyword and the return taken off
     the op; None when the text is no op-call (`{Doc}`, `child`, `"hi"`)."""
     text = text.strip()
-    m = kit.render.OP_TARGET_RE.match(text)
+    m = parse.OP_TARGET_RE.match(text)
     if not m:
         return None
     rest = text[m.end():]
@@ -617,7 +620,7 @@ def _link_returns(wires: list, nodes: dict) -> None:
             open_calls[at] = w
         elif w.kind == "=>" and at in open_calls:
             call = open_calls[at]
-            glyph = kit.node_label(nodes[w.dst].node)
+            glyph = node_label(nodes[w.dst].node)
             sep = " / " if w.alt else " & "
             returns = f"{call.call.returns}{sep}{glyph}" if call.call.returns else glyph
             call.call = call.call._replace(returns=returns,
@@ -803,8 +806,8 @@ def _owned(n) -> set:
     out = set()
     for name, arg in n.mods:
         if name == "owns" and arg:
-            for gm in kit.render.GLYPH_RE.finditer(arg):
-                owned = kit.render.parse_glyph(gm.group(0))
+            for gm in parse.GLYPH_RE.finditer(arg):
+                owned = parse.parse_glyph(gm.group(0))
                 if owned is not None:
                     out.add(owned.id)
     return out
@@ -905,19 +908,7 @@ def trailing_notes(idx: dict) -> dict:
     return out
 
 
-def chip_text(w: Wire, payloads: bool, mods: bool) -> str:
-    """The chip a wire carries: its payload (payloads) and modifiers (mods),
-    `payload ┆ mods` — a call's payload as call_text shows it; an emit wire's
-    legs' chips joined ` · `."""
-    if w.role == "emit":
-        return " · ".join(t for t in (chip_text(leg, payloads, mods) for leg in w.legs) if t)
-    payload, mtext = kit.chip_parts(w, payloads, mods)
-    if payload and w.call is not None:
-        payload = call_text(w.call)
-    return kit.chip_text(payload, mtext)
-
-
-def _keyed_all(scene: Scene, value, unit=ANY_UNIT) -> dict:
+def keyed_all(scene: Scene, value, unit=ANY_UNIT) -> dict:
     """{key: [value(wire), …]} over the flow wires (an emit's legs included,
     collapsed or not, each once) then the emit wires, in that order; empty
     values are left out. `unit`: only the wires drawn in that unit."""
@@ -935,15 +926,7 @@ def _keyed_all(scene: Scene, value, unit=ANY_UNIT) -> dict:
 
 def _keyed(scene: Scene, value) -> dict:
     """{key: value(wire)}, the first non-empty value of a key (_keyed_all's order)."""
-    return {key: vs[0] for key, vs in _keyed_all(scene, value).items()}
-
-
-def chip_lists(scene: Scene, payloads: bool, mods: bool, unit=ANY_UNIT) -> dict:
-    """{key: [chip text, …]} for every flow and emit stroke that carries one:
-    every call on the stroke its own chip, in written order — several payloads
-    into one target kept apart, never merged. `unit` (a unit owner, None: the
-    document): only the strokes drawn in that unit."""
-    return _keyed_all(scene, lambda w: chip_text(w, payloads, mods), unit)
+    return {key: vs[0] for key, vs in keyed_all(scene, value).items()}
 
 
 def wire_notes(scene: Scene) -> dict:
@@ -979,7 +962,7 @@ def trigger_edges(scene: Scene, nodes) -> list:
     own machine is no edge (with_trigger_sources draws it into the state)."""
     pairs = dict.fromkeys((w.src, w.machine) for w in driver_wires(scene)
                           if w.src != w.machine)
-    return [kit.render.Edge(src=src, dst=m, kind="trigger")
+    return [parse.Edge(src=src, dst=m, kind="trigger")
             for src, m in pairs if src in nodes and m in nodes]
 
 
@@ -998,7 +981,7 @@ def with_trigger_sources(scene: Scene, machine, owner: str):
     edges = [replace(e, label=None) if e.label in drawn else e for e in machine.edges]
     for src, dst in dict.fromkeys((w.src, w.dst) for w in ws):
         new_nodes.setdefault(src, scene.nodes[src].node)
-        edges.append(kit.render.Edge(src=src, dst=dst, kind="trigger"))
+        edges.append(parse.Edge(src=src, dst=dst, kind="trigger"))
     return replace(machine, nodes=new_nodes, edges=edges)
 
 
@@ -1006,7 +989,7 @@ def access_edges(scene: Scene, nodes, unit=ANY_UNIT) -> list:
     """An edge principal → store (kind access:r|w|b|ƀ) for each access wire with
     both ends in `nodes`; with `unit` (a unit owner, None: the document), only
     the wires of that unit's graph — its own permissions."""
-    return [kit.render.Edge(src=w.src, dst=w.dst, kind=w.kind, line=w.line)
+    return [parse.Edge(src=w.src, dst=w.dst, kind=w.kind, line=w.line)
             for w in scene.wires if w.role == "access"
             and (unit is ANY_UNIT or w.owner == unit)
             and w.src in nodes and w.dst in nodes]
@@ -1016,12 +999,17 @@ def access_edges(scene: Scene, nodes, unit=ANY_UNIT) -> list:
 # The colour policy
 # ---------------------------------------------------------------------------
 
+# An arrow's own colour role (edges-<role>; + a branch arm, a permission edge).
+EDGE_ROLE = {"!>": "fail", "?>": "maybe", "~>": "async", "]>[": "split",
+             "arm": "arm", "access": "access"}
+
+
 def arrow_colour(kind: str) -> Optional[str]:
     """The theme role of an arrow's own colour, or None when it has none (it
     then takes its source's kind colour)."""
     if kind == "trigger":
         return "kinds-event"
-    role = kit.EDGE_ROLE.get(kit._base_kind(kind))
+    role = EDGE_ROLE.get(base_kind(kind))
     return f"edges-{role}" if role else None
 
 
@@ -1035,29 +1023,3 @@ def wire_colour(w: Wire, src_kind: str) -> str:
     return arrow_colour(w.kind) or (f"kinds-{src_kind}" if src_kind else "edges-default")
 
 
-def colour_of(role: str):
-    """A theme role ("edges-fail", "kinds-service") as the theme's Colour now."""
-    section, _, key = role.partition("-")
-    if section == "kinds":
-        return kit.kind_color(key)
-    arrow = next((a for a, r in kit.EDGE_ROLE.items() if r == key), None)
-    return kit.EDGE_COLOR[arrow] if arrow else kit.EDGE_DEFAULT
-
-
-def wire_style(w: Wire, state: str = "plain"):
-    """The (fg, bg, bold) style a wire's stroke and head are drawn in. A
-    simulation overlay ranks a run's wires bright > trail > faint: "active" (a
-    token on it now) full colour and bold, "trail" (taken before) the colour
-    faded to ui.sim_trail, "inactive" (never taken) the muted colour faded to
-    ui.sim_faint; "failed" edges-fail and bold. Raises ValueError for an
-    unknown state."""
-    if state not in STATES:
-        raise ValueError(f"state must be one of {', '.join(STATES)}, not {state!r}")
-    if state == "failed":
-        return (colour_of("edges-fail"), None, True)
-    colour = colour_of(w.colour)
-    if state == "inactive":
-        return (kit.faded(colour, kit.SIM_FAINT, "faint"), None, False)
-    if state == "trail":
-        return (kit.faded(colour, kit.SIM_TRAIL, "trail"), None, False)
-    return (colour, None, state == "active")

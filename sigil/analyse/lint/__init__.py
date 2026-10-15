@@ -32,41 +32,19 @@ Severities:
 """
 
 import re
-import sys
 import unicodedata
 from collections import Counter
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from typing import NamedTuple, Optional
 
 from sigil.core import parse as render
-
-# ---------------------------------------------------------------------------
-# Known vocabulary
-# ---------------------------------------------------------------------------
-
-VALID_MODES = {"#!spec", "#!sketch", "#!craft"}
-
-# The closed arrow set, ordered longest-first so `<->` is not matched as `->`.
-ARROWS = ["<->", "->", "~>", "=>", "!>", "?>", "*>", "→"]
-ARROW_RE = re.compile("(" + "|".join(map(re.escape, ARROWS)) + ")")
-
-# Call resilience is the trio `@timeout` · `×N` (retry cardinality) · `@fallback(x)`
-# — together a call's error policy (language.md "Call resilience"). `@timeout` sits
-# in VALID_MODIFIERS and `×N` is cardinality, so only `@fallback` lives here; its
-# arg is the recovery payload (a value / ref / op-call / component).
-CALL_RESILIENCE_MODIFIERS = {"@fallback"}
-
-# Permission-graph access modifiers — `@read(…)` / `@write(…)`; see
-# PRINCIPAL_SET_RE below, language.md "Permission graph" + lint_permission_graph.
-PERMISSION_MODIFIERS = {"@read", "@write"}
-
-VALID_MODIFIERS = {
-    "@inv", "@sla", "@cap", "@grants", "@requires",
-    "@owns", "@borrow", "@loc", "@timeout", "@after", "@deadline",
-} | CALL_RESILIENCE_MODIFIERS | PERMISSION_MODIFIERS
-# Modifiers outside this set (and any a loaded dialect adds) get an info
-# diagnostic. `@notify` is NOT in the standard vocabulary — language.md forbids it.
+# The known vocabulary, the glyph and arrow tables, the diagnostic records and
+# strip_comment live in core (sigil.core.vocab, the dialect API); lint reads
+# them from there and keeps the names (lint.VALID_MODIFIERS, lint.LintResult, …).
+from sigil.core.vocab import (  # noqa: F401  (re-exported)
+    ANY_GLYPH_RE, ARROW_RE, ARROWS, CALL_RESILIENCE_MODIFIERS, COMMENT_START_RE as _COMMENT_START_RE,
+    Diagnostic, GLYPH_PATTERNS, LintResult, PERMISSION_MODIFIERS, VALID_LOOP_MODS,
+    VALID_MODES, VALID_MODIFIERS, VALID_PARALLEL_MODS, VALID_STREAM_POLICIES, strip_comment)
 
 
 def _hook(dialect, name: str, default=()):
@@ -79,10 +57,6 @@ def _hook(dialect, name: str, default=()):
         return default
     return val() if callable(val) else val
 
-
-VALID_LOOP_MODS = {"@each", "@while", "@until", "@times"}
-VALID_PARALLEL_MODS = {"@all", "@any", "@none"}
-VALID_STREAM_POLICIES = {"block", "drop", "latest", "err"}
 
 # Permission graph — an access modifier `@read(…)` / `@write(…)` carrying a `( )`
 # comma-list of bare principal names permitted that access on a store. It joins the
@@ -128,20 +102,6 @@ PROSE_VERBS = {
     "composes", "contains", "uses", "requires", "provides",
 }
 
-# Glyph patterns
-GLYPH_PATTERNS = {
-    "service": re.compile(r"\[([^\[\]]+)\]"),
-    "data":    re.compile(r"\{([^\{\}]+)\}"),
-    "event":   re.compile(r"<([^<>]+)>"),
-    "actor":   re.compile(r"\(([^()]+)\)"),
-    "store":   re.compile(r"\|([^|]+)\|"),
-}
-
-# Any glyph at all (for flow-line analysis). The `<->` bidirectional arrow is
-# never an event glyph `<-…>`.
-ANY_GLYPH_RE = re.compile(
-    r"(\[[^\[\]]+\]|\{[^\{\}]+\}|<(?!->)[^<>]+>|\([^()]+\)|\|[^|]+\|)"
-)
 
 # A hole glyph (`[?]`, `{?}`, `<?>`, `(?)`, `|?|`).
 HOLE_RE = re.compile(r"(\[\?\]|\{\?\}|<\?>|\(\?\)|\|\?\|)")
@@ -167,38 +127,6 @@ BLOCK_DELIM = '"""'
 # (trailing modifiers after the closing delimiter survive). The sentinel carries no
 # glyphs / arrows / `:` so it perturbs no linter.
 _BLOCK_SENTINEL = '"block-string"'
-# A comment start: a `#` preceded by whitespace/SOL, not part of `#!`. Used by
-# strip_comment, and to tell an opening `"""` from a `"""` sitting in a comment.
-_COMMENT_START_RE = re.compile(r"(?<!\S)#(?!!)")
-
-
-# ---------------------------------------------------------------------------
-# Diagnostic dataclass
-# ---------------------------------------------------------------------------
-
-@dataclass
-class Diagnostic:
-    severity: str  # "error" | "warn" | "info"
-    line: int
-    rule: str
-    message: str
-
-    def format(self) -> str:
-        return f"{self.severity}:{self.line}:{self.rule}: {self.message}"
-
-
-@dataclass
-class LintResult:
-    diagnostics: list[Diagnostic] = field(default_factory=list)
-
-    def add(self, severity: str, line: int, rule: str, message: str):
-        self.diagnostics.append(Diagnostic(severity, line, rule, message))
-
-    def has_errors(self) -> bool:
-        return any(d.severity == "error" for d in self.diagnostics)
-
-    def has_warnings(self) -> bool:
-        return any(d.severity == "warn" for d in self.diagnostics)
 
 
 # ---------------------------------------------------------------------------
@@ -291,17 +219,6 @@ def _apply_masks(line: str, masks) -> str:
     """Apply dialect glyph masks (length-preserving `fn(line) -> line`) in order."""
     for mask in masks:
         line = mask(line)
-    return line
-
-
-def strip_comment(line: str) -> str:
-    """Remove inline comments: a `#` at the start of the line or after whitespace
-    starts one, unless it is a `#!` (a mode line is returned whole)."""
-    if line.startswith("#!"):
-        return line
-    m = _COMMENT_START_RE.search(line)
-    if m:
-        return line[: m.start()]
     return line
 
 
@@ -2343,73 +2260,3 @@ def lint_summary(result: LintResult) -> str:
             f"({counts['error']} error, {counts['warn']} warn, {counts['info']} info)")
 
 
-def deep_lines(result: LintResult, report) -> list:
-    """The merged --deep listing: lint diagnostics and the check findings the
-    mode shows, sorted by line (lint first on a line, each in its own order),
-    then the acknowledged findings. `report` is a check.Report."""
-    issues = ([(d.line, 0, d.format()) for d in result.diagnostics]
-              + [(f.line, 1, f.line_text()) for f in report.shown])
-    issues.sort(key=lambda row: row[:2])
-    return [text for _line, _src, text in issues] + [
-        f.accepted_text() for f in report.acknowledged]
-
-
-def _read_text(path: str) -> str:
-    """The document at `path` (`-` = stdin). Raises OSError."""
-    if path == "-":
-        if hasattr(sys.stdin, "reconfigure"):
-            sys.stdin.reconfigure(encoding="utf-8")
-        return sys.stdin.read()
-    return Path(path).read_text(encoding="utf-8")
-
-
-def _report_lint(result: LintResult) -> int:
-    """Print the plain lint report; return its exit code."""
-    if not result.diagnostics:
-        print("sigil: OK (no issues)")
-        return 0
-    for d in result.diagnostics:
-        print(d.format())
-    print("\n" + lint_summary(result), file=sys.stderr)
-    return exit_code(d.severity for d in result.diagnostics)
-
-
-def _report_deep(result: LintResult, report, check) -> int:
-    """Print the merged lint + check report; return the worse exit code."""
-    out = deep_lines(result, report)
-    print("\n".join(out) if out else "sigil: OK (no issues, no findings)")
-    print("\n" + lint_summary(result) + "\n" + check.summary(report), file=sys.stderr)
-    return max(exit_code(d.severity for d in result.diagnostics), report.exit_code())
-
-
-def main(argv=None, default_dialect=None) -> int:
-    import argparse
-    ap = argparse.ArgumentParser(prog="lint.py", description="Lint a Sigil document.")
-    ap.add_argument("file", help="a .sigil file, or - for stdin")
-    ap.add_argument("--dialect", default=default_dialect,
-                    help="dialect name or path (default: $SIGIL_DIALECT)")
-    ap.add_argument("--deep", action="store_true",
-                    help="also run the composition checks (check.py) and merge the reports")
-    a = ap.parse_args(argv)
-    from sigil.core import dialects
-    try:
-        dialect = dialects.load(a.dialect)
-    except ValueError as exc:
-        print(f"lint.py: {exc}", file=sys.stderr)
-        return 2
-    try:
-        text = _read_text(a.file)
-    except OSError as exc:
-        print(f"lint.py: cannot read {a.file}: {exc.strerror or exc}", file=sys.stderr)
-        return 2
-
-    result = lint(text, dialect=dialect)
-    if not a.deep:
-        return _report_lint(result)
-    from sigil.analyse import check
-    try:
-        report = check.check(text, dialect=dialect)
-    except ValueError as exc:            # a refused rule pack or registry
-        print(f"lint.py: --deep: {exc}", file=sys.stderr)
-        return 2
-    return _report_deep(result, report, check)

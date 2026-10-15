@@ -273,8 +273,9 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import NamedTuple, Optional
 
+from sigil.core.graph import ALL_DEPTH, node_label
+from sigil.core.parse import matching_occurrences, occurrences
 from sigil.model import scene as scene_mod
-kit = scene_mod.kit
 
 
 # ---------------------------------------------------------------------------
@@ -456,7 +457,7 @@ class Program:
 def canonical(graph):
     """The scene every run uses: every unit, events as nodes, triggers to states."""
     return scene_mod.build_scene(graph, events="nodes", triggers=True, access=False,
-                                 depth=kit.ALL_DEPTH)
+                                 depth=ALL_DEPTH)
 
 
 def program(sc) -> Program:
@@ -1224,7 +1225,7 @@ class _Run:
             if dec is None:
                 return nid
             return f"branch@{self.prog.units[dec[0]].graph.blocks[dec[1]].lines[0]}"
-        return kit.node_label(sn.node)
+        return node_label(sn.node)
 
     def _wire_text(self, w) -> str:
         text = f"{self._name(w.src)} {w.kind} {self._name(w.dst)}"
@@ -2522,9 +2523,8 @@ def _select(prog: Program, insts, w, limits: Limits) -> tuple:
         if path and tui == ui:
             if inst.entry not in keep:
                 g = prog.units[tui].graph
-                occ = kit.render.occurrences(g)
-                keep[inst.entry] = occ[k][0] in kit.render.matching_occurrences(g, occ, w.dst,
-                                                                                 path)
+                occ = occurrences(g)
+                keep[inst.entry] = occ[k][0] in matching_occurrences(g, occ, w.dst, path)
             if not keep[inst.entry]:
                 continue
         out.append(inst.key)
@@ -4227,7 +4227,7 @@ class _Words:
     def name(self, nid) -> str:
         sn = self.scn.nodes.get(self.hosts.get(nid, nid))
         if sn is not None:
-            return kit.node_label(sn.node)
+            return node_label(sn.node)
         return scene_mod.decision_name(self.scn, nid) or str(nid)
 
     def state(self, nid) -> str:

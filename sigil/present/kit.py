@@ -13,8 +13,12 @@ draw with it. It holds:
     frames      FrameMemo, Plan, Retained: what a run drawn frame after frame
                 keeps — a drawing laid out once, then only what changed repainted
     runs        a glyph / payload / modifier / label as styled text runs; chips
-    the model   helpers over render.py's Graph: expansions (_walk), joins,
-                access, sections, control blocks, notes and their tags
+                (a scene wire's: wire_chip_text, chip_lists)
+    wire looks  colour_of (a theme role → its Colour now), wire_style (a run's
+                overlay states)
+    the model   block titles, sections, notes and their tags; the graph readings
+                they use (node_lines, edge_blocks, note_index, …) are core's
+                (sigil.core.graph, sigil.core.comments), named here for the views
     fit panels  the corner panels that take comments and payloads when a
                 drawing is wider than the window (_fit_panel)
     checks      CheckMarks (findings named as a Scene names things) and their
@@ -35,8 +39,18 @@ import textwrap
 import unicodedata
 from typing import NamedTuple
 
-from sigil.core import parse as render
-from sigil.analyse import lint
+from sigil.core.comments import (  # noqa: F401  (some for the views, as kit.NAME)
+    BLOCK_NOTE, DOC_NOTE, block_lines, block_note_key, block_string_of, note_index)
+from sigil.core.graph import (  # noqa: F401  (some for the views, as kit.NAME)
+    ALL_DEPTH, DIALECT_KINDS as _DIALECT_KINDS, GLYPH_KINDS, PSEUDO_LABEL,
+    access_kind, base_kind as _base_kind, drawn_join, edge_blocks, node_lines,
+    section_of, use_dialect_kinds, walk_breadth as _walk)
+from sigil.core import graph as _graph
+from sigil.core.parse import BLOCK_SENTINEL, MODIFIER_RE
+from sigil.core.vocab import Diagnostic
+from sigil.analyse.lint import lint as _lint_document
+from sigil.model import scene
+from sigil.model.scene import EDGE_ROLE
 from sigil.present import themes
 
 
@@ -56,21 +70,16 @@ class Colour(str):
         return c
 
 
-# Node kinds: glyph brackets and border; apply_theme() fills in each "color". A
-# dialect adds kinds through its NODE_KINDS mapping (same keys; optional "label":
-# fn(node) -> str); a theme's `kinds:` map recolours any kind by name.
-CORE_KINDS = {
-    "service": {"open": "[", "close": "]", "border": "square", "legend": "component"},
-    "data":    {"open": "{", "close": "}", "border": "square"},
-    "event":   {"open": "<", "close": ">", "border": "square"},
-    "actor":   {"open": "(", "close": ")", "border": "round"},
-    "store":   {"open": "|", "close": "|", "border": "square"},
-    "state":   {"open": "",  "close": "",  "border": "round"},
-    "alias":   {"open": "[[", "close": "]]", "border": "square"},   # `name := …`
-}
-PSEUDO_LABEL = {"start": "●", "end": "◉", "any": "∗ any"}
+# Node kinds: glyph brackets (core.graph.GLYPH_KINDS) and border; apply_theme()
+# fills in each "color". A dialect adds kinds through its NODE_KINDS mapping (same
+# keys; optional "label": fn(node) -> str); a theme's `kinds:` map recolours any
+# kind by name.
+_BORDERS = {"service": {"border": "square", "legend": "component"},
+            "data": {"border": "square"}, "event": {"border": "square"},
+            "actor": {"border": "round"}, "store": {"border": "square"},
+            "state": {"border": "round"}, "alias": {"border": "square"}}
+CORE_KINDS = {kind: {**GLYPH_KINDS[kind], **look} for kind, look in _BORDERS.items()}
 KINDS: dict = {}                    # CORE_KINDS + the dialect's kinds, coloured
-_DIALECT_KINDS: dict = {}
 THEME: dict = {}                    # the theme in use, over the built-in colours
 
 # The built-in colours: the sigil theme (themes/sigil.yaml), in its sections and
@@ -102,8 +111,6 @@ _BUILTIN_THEME = {
     "run": {"episode_1": "#a5d6ff", "episode_2": "#ffbf47", "episode_3": "#7ee787",
             "episode_4": "#f59cc4", "episode_5": "#bc8cff", "episode_6": "#5abea0"},
 }
-EDGE_ROLE = {"!>": "fail", "?>": "maybe", "~>": "async", "]>[": "split",
-             "arm": "arm", "access": "access"}       # (+ a branch arm, a permission edge)
 _HEX = re.compile(r"#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})")
 
 
@@ -240,9 +247,9 @@ def use_theme(spec: str | None = None) -> None:
 
 
 def use_dialect(dialect) -> None:
-    """Make the dialect's extra node kinds (if any) drawable."""
-    _DIALECT_KINDS.clear()
-    _DIALECT_KINDS.update(getattr(dialect, "NODE_KINDS", None) or {})
+    """Make the dialect's extra node kinds (if any) drawable (and named so by
+    core.graph.node_label)."""
+    use_dialect_kinds(dialect)
     _refresh_kinds()
 
 
@@ -313,11 +320,6 @@ def episode_glyph(tok, mark: str, style: tuple, overlap: bool) -> tuple:
     return episode_mark(tok.episode), (episode_colour(tok.episode), None, style[2])
 
 
-def _base_kind(kind: str) -> str:
-    """An edge kind without its qualifier: `access:w` → `access`."""
-    return kind.split(":", 1)[0] if kind.startswith("access:") else kind
-
-
 # A flow's `: payload` drawn in the graph view as a chip on its edge (not a glyph,
 # so not in KINDS): the edge runs src → chip → dst, the chip on its own layer. A
 # chip also carries an edge's modifiers (m key) and a branch arm's label.
@@ -341,25 +343,13 @@ def node_styles(n):
 
 
 def node_label(n) -> str:
+    """A drawn node's label: a chip or join its text, a decision `◇ text`, a
+    glyph as the notation writes it (core.graph.node_label)."""
     if n.kind in (CHIP, JOIN):
         return n.name
     if n.kind == DECISION:
         return f"◇ {n.name}"
-    spec = KINDS.get(n.kind, {})
-    if n.attrs.get("pseudo") in PSEUDO_LABEL:
-        return PSEUDO_LABEL[n.attrs["pseudo"]]
-    name = spec["label"](n) if "label" in spec else role_name(n)
-    lead = ("~" if n.is_mutable else "") + ("*" if n.is_stream else "")
-    return f"{lead}{spec.get('open', '[')}{name}{spec.get('close', ']')}"
-
-
-def role_name(n) -> str:
-    """A node's name, a generic role's generics in ‹ › (`Worker<N>` → `Worker‹N›`:
-    N members of one role, not a parametric type)."""
-    if not getattr(n, "is_role", False) or not n.name.endswith(">"):
-        return n.name
-    base = n.name.split("<", 1)[0]
-    return f"{base}‹{n.name[n.name.index('<') + 1:-1]}›"
+    return _graph.node_label(n)
 
 
 # A stream's mark beside its label where no box shape can show it (tree rows).
@@ -1209,7 +1199,7 @@ def _payload_is_mods(e) -> bool:
     `@timeout(1d)` / `×3` as payload text too): not repeated beside the mods."""
     if not e.mods or not e.payload:
         return False
-    rest = render.MODIFIER_RE.sub(" ", e.payload)
+    rest = MODIFIER_RE.sub(" ", e.payload)
     rest = re.sub(r"×\s*\w+|\bx(?:\d+|N)\b|\^\S+|(?<!\S)[!?](?!\S)", " ", rest)
     return not rest.strip()
 
@@ -1223,22 +1213,6 @@ def edge_mods(e) -> list:
 
 
 BLOCK_PREVIEW = 24      # the most of a block-string's first line a chip shows
-
-
-def block_string_of(e):
-    """The text of an edge's (or a wire's edge's) `\"\"\"…\"\"\"` payload, or None."""
-    body = getattr(e, "block_string", None)
-    return body if body is not None else getattr(getattr(e, "edge", None), "block_string", None)
-
-
-def block_lines(body: str) -> list:
-    """A block-string's lines, the blank ones at its ends dropped, each stripped."""
-    lines = [ln.strip() for ln in body.splitlines()]
-    while lines and not lines[0]:
-        lines.pop(0)
-    while lines and not lines[-1]:
-        lines.pop()
-    return lines
 
 
 def block_preview(body: str) -> str:
@@ -1258,8 +1232,8 @@ def shown_payload(e):
     """An edge's payload as written, a block-string's masked STR shown by its
     preview (block_preview)."""
     payload, body = e.payload, block_string_of(e)
-    if payload and body is not None and render.BLOCK_SENTINEL in payload:
-        payload = payload.replace(render.BLOCK_SENTINEL, block_preview(body), 1)
+    if payload and body is not None and BLOCK_SENTINEL in payload:
+        payload = payload.replace(BLOCK_SENTINEL, block_preview(body), 1)
     return payload
 
 
@@ -1275,6 +1249,57 @@ def chip_parts(e, payloads: bool, mods: bool):
 def chip_text(payload, mods) -> str:
     """The chip as one line of text: `payload ┆ mods` (either part may be absent)."""
     return " ┆ ".join(p for p in (payload, mods) if p)
+
+
+def wire_chip_text(w, payloads: bool, mods: bool) -> str:
+    """The chip a scene wire carries: its payload (payloads) and modifiers (mods),
+    `payload ┆ mods` — a call's payload as call_text shows it; an emit wire's
+    legs' chips joined ` · `."""
+    if w.role == "emit":
+        return " · ".join(t for t in (wire_chip_text(leg, payloads, mods) for leg in w.legs) if t)
+    payload, mtext = chip_parts(w, payloads, mods)
+    if payload and w.call is not None:
+        payload = scene.call_text(w.call)
+    return chip_text(payload, mtext)
+
+
+def chip_lists(scn, payloads: bool, mods: bool, unit=scene.ANY_UNIT) -> dict:
+    """{key: [chip text, …]} for every flow and emit stroke that carries one:
+    every call on the stroke its own chip, in written order — several payloads
+    into one target kept apart, never merged. `unit` (a unit owner, None: the
+    document): only the strokes drawn in that unit."""
+    return scene.keyed_all(scn, lambda w: wire_chip_text(w, payloads, mods), unit)
+
+
+STATES = ("plain", "active", "trail", "inactive", "failed")     # wire_style overlays
+
+
+def colour_of(role: str):
+    """A theme role ("edges-fail", "kinds-service") as the theme's Colour now."""
+    section, _, key = role.partition("-")
+    if section == "kinds":
+        return kind_color(key)
+    arrow = next((a for a, r in EDGE_ROLE.items() if r == key), None)
+    return EDGE_COLOR[arrow] if arrow else EDGE_DEFAULT
+
+
+def wire_style(w, state: str = "plain"):
+    """The (fg, bg, bold) style a wire's stroke and head are drawn in. A
+    simulation overlay ranks a run's wires bright > trail > faint: "active" (a
+    token on it now) full colour and bold, "trail" (taken before) the colour
+    faded to ui.sim_trail, "inactive" (never taken) the muted colour faded to
+    ui.sim_faint; "failed" edges-fail and bold. Raises ValueError for an
+    unknown state."""
+    if state not in STATES:
+        raise ValueError(f"state must be one of {', '.join(STATES)}, not {state!r}")
+    if state == "failed":
+        return (colour_of("edges-fail"), None, True)
+    colour = colour_of(w.colour)
+    if state == "inactive":
+        return (faded(colour, SIM_FAINT, "faint"), None, False)
+    if state == "trail":
+        return (faded(colour, SIM_TRAIL, "trail"), None, False)
+    return (colour, None, state == "active")
 
 
 def label_runs(n, bold: bool = True, bg=None) -> list:
@@ -1328,48 +1353,6 @@ CALLOUT_TEXT = 24                               # callout box text width, given 
 CALLOUT_MIN = 16
 CALLOUT_MAX = 40
 NOTE_WIDTH = 76                                 # notes list wrap width
-ALL_DEPTH = 99                                  # --depth all
-
-
-def _walk(g):
-    """g, then its expansions (and theirs), breadth-first in document order."""
-    queue = [g]
-    while queue:
-        cur = queue.pop(0)
-        yield cur
-        queue += list(cur.expansions.values())
-
-
-def drawn_join(g, e, side: str):
-    """The index into g.joins of the joined endpoint the edge leaves ("src") or
-    enters ("dst") when that join is drawn, else None. A `*>` broadcast's target
-    list (`*> [A] & [B]`) is not: the double fan-out already says "all of them"."""
-    idx = e.src_join if side == "src" else e.dst_join
-    joins = getattr(g, "joins", None) or []
-    if idx is None or not 0 <= idx < len(joins):
-        return None
-    if side == "dst" and e.kind == "*>" and joins[idx].kind == "&":
-        return None
-    return idx
-
-
-def access_kind(a) -> str:
-    """A permission edge's kind: `access:r` read, `access:w` write, `access:b`
-    borrow, `access:ƀ` a borrow narrowed to read (`@borrow(read)`). A borrow
-    narrowed to write keeps `b`: only the write it lends is left."""
-    if a.mode == "borrow" and getattr(a, "narrow", None) == "read":
-        return "access:ƀ"
-    return "access:" + a.mode[0]
-
-
-def writer_badges(g) -> dict:
-    """{store id: "1w" | "Nw"}: how many principals may write each store (the a
-    key) — a single writer owns it, several share it."""
-    writers = {}
-    for a in getattr(g, "access", None) or []:
-        if a.mode == "write" and a.store and a.principal:
-            writers.setdefault(a.store, set()).add(a.principal)
-    return {sid: f"{len(ps)}w" for sid, ps in writers.items()}
 
 
 class Rule(str):
@@ -1380,96 +1363,6 @@ class Rule(str):
 def section_name(sec) -> str:
     """`--- L2: Payments ---` → `L2 · Payments`; a topic header is its title."""
     return f"{sec.level} · {sec.title}" if sec.level else sec.title
-
-
-def node_lines(g, notes: bool = True) -> dict:
-    """{node id: line}: where each node is first written, as near as the graph
-    tells — the earliest line any edge, note (`notes`: block comments too, the
-    line above), access, join, block or its own `:= { … }` names it on; for a node nothing names (a bare declaration),
-    the earliest line of any node after it (nodes are kept in first-seen order),
-    else the previous named node's."""
-    seen = {}
-
-    def at(nid, line):
-        if nid and line and (nid not in seen or line < seen[nid]):
-            seen[nid] = line
-
-    for e in g.edges:
-        at(e.src, e.line)
-        at(e.dst, e.line)
-    for n in getattr(g, "notes", []) or []:    # a block comment sits just above
-        if notes or getattr(n, "kind", "block") == "inline":
-            at(n.node, n.line)
-    for a in getattr(g, "access", []) or []:
-        at(a.principal, a.line)
-        at(a.store, a.line)
-    for j in getattr(g, "joins", []) or []:
-        for m in j.members:
-            at(m, j.line)
-    for b in getattr(g, "blocks", []) or []:   # a header's refs; a member no flow names
-        for m in list(b.refs) + [m for m in b.members if m not in seen]:
-            at(m, b.lines[0])
-    named = {nid: line for nid, line in seen.items()   # what bounds the nodes before it
-             if nid in g.nodes and g.nodes[nid].kind != "alias"}
-    for nid, sub in g.expansions.items():      # `X := { … }` names X above its body
-        lines = [e.line for cur in _walk(sub) for e in cur.edges if e.line]
-        if lines:
-            at(nid, min(lines))
-    # A node only its own `:= { … }` / `state` body names (an alias, a machine's
-    # owner) may be registered out of order: it bounds nothing.
-    out, bound = {}, None
-    for nid in reversed(list(g.nodes)):         # unnamed: no later than any later node
-        if nid in seen:
-            out[nid] = seen[nid]
-        elif bound is not None:
-            out[nid] = bound
-        if nid in named:
-            bound = named[nid] if bound is None else min(bound, named[nid])
-    prev = None
-    for nid in g.nodes:                         # nothing after it: the previous one's
-        prev = named.get(nid, prev)
-        if nid not in out and prev is not None:
-            out[nid] = prev
-    return out
-
-
-def section_of(secs, line) -> int:
-    """The index of the section a line is in (-1: before the first one)."""
-    k = -1
-    for i, sec in enumerate(secs or ()):
-        if line and sec.line <= line:
-            k = i
-    return k
-
-
-def edge_blocks(g) -> dict:
-    """{edge index: block index}: the innermost control block each edge is drawn
-    in — the block whose body holds its line, or whose `}` it continues (a `!>`
-    compensation, Block.after)."""
-    out = {}
-    blocks = getattr(g, "blocks", None) or []
-    holding, after = {}, {}                     # edge key → [block index], in order
-    for bi, b in enumerate(blocks):
-        for key in dict.fromkeys(b.edges):
-            holding.setdefault(key, []).append(bi)
-        for key in dict.fromkeys(b.after):
-            after.setdefault(key, []).append(bi)
-    for k, e in enumerate(g.edges):
-        key, best = (e.src, e.dst, e.kind), None
-        for bi in holding.get(key, ()):
-            lo, hi = blocks[bi].lines
-            if lo <= e.line <= hi or not e.line:
-                if best is None or hi - lo < blocks[best].lines[1] - blocks[best].lines[0]:
-                    best = bi
-        if best is None:
-            for bi in after.get(key, ()):
-                b = blocks[bi]
-                if e.line >= b.lines[1]:
-                    if best is None or b.lines[1] > blocks[best].lines[1]:
-                        best = bi
-        if best is not None:
-            out[k] = best
-    return out
 
 
 BLOCK_GLYPH = {"loop": "↺", "parallel": "∥", "branch": "◇", "scope": "□", "owns": "□"}
@@ -1493,78 +1386,11 @@ def block_title_runs(b) -> list:
 # Notes are tagged #N either way; colour tells a block comment (own lines above
 # a statement, ui.note_block) from an inline one (trailing it, ui.note_inline).
 
-# The note-index key of the document's own notes (a header comment that precedes
-# no statement): listed with the notes, tagged on nothing. Node ids never hold
-# `@`, so neither this nor a block_note_key (BLOCK_NOTE…) can meet one.
-DOC_NOTE = "@document"
-BLOCK_NOTE = "@block:"
-
-
-def block_note_key(b) -> str:
-    """The note-index key of a control block's notes (a comment above its
-    glyph-less header): its frame title (graph) or header row (tree) is tagged."""
-    return f"{BLOCK_NOTE}{b.lines[0]}-{b.lines[1]}"
-
-
-def note_key(g, n) -> str:
-    """Where note n (of graph g) is indexed: its node id, its block's key, or
-    DOC_NOTE."""
-    if n.node is not None:
-        return n.node
-    bi = getattr(n, "block", None)
-    return block_note_key(g.blocks[bi]) if bi is not None else DOC_NOTE
-
-
-def note_index(g) -> dict:
-    """{node id: [(number, text, kind, edges), …]}, numbered in document order (top
-    level first, then expansions). A node's block comments (about the component)
-    merge into one note; each inline comment (about its line) stays its own note
-    and keeps the (src, dst, kind) of the flows that line drew. A control block's
-    notes are keyed block_note_key; the document's are keyed DOC_NOTE (note_key)
-    and merge into one note numbered 0, so the numbers tags show stay 1, 2, …"""
-    out, num = {}, 0
-    for cur in _walk(g):
-        for n in _notes_and_blocks(cur):
-            kind = getattr(n, "kind", "block")
-            entries = out.setdefault(note_key(cur, n), [])
-            block = next((i for i, e in enumerate(entries) if e[2] == "block"), None)
-            if kind == "block" and block is not None:
-                b = entries[block]
-                entries[block] = (b[0], f"{b[1]} · {n.text}", "block", ())
-                continue
-            key = note_key(cur, n)
-            if key != DOC_NOTE:
-                num += 1
-            entries.append((num if key != DOC_NOTE else 0, n.text, kind,
-                            tuple(getattr(n, "edges", ()) or ())))
-    return out
-
 
 def note_label(num: int) -> str:
     """A note's label in the lists: `#N`, or `¶` for the document's own note
     (number 0, tagged on nothing, listed first)."""
     return f"#{num}" if num else "¶"
-
-
-def _notes_and_blocks(g) -> list:
-    """g's notes with, among them in line order, an inline note per edge with a
-    `\"\"\"…\"\"\"` payload holding its full text (about the flow, so drawn on it
-    and listed where notes are)."""
-    blocks = sorted((e.line, i, e) for i, e in enumerate(getattr(g, "edges", []))
-                    if getattr(e, "block_string", None) is not None)
-    out, k = [], 0
-    for n in getattr(g, "notes", []):
-        while k < len(blocks) and blocks[k][0] < n.line:
-            out.append(_block_note(blocks[k][2]))
-            k += 1
-        out.append(n)
-    return out + [_block_note(b[2]) for b in blocks[k:]]
-
-
-def _block_note(e):
-    """The note holding edge e's block-string, one line of it per text line."""
-    text = '"""' + "\n".join(block_lines(e.block_string)) + '"""'
-    return render.Note(e.src, text, e.line, "inline", (e.key,))
 
 
 def node_notes(entries) -> list:
@@ -1968,9 +1794,9 @@ def _call(fn, text, dialect):
 
 def run_lint(text, dialect=None):
     try:
-        return _call(lint.lint, text, dialect).diagnostics
+        return _call(_lint_document, text, dialect).diagnostics
     except Exception as exc:   # a linter crash must not take the view down
-        return [lint.Diagnostic("error", 0, "lint-crash", f"{type(exc).__name__}: {exc}")]
+        return [Diagnostic("error", 0, "lint-crash", f"{type(exc).__name__}: {exc}")]
 
 
 # ---------------------------------------------------------------------------

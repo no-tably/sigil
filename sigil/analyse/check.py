@@ -89,6 +89,11 @@ from functools import cached_property
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
+# Layout and acknowledgements are read in core (check.Ack, check.read_acks, … keep
+# their names here).
+from sigil.core.comments import (  # noqa: F401  (re-exported)
+    Ack, Layout, RULE_ID_RE, ack_span, layout_of, parse_ack, read_acks)
+
 
 _RULES = Path(__file__).resolve().parent / "rules"      # the rule modules
 
@@ -320,40 +325,6 @@ class Finding:
         }
 
 
-@dataclass(frozen=True)
-class Ack:
-    """One acknowledgement comment (catalog §10.1). `reason` is "" when missing
-    (the acknowledgement is then void, SGC002). `span` is the set of lines it
-    covers; `document` makes it cover every line."""
-    line: int
-    names: tuple
-    reason: str
-    span: frozenset = frozenset()
-    document: bool = False
-
-    def covers(self, line: int) -> bool:
-        return self.document or line in self.span
-
-
-@dataclass(frozen=True)
-class Layout:
-    """Where the statements and blocks of a document are (1-based lines)."""
-    statements: frozenset            # lines holding a statement
-    blocks: dict                     # header or closing line → (header, closing)
-    quoted: frozenset                # lines inside a `\"\"\"…\"\"\"` block-string body
-
-    @property
-    def first(self) -> Optional[int]:
-        return min(self.statements, default=None)
-
-    def span(self, line: int) -> frozenset:
-        """A block header or its `}` covers the whole block; any other line itself."""
-        if line in self.blocks:
-            head, close = self.blocks[line]
-            return frozenset(range(head, close + 1))
-        return frozenset({line})
-
-
 @dataclass
 class Report:
     mode: str
@@ -524,105 +495,6 @@ def read_mode(lines: list) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Layout and acknowledgements (catalog §10.1)
-# ---------------------------------------------------------------------------
-
-_STRING_RE = re.compile(r'"[^"]*"')
-
-
-def layout_of(lines: list, strip_comment: Callable) -> Layout:
-    """Statement lines and block spans. A line whose code ends with `{` opens a
-    block, one whose code starts with `}` closes the innermost open block."""
-    statements, quoted, blocks, stack = set(), set(), {}, []
-    in_quote = False
-    for n, raw in enumerate(lines, start=1):
-        if in_quote:
-            quoted.add(n)
-            in_quote = raw.count('"""') % 2 == 0
-            continue
-        stripped = raw.strip()
-        if stripped.startswith("#!"):
-            continue
-        code = stripped if stripped.startswith("#&") else strip_comment(raw).strip()
-        if not code:
-            continue
-        statements.add(n)
-        in_quote = code.count('"""') % 2 == 1
-        bare = _STRING_RE.sub('""', code)
-        if bare.startswith("}") and stack:
-            head = stack.pop()
-            blocks[head] = blocks[n] = (head, n)
-        if bare.endswith("{"):
-            stack.append(n)
-    return Layout(frozenset(statements), blocks, frozenset(quoted))
-
-
-# Any case, so a rule id (`SGC111`) or a mixed-case name still reads as an
-# acknowledgement and reaches SGC001 rather than failing silently as prose.
-_KEBAB = r"[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*"
-_ACK_RE = re.compile(rf"^accepts:\s*(?P<names>{_KEBAB}(?:\s*,\s*{_KEBAB})*)(?P<tail>.*)$")
-_RULE_ID_RE = re.compile(r"^[A-Z]+[0-9]+$")
-_SEPARATOR_RE = re.compile(r"^\s*(?:—|--)\s*(?P<reason>.*)$|^\s+-(?:\s+(?P<reason2>.*))?$")
-
-
-def parse_ack(text: str, known: frozenset) -> Optional[tuple]:
-    """(names, reason) when a comment's text is an acknowledgement, else None.
-    `accepts:` then kebab-case rule names, a separator (`—`, `--`, ` - `) and a
-    reason. Names of any case and rule ids are read too, so SGC001 can say what is
-    wrong with them. With no separator it is an acknowledgement (missing its
-    reason) only when the text is nothing but names and one of them is a rule
-    name (in any case), a rule id or a kebab compound; so `# accepts: any JSON
-    body` stays prose."""
-    m = _ACK_RE.match(text.strip())
-    if not m:
-        return None
-    names = tuple(n.strip() for n in m.group("names").split(","))
-    tail = m.group("tail")
-    if not tail.strip():
-        if any(n.lower() in known or "-" in n or _RULE_ID_RE.match(n) for n in names):
-            return names, ""
-        return None
-    sep = _SEPARATOR_RE.match(tail)
-    if not sep:
-        return None
-    return names, (sep.group("reason") or sep.group("reason2") or "").strip()
-
-
-def ack_span(line: int, own_line: bool, layout: Layout, comment_lines: frozenset):
-    """(span, document) for an acknowledgement on `line`: trailing → its line (a
-    block header or `}` → the block); own line(s) directly above a statement →
-    that statement (or block); before the first statement and not directly above
-    it → the whole document; anywhere else → nothing."""
-    if not own_line:
-        return layout.span(line), False
-    nxt = line + 1
-    while nxt in comment_lines and nxt not in layout.statements:
-        nxt += 1
-    if nxt in layout.statements:
-        return layout.span(nxt), False
-    first = layout.first
-    if first is None or line < first:
-        return frozenset(), True
-    return frozenset(), False
-
-
-def read_acks(comments: dict, layout: Layout, known: frozenset) -> list:
-    """Every acknowledgement in the document, in line order."""
-    comment_lines = frozenset(comments)
-    out = []
-    for line in sorted(comments):
-        text, own = comments[line]
-        if line in layout.quoted:
-            continue
-        parsed = parse_ack(text, known)
-        if parsed is None:
-            continue
-        span, document = ack_span(line, own, layout, comment_lines)
-        out.append(Ack(line, parsed[0], parsed[1], span, document))
-    return out
-
-
-# ---------------------------------------------------------------------------
 # Meta rules: SGC001, SGC002, SGC004
 # ---------------------------------------------------------------------------
 
@@ -648,7 +520,7 @@ def meant_name(name: str, known: frozenset, names_by_id: dict) -> tuple:
     """(the rule name an unknown ack name most likely means, why it missed): "id"
     for a rule id, "case" for a known name in the wrong case, "typo" for a near
     miss; (None, "id") for an id no rule has; (None, None) when nothing fits."""
-    if _RULE_ID_RE.match(name):
+    if RULE_ID_RE.match(name):
         return names_by_id.get(name), "id"
     if name.lower() in known:
         return name.lower(), "case"

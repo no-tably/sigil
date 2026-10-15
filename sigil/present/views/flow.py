@@ -60,6 +60,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import NamedTuple, Optional
 
+from sigil.core import parse
 from sigil.present import kit
 from sigil.model import scene
 from sigil.present.views import graph as vgraph
@@ -198,7 +199,7 @@ def _decision(g, w):
     blocks = getattr(g, "blocks", None) or []
     b = blocks[w.block] if w.block is not None and 0 <= w.block < len(blocks) else None
     name = (b.header if b is not None and b.header else "branch")
-    return kit.render.Node(id=w.src, name=name, kind=kit.DECISION)
+    return parse.Node(id=w.src, name=name, kind=kit.DECISION)
 
 
 def _split_sections(scn, u, nodes: dict, strokes: list, blocks: list) -> list:
@@ -1163,7 +1164,7 @@ class _Ctx:
 
     def chips(self, part: _Part, st: _Stroke) -> list:
         """[runs]: the chips a stroke carries between its columns — one per call
-        written on it (scene.chip_lists, never merged), each `┆…┆`, then what the
+        written on it (kit.chip_lists, never merged), each `┆…┆`, then what the
         graph view writes beside its head (a transition's or an arm's label,
         view_graph._tags's runs) as bare text on the first; [] when none. Hung
         (self.hang): [_Hung] instead, the same text, each lettered once per
@@ -1172,8 +1173,8 @@ class _Ctx:
         if self.hang and key in self.hung:
             return self.hung[key]
         if part.owner not in self.chip_lists:
-            self.chip_lists[part.owner] = (scene.chip_lists(self.scn, self.payloads, self.mods,
-                                                            unit=part.owner)
+            self.chip_lists[part.owner] = (kit.chip_lists(self.scn, self.payloads, self.mods,
+                                                          unit=part.owner)
                                            if self.payloads or self.mods else {})
         texts = self.chip_lists[part.owner].get(st.key, []) if st.role in ("flow", "emit") else []
         dim = (kit.GREY["dim"], None, False)
@@ -1359,7 +1360,7 @@ def _label_runs(n, look: Optional[str]) -> list:
     if look == "plain":
         return kit.label_runs(n, bold=False)
     if look == "failed":
-        return [(kit.node_label(n), (scene.colour_of("edges-fail"), None, True))]
+        return [(kit.node_label(n), (kit.colour_of("edges-fail"), None, True))]
     colour = kit.HOLE_COLOR if n.is_hole else kit.kind_color(n.kind)
     return [(kit.node_label(n), (kit.muted(colour), None, False))]
 
@@ -2084,7 +2085,7 @@ def flow_legend(triggers: bool = True, payloads: bool = False, access: bool = Fa
     row = [("flow   ", dim)]
     for kind, word in kit.ARROW_LEGEND:
         own = scene.arrow_colour(kind)
-        colour = scene.colour_of(own) if own else kit.EDGE_DEFAULT
+        colour = kit.colour_of(own) if own else kit.EDGE_DEFAULT
         sample = ("◀" + kit._stroke_sample(kind) + "▶" if kind == "<->"
                   else kit._stroke_sample(kind) * 2 + _head(kind))
         row += [(sample, (colour, None, False)), (f" {word}  ", mid)]
@@ -2092,7 +2093,7 @@ def flow_legend(triggers: bool = True, payloads: bool = False, access: bool = Fa
         row += [(kit._stroke_sample("trigger") * 2 + "▶", kit.edge_style("trigger")),
                 (" trigger  ", mid)]
     if events == "land":
-        row += [("─ <E> ─▶", (scene.colour_of("kinds-event"), None, False)), (" emits  ", mid)]
+        row += [("─ <E> ─▶", (kit.colour_of("kinds-event"), None, False)), (" emits  ", mid)]
     wire = (kit.EDGE_DEFAULT, None, False)
     row += [("─┬─", wire), (" one source  ", mid), ("─┴─", wire), (" one target  ", mid),
             ("─│─", wire), (" crossing  ", mid), ("▶┐", wire), (" stacked heads  ", mid),

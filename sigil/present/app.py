@@ -251,7 +251,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import NamedTuple
 
-from sigil.core import dialects
+from sigil.core import dialects, parse
 from sigil.present import kit
 from sigil.present.views import graph as vgraph
 from sigil.present.views import tree as vtree
@@ -259,6 +259,11 @@ from sigil.present.views import flow as vflow
 from sigil.present.views import run as vrun
 from sigil.model import scene
 from sigil.model import sim as simulator
+
+
+# `view.render` (site/build_site.py, plugin pane.py) until they import
+# sigil.core.parse themselves.
+render = parse
 
 
 def __getattr__(name: str):
@@ -499,7 +504,7 @@ def sim_legend(tree: bool = False) -> list:
     wire = (kit.EDGE_DEFAULT, None, True)
     trail = (kit.faded(kit.EDGE_DEFAULT, kit.SIM_TRAIL, "trail"), None, False)
     faint = (kit.faded(kit.EDGE_DEFAULT, kit.SIM_FAINT, "faint"), None, False)
-    fail = (scene.colour_of("edges-fail"), None, True)
+    fail = (kit.colour_of("edges-fail"), None, True)
     light = (kit.GREY["light"], None, False)
     state = (kit.kind_color("state"), None, True)
     active = [("▸", (kit.GREY["light"], None, True)), (" active  ", mid)] if tree else []
@@ -1124,7 +1129,7 @@ def sim_batch(path: Path, mode: str, dialect=None, as_json: bool = False,
     as text or JSON; no drawing, no lint. Exit status 0: a run is information,
     not a verdict. `limits`: the simulator's bounds (None: its defaults)."""
     kit.use_dialect(dialect)
-    g = kit._call(kit.render.parse_document, path.read_text(), dialect)
+    g = kit._call(parse.parse_document, path.read_text(), dialect)
     if mode == "list":
         found = simulator.scenarios(simulator.canonical(g), limits=limits or simulator.Limits())
         text = (json.dumps([{"name": sc.name, "label": sc.label} for sc in found], indent=2,
@@ -1144,7 +1149,7 @@ def sim_json(path: Path, name: str, dialect=None, limits=None,
     nodes a view drawn to it draws. Exit status 0; raises UnknownScenario for
     an unknown name."""
     kit.use_dialect(dialect)
-    g = kit._call(kit.render.parse_document, path.read_text(), dialect)
+    g = kit._call(parse.parse_document, path.read_text(), dialect)
     player = SimPlayer(g, name, limits, depth)
     print(json.dumps(sim_run(player, limits), indent=2, ensure_ascii=False))
     return 0
@@ -1158,7 +1163,7 @@ def run_json(path: Path, name: str | None, dialect=None, limits=None,
     every level): the timeline as the run view drawn to it. Exit status 0;
     raises UnknownScenario for an unknown name."""
     kit.use_dialect(dialect)
-    g = kit._call(kit.render.parse_document, path.read_text(), dialect)
+    g = kit._call(parse.parse_document, path.read_text(), dialect)
     player = SimPlayer(g, name, limits)
     data = vrun.timeline_json(player.trace, player.limits, unroll,
                               kit.ALL_DEPTH if depth is None else depth)
@@ -1439,7 +1444,7 @@ def once(path: Path, depth: int | None, payloads: bool, do_lint: bool,
     The summary line ends with the document's `#!mode`, when it has one."""
     kit.use_dialect(dialect)
     text = path.read_text()
-    g = kit._call(kit.render.parse_document, text, dialect)
+    g = kit._call(parse.parse_document, text, dialect)
     view = start_view(view, tree)
     tree = view == "tree"
     told, depth = depth, drawn_depth(view, depth)
@@ -1672,7 +1677,7 @@ class ViewState:
         self.title = kit.doc_title(text)
         self.mode = kit.doc_mode(text)
         try:
-            self.graph = kit._call(kit.render.parse_document, text, self.dialect)
+            self.graph = kit._call(parse.parse_document, text, self.dialect)
             self.error = None
             self.memo = kit.FrameMemo()    # what the last document's frames kept goes
         except Exception as exc:       # keep the last good graph on screen
@@ -2326,7 +2331,7 @@ def main(argv=None, default_dialect=None) -> int:
                     "(--once: print it once and exit). Four views, by their keys: "
                     f"{keys}; it starts in the {DEFAULT_VIEW} view.")
     ap.add_argument("file", type=Path, help="the Sigil file to draw")
-    ap.add_argument("--depth", type=kit.render.depth_arg, default=None, metavar="N|all",
+    ap.add_argument("--depth", type=parse.depth_arg, default=None, metavar="N|all",
                     help="how many levels of `X := { … }` expansions to draw "
                          "(default 1; all: every level); a run's narration and path "
                          "name the nodes drawn there and the run view folds deeper "

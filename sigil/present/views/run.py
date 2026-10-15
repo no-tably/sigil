@@ -121,7 +121,7 @@ def _wire_style(scn, wire, bold: bool = False) -> tuple:
     w = next((x for x in scn.wires if x.ident == wire), None)
     if w is None:
         return (kit.EDGE_DEFAULT, None, bold)
-    return (scene.colour_of(scene.wire_colour(w, _kind_of(scn, w.src))), None, bold)
+    return (kit.colour_of(scene.wire_colour(w, _kind_of(scn, w.src))), None, bold)
 
 
 def _styles() -> dict:
@@ -1187,7 +1187,7 @@ def run_legend() -> list:
     for kind, word in (("->", "call"), ("~>", "async"), ("=>", "produces"),
                        ("*>", "broadcast"), ("!>", "error")):
         own = scene.arrow_colour(kind)
-        colour = scene.colour_of(own) if own else kit.EDGE_DEFAULT
+        colour = kit.colour_of(own) if own else kit.EDGE_DEFAULT
         sample = "╰" + kit._stroke_sample(kind) * 2 + _head(kind)
         row += [(sample, (colour, None, False)), (f" {word}  ", mid)]
     wire = (kit.EDGE_DEFAULT, None, False)

@@ -59,6 +59,8 @@ import weakref
 from dataclasses import dataclass, field
 from typing import Callable, NamedTuple, Optional
 
+from sigil.core.graph import node_label, node_lines
+
 
 SYNC_KINDS = ("->", "→", "<->", "*>", "?>")      # the caller waits
 CALL_KINDS = ("->", "→")                         # a plain request (SGC163)
@@ -115,7 +117,6 @@ def flow_facts(doc) -> Facts:
 
 
 def build_facts(doc) -> Facts:
-    kit = doc.scene.kit
     prog = doc.prog
     graphs = [g for g, _owner, _level in doc.graphs]
     nodes = {}
@@ -125,10 +126,10 @@ def build_facts(doc) -> Facts:
     return Facts(
         sim=doc.sim, scene=doc.scene, prog=prog, graph=doc.graph, nodes=nodes,
         mods=node_mods(graphs), flows=work_flows(prog), unit=dict(prog.wire_unit),
-        lines=first_lines(graphs, kit.node_lines), access=doc.access_mode,
+        lines=first_lines(graphs, node_lines), access=doc.access_mode,
         declared=doc.declared_access,
         read_verbs=tuple(doc.read_verbs),
-        label=lambda nid: kit.node_label(nodes[nid]) if nid in nodes else nid,
+        label=lambda nid: node_label(nodes[nid]) if nid in nodes else nid,
         text=tuple(doc.lines))
 
 
