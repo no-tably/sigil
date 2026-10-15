@@ -52,8 +52,13 @@ Re-export and delta. Before writing, export.py reads the manifest already in DIR
       "new", "because"?}}}   (old/new: {"interface", "body"}, or null;
       because: the systems whose interface changed, for a recheck)
 
+A system folder may also hold a builder's own files: export.py deletes or
+compares only the files an earlier export wrote (the names its manifest's
+components give), so any other file in a system folder stays, and a removed
+system's folder stays while it holds one.
+
 Only files whose content changed are written: a system folder is rewritten when
-its files differ from the plan, the index, delta.json and manifest.json when
+its files differ from the plan,the index, delta.json and manifest.json when
 theirs do. A spec edit that only reformats or reorders leaves every system
 unchanged and every system file untouched (the spec hash in the index and the
 manifest still moves). A first export writes no delta.json (its delta, printed
@@ -92,7 +97,6 @@ STATUSES = ("added", "removed", "rebuild", "recheck", "unchanged")
 INDEX = "README.md"
 SYSTEM_README = "README.md"
 SYSTEM_JSON = "system.json"
-WRITTEN_SUFFIXES = (".md", ".json")          # what a system folder holds of ours
 _README_KEY = "\0readme"                     # reserves `readme` among component slugs
 
 
@@ -250,8 +254,10 @@ def manifest_problem(obj) -> Optional[str]:
     for key, e in systems.items():
         if not (isinstance(e, dict)
                 and all(isinstance(e.get(f), str) for f in ("path", "interface", "body"))
-                and isinstance(e.get("depends_on"), list)):
-            return f"system {key!r} lacks path, interface, body or depends_on"
+                and isinstance(e.get("depends_on"), list)
+                and isinstance(e.get("components"), list)
+                and all(isinstance(c, str) for c in e["components"])):
+            return f"system {key!r} lacks path, interface, body, components or depends_on"
         if not _FOLDER_RE.fullmatch(e["path"]):
             return f"system {key!r} has folder {e['path']!r}, no slug"
     return None
@@ -307,6 +313,23 @@ def dropped_folders(old: Optional[dict], new: dict) -> list:
         return []
     keep = {e["path"] for e in new["systems"].values()}
     return sorted({e["path"] for e in old["systems"].values()} - keep)
+
+
+def written_files(manifest: Optional[dict]) -> dict:
+    """{folder: the file names export.py wrote there} for the export `manifest`
+    describes (None: no export yet, so nothing). Only these are ever overwritten
+    as stale or deleted: a file a builder adds to a system folder is not ours."""
+    out: dict = {}
+    for e in (manifest or {}).get("systems", {}).values():
+        out.setdefault(e["path"], set()).update(system_file_names(e["components"]))
+    return {k: frozenset(v) for k, v in out.items()}
+
+
+def system_file_names(glyphs: list) -> set:
+    """The file names a system folder holds for the components `glyphs` (its
+    manifest entry's list, in the same order plan_system names them)."""
+    names = component_files([{"glyph": g} for g in glyphs]).values()
+    return {SYSTEM_README, SYSTEM_JSON, *names}
 
 
 def delta_lines(change: dict) -> list:
@@ -508,20 +531,26 @@ def index_md(spec_name: str, manifest: dict, forms: dict) -> str:
 # ---------------------------------------------------------------------------
 
 def write_export(out: Path, plan: ExportPlan, only: Optional[Iterable] = None,
-                 drop: Iterable[str] = (), change: Optional[dict] = None) -> list:
+                 drop: Iterable[str] = (), change: Optional[dict] = None,
+                 written: Optional[dict] = None) -> list:
     """Write the plan into `out`: the systems (all, or the keys in `only`), then
     remove the folders in `drop`, then the index, then `change` as delta.json
     (when given), then the manifest last via a temp file and os.replace (the
     commit point: a reader never sees a manifest whose files are not there yet).
-    The index, delta.json and manifest are written only when their content
-    changed. Returns the dropped folders kept because they hold files export.py
-    did not write."""
+    `written` ({folder: file names}, from written_files of the earlier manifest)
+    names the files an earlier export wrote: the only ones removed when the plan
+    no longer holds them. The index, delta.json and manifest are written only
+    when their content changed. Returns the dropped folders kept because they
+    hold files export.py did not write."""
+    written = written or {}
     wanted = set(plan.systems if only is None else only)
     keys = [k for k in plan.systems if k in wanted]
     out.mkdir(parents=True, exist_ok=True)
     for k in keys:
-        write_system(out / plan.systems[k].path, plan.systems[k].files)
-    kept = [name for name in drop if not remove_system(out / name)]
+        sp = plan.systems[k]
+        write_system(out / sp.path, sp.files, written.get(sp.path, frozenset()))
+    kept = [name for name in drop
+            if not remove_system(out / name, written.get(name, frozenset()))]
     write_changed(out / INDEX, plan.index)
     if change is not None:
         write_changed(out / DELTA, json_text(change))
@@ -547,27 +576,29 @@ def read_manifest(out: Path) -> Optional[dict]:
     return obj
 
 
-def changed_systems(out: Path, plan: ExportPlan) -> list:
-    """The systems whose folder in `out` differs from the plan (missing, a file
-    more or less, or other content): the only ones written."""
-    return [k for k, sp in plan.systems.items() if folder_differs(out / sp.path, sp.files)]
+def changed_systems(out: Path, plan: ExportPlan, written: dict) -> list:
+    """The systems whose folder in `out` differs from the plan (missing, a planned
+    file missing or with other content, or a stale file an earlier export wrote,
+    named in `written`): the only ones written. Other files are not ours."""
+    return [k for k, sp in plan.systems.items()
+            if folder_differs(out / sp.path, sp.files, written.get(sp.path, frozenset()))]
 
 
-def folder_differs(folder: Path, files: dict) -> bool:
+def folder_differs(folder: Path, files: dict, ours: frozenset) -> bool:
+    """Whether `folder` holds other than `files` among the planned names and the
+    names an earlier export wrote (`ours`)."""
     if not folder.is_dir():
         return True
-    ours = {p.name for p in folder.iterdir() if p.is_file() and p.suffix in WRITTEN_SUFFIXES}
-    return ours != set(files) or any(read_text(folder / n) != c for n, c in files.items())
+    return any(read_text(folder / n) != files.get(n) for n in sorted(set(files) | ours))
 
 
-def remove_system(folder: Path) -> bool:
-    """Remove an earlier export's system folder: the files of ours in it, then the
-    folder itself. False when it stays because it holds other files."""
+def remove_system(folder: Path, ours: frozenset) -> bool:
+    """Remove an earlier export's system folder: the files it wrote there (`ours`),
+    then the folder itself. False when it stays because it holds other files."""
     if not folder.is_dir():
         return True
-    for p in sorted(folder.iterdir()):
-        if p.is_file() and p.suffix in WRITTEN_SUFFIXES:
-            p.unlink()
+    for p in stale_files(folder, ours, {}):
+        p.unlink()
     if any(folder.iterdir()):
         return False
     folder.rmdir()
@@ -589,15 +620,20 @@ def write_changed(path: Path, content: str) -> None:
         write_text(path, content)
 
 
-def write_system(folder: Path, files: dict) -> None:
-    """A system folder holding exactly `files` of ours: a component file an
-    earlier export wrote that the plan no longer has is removed."""
+def write_system(folder: Path, files: dict, ours: frozenset) -> None:
+    """A system folder holding `files`: a file an earlier export wrote there
+    (named in `ours`) that the plan no longer has is removed; any other file is
+    left as it is."""
     folder.mkdir(parents=True, exist_ok=True)
-    for p in sorted(folder.iterdir()):
-        if p.is_file() and p.suffix in WRITTEN_SUFFIXES and p.name not in files:
-            p.unlink()
+    for p in stale_files(folder, ours, files):
+        p.unlink()
     for name, content in files.items():
         write_text(folder / name, content)
+
+
+def stale_files(folder: Path, ours: frozenset, files: dict) -> list:
+    """The files in `folder` an earlier export wrote (`ours`) that `files` lacks."""
+    return [folder / n for n in sorted(ours - set(files)) if (folder / n).is_file()]
 
 
 def write_text(path: Path, content: str) -> None:
@@ -678,10 +714,12 @@ def main(argv=None) -> int:
         head = [f"sigil export (dry run): nothing written to {out}"]
         print(report(change, a.json, head), end="")
         return 0
+    written = written_files(old)
     try:
-        kept = write_export(out, plan, only=changed_systems(out, plan),
+        kept = write_export(out, plan, only=changed_systems(out, plan, written),
                             drop=dropped_folders(old, plan.manifest),
-                            change=change if old is not None else None)
+                            change=change if old is not None else None,
+                            written=written)
     except OSError as exc:
         print(f"export.py: cannot write {out}: {exc}", file=sys.stderr)
         return 1

@@ -164,9 +164,12 @@ class TestManifestProblem(unittest.TestCase):
     def test_refused(self):
         bad_path = manifest({"A": entry("../a", "i", "b")})
         no_body = manifest({"A": {"path": "a", "interface": "i", "depends_on": []}})
+        no_components = manifest({"A": {"path": "a", "interface": "i", "body": "b",
+                                        "depends_on": [], "components": [1]}})
         for obj, word in ((None, "version"), ({"sigil_export": 2}, "version"),
                           ({"sigil_export": 1, "systems": []}, "systems"),
-                          (no_body, "body"), (bad_path, "no slug")):
+                          (no_body, "body"), (bad_path, "no slug"),
+                          (no_components, "components")):
             with self.subTest(obj=obj):
                 self.assertIn(word, export.manifest_problem(obj))
 
@@ -206,6 +209,22 @@ class Tmp(unittest.TestCase):
 
     def delta_json(self) -> dict:
         return json.loads((self.out / "delta.json").read_text(encoding="utf-8"))
+
+
+class TestWrittenFiles(unittest.TestCase):
+    def test_the_names_an_export_wrote(self):
+        old = manifest({"A": dict(entry("a", "i", "b"), components=["[Cart]", "|Db|"])})
+        self.assertEqual(export.written_files(old),
+                         {"a": frozenset({"README.md", "system.json", "cart.md", "db.md"})})
+        self.assertEqual(export.written_files(None), {})
+
+    def test_they_match_the_plan(self):
+        import export_model
+        plan = export.plan_export(export_model.build_model(READY, "shop"), "shop.sigil", READY)
+        written = export.written_files(plan.manifest)
+        for sp in plan.systems.values():
+            with self.subTest(system=sp.key):
+                self.assertEqual(written[sp.path], frozenset(sp.files))
 
 
 class TestFirstExport(Tmp):
@@ -289,6 +308,41 @@ class TestReexport(Tmp):
         after = self.files()
         self.assertTrue(after.pop("delta.json"))
         self.assertEqual(after, before)
+
+    def test_a_builders_files_survive_a_reexport(self):
+        self.exported(READY)
+        mine = {"billing/NOTES.md": "mine\n", "billing/package.json": "{}\n",
+                "shop/NOTES.md": "mine too\n", "shop/package.json": "{}\n"}
+        for name, text in mine.items():
+            (self.out / name).write_text(text, encoding="utf-8")
+        self.age()
+        d = json.loads(self.exported(NOTIFY, "--json"))
+        self.assertEqual(d["unchanged"], [])
+        self.assertIn("shop", d["rebuild"])           # a rebuilt system (folder shop/)
+        self.assertEqual(d["recheck"], ["Billing"])   # its files are not rewritten
+        self.assertFalse([f for f in self.rewritten() if f.startswith("billing/")])
+        self.assertIn("shop/system.json", self.rewritten())
+        for name, text in mine.items():
+            with self.subTest(file=name):
+                self.assertEqual((self.out / name).read_text(encoding="utf-8"), text)
+
+    def test_a_builders_files_survive_an_unchanged_reexport(self):
+        self.exported(READY)
+        (self.out / "billing" / "NOTES.md").write_text("mine\n", encoding="utf-8")
+        self.age()
+        d = json.loads(self.exported(REORDERED, "--json"))
+        self.assertEqual(sorted(d["unchanged"]), ["Billing", "Shop", "shop"])
+        self.assertEqual(self.rewritten(), {"README.md", "delta.json", "manifest.json"})
+        self.assertTrue((self.out / "billing" / "NOTES.md").exists())
+
+    def test_a_removed_systems_folder_keeps_a_builders_markdown(self):
+        self.exported(READY)
+        (self.out / "billing" / "NOTES.md").write_text("mine\n", encoding="utf-8")
+        code, _out, err = self.export(NO_BILLING)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(sorted(p.name for p in (self.out / "billing").iterdir()),
+                         ["NOTES.md"])
+        self.assertIn("kept", err)
 
     def test_delta_written_before_the_manifest(self):
         self.exported(READY)
