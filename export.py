@@ -4,13 +4,15 @@ export.py — export a ready Sigil spec as a build skeleton: one folder per syst
 one Markdown file per component, and a manifest that is the contract.
 
 Usage:
-    ./export.py <spec.sigil> --out DIR [--dialect D]
+    ./export.py <spec.sigil> --out DIR [--dialect D] [--json] [--dry-run]
 
 Options:
     --out DIR    the export folder (made when missing). It must be empty, or hold
                  an earlier export (a manifest.json): export.py never writes over
                  a folder it did not make
     --dialect D  load a dialect (as lint.py and check.py do; default $SIGIL_DIALECT)
+    --json       print the delta as JSON instead of the summary in words
+    --dry-run    print the delta and write nothing
 
 The gate. Only a document that is ready exports: its mode line is `#!spec`,
 lint.py reports no error, and check.py with the readiness rules (`--export`,
@@ -22,6 +24,7 @@ The folder (systems, homes and hashes as export_model.py reads them):
 
     DIR/
       manifest.json            the contract, written LAST (temp file + os.replace)
+      delta.json               on a re-export: what changed since the manifest before
       README.md                the index: systems, what each depends on
       <system>/README.md       the system: description, components, boundary, deps
       <system>/<component>.md  kind, description, interface, requirements, lifecycle
@@ -33,9 +36,33 @@ The folder (systems, homes and hashes as export_model.py reads them):
 Folder and file names are slugs of the names (export_model.slugs). Whoever
 builds against the export reads the manifest first: its hashes are the truth.
 
-Exit codes: 0 exported · 1 the folder could not be written · 2 not ready to
+Re-export and delta. Before writing, export.py reads the manifest already in DIR
+(if any) and sorts every system into one list:
+
+    added      in the new export only
+    removed    in the old one only (its folder is deleted)
+    rebuild    its body hash changed
+    recheck    its body is unchanged, but a system it depends on changed its
+               interface (its calls into that system need a second look)
+    unchanged  neither
+
+    delta.json = {"sigil_delta": 1, "spec": <file name>, "from": <old spec_hash>,
+      "to": <new spec_hash>, "added": […], "removed": […], "rebuild": […],
+      "recheck": […], "unchanged": […], "systems": {name: {"status", "old",
+      "new", "because"?}}}   (old/new: {"interface", "body"}, or null;
+      because: the systems whose interface changed, for a recheck)
+
+Only files whose content changed are written: a system folder is rewritten when
+its files differ from the plan, the index, delta.json and manifest.json when
+theirs do. A spec edit that only reformats or reorders leaves every system
+unchanged and every system file untouched (the spec hash in the index and the
+manifest still moves). A first export writes no delta.json (its delta, printed
+with --json or --dry-run, lists every system as added). The delta is a hint:
+the manifest's hashes stay the truth.
+
+Exit codes: 0 exported (or a dry run) · 1 the folder could not be written · 2 not ready to
 export, or bad input (unreadable spec, unknown dialect, a folder export.py did
-not make).
+not make, or a manifest.json export.py cannot read).
 
 Standard library only. Deterministic: no clock, no randomness, no set-order output.
 """
@@ -47,6 +74,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -58,6 +86,9 @@ _HERE = Path(__file__).resolve().parent
 
 EXPORT_VERSION = 1
 MANIFEST = "manifest.json"
+DELTA = "delta.json"
+DELTA_VERSION = 1
+STATUSES = ("added", "removed", "rebuild", "recheck", "unchanged")
 INDEX = "README.md"
 SYSTEM_README = "README.md"
 SYSTEM_JSON = "system.json"
@@ -198,6 +229,107 @@ def component_files(components: list) -> dict:
 
 def json_text(obj) -> str:
     return json.dumps(obj, indent=2, ensure_ascii=False) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# The delta: an earlier export's manifest against the new one (pure)
+# ---------------------------------------------------------------------------
+
+_FOLDER_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
+
+
+def manifest_problem(obj) -> Optional[str]:
+    """Why `obj` (a parsed manifest.json) is no manifest this export.py wrote
+    (None: it is one). Folder names must be slugs, so a delta never deletes
+    anything outside the export."""
+    if not isinstance(obj, dict) or obj.get("sigil_export") != EXPORT_VERSION:
+        return f"not a version {EXPORT_VERSION} export manifest"
+    systems = obj.get("systems")
+    if not isinstance(systems, dict):
+        return "no systems"
+    for key, e in systems.items():
+        if not (isinstance(e, dict)
+                and all(isinstance(e.get(f), str) for f in ("path", "interface", "body"))
+                and isinstance(e.get("depends_on"), list)):
+            return f"system {key!r} lacks path, interface, body or depends_on"
+        if not _FOLDER_RE.fullmatch(e["path"]):
+            return f"system {key!r} has folder {e['path']!r}, no slug"
+    return None
+
+
+def delta(old: Optional[dict], new: dict) -> dict:
+    """What changed from the manifest `old` (None: a first export, so every system
+    is added) to the manifest `new`: a list per status and, per system, its status
+    with its old and new hashes."""
+    olds, news = (old or {}).get("systems", {}), new["systems"]
+    systems = {k: system_delta(k, olds, news) for k in news}
+    systems.update({k: {"status": "removed", "old": hashes(olds[k]), "new": None}
+                    for k in sorted(olds) if k not in news})
+    out = {"sigil_delta": DELTA_VERSION, "spec": new["spec"],
+           "from": old.get("spec_hash") if old else None, "to": new["spec_hash"]}
+    for status in STATUSES:
+        out[status] = [k for k, d in systems.items() if d["status"] == status]
+    out["systems"] = systems
+    return out
+
+
+def system_delta(key: str, olds: dict, news: dict) -> dict:
+    """One system of the new export against the old: added, rebuild (its body
+    changed), recheck (`because` names the systems it depends on whose interface
+    changed) or unchanged."""
+    old, new = olds.get(key), news[key]
+    entry = {"old": hashes(old), "new": hashes(new)}
+    if old is None:
+        return {"status": "added", **entry}
+    if old["body"] != new["body"]:
+        return {"status": "rebuild", **entry}
+    because = [d for d in new["depends_on"] if interface_changed(d, olds, news)]
+    if because:
+        return {"status": "recheck", **entry, "because": because}
+    return {"status": "unchanged", **entry}
+
+
+def interface_changed(key: str, olds: dict, news: dict) -> bool:
+    """Whether system `key` (in the new export) has an interface the old export
+    did not (a system new to it counts as changed)."""
+    old = olds.get(key)
+    return old is None or old["interface"] != news[key]["interface"]
+
+
+def hashes(entry: Optional[dict]) -> Optional[dict]:
+    return None if entry is None else {"interface": entry["interface"], "body": entry["body"]}
+
+
+def dropped_folders(old: Optional[dict], new: dict) -> list:
+    """The folders of the old export no system of the new one uses (removed
+    systems, and systems whose folder name moved)."""
+    if not old:
+        return []
+    keep = {e["path"] for e in new["systems"].values()}
+    return sorted({e["path"] for e in old["systems"].values()} - keep)
+
+
+def delta_lines(change: dict) -> list:
+    """The delta in words: a count line, then a line per status that has systems."""
+    if change["from"] is None:
+        return [f"first export: {len(change['added'])} system(s) added"]
+    counts = ", ".join(f"{len(change[s])} {s}" for s in STATUSES if change[s])
+    out = [f"since spec {change['from']}: {counts or 'no systems'}"]
+    for status in STATUSES[:-1]:
+        for key in change[status]:
+            out.append(f"  {status:<9}  {key}{delta_note(change['systems'][key])}")
+    if change["unchanged"]:
+        out.append(f"  {'unchanged':<9}  {', '.join(change['unchanged'])}")
+    return out
+
+
+def delta_note(d: dict) -> str:
+    """What a status line adds: a rebuild's body hashes, what a recheck depends on."""
+    if d["status"] == "rebuild":
+        return f" (body {d['old']['body']} → {d['new']['body']})"
+    if d["status"] == "recheck":
+        return f" (interface changed: {', '.join(d['because'])})"
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -375,17 +507,86 @@ def index_md(spec_name: str, manifest: dict, forms: dict) -> str:
 # Writing (the only side effects)
 # ---------------------------------------------------------------------------
 
-def write_export(out: Path, plan: ExportPlan, only: Optional[Iterable] = None) -> None:
+def write_export(out: Path, plan: ExportPlan, only: Optional[Iterable] = None,
+                 drop: Iterable[str] = (), change: Optional[dict] = None) -> list:
     """Write the plan into `out`: the systems (all, or the keys in `only`), then
-    the index, then the manifest last via a temp file and os.replace (the commit
-    point: a reader never sees a manifest whose files are not there yet)."""
+    remove the folders in `drop`, then the index, then `change` as delta.json
+    (when given), then the manifest last via a temp file and os.replace (the
+    commit point: a reader never sees a manifest whose files are not there yet).
+    The index, delta.json and manifest are written only when their content
+    changed. Returns the dropped folders kept because they hold files export.py
+    did not write."""
     wanted = set(plan.systems if only is None else only)
     keys = [k for k in plan.systems if k in wanted]
     out.mkdir(parents=True, exist_ok=True)
     for k in keys:
         write_system(out / plan.systems[k].path, plan.systems[k].files)
-    write_text(out / INDEX, plan.index)
-    replace_text(out / MANIFEST, json_text(plan.manifest))
+    kept = [name for name in drop if not remove_system(out / name)]
+    write_changed(out / INDEX, plan.index)
+    if change is not None:
+        write_changed(out / DELTA, json_text(change))
+    manifest = json_text(plan.manifest)
+    if read_text(out / MANIFEST) != manifest:
+        replace_text(out / MANIFEST, manifest)
+    return kept
+
+
+def read_manifest(out: Path) -> Optional[dict]:
+    """The manifest of the export already in `out` (None: there is none). Raises
+    ValueError for one export.py cannot read."""
+    text = read_text(out / MANIFEST)
+    if text is None:
+        return None
+    try:
+        obj = json.loads(text)
+    except ValueError as exc:
+        raise ValueError(f"{out / MANIFEST} is no JSON: {exc}") from None
+    problem = manifest_problem(obj)
+    if problem:
+        raise ValueError(f"{out / MANIFEST}: {problem}")
+    return obj
+
+
+def changed_systems(out: Path, plan: ExportPlan) -> list:
+    """The systems whose folder in `out` differs from the plan (missing, a file
+    more or less, or other content): the only ones written."""
+    return [k for k, sp in plan.systems.items() if folder_differs(out / sp.path, sp.files)]
+
+
+def folder_differs(folder: Path, files: dict) -> bool:
+    if not folder.is_dir():
+        return True
+    ours = {p.name for p in folder.iterdir() if p.is_file() and p.suffix in WRITTEN_SUFFIXES}
+    return ours != set(files) or any(read_text(folder / n) != c for n, c in files.items())
+
+
+def remove_system(folder: Path) -> bool:
+    """Remove an earlier export's system folder: the files of ours in it, then the
+    folder itself. False when it stays because it holds other files."""
+    if not folder.is_dir():
+        return True
+    for p in sorted(folder.iterdir()):
+        if p.is_file() and p.suffix in WRITTEN_SUFFIXES:
+            p.unlink()
+    if any(folder.iterdir()):
+        return False
+    folder.rmdir()
+    return True
+
+
+def read_text(path: Path) -> Optional[str]:
+    """A file's exact text (newlines as written; bytes that are no UTF-8 as
+    U+FFFD), or None when there is none."""
+    try:
+        with open(path, encoding="utf-8", errors="replace", newline="") as fh:
+            return fh.read()
+    except FileNotFoundError:
+        return None
+
+
+def write_changed(path: Path, content: str) -> None:
+    if read_text(path) != content:
+        write_text(path, content)
 
 
 def write_system(folder: Path, files: dict) -> None:
@@ -430,6 +631,11 @@ def done_lines(plan: ExportPlan, out: Path) -> list:
     return out_lines
 
 
+def report(change: dict, as_json: bool, head: list) -> str:
+    """What export.py prints: the delta as JSON, or `head` and the delta in words."""
+    return json_text(change) if as_json else "\n".join(head + delta_lines(change)) + "\n"
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         prog="export.py",
@@ -440,6 +646,10 @@ def main(argv=None) -> int:
                     help="the export folder (empty, or an earlier export)")
     ap.add_argument("--dialect", default=None,
                     help="dialect name or path (default: $SIGIL_DIALECT)")
+    ap.add_argument("--json", action="store_true",
+                    help="print the delta (what changed since the export in DIR) as JSON")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="print the delta and write nothing")
     a = ap.parse_args(argv)
     spec, out = Path(a.spec), Path(a.out)
     try:
@@ -454,17 +664,31 @@ def main(argv=None) -> int:
         print(f"export.py: {spec.name} is not ready to export: {len(blocking)} "
               "blocking line(s); nothing written", file=sys.stderr)
         return 2
-    problem = out_problem(out)
+    try:
+        problem = out_problem(out)
+        old = None if problem else read_manifest(out)
+    except (ValueError, OSError) as exc:
+        problem = str(exc)
     if problem:
         print(f"export.py: {problem}", file=sys.stderr)
         return 2
     plan = plan_export(_model().build_model(text, spec.stem, dialect), spec.name, text)
+    change = delta(old, plan.manifest)
+    if a.dry_run:
+        head = [f"sigil export (dry run): nothing written to {out}"]
+        print(report(change, a.json, head), end="")
+        return 0
     try:
-        write_export(out, plan)
+        kept = write_export(out, plan, only=changed_systems(out, plan),
+                            drop=dropped_folders(old, plan.manifest),
+                            change=change if old is not None else None)
     except OSError as exc:
         print(f"export.py: cannot write {out}: {exc}", file=sys.stderr)
         return 1
-    print("\n".join(done_lines(plan, out)))
+    for name in kept:
+        print(f"export.py: kept {out / name}/: it holds files export.py did not "
+              "write (its system is gone)", file=sys.stderr)
+    print(report(change, a.json, done_lines(plan, out)), end="")
     return 0
 
 
