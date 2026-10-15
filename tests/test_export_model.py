@@ -136,6 +136,16 @@ class TestSystems(unittest.TestCase):
         self.assertEqual(list(m.systems), ["shop", "shop (service)"])
 
 
+    def test_same_named_systems_keyed_by_kind_not_order(self):
+        svc = "[Pay] := {\n  [A] -> [B] : {X}\n}\n"
+        data = "{Pay} := {\n  [C] -> [D] : {Y}\n}\n"
+        keys = [sorted((k, s.face) for k, s in model(t, "t").systems.items())
+                for t in (svc + data, data + svc)]
+        self.assertEqual(keys[0], keys[1])
+        self.assertEqual(keys[0], [("Pay", "Pay_service"), ("Pay (data)", "Pay_data"),
+                                   ("t", None)])
+
+
 class TestComponents(unittest.TestCase):
     def test_kind_description_interface(self):
         m = model()
@@ -161,6 +171,20 @@ class TestComponents(unittest.TestCase):
         flow = api.flows[-1]
         self.assertEqual(flow.mods, (("timeout", "2s"), ("×", "3")))
 
+    def test_a_glyph_in_op_arguments_is_no_appearance(self):
+        text = ("#!spec\n(User) -> [Api] : {Q} => {A}\n"
+                "[Api] -> |Db| : find(User) => {A}  # accepts: unbounded-retry — fine\n")
+        m = model(text, "t")
+        user = m.components["User_actor"]
+        self.assertEqual((user.lines, user.accepts), ((2,), ()))
+        self.assertEqual(m.components["Db_store"].lines, (3,))
+
+    def test_a_declaration_takes_no_neighbours_acknowledgement(self):
+        text = ("#!spec\n[A] @sla(p99<1s)\n"
+                "[B] -> [C] : get(k) => {V}  # accepts: unbounded-retry — fine\n")
+        a = model(text, "t").components["A_service"]
+        self.assertEqual((a.lines, a.accepts), ((2,), ()))
+
     def test_lifecycle(self):
         text = ("[Checkout] -> {Order} : {Cart}\n[Pay] ~> <Paid>\n"
                 "state {Order} {\n  + -<Placed>-> Open\n  Open -<Paid>-> Settled\n"
@@ -175,6 +199,16 @@ class TestComponents(unittest.TestCase):
 class TestHashes(unittest.TestCase):
     def test_reformatting_and_reordering_change_no_hash(self):
         self.assertEqual(hashes(model()), hashes(model(SHOP_SHUFFLED)))
+
+    def test_swapping_expansions_around_a_shared_node_changes_no_hash(self):
+        top = "[A] -> [Log] : put(x) => {Ok}\n[B] -> [Log] : put(x) => {Ok}\n[Log]\n"
+        a = "[A] := {\n  [Log] -> |Disk| : {Line}\n}\n"
+        b = "[B] := {\n  [Log] -> |Tape| : {Line}\n}\n"
+        before, after = model(top + a + b, "t"), model(top + b + a, "t")
+        self.assertEqual(before.shared, ())
+        self.assertEqual(hashes(before), hashes(after))
+        log = em.component_json(after.components["Log_service"], after.components)
+        self.assertEqual(log["also_in"], ["A", "B"])
 
     def test_hashes_are_16_hex(self):
         for i, b in hashes(model()).values():

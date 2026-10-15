@@ -36,6 +36,11 @@ HOMES
   (a member of two sibling expansions, of two trees) the node has no one home:
   it is listed in Model.shared (SGC401) and lives in its first candidate.
 
+  A system's KEY is its name; systems sharing a name (or the stem) get a
+  ` (kind)` suffix by a stable rule — their face's node kind (a service keeps
+  the plain name before a store, actor, event, data or a dialect's kind), then
+  its id — never by which comes first in the source.
+
 COMPONENTS
 
   One per node that is a service, store, event, actor or data glyph (or a kind
@@ -47,7 +52,10 @@ COMPONENTS
   requirements  modifiers written on it (`@inv` `@owns` `@read` `×N` `^N` …),
                 the access it is granted (`|S| @read(P)` → P reads |S|), and
                 every `# accepts:` acknowledgement covering a line it is on,
-                verbatim
+                verbatim (a line it is on: an edge, access list, join or block
+                header naming it, or a statement it heads — a declaration, a
+                tree root, a `\\-` branch; never a glyph inside a payload or
+                an op's arguments)
   lifecycle     its state machine (states, initial, terminal, transitions)
 
 BOUNDARIES AND DEPENDENCIES
@@ -74,7 +82,7 @@ import importlib.util
 import json
 import re
 import sys
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Iterable, NamedTuple, Optional
 
@@ -158,6 +166,7 @@ class Component:
     glyph: str                          # as the spec writes it: `[Api]`, `~{Session}`
     home: str                           # system key
     systems: tuple                      # every candidate system, first seen first
+                                        # (picks the home; also_in lists them sorted)
     description: tuple
     flows: tuple                        # Flows touching it
     modifiers: tuple                    # (name, arg), sorted
@@ -244,7 +253,9 @@ def model_of(graph, lines: list, stem: str, acks: Iterable = ()) -> Model:
     facts = Facts(graph, layout, homes, flows,
                   {nid: glyph([n]) for g in walk(graph) for nid, n in g.nodes.items()},
                   tuple((a, ack_text(lines, a.line, render.comment_start)) for a in acks))
-    appears = appearance_lines(lines, nodes, flows, render.strip_comment)
+    heads = head_lines(lines, {nid: glyph(insts[:1]).lstrip("~*") for nid, insts in nodes.items()},
+                       render.strip_comment, render.BRANCH_RE)
+    appears = merged(graph_lines(graph, nodes), heads)
     components = {nid: make_component(nid, insts, appears[nid], facts)
                   for nid, insts in nodes.items()}
     inside = in_systems(components, layout)
@@ -280,12 +291,15 @@ class Layout:
     candidates: dict
     graph_system: dict                  # id(graph) → system key
     machines: dict                      # owner node id → state Graph
+    face_kinds: dict = field(default_factory=dict)   # face node id → its node kind
 
 
 def lay_out(graph, stem: str) -> Layout:
+    """The layout of a document: systems keyed first by their face's node id, then
+    renamed to their names (see named_keys), so no key depends on source order."""
     lay = Layout(stem, {stem: (stem, "top", None, None)}, {}, {}, {}, {})
     _lay_graph(graph, stem, lay)
-    return lay
+    return renamed(lay, named_keys(lay))
 
 
 def _lay_graph(g, key: str, lay: Layout):
@@ -349,10 +363,47 @@ def _system_for(lay: Layout, node, kind: str, parent: Optional[str]) -> str:
         if old is None and parent is not None and parent != key:
             lay.systems[key] = (name, k, face, parent)
         return key
-    key = unique_key(node.name, node.kind, lay.systems)
+    key = FACE_KEY + node.id            # provisional: unique, renamed by lay_out
     lay.systems[key] = (node.name, kind, node.id, parent)
     lay.by_face[node.id] = key
+    lay.face_kinds[node.id] = node.kind
     return key
+
+
+FACE_KEY = "\0"                         # prefix of a provisional system key
+KEY_KINDS = ("service", "store", "actor", "event", "data")   # who keeps a shared name
+
+
+def named_keys(lay: Layout) -> dict:
+    """{provisional key: system key}: a system is keyed by its name; systems that
+    share a name (or the top's) are told apart by a stable rule — by their face's
+    node kind (KEY_KINDS order, a dialect's kinds after), then its node id —
+    never by which comes first in the source."""
+    names, taken = {lay.top: lay.top}, {lay.top}
+
+    def rank(k):
+        name, _kind, face, _parent = lay.systems[k]
+        kind = lay.face_kinds[face]
+        return (name, KEY_KINDS.index(kind) if kind in KEY_KINDS else len(KEY_KINDS),
+                kind, face)
+
+    faced = sorted((k for k in lay.systems if k != lay.top), key=rank)
+    for k in faced:
+        name, face = lay.systems[k][0], lay.systems[k][2]
+        names[k] = unique_key(name, lay.face_kinds[face], taken)
+        taken.add(names[k])
+    return names
+
+
+def renamed(lay: Layout, names: dict) -> Layout:
+    """lay with every system key mapped through `names` (order kept)."""
+    return replace(
+        lay,
+        systems={names[k]: (n, kd, f, names.get(p) if p is not None else None)
+                 for k, (n, kd, f, p) in lay.systems.items()},
+        by_face={f: names[k] for f, k in lay.by_face.items()},
+        candidates={nid: [names[k] for k in ks] for nid, ks in lay.candidates.items()},
+        graph_system={g: names[k] for g, k in lay.graph_system.items()})
 
 
 def unique_key(name: str, kind: str, taken) -> str:
@@ -488,20 +539,60 @@ def lifecycle(machine) -> Optional[Lifecycle]:
         transitions=trans)
 
 
-def appearance_lines(lines: list, nodes: dict, flows: list, strip_comment) -> dict:
-    """{node id: sorted lines it is written on}: its flows' lines and every line
-    whose code holds its glyph."""
+def graph_lines(graph, nodes: dict) -> dict:
+    """{node id: lines it is written on}, as the graphs tell: the lines of the
+    edges, access lists, joins and block headers naming it and the statements a
+    trailing comment of its sits on. (viewkit.node_lines also guesses a line for
+    a node nothing names, from its neighbours; a guessed line would hand it their
+    acknowledgements, so head_lines finds those instead.)"""
     out = {nid: set() for nid in nodes}
-    for f in flows:
-        for nid in (f.src, f.dst):
-            if f.line:
-                out[nid].add(f.line)
-    marks = {nid: glyph([insts[0]]).lstrip("~*") for nid, insts in nodes.items()}
+
+    def at(nid, line):
+        if nid in out and line:
+            out[nid].add(line)
+
+    for g in walk(graph):
+        for e in g.edges:
+            at(e.src, e.line)
+            at(e.dst, e.line)
+        for a in g.access:
+            at(a.principal, a.line)
+            at(a.store, a.line)
+        for j in g.joins:
+            for m in j.members:
+                at(m, j.line)
+        for b in g.blocks:
+            for m in b.refs:
+                at(m, b.lines[0])
+        for n in g.notes:
+            if n.kind == "inline":
+                at(n.node, n.line)
+    return out
+
+
+def head_lines(lines: list, marks: dict, strip_comment, branch_re) -> dict:
+    """{node id: lines whose statement starts with its glyph}: a declaration
+    (`[Api] @sla(…)`), a tree root, or a `\\-` branch's child (tree entries
+    carry no line, and a bare declaration names no edge). `marks`: node id → its
+    glyph without `~`/`*`. Only a statement's head counts: a glyph inside a
+    payload or an op's arguments (`find(User)`) is no appearance."""
+    lead = rf"(?:^\s*|(?:{branch_re.pattern})\s*)[~*]*"
+    pats = {nid: re.compile(lead + re.escape(mark) + r"(?!\w)") for nid, mark in marks.items()}
+    out = {nid: set() for nid in marks}
     for k, raw in enumerate(lines, start=1):
         code = strip_comment(raw)
-        for nid, mark in marks.items():
-            if mark in code:
+        for nid, pat in pats.items():
+            if pat.search(code):
                 out[nid].add(k)
+    return out
+
+
+def merged(*found: dict) -> dict:
+    """{node id: sorted lines} of several {node id: set of lines} maps."""
+    out = {}
+    for f in found:
+        for nid, v in f.items():
+            out.setdefault(nid, set()).update(v)
     return {nid: tuple(sorted(v)) for nid, v in out.items()}
 
 
@@ -662,7 +753,7 @@ def component_json(c: Component, components: dict) -> dict:
     lc = c.lifecycle
     return _compact({
         "name": c.name, "kind": c.kind, "glyph": c.glyph, "home": c.home,
-        "also_in": [s for s in c.systems if s != c.home],
+        "also_in": sorted(s for s in c.systems if s != c.home),
         "description": list(c.description),
         "interface": _sorted([flow_json(f, components, c.id) for f in c.flows]),
         "requirements": _compact({
