@@ -34,6 +34,11 @@ Each input gets a directory `tests/golden/<input>/` with one file per variant:
   prints (the happy run's timeline as JSON), for RUN_JSON_INPUTS at RUN_JSON_DEPTHS;
 - `mermaid.txt` — what `render.py <input>.sigil` prints.
 
+The export variant: for each of EXPORT_INPUTS, `tests/golden/export/<input>/` holds
+every file `export.py <input>.sigil --out DIR` writes into an empty DIR (the index,
+a folder per system, manifest.json), byte for byte. `--only export` checks just
+these. No input may be named `export`.
+
 Drawings are made in-process (view.once, its stdout captured) with the built-in
 `sigil` theme and no dialect, so $SIGIL_THEME / $SIGIL_DIALECT don't leak in. The
 CLI re-runs itself with PYTHONHASHSEED=0: a drawing must not depend on set order,
@@ -74,6 +79,9 @@ HASH_SEED = "0"
 _BEAT = re.compile(r"t\d{3} ")       # a line of the run in words (view.beat_line)
 # Fixtures drawn alongside the site examples (by stem, so each names its own directory).
 FIXTURES = ("coverage.sigil", "executions.sigil")
+EXPORT_DIR = "export"           # tests/golden/export/<input>/: what export.py writes
+EXPORT_INPUTS = ("07-export",)  # the inputs exported (each a ready #!spec document)
+GOLDEN_SUFFIXES = (".txt", ".md", ".json")   # the files a golden directory holds
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +178,7 @@ def collect_inputs(root: Path) -> list[Input]:
     inputs = [Input(p.stem, p.read_text(encoding="utf-8")) for p in files]
     inputs += examples_inputs((root / "examples.md").read_text(encoding="utf-8"),
                               drawn=frozenset(i.text for i in inputs))
-    names = [i.name for i in inputs]
+    names = [i.name for i in inputs] + [EXPORT_DIR]
     clash = sorted({n for n in names if names.count(n) > 1})
     if clash:
         raise ValueError(f"golden inputs share a name: {', '.join(clash)}")
@@ -181,13 +189,19 @@ def collect_inputs(root: Path) -> list[Input]:
 # Drawing
 # ---------------------------------------------------------------------------
 
-def load_view(root: Path):
-    """A private instance of the repo's view.py (its own theme state), themed THEME.
-    view.render is the render.py it loaded."""
-    spec = importlib.util.spec_from_file_location("sigil_golden_view", root / "view.py")
+def load_module(root: Path, fname: str, name: str):
+    """A private instance of the repo's tool `fname`, as module `name`."""
+    spec = importlib.util.spec_from_file_location(name, root / fname)
     mod = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = mod    # dataclasses resolve string annotations via sys.modules
     spec.loader.exec_module(mod)
+    return mod
+
+
+def load_view(root: Path):
+    """A private instance of the repo's view.py (its own theme state), themed THEME.
+    view.render is the render.py it loaded."""
+    mod = load_module(root, "view.py", "sigil_golden_view")
     mod.use_theme(THEME)
     return mod
 
@@ -240,15 +254,42 @@ def draw_input(view, workdir: Path, inp: Input, runs: frozenset = frozenset()) -
 
 
 def draw_all(root: Path, only: str | None = None) -> dict[str, str]:
-    """Every golden drawing of the repo at `root` (only input `only`, when given)."""
+    """Every golden drawing of the repo at `root` (only input `only`, when given;
+    EXPORT_DIR: only the exports)."""
     view = load_view(root)
-    inputs = [i for i in collect_inputs(root) if only is None or i.name == only]
+    every = collect_inputs(root)
+    inputs = [i for i in every if only is None or i.name == only]
     runs = run_inputs(root)
     out: dict[str, str] = {}
     with tempfile.TemporaryDirectory() as tmp:
         for inp in inputs:
             out.update(draw_input(view, Path(tmp), inp, runs))
+        if only in (None, EXPORT_DIR):
+            exporter = load_module(root, "export.py", "sigil_golden_export")
+            for inp in (i for i in every if i.name in EXPORT_INPUTS):
+                out.update(export_input(exporter, Path(tmp), inp))
     return out
+
+
+# ---------------------------------------------------------------------------
+# Exporting
+# ---------------------------------------------------------------------------
+
+def export_input(exporter, workdir: Path, inp: Input) -> dict[str, str]:
+    """Every file `export.py <name>.sigil --out DIR` writes into an empty DIR,
+    keyed `EXPORT_DIR/<input>/<path in DIR>`. Raises ValueError when the input
+    does not export (not ready, or the folder could not be written)."""
+    path = workdir / f"{inp.name}.sigil"
+    path.write_text(inp.text, encoding="utf-8")
+    out_dir = workdir / EXPORT_DIR / inp.name
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+        code = exporter.main([str(path), "--out", str(out_dir)])
+    if code != 0:
+        raise ValueError(f"{inp.name} does not export (exit {code}):\n{buf.getvalue()}")
+    return {f"{EXPORT_DIR}/{inp.name}/{p.relative_to(out_dir).as_posix()}":
+            p.read_text(encoding="utf-8")
+            for p in sorted(out_dir.rglob("*")) if p.is_file()}
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +314,8 @@ class Drift:
 def read_goldens(golden_dir: Path, only: str | None = None) -> dict[str, str]:
     base = golden_dir / only if only else golden_dir
     return {p.relative_to(golden_dir).as_posix(): p.read_text(encoding="utf-8")
-            for p in sorted(base.rglob("*.txt"))}
+            for p in sorted(base.rglob("*"))
+            if p.is_file() and p.suffix in GOLDEN_SUFFIXES}
 
 
 def compare(golden: dict[str, str], drawn: dict[str, str]) -> Drift:

@@ -1,0 +1,47 @@
+#!spec
+# a small shop, locked as a spec and ready to export: each expansion and each
+# composition tree becomes a system of its own (try export.py --out DIR)
+
+--- shop ---
+
+# signed-in shoppers only; the storefront answers every request
+(Shopper) -> [Storefront] : browse({Query}) => {Page}
+[Storefront] @sla(p99<200ms)
+(Shopper) -> [Storefront] : buy({Basket}) => {Receipt}
+[Storefront] -> [Catalog] : lookup({Sku}) => {Item} @timeout(500ms) @fallback("cached")
+[Storefront] -> [Checkout] : place({Basket}) => {Receipt} @timeout(5s)
+  !> (Shopper) : <Declined>                # a failed payment reaches the shopper
+
+# the catalogue: one tree of listings, each item with its price and stock
+[Catalog]
+    \-> |Listings|
+    \-> |Prices|        # one price per sku, in the shop's currency
+
+# the warehouse: its stock counts set the prices of scarce items
+[Warehouse]
+    \-> [Stock]
+[Stock] -> |Prices| : reprice({Sku}, {Count}) => {Ack}
+
+[Checkout] := {
+  # holds the basket until it is paid
+  [Basket] -> [Payments] : charge({Total}) => {Receipt} ×3 @after(1s) @inv idempotent(order)
+  [Basket] -> |Orders| : save({Order}) => {Ack}
+  [Basket] ~> <OrderPlaced>
+}
+
+[Checkout] ~> <OrderPlaced> *> [Fulfilment]
+
+[Fulfilment] := {
+  # picks and packs one order at a time, oldest first
+  [Picker] -> [Packer] : pack({Order}) => {Parcel}
+  [Packer] ~> <Shipped>
+  [Packer] @inv ordered(order) @inv retention(1h)
+
+  # the packer's modes
+  state [Packer] {
+    +        -<OrderPlaced>->  Packing
+    Packing  -<OrderPlaced>->  Packing     # a new order waits its turn
+    Packing  -<Shipped>->      Idle
+    Idle     -<OrderPlaced>->  Packing
+  }
+}
