@@ -1,0 +1,1 @@
+# Cases expected to change: fnmatch patterns over case ids (command/corpus name), one a line.
