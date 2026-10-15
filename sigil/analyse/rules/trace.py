@@ -567,7 +567,7 @@ def trace_facts(ck, doc) -> TraceFacts:
 
 def state_module(ck):
     """check_state.py, the module that holds the shared static facts."""
-    return ck._rule_module(ck._HERE / "check_state.py")
+    return ck._rule_module("state")
 
 
 def in_run(run: Run) -> str:

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 themes.py — load a Sigil colour theme (themes/<name>.yaml).
 
@@ -45,7 +44,7 @@ import sys
 from pathlib import Path
 from typing import Union
 
-_DIR = Path(__file__).resolve().parent
+_DIR = Path(__file__).resolve().parents[2]      # the folder holding themes/
 DEFAULT = "sigil"
 
 Node = Union[dict, str]

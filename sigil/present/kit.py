@@ -29,30 +29,15 @@ PAYLOAD_STYLE, … — see _theme_styles()), so other modules read them as
 from __future__ import annotations
 
 import colorsys
-import importlib.util
 import itertools
 import re
-import sys
 import textwrap
 import unicodedata
-from pathlib import Path
 from typing import NamedTuple
 
-
-_DIR = Path(__file__).resolve().parent
-
-
-def _load(name: str, fname: str):
-    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod   # dataclasses resolve string annotations via sys.modules
-    spec.loader.exec_module(mod)
-    return mod
-
-
-render = _load("sigil_render", "render.py")
-lint = _load("sigil_lint", "lint.py")
-themes = _load("sigil_themes", "themes.py") if (_DIR / "themes.py").exists() else None
+from sigil.core import parse as render
+from sigil.analyse import lint
+from sigil.present import themes
 
 
 # ---------------------------------------------------------------------------

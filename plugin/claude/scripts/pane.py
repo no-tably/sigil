@@ -65,8 +65,10 @@ import unicodedata
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-# the tools: beside this file in the plugin, two up in the repo
-_TOOLS = _HERE if (_HERE / "view.py").is_file() else _HERE.parents[2]
+# the sigil package (and bin/sigil): beside this file in the plugin, two up in the repo
+_TOOLS = _HERE if (_HERE / "sigil").is_dir() else _HERE.parents[2]
+if str(_TOOLS) not in sys.path:
+    sys.path.insert(0, str(_TOOLS))
 _FRAMES = _HERE / "frames.py" if (_HERE / "frames.py").is_file() else _TOOLS / "site" / "frames.py"
 
 VIEWS = ("graph", "tree", "flow", "run")
@@ -78,7 +80,7 @@ _SPEED_RE = re.compile(r" (?:▶|❚❚) \S+ frames?/s")   # the live view's pla
 
 
 def _load(name: str, path: Path):
-    """A module by path (they are not a package)."""
+    """A module by path (frames.py is not in the package)."""
     if name not in sys.modules:
         spec = importlib.util.spec_from_file_location(name, path)
         mod = importlib.util.module_from_spec(spec)
@@ -96,9 +98,9 @@ WIDE_TAIL = "\0"   # a wide character's second cell (logic.ts's WIDE_TAIL): draw
 
 @functools.cache
 def _kit():
-    """The bundled viewkit, as view.py loads it (one module per directory): the
-    width rule lives there alone."""
-    return _load(f"sigil_viewkit@{_TOOLS}", _TOOLS / "viewkit.py")
+    """The bundled viewkit: the width rule lives there alone."""
+    from sigil.present import kit
+    return kit
 
 
 def cell(ch: str) -> str:
@@ -202,7 +204,7 @@ def draw(path: Path, view_name: str = "flow", depth: int = 1, width: int | None 
          count: int = WINDOW) -> dict:
     """The JSON object `pane.py draw` prints (see the module docstring); a run's
     frames are window(start, count, its last frame)."""
-    view = _load("sigil_view", _TOOLS / "view.py")
+    from sigil.present import app as view
     frames = _load("sigil_site_frames", _FRAMES)
     try:
         view.use_theme(theme)
@@ -329,7 +331,7 @@ def follow(control: Path) -> int:
                 argv = read_control(control)
                 if argv is not None:
                     _stop(child)
-                    child = subprocess.Popen([sys.executable, str(_TOOLS / "view.py"), *argv])
+                    child = subprocess.Popen([sys.executable, str(_TOOLS / "bin" / "sigil"), "view", *argv])
             if child is not None and child.poll() is not None:
                 if child.returncode == 0:
                     return 0                # quit from its own keys: the split's done

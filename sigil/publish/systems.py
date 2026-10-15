@@ -78,41 +78,12 @@ HASHES
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import json
 import re
-import sys
 from dataclasses import dataclass, field, replace
-from pathlib import Path
 from typing import Iterable, NamedTuple, Optional
 
-
-_HERE = Path(__file__).resolve().parent
-
-
-def _sibling(name: str, fname: str):
-    """The module fname beside this file, loaded by path once per directory and then
-    shared (the same loader check.py, scene.py and the views use, so a Graph built
-    by any of them is one this module reads)."""
-    key = f"{name}@{_HERE}"
-    if key not in sys.modules:
-        spec = importlib.util.spec_from_file_location(key, _HERE / fname)
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules[key] = mod   # dataclasses resolve string annotations via sys.modules
-        try:
-            spec.loader.exec_module(mod)
-        except BaseException:
-            del sys.modules[key]
-            raise
-    return sys.modules[key]
-
-
-def _render():
-    return _sibling("sigil_viewkit", "viewkit.py").render
-
-
-def _scene():
-    return _sibling("sigil_scene", "scene.py")
+from sigil.core import parse as render
 
 
 # ---------------------------------------------------------------------------
@@ -231,8 +202,7 @@ class Model:
 def build_model(text: str, stem: str, dialect=None) -> Model:
     """The model of a document: parsed with render, its acknowledgements read as
     check.py reads them."""
-    render = _render()
-    check = _sibling("sigil_check", "check.py")
+    from sigil.analyse import check
     lines = text.splitlines()
     graph = render.parse_document(text, dialect=dialect)
     comments = {k + 1: v for k, v in render.collect_comments(lines, dialect).items()}
@@ -244,7 +214,6 @@ def build_model(text: str, stem: str, dialect=None) -> Model:
 def model_of(graph, lines: list, stem: str, acks: Iterable = ()) -> Model:
     """The model of a parsed document. `lines` are its source lines; `acks` its
     acknowledgements (objects with `line`, `span` and `document`, as check.Ack)."""
-    render = _render()
     layout = lay_out(graph, stem)
     homes, shared_at = resolve_homes(layout)
     nodes = component_nodes(graph)
@@ -456,7 +425,7 @@ def in_systems(components: dict, lay: Layout) -> dict:
 
 def walk(graph):
     """Every graph of the document that is no state machine, depth first."""
-    for g, _owner, _level in _render()._walk(graph):
+    for g, _owner, _level in render._walk(graph):
         if g.role != "state":
             yield g
 
@@ -617,7 +586,7 @@ def collect_flows(graph, nodes: dict) -> list:
 
 
 def flow_of(e) -> Flow:
-    scene, render = _scene(), _render()
+    from sigil.model import scene
     call = scene.edge_call(e)
     payload = tight(e.payload) if e.payload else None
     text = None

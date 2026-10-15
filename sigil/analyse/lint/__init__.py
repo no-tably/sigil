@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 lint.py — Sigil syntax and structural validator.
 
@@ -32,7 +31,6 @@ Severities:
     info    — style suggestion, not required to fix
 """
 
-import importlib.util
 import re
 import sys
 import unicodedata
@@ -40,6 +38,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NamedTuple, Optional
+
+from sigil.core import parse as render
 
 # ---------------------------------------------------------------------------
 # Known vocabulary
@@ -2087,7 +2087,6 @@ class ParsedFacts(NamedTuple):
 
 def parsed_facts(graph) -> ParsedFacts:
     """The ParsedFacts of a render.Graph (every expansion and machine included)."""
-    render = _render_module()
     sources, alias_refs, untriggered = {}, {}, set()
     for sub, _owner, _lvl in render._walk(graph):
         for e in sub.edges:
@@ -2214,28 +2213,11 @@ def lint_hardening(lines: list, result: LintResult, dialect=None, graph=None):
 # Graph checks (via render.py)
 # ---------------------------------------------------------------------------
 
-def _load_sibling(modname: str, filename: str):
-    """Path-load a sibling tool module (stdlib only), once: it is registered in
-    sys.modules under `modname` and reused on later calls."""
-    mod = sys.modules.get(modname)
-    if mod is None:
-        sp = importlib.util.spec_from_file_location(
-            modname, Path(__file__).resolve().parent / filename)
-        mod = importlib.util.module_from_spec(sp)
-        sys.modules[modname] = mod
-        sp.loader.exec_module(mod)
-    return mod
-
-
-def _render_module():
-    return _load_sibling("sigil_render_for_lint", "render.py")
-
-
 def parse_for_lint(text: str, dialect=None):
     """The parsed document (render.parse_document), or None if the parser fails —
     the parser has its own tests; lint stays up."""
     try:
-        return _render_module().parse_document(text, dialect=dialect)
+        return render.parse_document(text, dialect=dialect)
     except Exception:
         return None
 
@@ -2251,7 +2233,6 @@ def lint_graph(text: str, result: LintResult, dialect=None, graph=None):
     g = graph if graph is not None else parse_for_lint(text, dialect)
     if g is None:
         return
-    render = _render_module()
     lines = text.splitlines()
 
     # NOTE: `render._walk` is private to render.py; lint relies on it to visit
@@ -2350,11 +2331,6 @@ def lint(text: str, dialect=None) -> LintResult:
     return result
 
 
-def _load_dialect(spec):
-    """Load a dialect via the sibling dialects.py (path-loaded; stdlib only)."""
-    return _load_sibling("sigil_dialects_for_lint", "dialects.py").load(spec)
-
-
 def exit_code(severities) -> int:
     """2 if any error, 1 if any warning, else 0."""
     sev = set(severities)
@@ -2415,8 +2391,9 @@ def main(argv=None, default_dialect=None) -> int:
     ap.add_argument("--deep", action="store_true",
                     help="also run the composition checks (check.py) and merge the reports")
     a = ap.parse_args(argv)
+    from sigil.core import dialects
     try:
-        dialect = _load_dialect(a.dialect)
+        dialect = dialects.load(a.dialect)
     except ValueError as exc:
         print(f"lint.py: {exc}", file=sys.stderr)
         return 2
@@ -2429,14 +2406,10 @@ def main(argv=None, default_dialect=None) -> int:
     result = lint(text, dialect=dialect)
     if not a.deep:
         return _report_lint(result)
-    check = _load_sibling("sigil_check_for_lint", "check.py")
+    from sigil.analyse import check
     try:
         report = check.check(text, dialect=dialect)
     except ValueError as exc:            # a refused rule pack or registry
         print(f"lint.py: --deep: {exc}", file=sys.stderr)
         return 2
     return _report_deep(result, report, check)
-
-
-if __name__ == "__main__":
-    sys.exit(main())

@@ -26,12 +26,14 @@ import sys
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-# the tools: beside this file in the browser (_site/py/), one up in the repo
-_TOOLS = _HERE if (_HERE / "view.py").is_file() else _HERE.parent
+# the sigil package: beside this file in the browser (_site/py/), one up in the repo
+_TOOLS = _HERE if (_HERE / "sigil").is_dir() else _HERE.parent
+if str(_TOOLS) not in sys.path:
+    sys.path.insert(0, str(_TOOLS))
 
 
 def _load(name: str, path: Path):
-    """A module by path (they are not a package)."""
+    """A module by path (frames.py is not in the package)."""
     if name not in sys.modules:
         spec = importlib.util.spec_from_file_location(name, path)
         mod = importlib.util.module_from_spec(spec)
@@ -40,9 +42,10 @@ def _load(name: str, path: Path):
     return sys.modules[name]
 
 
-view = _load("sigil_view", _TOOLS / "view.py")
 frames = _load("sigil_site_frames", _HERE / "frames.py")
-checker = _load("sigil_check", _TOOLS / "check.py")
+
+from sigil.analyse import check as checker  # noqa: E402  (after the path is set)
+from sigil.present import app as view  # noqa: E402
 view.use_dialect(None)
 view.use_theme(None)
 

@@ -24,36 +24,17 @@ Standard library only. Deterministic: the model's order, never set order.
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
+from sigil.publish import systems
 
 
-_HERE = Path(__file__).resolve().parent
 TOP_STEM = "top"                     # the top system's key in the model; never shown
-
-
-def _model():
-    """export_model.py beside this file, loaded by path once per directory (the
-    loader the other modules share)."""
-    key = f"sigil_export_model@{_HERE}"
-    if key not in sys.modules:
-        spec = importlib.util.spec_from_file_location(key, _HERE / "export_model.py")
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules[key] = mod
-        try:
-            spec.loader.exec_module(mod)
-        except BaseException:
-            del sys.modules[key]
-            raise
-    return sys.modules[key]
 
 
 def model_of(doc):
     """The export model of a check's document, built once and kept on it."""
     found = doc.__dict__.get("_export_model")
     if found is None:
-        found = doc.__dict__["_export_model"] = _model().model_of(
+        found = doc.__dict__["_export_model"] = systems.model_of(
             doc.graph, doc.lines, TOP_STEM, doc.acks)
     return found
 

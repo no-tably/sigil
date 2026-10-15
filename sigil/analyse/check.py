@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 check.py — Sigil composition checks: is the design a document describes sound?
 
@@ -81,7 +80,7 @@ Standard library only. Deterministic: no clock, no randomness, no set-order outp
 from __future__ import annotations
 
 import argparse
-import importlib.util
+import importlib
 import json
 import re
 import sys
@@ -91,37 +90,13 @@ from pathlib import Path
 from typing import Callable, Iterable, Optional
 
 
-_HERE = Path(__file__).resolve().parent
-
-
-def _sibling(name: str, fname: str):
-    """The module fname beside this file, loaded by path once per directory and then
-    shared: the view modules of one directory read the one viewkit, so a theme
-    applied through any of them (apply_theme rebinds viewkit's style globals)
-    reaches them all, while a view.py loaded from another directory (a packaged
-    copy) gets modules, theme and dialect state of its own. The cache key names
-    the directory, never the bare name. view.py, view_graph.py, view_tree.py and
-    scene.py each carry a copy of this function: keep the copies identical."""
-    key = f"{name}@{_HERE}"
-    if key not in sys.modules:
-        spec = importlib.util.spec_from_file_location(key, _HERE / fname)
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules[key] = mod   # dataclasses resolve string annotations via sys.modules
-        try:
-            spec.loader.exec_module(mod)
-        except BaseException:
-            del sys.modules[key]
-            raise
-    return sys.modules[key]
-
-
-def _kit():
-    """viewkit: the render and lint modules the simulator itself reads."""
-    return _sibling("sigil_viewkit", "viewkit.py")
+_RULES = Path(__file__).resolve().parent / "rules"      # the rule modules
 
 
 def _sim():
-    return _sibling("sigil_sim", "sim.py")
+    """The simulator, imported on first use."""
+    from sigil.model import sim
+    return sim
 
 
 # ---------------------------------------------------------------------------
@@ -461,11 +436,13 @@ class Doc:
 
     @cached_property
     def render(self):
-        return _kit().render
+        from sigil.core import parse
+        return parse
 
     @cached_property
     def scene(self):
-        return _sibling("sigil_scene", "scene.py")
+        from sigil.model import scene
+        return scene
 
     @cached_property
     def read_verbs(self) -> tuple:
@@ -541,7 +518,7 @@ class Doc:
 
 def read_mode(lines: list) -> str:
     """The mode as lint reads it (the first content line); none means sketch."""
-    lint = _kit().lint
+    from sigil.analyse import lint
     found = lint.lint_mode_line(lines, lint.LintResult())
     return found[2:] if found else "sketch"
 
@@ -873,27 +850,17 @@ def core_rules() -> list:
 # The registry
 # ---------------------------------------------------------------------------
 
-RULE_MODULES = ("check_flow.py", "check_state.py", "check_trace.py", "check_inv.py")
-EXPORT_MODULES = ("check_export.py",)        # only for a check asked for export readiness
+RULE_MODULES = ("flow", "state", "trace", "inv")      # modules of sigil.analyse.rules
+EXPORT_MODULES = ("export",)        # only for a check asked for export readiness
 
 
 class RegistryError(ValueError):
     """A rule clashes with the catalog or with another rule."""
 
 
-def _rule_module(path: Path):
-    """A rule module loaded by path, once per file."""
-    key = f"sigil_{path.stem}@{path.parent}"
-    if key not in sys.modules:
-        spec = importlib.util.spec_from_file_location(key, path)
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules[key] = mod
-        try:
-            spec.loader.exec_module(mod)
-        except BaseException:
-            del sys.modules[key]
-            raise
-    return sys.modules[key]
+def _rule_module(name: str):
+    """The rule module `name` of sigil.analyse.rules, imported once."""
+    return importlib.import_module(f"sigil.analyse.rules.{name}")
 
 
 class _Api:
@@ -912,15 +879,15 @@ class _Api:
 API = _Api()
 
 
-def _modules(here: Path, names: tuple) -> list:
-    return [_rule_module(here / fname) for fname in names if (here / fname).is_file()]
+def _modules(names: tuple) -> list:
+    return [_rule_module(name) for name in names if (_RULES / f"{name}.py").is_file()]
 
 
-def module_rules(api, here: Path = _HERE, names: tuple = RULE_MODULES) -> list:
-    """The rules of every rule module in `here` that exists (each `rules(api)`),
+def module_rules(api, names: tuple = RULE_MODULES) -> list:
+    """The rules of every rule module in `names` that exists (each `rules(api)`),
     extended by each module's `extend_rules(api, rules)`, then SGC090 built from
     the causes they contribute."""
-    mods = _modules(here, names)
+    mods = _modules(names)
     rules = [rule for mod in mods if hasattr(mod, "rules") for rule in mod.rules(api)]
     for mod in mods:
         if hasattr(mod, "extend_rules"):
@@ -1014,7 +981,8 @@ def prefix_problems(pack) -> list:
 
 
 def _dialects():
-    return _sibling("sigil_dialects", "dialects.py")
+    from sigil.core import dialects
+    return dialects
 
 
 def dialect_pack(dialect):
@@ -1146,11 +1114,10 @@ def is_acknowledged(f: Finding) -> bool:
     return bool(f.ack or root.ack)
 
 
-def default_budget(here: Path = _HERE) -> Optional[int]:
+def default_budget() -> Optional[int]:
     """The trace module's exploration budget (its BUDGET); None without one, since
     then nothing explores."""
-    path = here / "check_trace.py"
-    return _rule_module(path).BUDGET if path.is_file() else None
+    return _rule_module("trace").BUDGET if (_RULES / "trace.py").is_file() else None
 
 
 def limits_from(pairs: Iterable, base):
@@ -1249,7 +1216,7 @@ def _read_input(path: str) -> str:
     return Path(path).read_text(encoding="utf-8")
 
 
-def main(argv=None) -> int:
+def main(argv=None, default_dialect=None) -> int:
     ap = argparse.ArgumentParser(prog="check.py", description="Check a Sigil design's "
                                  "composition: risks it leaves undeclared.")
     ap.add_argument("file", nargs="?", help="a .sigil file, or - for stdin")
@@ -1269,7 +1236,7 @@ def main(argv=None) -> int:
                     help="also check export readiness (SGC401 no-home, SGC402 "
                          "untyped-boundary)")
     ap.add_argument("--rules", action="store_true", help="list the rules and exit")
-    ap.add_argument("--dialect", default=None,
+    ap.add_argument("--dialect", default=default_dialect,
                     help="dialect name or path (default: $SIGIL_DIALECT)")
     a = ap.parse_args(argv)
     if a.k is not None and a.k < 1:
@@ -1302,7 +1269,3 @@ def main(argv=None) -> int:
         print("\n".join(out) if out else "sigil check: OK (no findings)")
         print(summary(report), file=sys.stderr)
     return report.exit_code()
-
-
-if __name__ == "__main__":
-    sys.exit(main())

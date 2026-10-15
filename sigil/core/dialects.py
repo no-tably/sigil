@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 dialects.py — load a Sigil DIALECT: an optional extension of the core notation.
 
@@ -178,7 +177,7 @@ from typing import Iterable, NamedTuple, Optional
 
 Dialect = types.ModuleType
 
-_HERE = Path(__file__).resolve().parent
+_HERE = Path(__file__).resolve().parents[2]     # the repo: dialects sit beside it
 
 # Comment markers the core reserves: `#=` is the decorated acknowledgement
 # (RFC 0003 Q7). A dialect's COMMENT_MARKERS may not claim one.

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 export.py — export a ready Sigil spec as a build skeleton: one folder per system,
 one Markdown file per component, and a manifest that is the contract.
@@ -76,7 +75,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import importlib.util
 import json
 import os
 import re
@@ -86,8 +84,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
+from sigil.analyse import check, lint
+from sigil.core import dialects
+from sigil.publish import systems as em
 
-_HERE = Path(__file__).resolve().parent
 
 EXPORT_VERSION = 1
 MANIFEST = "manifest.json"
@@ -99,43 +99,6 @@ SYSTEM_README = "README.md"
 SYSTEM_JSON = "system.json"
 _README_KEY = "\0readme"                     # reserves `readme` among component slugs
 
-
-def _sibling(name: str, fname: str):
-    """The module fname beside this file, loaded by path once per directory and then
-    shared (the same loader check.py and export_model.py use, so the Graph and
-    modules are the ones they read)."""
-    key = f"{name}@{_HERE}"
-    if key not in sys.modules:
-        spec = importlib.util.spec_from_file_location(key, _HERE / fname)
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules[key] = mod   # dataclasses resolve string annotations via sys.modules
-        try:
-            spec.loader.exec_module(mod)
-        except BaseException:
-            del sys.modules[key]
-            raise
-    return sys.modules[key]
-
-
-def _model():
-    return _sibling("sigil_export_model", "export_model.py")
-
-
-def _check():
-    return _sibling("sigil_check", "check.py")
-
-
-def _lint():
-    return _sibling("sigil_viewkit", "viewkit.py").lint
-
-
-def _dialects():
-    return _sibling("sigil_dialects", "dialects.py")
-
-
-# ---------------------------------------------------------------------------
-# The gate
-# ---------------------------------------------------------------------------
 
 def gate(text: str, dialect, lint, check) -> tuple:
     """The lines that block exporting `text` (none: it is ready). `lint` and
@@ -188,7 +151,6 @@ class ExportPlan:
 def plan_export(model, spec_name: str, spec_text: str) -> ExportPlan:
     """What the export of `model` holds (read from the spec file `spec_name`,
     whose text is `spec_text`): pure, nothing written."""
-    em = _model()
     keys = system_order(model)
     folders = em.slugs(keys)
     forms = {k: em.system_json(model.systems[k], model.components) for k in keys}
@@ -207,7 +169,7 @@ def system_order(model) -> list:
 
 def spec_hash(text: str) -> str:
     """sha256 of the spec file's text, first 16 hex digits."""
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:_model().HASH_LEN]
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:em.HASH_LEN]
 
 
 def plan_system(key: str, system, form: dict, folders: dict) -> SystemPlan:
@@ -227,7 +189,7 @@ def plan_system(key: str, system, form: dict, folders: dict) -> SystemPlan:
 def component_files(components: list) -> dict:
     """{glyph: file name} for a system's components (in their normalised order),
     collision-free, never `readme.md` (README.md sits beside them)."""
-    slugs = _model().slugs([_README_KEY] + [c["glyph"] for c in components])
+    slugs = em.slugs([_README_KEY] + [c["glyph"] for c in components])
     return {c["glyph"]: slugs[c["glyph"]] + ".md" for c in components}
 
 
@@ -672,7 +634,7 @@ def report(change: dict, as_json: bool, head: list) -> str:
     return json_text(change) if as_json else "\n".join(head + delta_lines(change)) + "\n"
 
 
-def main(argv=None) -> int:
+def main(argv=None, default_dialect=None) -> int:
     ap = argparse.ArgumentParser(
         prog="export.py",
         description="Export a ready Sigil spec as a build skeleton: a folder per "
@@ -680,7 +642,7 @@ def main(argv=None) -> int:
     ap.add_argument("spec", help="a .sigil file whose mode line is #!spec")
     ap.add_argument("--out", required=True, metavar="DIR",
                     help="the export folder (empty, or an earlier export)")
-    ap.add_argument("--dialect", default=None,
+    ap.add_argument("--dialect", default=default_dialect,
                     help="dialect name or path (default: $SIGIL_DIALECT)")
     ap.add_argument("--json", action="store_true",
                     help="print the delta (what changed since the export in DIR) as JSON")
@@ -689,9 +651,9 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     spec, out = Path(a.spec), Path(a.out)
     try:
-        dialect = _dialects().load(a.dialect)
+        dialect = dialects.load(a.dialect)
         text = spec.read_text(encoding="utf-8")
-        blocking = gate(text, dialect, _lint(), _check())
+        blocking = gate(text, dialect, lint, check)
     except (ValueError, OSError) as exc:
         print(f"export.py: {exc}", file=sys.stderr)
         return 2
@@ -708,7 +670,7 @@ def main(argv=None) -> int:
     if problem:
         print(f"export.py: {problem}", file=sys.stderr)
         return 2
-    plan = plan_export(_model().build_model(text, spec.stem, dialect), spec.name, text)
+    plan = plan_export(em.build_model(text, spec.stem, dialect), spec.name, text)
     change = delta(old, plan.manifest)
     if a.dry_run:
         head = [f"sigil export (dry run): nothing written to {out}"]
@@ -728,7 +690,3 @@ def main(argv=None) -> int:
               "write (its system is gone)", file=sys.stderr)
     print(report(change, a.json, done_lines(plan, out)), end="")
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

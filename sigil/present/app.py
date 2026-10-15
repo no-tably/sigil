@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 view.py — Live terminal view of a Sigil document's graph.
 
@@ -252,39 +251,14 @@ from dataclasses import replace
 from pathlib import Path
 from typing import NamedTuple
 
-
-_HERE = Path(__file__).resolve().parent
-
-
-def _sibling(name: str, fname: str):
-    """The module fname beside this file, loaded by path once per directory and then
-    shared: the view modules of one directory read the one viewkit, so a theme
-    applied through any of them (apply_theme rebinds viewkit's style globals)
-    reaches them all, while a view.py loaded from another directory (a packaged
-    copy) gets modules, theme and dialect state of its own. The cache key names
-    the directory, never the bare name. view.py, view_graph.py, view_tree.py,
-    view_flow.py, view_run.py and scene.py each carry a copy of this function: keep
-    the copies identical."""
-    key = f"{name}@{_HERE}"
-    if key not in sys.modules:
-        spec = importlib.util.spec_from_file_location(key, _HERE / fname)
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules[key] = mod   # dataclasses resolve string annotations via sys.modules
-        try:
-            spec.loader.exec_module(mod)
-        except BaseException:
-            del sys.modules[key]
-            raise
-    return sys.modules[key]
-
-
-kit = _sibling("sigil_viewkit", "viewkit.py")
-vgraph = _sibling("sigil_view_graph", "view_graph.py")
-vtree = _sibling("sigil_view_tree", "view_tree.py")
-vflow = _sibling("sigil_view_flow", "view_flow.py")
-vrun = _sibling("sigil_view_run", "view_run.py")
-scene = _sibling("sigil_scene", "scene.py")
-simulator = _sibling("sigil_sim", "sim.py")
+from sigil.core import dialects
+from sigil.present import kit
+from sigil.present.views import graph as vgraph
+from sigil.present.views import tree as vtree
+from sigil.present.views import flow as vflow
+from sigil.present.views import run as vrun
+from sigil.model import scene
+from sigil.model import sim as simulator
 
 
 def __getattr__(name: str):
@@ -296,10 +270,6 @@ def __getattr__(name: str):
         if name in vars(mod):
             return vars(mod)[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
-dialects = (kit._load("sigil_dialects", "dialects.py") if (_HERE / "dialects.py").exists()
-            else None)
 
 
 # ---------------------------------------------------------------------------
@@ -1212,14 +1182,16 @@ class ChecksUnavailable(RuntimeError):
 def run_checks(text: str, dialect=None):
     """check.py's Report on `text` in its document mode. Raises ChecksUnavailable
     without check.py; the checker's own errors pass through."""
-    if not (_HERE / "check.py").exists():
+    if importlib.util.find_spec("sigil.analyse.check") is None:
         raise ChecksUnavailable("checks need check.py next to view.py")
-    return _sibling("sigil_check", "check.py").check(text, dialect=dialect)
+    from sigil.analyse import check
+    return check.check(text, dialect=dialect)
 
 
 def checks_summary(report) -> str:
     """check.py's one-line summary of a Report."""
-    return _sibling("sigil_check", "check.py").summary(report)
+    from sigil.analyse import check
+    return check.summary(report)
 
 
 class CheckEntry(NamedTuple):
@@ -2347,7 +2319,7 @@ def _readable(path: Path) -> bool:
     return True
 
 
-def main(argv=None) -> int:
+def main(argv=None, default_dialect=None) -> int:
     keys = ", ".join(f"{i} {v}" for i, v in enumerate(VIEWS, 1))
     ap = argparse.ArgumentParser(
         description="Draw a Sigil document in the terminal and redraw it on every save "
@@ -2365,7 +2337,7 @@ def main(argv=None) -> int:
                          "views), a list under the tree (tree view)")
     ap.add_argument("--no-lint", action="store_true",
                     help="leave out the lint problems under the drawing")
-    ap.add_argument("--dialect", default=None, metavar="NAME",
+    ap.add_argument("--dialect", default=default_dialect, metavar="NAME",
                     help="a dialect to read the document with: a name or a path "
                          "(default: $SIGIL_DIALECT)")
     ap.add_argument("--once", action="store_true",
@@ -2507,7 +2479,3 @@ def main(argv=None) -> int:
         state.sim_start = (a.frame, a.play)
     tui(state)
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

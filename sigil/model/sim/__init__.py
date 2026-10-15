@@ -268,40 +268,12 @@ NARRATION (pure, over a Trace and the scene it names)
 from __future__ import annotations
 
 import heapq
-import importlib.util
 import re
-import sys
 from collections import Counter
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import NamedTuple, Optional
 
-
-_HERE = Path(__file__).resolve().parent
-
-
-def _sibling(name: str, fname: str):
-    """The module fname beside this file, loaded by path once per directory and then
-    shared: the view modules of one directory read the one viewkit, so a theme
-    applied through any of them (apply_theme rebinds viewkit's style globals)
-    reaches them all, while a view.py loaded from another directory (a packaged
-    copy) gets modules, theme and dialect state of its own. The cache key names
-    the directory, never the bare name. view.py, view_graph.py, view_tree.py and
-    scene.py each carry a copy of this function: keep the copies identical."""
-    key = f"{name}@{_HERE}"
-    if key not in sys.modules:
-        spec = importlib.util.spec_from_file_location(key, _HERE / fname)
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules[key] = mod   # dataclasses resolve string annotations via sys.modules
-        try:
-            spec.loader.exec_module(mod)
-        except BaseException:
-            del sys.modules[key]
-            raise
-    return sys.modules[key]
-
-
-scene_mod = _sibling("sigil_scene", "scene.py")
+from sigil.model import scene as scene_mod
 kit = scene_mod.kit
 
 

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 render.py — Render a Sigil document as a Mermaid flowchart (TD).
 
@@ -2732,17 +2731,6 @@ def render(text: str, depth: int = 1, dialect=None, composition: Optional[str] =
 # Main
 # ---------------------------------------------------------------------------
 
-def _load_dialect(spec):
-    """Load a dialect via the sibling dialects.py (path-loaded; stdlib only)."""
-    import importlib.util
-    from pathlib import Path
-    path = Path(__file__).resolve().parent / "dialects.py"
-    sp = importlib.util.spec_from_file_location("sigil_dialects", path)
-    mod = importlib.util.module_from_spec(sp)
-    sp.loader.exec_module(mod)
-    return mod.load(spec)
-
-
 # `--depth all`: deeper than any document nests.
 ALL_DEPTH = 99
 
@@ -2774,8 +2762,9 @@ def main(argv=None, default_dialect=None) -> int:
     ap.add_argument("--dialect", default=default_dialect,
                     help="dialect name or path (default: $SIGIL_DIALECT)")
     a = ap.parse_args(argv)
+    from sigil.core import dialects
     try:
-        dialect = _load_dialect(a.dialect)
+        dialect = dialects.load(a.dialect)
     except ValueError as exc:
         print(f"render.py: {exc}", file=sys.stderr)
         return 2
@@ -2792,7 +2781,3 @@ def main(argv=None, default_dialect=None) -> int:
 
     print(render(text, depth=a.depth, dialect=dialect, composition=a.composition))
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
