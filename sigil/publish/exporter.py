@@ -77,7 +77,6 @@ import argparse
 import hashlib
 import json
 import os
-import re
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -87,13 +86,11 @@ from typing import Iterable, Optional
 from sigil.analyse import check, lint
 from sigil.core import dialects
 from sigil.publish import systems as em
+from sigil.publish.delta import (
+    DELTA, EXPORT_VERSION, delta, delta_lines, dropped_folders, manifest_problem)
 
 
-EXPORT_VERSION = 1
 MANIFEST = "manifest.json"
-DELTA = "delta.json"
-DELTA_VERSION = 1
-STATUSES = ("added", "removed", "rebuild", "recheck", "unchanged")
 INDEX = "README.md"
 SYSTEM_README = "README.md"
 SYSTEM_JSON = "system.json"
@@ -195,126 +192,6 @@ def component_files(components: list) -> dict:
 
 def json_text(obj) -> str:
     return json.dumps(obj, indent=2, ensure_ascii=False) + "\n"
-
-
-# ---------------------------------------------------------------------------
-# The delta: an earlier export's manifest against the new one (pure)
-# ---------------------------------------------------------------------------
-
-_FOLDER_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
-
-
-def manifest_problem(obj) -> Optional[str]:
-    """Why `obj` (a parsed manifest.json) is no manifest this export.py wrote
-    (None: it is one). Folder names must be slugs, so a delta never deletes
-    anything outside the export."""
-    if not isinstance(obj, dict) or obj.get("sigil_export") != EXPORT_VERSION:
-        return f"not a version {EXPORT_VERSION} export manifest"
-    systems = obj.get("systems")
-    if not isinstance(systems, dict):
-        return "no systems"
-    for key, e in systems.items():
-        if not (isinstance(e, dict)
-                and all(isinstance(e.get(f), str) for f in ("path", "interface", "body"))
-                and isinstance(e.get("depends_on"), list)
-                and isinstance(e.get("components"), list)
-                and all(isinstance(c, str) for c in e["components"])):
-            return f"system {key!r} lacks path, interface, body, components or depends_on"
-        if not _FOLDER_RE.fullmatch(e["path"]):
-            return f"system {key!r} has folder {e['path']!r}, no slug"
-    return None
-
-
-def delta(old: Optional[dict], new: dict) -> dict:
-    """What changed from the manifest `old` (None: a first export, so every system
-    is added) to the manifest `new`: a list per status and, per system, its status
-    with its old and new hashes."""
-    olds, news = (old or {}).get("systems", {}), new["systems"]
-    systems = {k: system_delta(k, olds, news) for k in news}
-    systems.update({k: {"status": "removed", "old": hashes(olds[k]), "new": None}
-                    for k in sorted(olds) if k not in news})
-    out = {"sigil_delta": DELTA_VERSION, "spec": new["spec"],
-           "from": old.get("spec_hash") if old else None, "to": new["spec_hash"]}
-    for status in STATUSES:
-        out[status] = [k for k, d in systems.items() if d["status"] == status]
-    out["systems"] = systems
-    return out
-
-
-def system_delta(key: str, olds: dict, news: dict) -> dict:
-    """One system of the new export against the old: added, rebuild (its body
-    changed), recheck (`because` names the systems it depends on whose interface
-    changed) or unchanged."""
-    old, new = olds.get(key), news[key]
-    entry = {"old": hashes(old), "new": hashes(new)}
-    if old is None:
-        return {"status": "added", **entry}
-    if old["body"] != new["body"]:
-        return {"status": "rebuild", **entry}
-    because = [d for d in new["depends_on"] if interface_changed(d, olds, news)]
-    if because:
-        return {"status": "recheck", **entry, "because": because}
-    return {"status": "unchanged", **entry}
-
-
-def interface_changed(key: str, olds: dict, news: dict) -> bool:
-    """Whether system `key` (in the new export) has an interface the old export
-    did not (a system new to it counts as changed)."""
-    old = olds.get(key)
-    return old is None or old["interface"] != news[key]["interface"]
-
-
-def hashes(entry: Optional[dict]) -> Optional[dict]:
-    return None if entry is None else {"interface": entry["interface"], "body": entry["body"]}
-
-
-def dropped_folders(old: Optional[dict], new: dict) -> list:
-    """The folders of the old export no system of the new one uses (removed
-    systems, and systems whose folder name moved)."""
-    if not old:
-        return []
-    keep = {e["path"] for e in new["systems"].values()}
-    return sorted({e["path"] for e in old["systems"].values()} - keep)
-
-
-def written_files(manifest: Optional[dict]) -> dict:
-    """{folder: the file names export.py wrote there} for the export `manifest`
-    describes (None: no export yet, so nothing). Only these are ever overwritten
-    as stale or deleted: a file a builder adds to a system folder is not ours."""
-    out: dict = {}
-    for e in (manifest or {}).get("systems", {}).values():
-        out.setdefault(e["path"], set()).update(system_file_names(e["components"]))
-    return {k: frozenset(v) for k, v in out.items()}
-
-
-def system_file_names(glyphs: list) -> set:
-    """The file names a system folder holds for the components `glyphs` (its
-    manifest entry's list, in the same order plan_system names them)."""
-    names = component_files([{"glyph": g} for g in glyphs]).values()
-    return {SYSTEM_README, SYSTEM_JSON, *names}
-
-
-def delta_lines(change: dict) -> list:
-    """The delta in words: a count line, then a line per status that has systems."""
-    if change["from"] is None:
-        return [f"first export: {len(change['added'])} system(s) added"]
-    counts = ", ".join(f"{len(change[s])} {s}" for s in STATUSES if change[s])
-    out = [f"since spec {change['from']}: {counts or 'no systems'}"]
-    for status in STATUSES[:-1]:
-        for key in change[status]:
-            out.append(f"  {status:<9}  {key}{delta_note(change['systems'][key])}")
-    if change["unchanged"]:
-        out.append(f"  {'unchanged':<9}  {', '.join(change['unchanged'])}")
-    return out
-
-
-def delta_note(d: dict) -> str:
-    """What a status line adds: a rebuild's body hashes, what a recheck depends on."""
-    if d["status"] == "rebuild":
-        return f" (body {d['old']['body']} → {d['new']['body']})"
-    if d["status"] == "recheck":
-        return f" (interface changed: {', '.join(d['because'])})"
-    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -491,6 +368,23 @@ def index_md(spec_name: str, manifest: dict, forms: dict) -> str:
 # ---------------------------------------------------------------------------
 # Writing (the only side effects)
 # ---------------------------------------------------------------------------
+
+def written_files(manifest: Optional[dict]) -> dict:
+    """{folder: the file names export.py wrote there} for the export `manifest`
+    describes (None: no export yet, so nothing). Only these are ever overwritten
+    as stale or deleted: a file a builder adds to a system folder is not ours."""
+    out: dict = {}
+    for e in (manifest or {}).get("systems", {}).values():
+        out.setdefault(e["path"], set()).update(system_file_names(e["components"]))
+    return {k: frozenset(v) for k, v in out.items()}
+
+
+def system_file_names(glyphs: list) -> set:
+    """The file names a system folder holds for the components `glyphs` (its
+    manifest entry's list, in the same order plan_system names them)."""
+    names = component_files([{"glyph": g} for g in glyphs]).values()
+    return {SYSTEM_README, SYSTEM_JSON, *names}
+
 
 def write_export(out: Path, plan: ExportPlan, only: Optional[Iterable] = None,
                  drop: Iterable[str] = (), change: Optional[dict] = None,

@@ -22,8 +22,8 @@ import re
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from sigil.core.graph import walk_breadth
-from sigil.core.parse import Note, collect_comments  # noqa: F401  (collect_comments: re-exported)
+from sigil.core.graph import Note, walk_breadth
+from sigil.core.parse import collect_comments  # noqa: F401  (re-exported)
 
 
 # ---------------------------------------------------------------------------

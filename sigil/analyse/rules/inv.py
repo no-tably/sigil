@@ -244,7 +244,7 @@ class Facts:
     def invs(self) -> list:
         """Every `@inv` of the document, in line order, each once."""
         found = {}
-        walk, node_lines = self.doc.render._walk, core_graph.node_lines
+        walk, node_lines = core_graph.walk_depth, core_graph.node_lines
         for g, _o, _l in self.doc.graphs:
             lines = node_lines(g, notes=False)
             for nid, n in g.nodes.items():

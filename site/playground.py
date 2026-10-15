@@ -1,10 +1,11 @@
 """
-playground.py — the page's playground: the repo's own view.py, lint.py,
-sim.py and check.py run in the browser by Pyodide. build_site.py copies this file, frames.py
-and the tool modules verbatim into _site/py/; site.js writes them into one
+playground.py — the page's playground: the repo's own sigil package (the views,
+lint, the simulator and check) run in the browser by Pyodide. build_site.py copies
+this file and the package verbatim into _site/py/; site.js writes them into one
 directory of Pyodide's file system and calls the functions below, each taking
 and returning JSON text. Nothing here re-implements the notation: it only asks
-the tools for a drawing and packs it (frames.py) the way frames.json is packed.
+the package for a drawing and packs it (sigil.present.frames) the way frames.json
+is packed.
 
     draw(request)    the document drawn in one view, its lint and its scenarios
     sim(request)     one frame of a scenario's run, drawn over the same view
@@ -20,7 +21,6 @@ Standard library only; runs under CPython too (tests/test_site.py drives it).
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -31,23 +31,13 @@ _TOOLS = _HERE if (_HERE / "sigil").is_dir() else _HERE.parent
 if str(_TOOLS) not in sys.path:
     sys.path.insert(0, str(_TOOLS))
 
-
-def _load(name: str, path: Path):
-    """A module by path (frames.py is not in the package)."""
-    if name not in sys.modules:
-        spec = importlib.util.spec_from_file_location(name, path)
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules[name] = mod
-        spec.loader.exec_module(mod)
-    return sys.modules[name]
-
-
-frames = _load("sigil_site_frames", _HERE / "frames.py")
-
 from sigil.analyse import check as checker  # noqa: E402  (after the path is set)
-from sigil.present import app as view  # noqa: E402
-view.use_dialect(None)
-view.use_theme(None)
+from sigil.core.parse import parse_document  # noqa: E402
+from sigil.model import scene  # noqa: E402
+from sigil.model import sim as simulator  # noqa: E402
+from sigil.present import app, frames, kit  # noqa: E402
+kit.use_dialect(None)
+kit.use_theme(None)
 
 MAX_DEPTH = 99
 CHECK_K = 1                 # failure combinations per scenario: the RFC's playground k
@@ -61,9 +51,9 @@ _player: dict = {}          # the run being shown: {"key": (text, scenario), "pl
 
 
 def _opts(req: dict) -> dict:
-    name = view.view_name(req.get("view") or view.DEFAULT_VIEW)
+    name = app.view_name(req.get("view") or app.DEFAULT_VIEW)
     tree = name == "tree"
-    events = req.get("events") or view.DEFAULT_EVENTS[name]
+    events = req.get("events") or app.DEFAULT_EVENTS[name]
     width = req.get("width")
     return {"view": name, "tree": tree, "depth": int(req.get("depth", MAX_DEPTH)),
             "payloads": bool(req.get("payloads", True)),
@@ -76,13 +66,13 @@ def _opts(req: dict) -> dict:
 
 
 def _graph(text: str):
-    return view.render.parse_document(frames.autoclose(text.split("\n")))
+    return parse_document(frames.autoclose(text.split("\n")))
 
 
 def _rows(g, o: dict, trace=None, tick: int = 0, memo=None) -> list:
     """The drawing packed; `memo` (kit.FrameMemo) as compose_view's: kept while
     one run steps, so a frame repaints only what changed (the same drawing)."""
-    rows, _w = view.compose_view(g, o["view"], depth=o["depth"], payloads=o["payloads"],
+    rows, _w = app.compose_view(g, o["view"], depth=o["depth"], payloads=o["payloads"],
                                  notes=o["notes"], triggers=o["triggers"],
                                  spaced=o["spaced"], width=o["width"], access=o["access"],
                                  mods=o["mods"], events=o["events"], trace=trace, tick=tick, memo=memo)
@@ -92,26 +82,16 @@ def _rows(g, o: dict, trace=None, tick: int = 0, memo=None) -> list:
 def _legend(o: dict, g, sim: bool) -> list:
     """The view's legend rows (the tree's key, the flow view's wires, the run's
     markers), wrapped."""
-    rows = []
-    if o["tree"]:
-        rows += view.vtree.tree_legend(o["triggers"], o["payloads"], o["access"], o["mods"],
-                                       o["events"],
-                                       calls=view.drawn_call_marks(g, o["depth"], o["payloads"]))
-    elif o["view"] == "flow":
-        rows.append(view.vflow.flow_legend(o["triggers"], o["payloads"], o["access"], o["mods"],
-                                           o["events"]))
-    elif o["view"] == "run":
-        rows.append(view.vrun.run_legend())
-    if sim:
-        rows += ([view.path_legend()] if o["view"] == "run"
-                 else [view.sim_legend(o["tree"]), view.path_legend()])
-    width = min(view.LEGEND_WIDTH, o["width"] or view.LEGEND_WIDTH)
-    return frames.pack_rows([ln for r in rows for ln in view.wrap_legend(r, width)], STYLES)
+    rows = frames.legend_rows(g, o["view"], depth=o["depth"], payloads=o["payloads"],
+                              events=o["events"], sim=sim, triggers=o["triggers"],
+                              access=o["access"], mods=o["mods"])
+    width = min(app.LEGEND_WIDTH, o["width"] or app.LEGEND_WIDTH)
+    return frames.pack_rows([ln for r in rows for ln in app.wrap_legend(r, width)], STYLES)
 
 
 def _scenarios(g) -> list:
     try:
-        sc = view.simulator.scenarios(view.simulator.canonical(g))
+        sc = simulator.scenarios(simulator.canonical(g))
     except Exception as exc:              # a half-typed document must not break the page
         return [{"name": "happy", "label": f"(no run: {type(exc).__name__})", "group": ""}]
     return [{"name": s.name, "label": s.label or "", "group": "overlaps" if s.starts else ""}
@@ -125,7 +105,7 @@ def draw(request: str) -> str:
     req = json.loads(request)
     text, o = req.get("text", ""), _opts(req)
     g = _graph(text)
-    diags = view.run_lint(text)
+    diags = kit.run_lint(text)
     out = {"rows": _rows(g, o), "legend": _legend(o, g, False),
            "lint": [{"severity": d.severity, "line": d.line, "rule": d.rule,
                      "message": d.message} for d in diags],
@@ -150,13 +130,13 @@ def sim(request: str) -> str:
     if _player.get("key") != key:
         g = _graph(text)
         try:
-            player = view.SimPlayer(g, name)
-        except view.UnknownScenario as exc:
+            player = app.SimPlayer(g, name)
+        except app.UnknownScenario as exc:
             return json.dumps({"error": str(exc)})
-        _player.update(key=key, player=player, graph=g, memo=view.kit.FrameMemo())
+        _player.update(key=key, player=player, graph=g, memo=kit.FrameMemo())
     player, g = _player["player"], _player["graph"]
     player.at = max(0, min(int(req.get("frame", 0)), player.last))
-    shown = player.shown(view.scene.SceneOptions(o["events"], o["triggers"], o["access"],
+    shown = player.shown(scene.SceneOptions(o["events"], o["triggers"], o["access"],
                                                  o["depth"]))
     log = [ln for f in player.trace.frames[:player.at + 1] for ln in f.log]
     out = {"rows": _rows(g, o, shown, player.at, _player["memo"]), "legend": _legend(o, g, True),
@@ -164,11 +144,11 @@ def sim(request: str) -> str:
            "tick": player.trace.frames[player.at].tick, "ticks": player.trace.frames[-1].tick,
            "choice": player.choice(), "log": log[-40:],
            "say": player.narration(),
-           "story": [view.beat_line(b) for b in player.told()][-40:],
+           "story": [app.beat_line(b) for b in player.told()][-40:],
            "beats": [b.frame for b in player.beats], "trail": player.path(),
-           "path": frames.pack_rows(view.path_rows(player.path_branches(),
-                                                   min(view.LEGEND_WIDTH, o["width"]
-                                                       or view.LEGEND_WIDTH),
+           "path": frames.pack_rows(app.path_rows(player.path_branches(),
+                                                   min(app.LEGEND_WIDTH, o["width"]
+                                                       or app.LEGEND_WIDTH),
                                                    hold=True), STYLES),
            "outcome": player.trace.outcome if player.at == player.last else None,
            "styles": STYLES.table}

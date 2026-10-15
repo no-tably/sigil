@@ -252,6 +252,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from sigil.core import dialects, parse
+from sigil.core.graph import depth_arg
 from sigil.present import kit
 from sigil.present.views import graph as vgraph
 from sigil.present.views import tree as vtree
@@ -259,22 +260,6 @@ from sigil.present.views import flow as vflow
 from sigil.present.views import run as vrun
 from sigil.model import scene
 from sigil.model import sim as simulator
-
-
-# `view.render` (site/build_site.py, plugin pane.py) until they import
-# sigil.core.parse themselves.
-render = parse
-
-
-def __getattr__(name: str):
-    """view.NAME for every name of viewkit, view_graph, view_tree, view_flow and
-    view_run (tests, the site and dialects use view.render, view.compose,
-    view.KINDS, …). Looked up at access time, so a themed style (view.GREY) is
-    always the one in use."""
-    for mod in (kit, vgraph, vtree, vflow, vrun):
-        if name in vars(mod):
-            return vars(mod)[name]
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -2331,7 +2316,7 @@ def main(argv=None, default_dialect=None) -> int:
                     "(--once: print it once and exit). Four views, by their keys: "
                     f"{keys}; it starts in the {DEFAULT_VIEW} view.")
     ap.add_argument("file", type=Path, help="the Sigil file to draw")
-    ap.add_argument("--depth", type=parse.depth_arg, default=None, metavar="N|all",
+    ap.add_argument("--depth", type=depth_arg, default=None, metavar="N|all",
                     help="how many levels of `X := { … }` expansions to draw "
                          "(default 1; all: every level); a run's narration and path "
                          "name the nodes drawn there and the run view folds deeper "

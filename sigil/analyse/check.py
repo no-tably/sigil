@@ -458,7 +458,8 @@ class Doc:
     @cached_property
     def graphs(self) -> list:
         """(graph, owning node id, level) for the document and every nested graph."""
-        return list(self.render._walk(self.graph))
+        from sigil.core.graph import walk_depth
+        return list(walk_depth(self.graph))
 
     @cached_property
     def comments(self) -> dict:
@@ -489,8 +490,9 @@ class Doc:
 
 def read_mode(lines: list) -> str:
     """The mode as lint reads it (the first content line); none means sketch."""
-    from sigil.analyse import lint
-    found = lint.lint_mode_line(lines, lint.LintResult())
+    from sigil.analyse.lint.lines import lint_mode_line
+    from sigil.core.vocab import LintResult
+    found = lint_mode_line(lines, LintResult())
     return found[2:] if found else "sketch"
 
 

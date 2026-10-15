@@ -75,6 +75,7 @@ from dataclasses import dataclass, field, replace
 from typing import Iterable, NamedTuple, Optional
 
 from sigil.core import parse as render
+from sigil.core.graph import walk_depth
 
 
 # ---------------------------------------------------------------------------
@@ -404,7 +405,7 @@ def in_systems(components: dict, lay: Layout) -> dict:
 
 def walk(graph):
     """Every graph of the document that is no state machine, depth first."""
-    for g, _owner, _level in render._walk(graph):
+    for g, _owner, _level in walk_depth(graph):
         if g.role != "state":
             yield g
 
