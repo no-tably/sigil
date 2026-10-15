@@ -48,6 +48,11 @@ class TestGolden(unittest.TestCase):
         expected = {f"{i.name}/{v.name}.txt" for i in inputs for v in golden.VARIANTS
                     if golden.drawn_in(v, i, runs)}
         expected |= {f"{i.name}/{golden.MERMAID}.txt" for i in inputs}
+        # the export variant: every file export.py writes for each of EXPORT_INPUTS
+        self.assertLessEqual(set(golden.EXPORT_INPUTS), {i.name for i in inputs})
+        exported = golden.draw_all(_DIR, only=golden.EXPORT_DIR)
+        self.assertEqual({k.split("/")[1] for k in exported}, set(golden.EXPORT_INPUTS))
+        expected |= set(exported)
         self.assertEqual(set(golden.read_goldens(golden.GOLDEN_DIR)), expected)
 
     def test_goldens_are_plain_unless_coloured(self):
