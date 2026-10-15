@@ -2,7 +2,7 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
-## 0.5.0 — unreleased
+## 0.5.0 — 2026-10-15
 
 Runs whose entries happen at the same time, and checks that look for races between
 them; and a finished spec exported as a build skeleton, with a manifest as the
