@@ -1,0 +1,14 @@
+#!spec
+# SGC401 no-home — |Db| lives in Shop; Billing reaches it through Shop's own call.
+# expect: none
+
+(User) -> [Shop] : buy({Order}) => {Receipt}
+[Shop] -> [Billing] : charge({Order}) => {Receipt}
+
+[Shop] := {
+  [Cart] -> |Db| : save({Order}) => {Ack}
+}
+
+[Billing] := {
+  [Ledger] -> [Shop] : record({Order}) => {Ack}
+}

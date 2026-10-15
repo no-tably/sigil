@@ -1,0 +1,9 @@
+#!spec
+# SGC402 untyped-boundary — acknowledged: the call's return is the bare status.
+# expect: none
+
+(User) -> [Shop] : buy({Order})   # accepts: untyped-boundary — a status code only, no body
+
+[Shop] := {
+  [Cart] ~> [Mailer] : notify({Order})
+}

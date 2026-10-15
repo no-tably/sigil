@@ -1,0 +1,10 @@
+#!spec
+# SGC402 untyped-boundary — the call states its return, the message its payload.
+# expect: none
+
+(User) -> [Shop] : buy({Order}) => {Receipt}
+[Shop] ~> [Mailer] : notify({Receipt})
+
+[Shop] := {
+  [Cart] -> |Orders| : save({Order}) => {Ack}
+}

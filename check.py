@@ -13,7 +13,7 @@ a reasoned acknowledgement:
 Usage:
     ./check.py <file.sigil> [--mode sketch|craft|spec] [--k N] [--budget N]
                [--overlaps off|listed|all|N]
-               [--limit NAME=N ...] [--json] [--all]
+               [--limit NAME=N ...] [--json] [--all] [--export]
     ./check.py --rules
     cat doc.sigil | ./check.py -
 
@@ -33,7 +33,10 @@ Options:
     --json       one JSON object: mode, k, limits (with budget), findings,
                  acknowledged
     --all        also print the findings the mode hides (sketch's info)
-    --rules      list the rule registry and exit
+    --export     check export readiness too: the readiness rules (EXPORT_MODULES:
+                 SGC401 no-home, SGC402 untyped-boundary) run with the others,
+                 as export.py's gate runs them
+    --rules      list the rule registry (the readiness rules too) and exit
     --dialect D  load a dialect (as lint.py does; default $SIGIL_DIALECT)
 
 Output (lint-compatible, sorted by line, then rule id, then anchor):
@@ -63,7 +66,11 @@ the simulator's canonical scene and program, all computed on first use). A modul
 may also define `exploration_causes(ck)`, match functions whose Hits check.py
 gathers into the one SGC090 rule, and `extend_rules(ck, rules)`, which returns the
 whole registered list with its own additions to rules other modules register
-(idempotent; applied after every module's `rules`). A loaded dialect's rule pack (dialects.py,
+(idempotent; applied after every module's `rules`). The modules in EXPORT_MODULES
+load the same way, but only for a check asked for export readiness (`--export`,
+`check(…, export=True)`); their names (EXPORT_NAMES) are known either way, so an
+acknowledgement of one is no unknown rule, and never stale, in a plain check.
+A loaded dialect's rule pack (dialects.py,
 `check_rules`, `READ_VERBS`, `policy_words`) joins the registry and the Doc. The
 registry, the finding record, tiers × modes, acknowledgements and folding live
 here; rule modules hold only matches and their data.
@@ -154,6 +161,10 @@ CORE_NAMES = {
     "SGC304": "layer-inversion", "SGC306": "timeout-below-sla",
 }
 RETIRED_IDS = frozenset({"SGC105", "SGC164", "SGC305"})
+# The export readiness rules (check_export.py): in the catalog's id space, run only
+# when a check is asked for export readiness (EXPORT_MODULES).
+EXPORT_NAMES = {"SGC401": "no-home", "SGC402": "untyped-boundary"}
+CATALOG = {**CORE_NAMES, **EXPORT_NAMES}
 # Core id spaces: lint codes are SGL…, check ids SGC…. lint.py keeps no table of
 # its codes, so the core reserves both prefixes whole: a dialect's rule id or
 # lint code may start with neither (registry_problem, dialect_pack).
@@ -173,7 +184,8 @@ INV_HEADS = frozenset({
     "depth", "hops", "terminates", "retention", "lock-order", "layers",
     "retry-budget", "limit", "concurrency", "consistent"})
 
-LAYERS = {"0": "meta", "1": "structural", "2": "behavioural", "3": "invariant"}
+LAYERS = {"0": "meta", "1": "structural", "2": "behavioural", "3": "invariant",
+          "4": "export"}
 TIERS = ("binding", "advisory", "hint")
 MODES = ("sketch", "craft", "spec")
 DEFAULT_K = {"sketch": 1, "craft": 1, "spec": 2}
@@ -418,7 +430,7 @@ class Doc:
         self.k = k
         self.known = known           # every rule name an acknowledgement may cite
         # id → name of every rule, so SGC001 can name the rule an id stands for
-        self.names_by_id = {**CORE_NAMES, **(rule_ids or {})}
+        self.names_by_id = {**CATALOG, **(rule_ids or {})}
         self.dialect = dialect
         self.extra_read_verbs = tuple(sorted(read_verbs))     # a dialect's (catalog §1 CG6)
         self.policy_words = POLICY_WORDS + tuple(policy_words)
@@ -862,6 +874,7 @@ def core_rules() -> list:
 # ---------------------------------------------------------------------------
 
 RULE_MODULES = ("check_flow.py", "check_state.py", "check_trace.py", "check_inv.py")
+EXPORT_MODULES = ("check_export.py",)        # only for a check asked for export readiness
 
 
 class RegistryError(ValueError):
@@ -950,14 +963,14 @@ def registry_problem(rule: Rule, seen_ids: set, seen_names: set) -> Optional[str
         return f"{rule.id} `{rule.name}`: registered twice"
     if rule.id in RETIRED_IDS:
         return f"{rule.id}: a retired id is never reused"
-    if rule.id in CORE_NAMES:
-        if CORE_NAMES[rule.id] != rule.name:
-            return f"{rule.id} is `{CORE_NAMES[rule.id]}` in the catalog, not `{rule.name}`"
+    if rule.id in CATALOG:
+        if CATALOG[rule.id] != rule.name:
+            return f"{rule.id} is `{CATALOG[rule.id]}` in the catalog, not `{rule.name}`"
         return None
     prefix = core_prefix(rule.id)
     if prefix:
         return f"{rule.id}: not in the catalog ({prefix} ids are core {CORE_ID_PREFIXES[prefix]})"
-    if rule.name in CORE_NAMES.values():
+    if rule.name in CATALOG.values():
         return f"{rule.id}: `{rule.name}` is a core name"
     return None
 
@@ -974,8 +987,11 @@ def build_registry(rules: Iterable) -> dict:
     return out
 
 
-def default_registry(extra: Iterable = ()) -> dict:
-    return build_registry(core_rules() + module_rules(API) + list(extra))
+def default_registry(extra: Iterable = (), export: bool = False) -> dict:
+    """The core rules, every rule module beside this file and `extra` (a dialect
+    pack's rules); with `export`, the readiness rules (EXPORT_MODULES) too."""
+    readiness = module_rules(API, names=EXPORT_MODULES) if export else []
+    return build_registry(core_rules() + module_rules(API) + readiness + list(extra))
 
 
 def core_names():
@@ -984,8 +1000,8 @@ def core_names():
     their whole prefix instead (CORE_ID_PREFIXES, enforced by dialect_pack and
     registry_problem)."""
     return _dialects().CoreNames(
-        rule_ids=frozenset(CORE_NAMES) | RETIRED_IDS,
-        rule_names=frozenset(CORE_NAMES.values()), inv_heads=INV_HEADS)
+        rule_ids=frozenset(CATALOG) | RETIRED_IDS,
+        rule_names=frozenset(CATALOG.values()), inv_heads=INV_HEADS)
 
 
 def prefix_problems(pack) -> list:
@@ -1113,6 +1129,17 @@ def run_rules(doc: Doc, rules: list) -> list:
     return sorted(out, key=lambda f: f.sort_key)
 
 
+def idle_names(registry: dict) -> frozenset:
+    """The readiness rule names (EXPORT_NAMES) this registry does not run."""
+    return frozenset(EXPORT_NAMES.values()) - {r.name for r in registry.values()}
+
+
+def about_idle_rule(f: Finding, idle: frozenset) -> bool:
+    """An ack-unused finding about a rule that did not run: an acknowledgement of a
+    readiness rule is for the export check, and no plain check judges it stale."""
+    return f.rule.name == "ack-unused" and dict(f.hit.scopes).get("rule") in idle
+
+
 def is_acknowledged(f: Finding) -> bool:
     """Acknowledged itself, or folded into an acknowledged cause."""
     root = f.folded_into or f
@@ -1144,21 +1171,24 @@ def limits_of(doc: Doc) -> dict:
 
 def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
           dialect=None, registry: Optional[dict] = None, pack=None,
-          budget: Optional[int] = None, limits=None, overlaps=None) -> Report:
+          budget: Optional[int] = None, limits=None, overlaps=None,
+          export: bool = False) -> Report:
     """Check a document. `mode` overrides its mode line; `pack` defaults to the
     dialect's rule pack (dialect_pack), whose read verbs, policy words and
     `@inv` heads the rules read; `registry` defaults to the core rules, every rule module beside
     this file and the pack's rules. `budget` (runs per exploration) and `limits`
     (a sim.Limits) bound the simulator, `overlaps` (OVERLAPS or a number of runs)
-    says which overlap runs it makes; None takes the defaults."""
+    says which overlap runs it makes; None takes the defaults. `export` adds the
+    export readiness rules to the default registry (a given `registry` runs as
+    it is)."""
     pack = dialect_pack(dialect) if pack is None else pack
-    registry = default_registry(pack.rules) if registry is None else registry
+    registry = default_registry(pack.rules, export) if registry is None else registry
     lines = text.splitlines()
     mode = mode or read_mode(lines)
     if mode not in MODES:
         raise ValueError(f"unknown mode {mode!r} (one of {', '.join(MODES)})")
     k = DEFAULT_K[mode] if k is None else k
-    known = frozenset(CORE_NAMES.values()) | {r.name for r in registry.values()}
+    known = frozenset(CATALOG.values()) | {r.name for r in registry.values()}
     doc = Doc(text, mode, k, known, dialect, read_verbs=pack.read_verbs,
               policy_words=pack.policy_words, inv_heads=pack.inv_heads,
               budget=budget, limits=limits, overlaps=overlaps,
@@ -1168,7 +1198,9 @@ def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
     fold(findings)
     doc.findings = list(findings)
     doc.ack_used = frozenset(acknowledge(findings, doc.acks))
-    later = run_rules(doc, [r for r in registry.values() if r.after_acks])
+    idle = idle_names(registry)
+    later = [f for f in run_rules(doc, [r for r in registry.values() if r.after_acks])
+             if not about_idle_rule(f, idle)]
     findings = sorted(findings + later, key=lambda f: f.sort_key)
     emitted = [f for f in findings if f.severity is not None]
     roots = [f for f in emitted if f.folded_into is None]
@@ -1233,6 +1265,9 @@ def main(argv=None) -> int:
                     help="raise one simulator limit (repeatable; e.g. depth=5)")
     ap.add_argument("--json", action="store_true", help="print one JSON object")
     ap.add_argument("--all", action="store_true", help="also print hidden findings")
+    ap.add_argument("--export", action="store_true",
+                    help="also check export readiness (SGC401 no-home, SGC402 "
+                         "untyped-boundary)")
     ap.add_argument("--rules", action="store_true", help="list the rules and exit")
     ap.add_argument("--dialect", default=None,
                     help="dialect name or path (default: $SIGIL_DIALECT)")
@@ -1246,7 +1281,7 @@ def main(argv=None) -> int:
     try:
         dialect = _dialects().load(a.dialect)
         pack = dialect_pack(dialect)
-        registry = default_registry(pack.rules)
+        registry = default_registry(pack.rules, export=a.export or a.rules)
         limits = limits_from(a.limit, _sim().Limits()) if a.limit else None
         text = None if a.rules else _read_input(a.file)
     except RegistryError as exc:
@@ -1259,7 +1294,7 @@ def main(argv=None) -> int:
         print("\n".join(registry_lines(registry)))
         return 0
     report = check(text, mode=a.mode, k=a.k, dialect=dialect, registry=registry, pack=pack,
-                   budget=a.budget, limits=limits, overlaps=a.overlaps)
+                   budget=a.budget, limits=limits, overlaps=a.overlaps, export=a.export)
     if a.json:
         print(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
     else:

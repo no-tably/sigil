@@ -1,0 +1,12 @@
+#!spec
+# SGC402 untyped-boundary — a call into the Shop system with no return, and a
+# message out of it with no payload.
+# expect: 7:SGC402
+# expect: 8:SGC402
+
+(User) -> [Shop] : buy({Order})
+[Shop] ~> [Mailer]
+
+[Shop] := {
+  [Cart] -> |Orders| : save({Order}) => {Ack}
+}

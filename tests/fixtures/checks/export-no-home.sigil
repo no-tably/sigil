@@ -1,0 +1,14 @@
+#!spec
+# SGC401 no-home — |Db| is written in two sibling expansions, neither enclosing the other.
+# expect: 9:SGC401
+
+(User) -> [Shop] : buy({Order}) => {Receipt}
+[Shop] -> [Billing] : charge({Order}) => {Receipt}
+
+[Shop] := {
+  [Cart] -> |Db| : save({Order}) => {Ack}
+}
+
+[Billing] := {
+  [Ledger] -> |Db| : record({Order}) => {Ack}
+}
