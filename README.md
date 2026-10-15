@@ -367,11 +367,15 @@ t045 ep1: [Status] calls |Ledger| with read({Hash}); ep2: [Exporter] emits <Stal
 t050 ep2: <Stale> calls [Builder] with recheck({Delta}); ep1: [Status] returns {Verdict} to [Builder]
 ```
 
-`check.py` looks further than the list: its behavioural rules start each later
+`check.py` looks further than the list when it checks a `#!spec` document (or is
+given `--overlaps all`): its behavioural rules start each later
 entry at *every* tick of an earlier entry's episode (within `--budget`), so a race
 between two entries — two writers from two episodes, an event landing in a state
 that exists only mid-episode — is found, and its witness names the run
 (`SGC204: race: … holds it too in the Bob@0 run`) for `--sim Bob@0` to replay.
+This sweep is the exhaustive check before a spec is final. In sketch and craft it
+is off, so checks stay quick while you draft; `--overlaps listed` tries just the
+listed runs, and `--overlaps N` caps the sweep at N runs.
 
 ## Themes
 

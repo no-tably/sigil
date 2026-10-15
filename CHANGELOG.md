@@ -43,6 +43,10 @@ them. (More of 0.5.0 is still to come.)
   `--sim Bob@0` replays. These runs share `--budget` with the failure combinations
   (the listed overlap runs first, so a small budget still reaches every pair);
   `--limit window=N` sets how many start ticks one pair may try (64).
+- **Overlap runs are the exhaustive check, so drafts skip them.** `check.py
+  --overlaps off|listed|all|N` picks which overlap runs to make. The default is
+  `all` for a `#!spec` document (the check before a spec is final) and `off` for
+  sketch and craft, so a check while drafting stays as quick as before.
 
 ### Agent plugins and page
 

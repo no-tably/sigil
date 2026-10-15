@@ -281,9 +281,13 @@ run it to find out what the design does, not only to show the user.
    with two or more entries (two actors, a job and a user) also needs the question
    "what if they happen at once?": read the `Entry@t` rows, try other ticks by name
    (`--once --sim Author@40`; the log leads each sentence with its episode, `ep2:`),
-   and run `check.py`, which starts each later entry at every tick of an earlier
-   one's episode and names the run where two entries race (two writers, an event
-   landing in a state that exists only mid-episode).
+   and run `check.py --mode spec` (or `--overlaps all`), which starts each later
+   entry at every tick of an earlier one's episode and names the run where two
+   entries race (two writers, an event landing in a state that exists only
+   mid-episode). That sweep is the exhaustive pass, made once before a spec is
+   final: in sketch and craft `check.py` skips overlap runs (`--overlaps off`), so
+   checks on every edit stay quick. `--overlaps listed` tries only the listed
+   `Entry@t` runs, and `--overlaps N` caps the sweep.
 3. A surprising row: `--once --tree --sim NAME` draws its last frame and prints the
    run in plain words, one `tNNN …` line per step; find where the run diverged from
    the intent, and quote those lines to the user (`--sim NAME --json` has them as

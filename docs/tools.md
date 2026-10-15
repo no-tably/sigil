@@ -47,6 +47,12 @@ binding rules errors. The line format and [exit codes](#exit-codes) match lint.
   race between two entries is found and its witness names the `Entry@t` run.
   `--limit NAME=N` raises one simulator limit (repeatable, e.g. `depth=5`;
   `window=N` the start ticks tried per pair of entries, 64).
+- `--overlaps off|listed|all|N` says which overlap runs to make. `off` makes none,
+  and `listed` makes the listed `Entry@t` runs, alone and with each failure. `all`
+  makes those, then every start tick, and `N` is `all` but at most N runs. The
+  default is `all` in `#!spec` and `off` in sketch and craft: the sweep is the
+  exhaustive check you run before a spec is final, not on every edit. `--json`
+  reports the setting as `limits.overlap_runs`.
 - `--all` also shows hidden findings.
 - `--json` prints one object per run: rule, tier, why, how to satisfy, witness (and
   `at`, the tick in the witness run where a behavioural finding shows).

@@ -12,6 +12,7 @@ a reasoned acknowledgement:
 
 Usage:
     ./check.py <file.sigil> [--mode sketch|craft|spec] [--k N] [--budget N]
+               [--overlaps off|listed|all|N]
                [--limit NAME=N ...] [--json] [--all]
     ./check.py --rules
     cat doc.sigil | ./check.py -
@@ -20,8 +21,13 @@ Options:
     --mode M     check as mode M (default: the document's mode line; none = sketch)
     --k N        failure combinations explored per scenario (default: 1, spec 2)
     --budget N   runs one exploration may make: deviation combinations, then
-                 overlap runs (each later entry started at every tick of an
-                 earlier one's episode) (default: check_trace.BUDGET)
+                 overlap runs (default: check_trace.BUDGET)
+    --overlaps off|listed|all|N  overlap runs (a later entry started while an
+                 earlier one's episode runs) to make: none; the listed starts
+                 (sim.overlaps), alone and with each deviation; those, then every
+                 start tick of each earlier episode's busy window; or all but at
+                 most N runs. Default: all in spec (the exhaustive check before a
+                 spec is final), off in sketch and craft
     --limit NAME=N  raise one simulator bound (sim.Limits: depth, iterations,
                  spawn, activations, …); repeatable
     --json       one JSON object: mode, k, limits (with budget), findings,
@@ -171,6 +177,21 @@ LAYERS = {"0": "meta", "1": "structural", "2": "behavioural", "3": "invariant"}
 TIERS = ("binding", "advisory", "hint")
 MODES = ("sketch", "craft", "spec")
 DEFAULT_K = {"sketch": 1, "craft": 1, "spec": 2}
+# Overlap runs (a later entry started while an earlier one's episode runs) are the
+# exhaustive part of an exploration: off while a design is drafted, every start
+# tick (within the budget) in spec, the check before a spec is final.
+OVERLAPS = ("off", "listed", "all")
+DEFAULT_OVERLAPS = {"sketch": "off", "craft": "off", "spec": "all"}
+
+
+def overlaps_arg(value: str):
+    """--overlaps: off, listed, all, or N (all, at most N overlap runs)."""
+    if value in OVERLAPS:
+        return value
+    if value.isdigit() and int(value) >= 1:
+        return int(value)
+    raise argparse.ArgumentTypeError(f"{value!r}: one of {', '.join(OVERLAPS)}, or a "
+                                     "number of runs (at least 1)")
 
 # tier → mode → (severity, hidden); None: not emitted (catalog §1.2).
 SEVERITY = {
@@ -390,7 +411,7 @@ class Doc:
                  read_verbs: tuple = (), policy_words: tuple = (),
                  inv_heads: frozenset = frozenset(),
                  budget: Optional[int] = None, limits=None,
-                 rule_ids: Optional[dict] = None):
+                 rule_ids: Optional[dict] = None, overlaps=None):
         self.text = text
         self.lines = text.splitlines()
         self.mode = mode
@@ -406,11 +427,20 @@ class Doc:
         self.ack_used = frozenset()  # lines of the acknowledgements that covered one
         self._budget = budget        # None: the defaults (see budget, limits)
         self._limits = limits
+        self._overlaps = overlaps    # None: the mode's (DEFAULT_OVERLAPS)
 
     @cached_property
     def budget(self) -> Optional[int]:
         """Runs one exploration may make (--budget; default: the trace module's)."""
         return default_budget() if self._budget is None else self._budget
+
+    @property
+    def overlaps(self):
+        """Which overlap runs the exploration makes (--overlaps): "off", "listed"
+        (sim.overlaps, alone and with each deviation), "all" (those, then every
+        start tick of each window) or N ("all", at most N runs); default: the
+        mode's (DEFAULT_OVERLAPS)."""
+        return DEFAULT_OVERLAPS.get(self.mode, "off") if self._overlaps is None else self._overlaps
 
     @cached_property
     def limits(self):
@@ -1108,17 +1138,19 @@ def limits_of(doc: Doc) -> dict:
     out = dict(doc.limits._asdict())
     out["budget"] = doc.budget
     out["k"] = doc.k
+    out["overlap_runs"] = doc.overlaps      # --overlaps (sim.Limits has its own "overlaps")
     return out
 
 
 def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
           dialect=None, registry: Optional[dict] = None, pack=None,
-          budget: Optional[int] = None, limits=None) -> Report:
+          budget: Optional[int] = None, limits=None, overlaps=None) -> Report:
     """Check a document. `mode` overrides its mode line; `pack` defaults to the
     dialect's rule pack (dialect_pack), whose read verbs, policy words and
     `@inv` heads the rules read; `registry` defaults to the core rules, every rule module beside
     this file and the pack's rules. `budget` (runs per exploration) and `limits`
-    (a sim.Limits) bound the simulator; None takes the defaults."""
+    (a sim.Limits) bound the simulator, `overlaps` (OVERLAPS or a number of runs)
+    says which overlap runs it makes; None takes the defaults."""
     pack = dialect_pack(dialect) if pack is None else pack
     registry = default_registry(pack.rules) if registry is None else registry
     lines = text.splitlines()
@@ -1129,7 +1161,7 @@ def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
     known = frozenset(CORE_NAMES.values()) | {r.name for r in registry.values()}
     doc = Doc(text, mode, k, known, dialect, read_verbs=pack.read_verbs,
               policy_words=pack.policy_words, inv_heads=pack.inv_heads,
-              budget=budget, limits=limits,
+              budget=budget, limits=limits, overlaps=overlaps,
               rule_ids={r.id: r.name for r in registry.values()})
     first = [r for r in registry.values() if not r.after_acks]
     findings = run_rules(doc, first)
@@ -1193,6 +1225,10 @@ def main(argv=None) -> int:
     ap.add_argument("--k", type=int, help="failure combinations per scenario")
     ap.add_argument("--budget", type=int,
                     help="runs one exploration may make (deviations, then overlap runs)")
+    ap.add_argument("--overlaps", type=overlaps_arg, metavar="off|listed|all|N",
+                    help="overlap runs to make: none, the listed starts, every start "
+                         "tick, or every tick but at most N runs (default: all in spec, "
+                         "else off)")
     ap.add_argument("--limit", action="append", default=[], metavar="NAME=N",
                     help="raise one simulator limit (repeatable; e.g. depth=5)")
     ap.add_argument("--json", action="store_true", help="print one JSON object")
@@ -1223,7 +1259,7 @@ def main(argv=None) -> int:
         print("\n".join(registry_lines(registry)))
         return 0
     report = check(text, mode=a.mode, k=a.k, dialect=dialect, registry=registry, pack=pack,
-                   budget=a.budget, limits=limits)
+                   budget=a.budget, limits=limits, overlaps=a.overlaps)
     if a.json:
         print(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
     else:

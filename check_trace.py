@@ -119,17 +119,21 @@ class Explored(NamedTuple):
     overlaps_left_out: int = 0
 
 
-def explore(sim, sc, k: int, budget: int, limits) -> Explored:
+def explore(sim, sc, k: int, budget: int, limits, overlaps="all") -> Explored:
     """The runs of up to k deviations at once (sim.combinations), then the
-    overlap runs (overlap_scenarios), at most `budget` runs in all (the happy
-    run aside), each under `limits` (a sim.Limits). A run that repeats an
+    overlap runs (overlap_scenarios) `overlaps` asks for — "off" none, "listed"
+    the listed starts alone and with each deviation, "all" those then the sweep,
+    a number N "all" but at most N runs — at most `budget` runs in all (the
+    happy run aside), each under `limits` (a sim.Limits). A run that repeats an
     earlier one's log and outcome is dropped."""
     ex = sim.combinations(sc, k, limits=limits, budget=budget)
     runs = tuple(Run(t.scenario, t.end, t.outcome) for t in ex.traces)
     made = len(ex.traces) - 1 + ex.duplicates
-    starts = overlap_scenarios(sim, sc, runs[1:], limits)
+    starts = ([] if overlaps == "off" else
+              overlap_scenarios(sim, sc, runs[1:], limits, sweep=overlaps != "listed"))
+    room = budget - made if isinstance(overlaps, str) else min(budget - made, overlaps)
     simulate = lambda s: sim.simulate(sc, s, limits=limits, keep=False)
-    more, left = run_new(simulate, starts, budget - made, {signature(r) for r in runs})
+    more, left = run_new(simulate, starts, room, {signature(r) for r in runs})
     return Explored(runs + more, ex.left_out, k, budget, limits, left)
 
 
@@ -144,20 +148,23 @@ def with_deviation(start, s):
                           label=" + ".join(x for x in (s.label, start.label) if x))
 
 
-def overlap_scenarios(sim, sc, deviated: tuple, limits) -> list:
+def overlap_scenarios(sim, sc, deviated: tuple, limits, sweep: bool = True) -> list:
     """What the checks run beyond the deviations, most likely race first, each
     name once: the listed overlap starts on the default choices (sim.overlaps:
     the moments a race could happen), then each deviated run's choices with
     them, then the sweep — every start tick of each later entry inside each
     earlier entry's busy window (sim.overlap_runs, at most limits.window per
     window) taken round-robin over the windows (each window's first tick, then
-    each one's second, …), so a small budget still reaches every window."""
+    each one's second, …), so a small budget still reaches every window; with
+    `sweep` false, the listed starts and their deviations only."""
     listed = sim.overlaps(sc, limits=limits)
-    windows = sim.overlap_windows(sc, limits=limits)
-    sweep = round_robin(by_window(windows, sim.overlap_runs(sc, limits=limits)))
+    ticks = []
+    if sweep:
+        windows = sim.overlap_windows(sc, limits=limits)
+        ticks = round_robin(by_window(windows, sim.overlap_runs(sc, limits=limits)))
     return unique_names(listed
                         + [with_deviation(s, run.scenario) for run in deviated for s in listed]
-                        + sweep)
+                        + ticks)
 
 
 def by_window(windows: list, starts: list) -> list:
@@ -509,7 +516,8 @@ class TraceFacts:
 
     @cached_property
     def explored(self) -> Explored:
-        return explore(self.doc.sim, self.doc.sc, self.doc.k, self.budget, self.limits)
+        return explore(self.doc.sim, self.doc.sc, self.doc.k, self.budget, self.limits,
+                       getattr(self.doc, "overlaps", "all"))
 
     @property
     def runs(self) -> tuple:

@@ -629,6 +629,36 @@ class Exploration(unittest.TestCase):
                       "earlier one runs) unrun (budget=2 runs", f.hit.statement)
         self.assertEqual(cause_of(ck.check(text, registry=REGISTRY), "exploration budget"), [])
 
+    def test_overlap_runs_are_the_spec_checks_and_off_while_drafting(self):
+        text = fixture("trace-204-overlap.sigil")
+        races = lambda **kw: of(ck.check(text, registry=REGISTRY, **kw), "SGC204")
+        self.assertEqual(len(races()), 1)                       # #!spec: every tick
+        self.assertEqual(races(mode="craft"), [])               # drafting: none
+        self.assertEqual(len(races(mode="craft", overlaps="listed")), 1)
+        self.assertEqual(races(overlaps="off"), [])
+        rep = ck.check(text, registry=REGISTRY, mode="craft")
+        self.assertEqual(rep.limits["overlap_runs"], "off")
+        self.assertEqual(rep.limits["overlaps"], sim.Limits().overlaps)
+
+    def test_listed_skips_the_sweep_and_n_caps_the_overlap_runs(self):
+        d = make_doc(fixture("trace-204-overlap.sigil"))
+        listed = [s.name for s in sim.overlaps(d.sc, limits=d.limits)]
+        got = ct.overlap_scenarios(sim, d.sc, (), d.limits, sweep=False)
+        self.assertEqual([s.name for s in got], listed)
+        ex = ct.explore(sim, d.sc, 1, 500, d.limits, overlaps=1)
+        self.assertEqual(sum(1 for r in ex.runs if r.scenario.starts), 1)
+        self.assertGreater(ex.overlaps_left_out, 0)
+        off = ct.explore(sim, d.sc, 1, 500, d.limits, overlaps="off")
+        self.assertEqual((sum(1 for r in off.runs if r.scenario.starts),
+                          off.overlaps_left_out), (0, 0))
+
+    def test_the_overlaps_option_reads_a_mode_or_a_number(self):
+        self.assertEqual(ck.overlaps_arg("listed"), "listed")
+        self.assertEqual(ck.overlaps_arg("7"), 7)
+        for bad in ("0", "some", "-1"):
+            with self.assertRaises(Exception):
+                ck.overlaps_arg(bad)
+
     def test_the_listed_starts_come_first_then_each_deviation_then_every_tick(self):
         d = make_doc(fixture("trace-204-overlap.sigil"))
         ticks = sim.overlap_runs(d.sc, limits=d.limits)
