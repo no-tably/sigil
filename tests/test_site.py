@@ -193,6 +193,15 @@ class TestBuild(unittest.TestCase):
         for name in ("check.py", "dialects.py") + check.RULE_MODULES:
             self.assertIn(name, site.PY_TOOLS, name)
 
+    def test_playground_ships_no_export_tools(self):
+        """The playground never exports: the export tools stay out of py/, and
+        everything else the plugin ships is in it."""
+        for name in site.NOT_IN_PLAYGROUND:
+            self.assertNotIn(name, site.PY_TOOLS, name)
+            self.assertFalse((self.out / "py" / name).exists(), name)
+        build_tools = _load("sigil_build_site_t", _DIR / "build.py").TOOLS
+        self.assertEqual(set(site.PY_TOOLS) | site.NOT_IN_PLAYGROUND, set(build_tools))
+
     def _manifest_dir(self, tmp: str) -> Path:
         """The browser's file system: py/* and themes/* in one directory, nothing else."""
         man = json.loads((self.out / "py" / "manifest.json").read_text())

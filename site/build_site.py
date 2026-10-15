@@ -23,7 +23,8 @@ What it does:
       change like everything else;
     - copies the playground's Python into py/ — the repo's own view.py, lint.py,
       sim.py, check.py and the rest, byte for byte, plus frames.py and playground.py — for
-      Pyodide to run in the browser (loaded only when the playground opens).
+      Pyodide to run in the browser (loaded only when the playground opens); export.py
+      and its modules stay out (the playground does not export).
 
 --out is wiped and rebuilt, so it must be empty, missing, or a previous build
 (frames.json or .nojekyll present), and never this directory or a parent of it.
@@ -77,8 +78,12 @@ themes = _load("sigil_site_themes", ROOT / "themes.py")
 frames_mod = _load("sigil_site_frames", SITE / "frames.py")
 # The playground's Python, copied verbatim into py/ (manifest.json lists them):
 # the repo's own tools (build.py's list, the one the plugin ships), then the two
-# site helpers — the browser runs these files, never a port of them.
-PY_TOOLS = list(_load("sigil_site_build", ROOT / "build.py").TOOLS)
+# site helpers — the browser runs these files, never a port of them. The export
+# tools stay out: the playground draws, lints, checks and runs, it never exports
+# (and check.py loads check_export.py only for a check asked for export readiness).
+NOT_IN_PLAYGROUND = frozenset({"export.py", "export_model.py", "check_export.py"})
+PY_TOOLS = [n for n in _load("sigil_site_build", ROOT / "build.py").TOOLS
+            if n not in NOT_IN_PLAYGROUND]
 autoclose, Styles, pack_rows = frames_mod.autoclose, frames_mod.Styles, frames_mod.pack_rows
 
 

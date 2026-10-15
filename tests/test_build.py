@@ -44,8 +44,9 @@ class VersionTest(unittest.TestCase):
 
 class ModuleListTest(unittest.TestCase):
     def test_every_top_level_module_ships(self):
-        """build.TOOLS is the one list the plugin and the playground ship: a new
-        top-level module must join it (only build.py itself stays out)."""
+        """build.TOOLS is the one list the plugin ships (the playground takes it less
+        the export tools): a new top-level module must join it (only build.py
+        itself stays out)."""
         on_disk = {p.name for p in ROOT.glob("*.py")} - {"build.py"}
         self.assertEqual(on_disk, set(build.TOOLS))
         self.assertLessEqual(build.REQUIRED_TOOLS, set(build.TOOLS))
@@ -290,6 +291,25 @@ class BuildTestCase(unittest.TestCase):
                                capture_output=True, text=True, encoding="utf-8")
             self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
             self.assertIn("warn:5:SGC131: shared-writable-store", r.stdout)
+
+    def test_packaged_export_runs(self):
+        """export.py runs from an archive's scripts: its model and readiness rules
+        ship beside it, and a ready spec exports with manifest.json last."""
+        import subprocess
+        sample = ("#!spec\n\n--- Notes ---\n(User) -> [Api] : save({Note}) => {Ack}\n"
+                  "[Api] -> |Notes| : put({Note}) => {Ack}\n")
+        scripts = self.out / "claude" / "skills" / "sigil" / "scripts"
+        for tool in ("export.py", "export_model.py", "check_export.py"):
+            self.assertTrue((scripts / tool).is_file(), tool)
+        with tempfile.TemporaryDirectory() as d:
+            spec, dest = Path(d) / "tiny.sigil", Path(d) / "out"
+            spec.write_text(sample, encoding="utf-8")
+            r = subprocess.run([sys.executable, str(scripts / "export.py"), str(spec),
+                                "--out", str(dest)], capture_output=True, text=True,
+                               encoding="utf-8")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            man = json.loads((dest / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(list(man["systems"]), ["tiny"])
 
     def test_packaged_lint_runs(self):
         import subprocess

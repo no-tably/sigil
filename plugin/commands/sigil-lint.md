@@ -12,3 +12,7 @@ Validate the Sigil document $1 with the sigil skill's linter.
    `references/language.md` when a rule is unclear).
 3. Do not rewrite the file unless the user asks; if they do, re-run the linter
    afterwards to confirm it is clean.
+4. If the document is a `#!spec` the user wants to build from,
+   `python3 @SCRIPTS@/export.py $1 --out DIR` exports it as a build skeleton.
+   It runs the linter and `check.py --export` first, and prints what blocks the
+   export (exit 2) until both are clean.

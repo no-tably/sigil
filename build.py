@@ -27,6 +27,8 @@ Canonical sources (edit these, never dist/):
     check_state.py             modules beside it (required)
     check_trace.py check_flow.py
     check_inv.py
+    export.py export_model.py  export.py: a ready #!spec as a build skeleton, its
+    check_export.py            model and readiness rules (required)
     dialects.py themes.py      copied alongside when present (optional)
     themes/*.yaml              copied into skills/sigil/scripts/themes/
     language.md examples.md    copied into skills/sigil/references/
@@ -72,14 +74,16 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent
 
 # Every shipped module, here only: the plugin bundles them and site/build_site.py
-# copies the same list into the playground (tests/test_build.py: every top-level
-# module but this one is listed).
+# copies the same list into the playground, less the export tools
+# (tests/test_build.py: every top-level module but this one is listed).
 TOOLS = ["lint.py", "render.py", "view.py", "viewkit.py", "view_graph.py", "view_tree.py",
          "view_flow.py", "view_run.py", "scene.py", "sim.py", "check.py", "check_state.py", "check_trace.py", "check_flow.py",
-         "check_inv.py", "dialects.py", "themes.py"]
+         "check_inv.py", "export.py", "export_model.py", "check_export.py", "dialects.py",
+         "themes.py"]
 REQUIRED_TOOLS = {"lint.py", "render.py", "view.py", "viewkit.py", "view_graph.py",
                   "view_tree.py", "view_flow.py", "view_run.py", "scene.py", "sim.py", "check.py", "check_state.py",
-                  "check_trace.py", "check_flow.py", "check_inv.py"}
+                  "check_trace.py", "check_flow.py", "check_inv.py", "export.py",
+                  "export_model.py", "check_export.py"}
 REFERENCES = ["language.md", "examples.md"]
 TARGETS = ["claude", "codex", "pi", "opencode"]
 SKILL = "sigil"
