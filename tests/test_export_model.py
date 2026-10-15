@@ -210,6 +210,26 @@ class TestHashes(unittest.TestCase):
         log = em.component_json(after.components["Log_service"], after.components)
         self.assertEqual(log["also_in"], ["A", "B"])
 
+    def test_spacing_inside_a_payload_op_or_modifier_changes_no_hash(self):
+        text = ("[Shop] := {\n  [Basket] -> |Orders| : save({Order}) => {Ack}"
+                ' @fallback("cached")\n}\n(Buyer) -> [Shop] : {Cart}\n')
+        base = hashes(model(text, "t"))
+        for old, new in (("save({Order})", "save( {Order} )"),
+                         ("save({Order})", "save( {Order})"),
+                         ("{Order}) => {Ack}", "{Order})=>  {Ack}"),
+                         ('@fallback("cached")', '@fallback( "cached" )')):
+            with self.subTest(new=new):
+                self.assertEqual(hashes(model(text.replace(old, new), "t")), base)
+        # inside a quoted string the spacing is the text's own
+        quoted = text.replace('"cached"', '"cached  copy"')
+        self.assertNotEqual(hashes(model(quoted, "t")), base)
+
+    def test_tight(self):
+        self.assertEqual(em.tight(" save( {Order} ,  {Id} ) "), "save({Order},{Id})")
+        self.assertEqual(em.tight('f( "a  b" ) x  y'), 'f("a  b")x y')
+        self.assertEqual(em.tight("a  =>{B}"), "a => {B}")
+        self.assertEqual(em.tight('x  "q"  y'), 'x "q" y')
+
     def test_hashes_are_16_hex(self):
         for i, b in hashes(model()).values():
             self.assertRegex(i, r"^[0-9a-f]{16}$")
@@ -274,6 +294,17 @@ class TestReadinessFacts(unittest.TestCase):
                                  ("[Handler]", "|Db|", "return", ("Core", "t"))})
         # [Api] -> [Log] is untyped but crosses no boundary; ~> is async; the
         # inner [Router] -> [Handler] crosses none either
+
+
+    def test_failure_and_optional_calls_need_a_payload_only(self):
+        text = ("[Api] := {\n  [Core] -> |Db| : read({Q}) => {R}\n"
+                "  !> [Alerts] : notify({Err})\n  [Core] ?> [Audit] : log({Q})\n}\n"
+                "[Alerts]\n[Audit]\n(User) -> [Api] : {Q}\n")
+        self.assertEqual(model(text, "t").untyped, ())
+        bare = text.replace(" : notify({Err})", "").replace(" : log({Q})", "")
+        found = {(u.src, u.dst, u.missing) for u in model(bare, "t").untyped}
+        self.assertEqual(found, {("[Core]", "[Alerts]", "payload"),
+                                 ("[Core]", "[Audit]", "payload")})
 
 
 class TestNormalisedForm(unittest.TestCase):

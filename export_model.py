@@ -122,7 +122,6 @@ def _scene():
 GLYPH_BRACKETS = {"service": "[]", "data": "{}", "event": "<>", "actor": "()", "store": "||"}
 NOT_COMPONENTS = frozenset({"state", "alias"})
 TYPED_KINDS = frozenset({"data", "event"})          # a glyph that is its own payload
-ASYNC_ARROWS = frozenset({"~>", "*>"})
 ARROW_MODE = {"->": "sync", "→": "sync", "<->": "sync", "~>": "async", "*>": "async",
               "=>": "return", "!>": "failure", "?>": "optional"}
 HASH_LEN = 16
@@ -620,15 +619,15 @@ def collect_flows(graph, nodes: dict) -> list:
 def flow_of(e) -> Flow:
     scene, render = _scene(), _render()
     call = scene.edge_call(e)
-    payload = ws(e.payload) if e.payload else None
+    payload = tight(e.payload) if e.payload else None
     text = None
     if e.block_string is not None:
         text = "\n".join(ln.rstrip() for ln in e.block_string.strip("\n").splitlines())
         payload = payload.replace(render.BLOCK_SENTINEL, '"""…"""') if payload else None
     return Flow(
         src=e.src, dst=e.dst, arrow=e.kind, line=e.line, payload=payload, text=text,
-        op=ws(call.op) if call and call.op else None,
-        returns=ws(call.returns) if call and call.returns else None,
+        op=tight(call.op) if call and call.op else None,
+        returns=tight(call.returns) if call and call.returns else None,
         external=bool(call and call.external),
         mods=tuple(sorted({norm_mod(m) for m in [*e.mods, *e.src_mods]}, key=_mod_key)),
         card=e.card, implied=e.implied,
@@ -662,7 +661,7 @@ def untyped(f: Flow, src_kind: str, dst_kind: str) -> Optional[str]:
     """"payload", "return" or None for one boundary flow."""
     if not f.payload and src_kind not in TYPED_KINDS and dst_kind not in TYPED_KINDS:
         return "payload"
-    if f.is_call and not f.returns and f.arrow not in ASYNC_ARROWS and f.arrow != "=>":
+    if f.is_call and not f.returns and ARROW_MODE.get(f.arrow) == "sync":
         return "return"
     return None
 
@@ -724,7 +723,7 @@ def system_description(graph, lay: Layout, key: str, face: Optional[str]) -> tup
 
 
 def system_blocks(graph, lay: Layout, key: str) -> tuple:
-    return tuple(sorted({(b.kind, ws(b.header),
+    return tuple(sorted({(b.kind, tight(b.header),
                           tuple(sorted({norm_mod(m) for m in b.modifiers}, key=_mod_key)))
                          for g in walk(graph) if lay.graph_system.get(id(g)) == key
                          for b in g.blocks}, key=repr))
@@ -867,9 +866,33 @@ def ws(text: str) -> str:
     return " ".join(text.split())
 
 
+_QUOTED = re.compile(r'"(?:[^"\\]|\\.)*"')        # a quoted string, kept as written
+_TIGHT = re.compile(r"\s*([()\[\]{}<>|,:])\s*")   # whitespace beside these goes
+
+
+def tight(text: str) -> str:
+    """Token-level form of a payload, op, return, block header or modifier
+    argument: whitespace runs as one space, none beside ( ) { } [ ] < > | , :
+    and one each side of `=>`; quoted strings kept as written.
+    `save( {Order} )=>{Ack}` → `save({Order}) => {Ack}`."""
+    parts, at = [], 0
+    for q in _QUOTED.finditer(text):
+        parts += [_tight_bare(text[at:q.start()]), q.group()]
+        at = q.end()
+    parts.append(_tight_bare(text[at:]))
+    return "".join(parts).strip()
+
+
+def _tight_bare(text: str) -> str:
+    """tight() for text holding no quoted string (a space at its ends, next to a
+    quote, is kept as one)."""
+    pieces = (_TIGHT.sub(r"\1", re.sub(r"\s+", " ", p)) for p in text.split("=>"))
+    return re.sub(r" ?=> ?", " => ", "=>".join(pieces))
+
+
 def norm_mod(m: tuple) -> tuple:
     name, arg = m
-    return (name, ws(arg) if isinstance(arg, str) else arg)
+    return (name, tight(arg) if isinstance(arg, str) else arg)
 
 
 def _mod_key(m: tuple) -> tuple:
