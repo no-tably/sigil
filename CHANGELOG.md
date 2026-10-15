@@ -5,7 +5,8 @@ Each release's notes, newest first. The same text is the GitHub release's descri
 ## 0.5.0 — unreleased
 
 Runs whose entries happen at the same time, and checks that look for races between
-them. (More of 0.5.0 is still to come.)
+them; and a finished spec exported as a build skeleton, with a manifest as the
+contract and, on every re-export, the list of what changed.
 
 ### Runs that overlap
 
@@ -33,6 +34,36 @@ them. (More of 0.5.0 is still to come.)
   author exports while a builder is mid-build, and the stale notice lands between
   two of the builder's steps.
 
+### Export a spec
+
+- **A new tool, `export.py SPEC --out DIR`,** hands a final design to whoever builds
+  it: a folder per system, a Markdown file per component (its kind, description,
+  interface, requirements and lifecycle, as the spec writes them), each system's
+  `system.json` with the same as data, an index `README.md`, and `manifest.json`, the
+  contract. Systems need no new syntax: each `X := { … }` expansion, each
+  composition-tree root, and the top level (named after the file).
+- **Only a ready spec exports.** The document's mode line is `#!spec`, lint finds no
+  error, and the checks (overlap runs included) leave no error or warning
+  unacknowledged. Otherwise `export.py` prints what blocks it, exits 2 and writes
+  nothing.
+- **The manifest holds two hashes per system:** its interface (the flows that cross
+  its boundary, with their payloads and returns) and its body (everything in it).
+  Reformatting or reordering the spec changes neither; changing a payload, a
+  modifier, a comment or a state does.
+- **Exporting again says what changed.** `export.py` compares with the manifest
+  already in the folder and lists each system as `added`, `removed`, `rebuild` (its
+  body changed), `recheck` (unchanged, but a system it depends on changed its
+  interface) or `unchanged`, in words, in `delta.json`, or as JSON (`--json`).
+  Only changed files are rewritten, a builder's own files in a system folder stay,
+  and `--dry-run` shows the delta without writing.
+- **Two readiness rules,** run only with `check.py --export` (the export's gate), so
+  every other check output is unchanged: SGC401 `no-home`, a component written in two
+  systems neither of which encloses the other, and SGC402 `untyped-boundary`, a flow
+  across a system boundary with no payload or a call across one with no stated
+  return. `--rules` lists them.
+- **A new example**, `export.sigil` (on the page and in `site/examples/`): a small
+  shop that exports as five systems.
+
 ### Checks
 
 - **Races between entries are found.** `check.py`'s behavioural rules now also try
@@ -52,6 +83,8 @@ them. (More of 0.5.0 is still to come.)
 
 - The Claude Code and pi viewers list and play the overlap runs like any other, and
   the viewer tool's `scenario` field takes `Entry@t`.
+- `export.py` ships in every plugin archive, and `/sigil-lint` says how to export
+  once a spec is clean. The playground does not export.
 - The playground groups the overlap runs under "overlaps" in its scenario menu. Its
   checks make at most 96 runs per exploration, so a large document stays quick in
   the browser; every bundled example finds what `check.py` finds.

@@ -13,7 +13,9 @@ Every tool shares one table, and prints its errors to stderr as `tool.py: messag
 | 1 | warnings or findings only |
 | 2 | errors: an error-severity diagnostic or finding, bad usage, or input the tool cannot read |
 
-One exception: `view.py --once` exits 1 on a lint error, since the drawing is its output.
+Two exceptions: `view.py --once` exits 1 on a lint error, since the drawing is its
+output, and `export.py` exits 1 when it cannot write the folder and 2 when the spec
+is not ready to export.
 
 ## `lint.py FILE|-`
 
@@ -56,10 +58,93 @@ binding rules errors. The line format and [exit codes](#exit-codes) match lint.
 - `--all` also shows hidden findings.
 - `--json` prints one object per run: rule, tier, why, how to satisfy, witness (and
   `at`, the tick in the witness run where a behavioural finding shows).
+- `--export` also runs the export readiness rules, SGC401 `no-home` and SGC402
+  `untyped-boundary` (see [`export.py`](#exportpy-spec---out-dir)). Without it they never
+  run, so no other output changes.
 - `--rules` lists the rules and exits.
 - `--dialect NAME` adds a dialect's rule pack.
 
 See "Checks" in [`language.md`](../language.md).
+
+## `export.py SPEC --out DIR`
+
+Exports a ready `#!spec` document as a build skeleton: a folder per system, a file
+per component, and `manifest.json` as the contract. Whoever builds against it reads
+the manifest first. Building itself happens outside sigil.
+
+**The gate.** Only a ready document exports: its mode line is `#!spec`, `lint.py`
+reports no error, and `check.py --export` (spec mode, so the overlap runs too) leaves
+no error and no warning unacknowledged; info findings are fine. Otherwise
+`export.py` prints the lines that block it, exits 2 and touches nothing.
+
+**Systems** are read off the design, with no syntax of their own (see "Ready to
+export" in [`language.md`](../language.md)): every `X := { … }` expansion is a
+system named `X` (a nested one is its own system, and its parent depends on it),
+every composition-tree root is a system holding its tree, and every other node is in
+the top system, named after the spec file's stem. Each component has one **home**.
+
+- `--out DIR` the export folder, made when missing. It must be empty or hold an
+  earlier export (a `manifest.json`); `export.py` never writes over a folder it did
+  not make.
+- `--dry-run` prints the delta and writes nothing.
+- `--json` prints the delta as JSON instead of the summary in words.
+- `--dialect NAME` loads a dialect, as `lint.py` and `check.py` do.
+
+Exit codes: 0 exported (or a dry run), 1 the folder could not be written, 2 not
+ready to export or bad input (an unreadable spec, an unknown dialect, a folder
+`export.py` did not make, a `manifest.json` it cannot read).
+
+**The folder.**
+
+```
+DIR/
+  manifest.json            the contract, written last (temp file, then renamed)
+  delta.json               on a re-export: what changed since the manifest before
+  README.md                the index: systems, what each depends on
+  <system>/README.md       the system: description, components, boundary, deps
+  <system>/<component>.md  kind, description, interface, requirements, lifecycle
+  <system>/system.json     the same, machine-readable
+```
+
+Folder and file names are slugs of the names: stable, ASCII-safe and
+collision-free. A component file states, as the spec writes them: its **kind**; its
+**description** (its `#` comments); its **interface** (every flow in or out, with the
+peer, verb, payload, what a call returns, sync or async, failure routes and the
+call's policy); its **requirements** (the modifiers on it, the access it is granted,
+and every `# accepts:` acknowledgement covering it, verbatim); its **lifecycle** (its
+state machine, when it has one). No target-language types.
+
+**`manifest.json`**: `{"sigil_export": 1, "spec": <file name>, "spec_hash": …,
+"systems": {name: {"path", "interface", "body", "components", "depends_on"}}}`.
+`path` is the system's folder, `components` its glyphs, `depends_on` the systems
+its flows reach (and the ones nested in it). `interface` is the hash of the flows
+that cross the system's boundary, with their payloads and returns; `body` the hash
+of everything in it, interface included. Both are sha256 over a normalised JSON
+form, first 16 hex digits: reformatting or reordering the spec changes neither;
+changing a payload, a modifier, a description or a state does. The manifest's
+hashes are the truth; written last, it is what marks a finished export.
+
+**Re-export and the delta.** Before writing, `export.py` reads the manifest already
+in DIR and sorts every system into one list:
+
+| Class | Means |
+| --- | --- |
+| `added` | in the new export only |
+| `removed` | in the old one only; its folder is deleted |
+| `rebuild` | its body hash changed |
+| `recheck` | its body is unchanged, but a system it depends on changed its interface |
+| `unchanged` | neither |
+
+`delta.json`: `{"sigil_delta": 1, "spec", "from": <old spec_hash>, "to": <new
+spec_hash>, "added", "removed", "rebuild", "recheck", "unchanged", "systems": {name:
+{"status", "old", "new", "because"?}}}`, where `old` / `new` are `{"interface",
+"body"}` (or null) and `because` lists, for a recheck, the systems whose interface
+changed. Only files whose content changed are written, so an unchanged system's
+files are left alone. A system folder may also hold a builder's own files:
+`export.py` deletes or compares only the files an earlier export wrote (the names
+in its manifest), and a removed system's folder stays while it holds others. A first
+export writes no `delta.json`; `--json` and `--dry-run` then list every system as
+`added`. The delta is a hint; the manifest's hashes stay the truth.
 
 ## `view.py FILE`
 

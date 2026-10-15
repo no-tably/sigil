@@ -116,6 +116,7 @@ Every flag and key is in [`docs/tools.md`](./docs/tools.md).
 | `view.py FILE` | Live terminal view, redrawn on every save: a flow view (a call graph left to right, the default), a graph view (`--graph`), a tree view (`--tree`) and a run view (one simulated run as a timeline, `--run`) — `1` `2` `3` `4` pick one, `t` steps to the next — a simulation mode (`x`) and a checks overlay (`c`). `--once` prints one drawing for agents and CI. |
 | `lint.py FILE` | Validates a document: one `severity:line:rule: message` per issue; exit 0 clean, 1 warnings, 2 errors. `--deep` adds the composition checks. |
 | `check.py FILE` | Composition checks ([RFC 0003](./rfcs/0003-composition-checks.md)): does the design say how its risks are handled — time bounds, idempotency, writers, failure routes, stuck state machines? A finding never forbids a shape: declare the handling, or accept the risk with a reason. |
+| `export.py SPEC --out DIR` | Exports a ready `#!spec` document as a build skeleton: a folder per system, a file per component, `manifest.json` as the contract. A re-export says which systems changed (see [Export a spec](#export-a-spec)). |
 | `render.py FILE` | Emits a Mermaid `flowchart TD` for docs (GitHub, Obsidian, mermaid.live). |
 | `themes.py` | Colour themes from `themes/*.yaml`, shared by the viewer and the web page. |
 | `dialects.py` | Loads a dialect (`--dialect NAME`) that extends the linter, renderer and checker. |
@@ -377,6 +378,54 @@ This sweep is the exhaustive check before a spec is final. In sketch and craft i
 is off, so checks stay quick while you draft; `--overlaps listed` tries just the
 listed runs, and `--overlaps N` caps the sweep at N runs.
 
+## Export a spec
+
+Once a design is final, `export.py` hands it to whoever builds it: a folder per
+system, a Markdown file per component (kind, description, interface, requirements,
+lifecycle), and `manifest.json`, the contract. Systems come from the design itself,
+no new syntax: each `X := { … }` expansion, each composition-tree root, and the top
+level (named after the file). Only a ready spec exports: its mode line is `#!spec`,
+lint finds no error, and `check.py --export` leaves no error or warning
+unacknowledged. Otherwise `export.py` prints what blocks it, exits 2 and writes
+nothing. Here the shop in
+[`examples/export.sigil`](https://no-tably.github.io/sigil/examples/export.sigil),
+saved as `shop.sigil`:
+
+```sh
+export.py shop.sigil --out build
+```
+
+```
+build/
+  manifest.json      per system: interface hash, body hash, components, depends_on
+  README.md          the index: systems and what each depends on
+  shop/              the top level: (Shopper), [Storefront], <OrderPlaced>, …
+  catalog/           the [Catalog] tree: README.md, listings.md, prices.md, system.json
+  checkout/          the [Checkout] expansion: basket.md, payments.md, orders.md, …
+  fulfilment/
+  warehouse/
+```
+
+Each system has two hashes: the **interface** (the flows that cross its boundary,
+with their payloads and returns) and the **body** (everything in it). Reformatting
+or reordering the spec moves neither. Export again into the same folder after an
+edit, and `export.py` compares with the manifest already there, rewrites only what
+changed and writes `delta.json`. Here `[Stock]`'s reprice call now returns a
+`{Price}`:
+
+```
+since spec 8c05e20fdfd8e0f2: 2 rebuild, 1 recheck, 2 unchanged
+  rebuild    Catalog (body 047fc4d040438706 → 3b41ebbe867e8651)
+  rebuild    Warehouse (body 43fb9956b782789c → 12e4df86f4932dc2)
+  recheck    shop (interface changed: Catalog, Warehouse)
+  unchanged  Checkout, Fulfilment
+```
+
+`rebuild` systems changed inside; a `recheck` system is unchanged but depends on one
+whose boundary moved. `--dry-run` prints the delta and writes nothing; `--json`
+prints it as JSON. Building against the export happens outside sigil. Every flag and
+field is in [`docs/tools.md`](./docs/tools.md#exportpy-spec---out-dir).
+
 ## Themes
 
 One YAML file colours both the terminal viewer and the web page:
@@ -440,7 +489,8 @@ cd plugin/pi && bun install --frozen-lockfile && bun run typecheck   # type-chec
 ### Layout
 
 The modules sit flat at the top level so each runs as a script, ships into the
-skill's `scripts/` unchanged and runs byte for byte in the playground:
+skill's `scripts/` unchanged and runs byte for byte in the playground (all but the
+export tools):
 
 ```text
 render.py    parse a design into a graph; render it as Mermaid        ┐
@@ -450,6 +500,8 @@ scene.py     one shared scene: wires, roles, colours, notes, joins   ┐
 sim.py       the simulator: scenarios → runs of frames               │ the engine
 check.py     the checker (SGCnnn) and its rule modules:              │
   check_flow.py · check_state.py · check_trace.py · check_inv.py     ┘
+export.py    the exporter: a ready spec as a build skeleton          ┐ the export
+export_model.py  systems, homes, hashes · check_export.py SGC401/402 ┘
 view.py      the terminal viewer app                                 ┐
 viewkit.py   its drawing kit                                         │ the viewer
 view_graph.py · view_flow.py · view_tree.py · view_run.py  the views │
@@ -461,7 +513,7 @@ tests/  unit tests, fixtures and golden drawings · highlight/  editor grammars
 ```
 
 `build.py`'s `TOOLS` is the one list of shipped modules; the page's playground copies
-the same list, and a test fails if a new top-level module is missing from it.
+the same list (less the export tools), and a test fails if a new top-level module is missing from it.
 
 Canonical packaging sources — edit these, never `dist/`:
 
@@ -478,7 +530,8 @@ Canonical packaging sources — edit these, never `dist/`:
 
 `build.py` copies `lint.py`, `render.py`, the viewer (`view.py` with `viewkit.py`,
 `view_graph.py`, `view_tree.py`, `view_flow.py`, `view_run.py`, `scene.py` and `sim.py`), the checker (`check.py` with `check_flow.py`,
-`check_state.py`, `check_trace.py` and `check_inv.py`), `dialects.py` and `themes.py`
+`check_state.py`, `check_trace.py` and `check_inv.py`), the exporter (`export.py` with
+`export_model.py` and `check_export.py`), `dialects.py` and `themes.py`
 (with `themes/*.yaml`) into `skills/sigil/scripts/` and `language.md` / `examples.md` into
 `skills/sigil/references/`, then writes each agent's manifests. Archives are
 deterministic. CI (`.github/workflows/ci.yml`) tests, type-checks the pi extension

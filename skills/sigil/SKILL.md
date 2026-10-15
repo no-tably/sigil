@@ -1,6 +1,6 @@
 ---
 name: sigil
-description: Sigil is a compact, non-executable notation for system designs — glyphs like [Component], {Data}, <Event>, (Actor), |Store| wired with arrows like ->, ~>, =>, !>. Use whenever the user wants to (1) compress a design or prose spec into Sigil; (2) expand Sigil into prose; (3) compare two designs structurally; (4) tighten or normalize hand-written Sigil; (5) craft a design iteratively ("help me design X", or a craft-mode document); (6) lint or validate a .sigil document (bundled scripts/lint.py), or check whether its design declares how its risks are handled (scripts/check.py); (7) draw a Sigil document as a terminal graph (scripts/view.py) or a Mermaid diagram (scripts/render.py); (8) mentions Sigil, glyphs, or writes bracket-and-arrow notation; (9) describes architectures, state machines, data flows, workflows or pipelines where a compact notation clarifies the design. Prefer Sigil over prose for architecture once it has been introduced.
+description: Sigil is a compact, non-executable notation for system designs — glyphs like [Component], {Data}, <Event>, (Actor), |Store| wired with arrows like ->, ~>, =>, !>. Use whenever the user wants to (1) compress a design or prose spec into Sigil; (2) expand Sigil into prose; (3) compare two designs structurally; (4) tighten or normalize hand-written Sigil; (5) craft a design iteratively ("help me design X", or a craft-mode document); (6) lint or validate a .sigil document (bundled scripts/lint.py), or check whether its design declares how its risks are handled (scripts/check.py), or export a ready spec as a build skeleton (scripts/export.py); (7) draw a Sigil document as a terminal graph (scripts/view.py) or a Mermaid diagram (scripts/render.py); (8) mentions Sigil, glyphs, or writes bracket-and-arrow notation; (9) describes architectures, state machines, data flows, workflows or pipelines where a compact notation clarifies the design. Prefer Sigil over prose for architecture once it has been introduced.
 license: MIT
 ---
 
@@ -53,7 +53,7 @@ All scripts are Python 3 standard library only. Write the document to a file
 | Task | Command | Result |
 | --- | --- | --- |
 | Validate | `python3 scripts/lint.py FILE` | one `severity:line:rule: message` per issue; exit 0 clean, 1 warnings, 2 errors |
-| Check the design | `python3 scripts/check.py FILE [--mode sketch\|craft\|spec] [--k N] [--json] [--all]` | composition findings, one `severity:line:SGCnnn: name: message` each (in craft the message is a question), then `accepted:line:SGCnnn: name: reason` per acknowledged one; `--json` adds each rule's why and the declaration that satisfies it; `--rules` lists the rules; exit codes as lint |
+| Check the design | `python3 scripts/check.py FILE [--mode sketch\|craft\|spec] [--k N] [--overlaps off\|listed\|all\|N] [--export] [--json] [--all]` | composition findings, one `severity:line:SGCnnn: name: message` each (in craft the message is a question), then `accepted:line:SGCnnn: name: reason` per acknowledged one; `--json` adds each rule's why and the declaration that satisfies it; `--rules` lists the rules; `--overlaps` picks the overlap runs (default `all` in spec, `off` in sketch and craft; see **simulate**); `--export` adds the export readiness rules (see **export**); exit codes as lint |
 | Both at once | `python3 scripts/lint.py FILE --deep` | lint diagnostics and check findings merged by line, acknowledged findings last; exits with the worse of the two codes |
 | Draw in the terminal | `python3 scripts/view.py FILE --once --graph [--depth N\|all] [--payloads] [--mods] [--access] [--no-lint]` | box-drawing graph + lint summary; exit 1 on lint error; control blocks as titled frames, joins as bars, sections as dividers; `--mods` modifier chips, `--access` the permission graph (`r` / `w` / `b` heads, `1w` / `Nw` writer badges) |
 | Show comments | `python3 scripts/view.py FILE --once --notes markers` (`--notes callouts` in `--tree`) | commented nodes tagged `#N`, notes listed (or drawn as margin boxes) |
@@ -65,6 +65,7 @@ All scripts are Python 3 standard library only. Write the document to a file
 | Walk one pathway | `python3 scripts/view.py FILE --once --tree --sim SCENARIO` | the run's last frame over the drawing (`✕` failed, `◉` a machine's state, wires taken vs never taken), then `sim NAME (label): ok\|failed\|cut · N frames` and the run in plain words, one `tNNN …` line per step (`[API] calls [Payments] with charge(total) — attempt 2 of 4`, `[API] routes the failure to <PaymentFailed>`); exit 2 for an unknown scenario, listing the known ones. `--sim SCENARIO --json` (no drawing): the run's facts, `steps` [{frame, tick, text}] and the raw `log` |
 | Mark the findings | `python3 scripts/view.py FILE --once --checks [--tree]` | the check findings marked on the drawing, a checks legend, then each finding's question after lint |
 | Show it to the user | the plugin's viewer tool — Claude Code: `view` (`mcp__sigil__view`); pi: `sigil_view` — with `file`, `view` graph\|tree\|flow\|run, `depth`, `scenario`, `frame` N\|last, `play` | a live viewer the user watches (a pane or widget, or a herdr / tmux / zellij split) that redraws on every save; the reply gives the summary, lint and the run's step at that frame (`now:` the narration line, `path:` the hops so far, by branch), never the drawing. See **Showing the user** |
+| Export a ready spec | `python3 scripts/export.py FILE --out DIR [--dry-run] [--json]` | a `#!spec` document that lints and checks clean (with `--export`) written as a build skeleton: a folder per system, a `.md` per component, `manifest.json` (per system: interface and body hash, components, depends_on); a re-export prints and writes the delta (`added` / `removed` / `rebuild` / `recheck` / `unchanged`); not ready → the blocking lines, exit 2, nothing written. See **export** |
 | Mermaid diagram | `python3 scripts/render.py FILE [--depth N\|all] [--composition subgraphs\|edges\|none]` | `flowchart TD` source; present it in a fenced `mermaid` block. Composition trees draw as subgraphs by default |
 
 `--depth 0` shows the top level only, `1` (default) opens direct `:=` expansions,
@@ -207,7 +208,8 @@ design's acceptance tests: re-check them on every run, and keep them in the
 document as plain comments if that helps (`# expected: Payments:fails → {Order}
 Cancelled` — free text, no tool reads it). Check the drawing with
 `python3 scripts/view.py FILE --once` before replying. Before promoting to `#!spec`,
-run `python3 scripts/check.py FILE --mode spec` and resolve every error.
+run `python3 scripts/check.py FILE --mode spec` and resolve every error. Once the
+spec is final and the user wants it built, see **export**.
 
 ### lint — validate
 Run `python3 scripts/lint.py FILE`. Report each diagnostic with a suggested fix
@@ -302,6 +304,38 @@ The user can watch the same runs live: `python3 scripts/view.py FILE`, then `x`
 speed from ¼ to 32 frames/s, starting at 2). Every view narrates the run the same
 way: the path of hops so far (numbered by branch, `✖` a failed hop), the last few
 events and a line saying what is happening now. The view follows the run (`w` turns that off).
+
+### export — hand a final spec to whoever builds it
+`scripts/export.py` writes a final spec as a build skeleton. Export only when the
+user says the design is final: a `#!spec` document that lints clean and passes
+`check.py --export` (spec mode, overlap runs included) with no error or warning left
+unacknowledged. The tool enforces that gate itself.
+1. Run `python3 scripts/check.py FILE --export` first. Its two extra rules are about
+   the export's shape: `no-home` (SGC401, a component written in two systems,
+   neither enclosing the other) and `untyped-boundary` (SGC402, a flow across a
+   system boundary with no payload, or a call across one with no `=> return`).
+   Resolve them as any finding — ask the user, then declare or acknowledge; never
+   reshape. Systems are each `X := { … }` expansion, each composition-tree root,
+   and the top level (named after the file); "Ready to export" in
+   `references/language.md` has the rules.
+2. `python3 scripts/export.py FILE --out DIR`. If it exits 2 it prints what blocks
+   it (lint errors, findings, a non-spec mode line) and writes nothing; take those
+   back to the user like any finding.
+3. What the folder means: one folder per system, one `.md` per component (kind,
+   description, interface, requirements, lifecycle, as the spec states them —
+   no target-language types), `system.json` the same as data, `README.md` the
+   index. **`manifest.json` is the contract**: per system its interface hash (the
+   flows across its boundary), body hash (everything in it), components and
+   depends_on. It is written last, so a folder without it is no finished export.
+4. After the spec changes, export again into the same DIR (`--dry-run` first to
+   preview). The delta (printed, and in `delta.json`; `--json` for data) is the work
+   to redo: `rebuild` systems changed inside; `recheck` systems are unchanged but
+   depend on one whose interface moved, so their calls into it need a second look;
+   `added` / `removed` are new or gone; `unchanged` need nothing. Reformatting or
+   reordering the spec changes no hash. Tell the user these lists.
+5. Building against the export happens outside sigil: export.py writes the folder
+   and stops. Don't run a build loop, track who builds what, or keep a ledger of
+   it here; a builder's own files in a system folder are left alone on re-export.
 
 ### view / render — show the shape
 For a quick look in the conversation, run `python3 scripts/view.py FILE --once` and show

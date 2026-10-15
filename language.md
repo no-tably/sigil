@@ -990,7 +990,10 @@ simulator's runs of the design (`view.py --sim`), exploring single and combined
 failures, and runs where a later entry starts while an earlier one's episode is
 still running (each start tick of that episode, within `--budget`; the witness is
 named `Entry@t`): races on a store, joins that stall, events a machine drops, orders
-a machine cannot absorb. *Invariant* rules check the document's own `@inv` lines where
+a machine cannot absorb. Those overlap runs are the exhaustive pass before a spec is final, so they
+run by default only in `#!spec`; `--overlaps off|listed|all|N` chooses them in any
+mode (none, the listed `Entry@t` runs, every start tick, or every tick but at most N
+runs). *Invariant* rules check the document's own `@inv` lines where
 the head is a recognised one (see "Recognised invariants" under "Invariants,
 capabilities, resource ownership"); any other `@inv` is listed as unchecked, never
 failed. A dialect can add rules and `@inv` heads of its own (see "Dialects").
@@ -1031,6 +1034,55 @@ its author to choose, not a fix. Each finding names declarations, not rewirings.
 examples.md "Example Q" shows a risky design and its declared twin; the full rule
 catalog, with a flagged and a declared example for every rule, is
 [rfcs/0003-composition-checks.catalog.md](./rfcs/0003-composition-checks.catalog.md).
+
+---
+
+## Ready to export
+
+A `#!spec` document that is final can be exported as a build skeleton
+(`export.py SPEC --out DIR`, see [`docs/tools.md`](./docs/tools.md)): a folder per
+**system**, a file per component, and a manifest whose hashes are the contract. The
+systems are read off the document; there is no syntax for them:
+
+- every expansion `X := { … }` is a system named `X`, holding the nodes of its body.
+  A nested expansion is a system of its own, and its parent depends on it. An alias
+  body is no system, and a `state` machine is its owner's lifecycle, not a system;
+- every composition-tree root (a glyph with `\-` branches) is a system holding its
+  tree;
+- every other node is in the **top** system, named after the file.
+
+The node a system is named after (the expansion's owner, the tree's root) stands for
+the system where it is written: a flow into `[Checkout]` at the top level is a flow
+into the Checkout system. A component's **home** is the one system it lives in: of
+the systems it is written in, the one that encloses all the others (written at the
+top level and in an expansion, it lives at the top level). A system's **boundary**
+is the flows with exactly one end in it; its **interface** is those flows, with their
+payloads and returns. System A depends on B when a flow leaves A for B.
+
+```
+[Shop] -> [Billing] : charge({Order}) => {Receipt}   # crosses into Billing: a typed contract
+[Billing] := {
+  [Ledger] -> |Entries| : record({Order}) => {Ack}   # inside Billing
+}
+```
+
+Two **readiness rules** (binding tier: errors in `#!spec`) run only when a check is
+asked for export (`check.py --export`, which `export.py` runs as its gate), so no
+other check output changes:
+
+- **SGC401 `no-home`**: a component written in two systems, neither of which
+  encloses the other (a member of two sibling expansions, or of two trees). Write it
+  in one system and reach it from the others, or write it where one system encloses
+  them all.
+- **SGC402 `untyped-boundary`**: a flow that crosses a system boundary with no
+  payload (`: verb({Data})`, or a data or event glyph at one end), or a synchronous
+  call across one with no stated return (`=> {Result}`). The boundary is the contract
+  a builder works to, so it says what crosses it. An async send (`~>`), a failure
+  route (`!>`) or a conditional (`?>`) needs no return.
+
+Both are resolved like any finding: declare it, or acknowledge it
+(`# accepts: untyped-boundary — a status code only, no body`). Exporting also needs
+lint clean and no other error or warning left unacknowledged.
 
 ---
 
