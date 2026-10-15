@@ -1,0 +1,30 @@
+── shop ────────────────────────────────────────────────────────────────────────────────────────────
+
+╭d✖ (Shopper) ─────────a▶ [Storefront] ──────┬b▶ [Catalog]
+│   a┆browse({Query})     b┆lookup({Sku})    ├c▶ [Checkout] ▾ ╌╌▶ <OrderPlaced> ══▶ [Fulfilment] ▾
+│    ┆↩ {Page}             ┆↩ {Item}         │
+│    ┆buy({Basket})       c┆place({Basket})  │
+│    ┆↩ {Receipt}          ┆↩ {Receipt}      │
+│                         d┆<Declined>       │
+│   [Stock] ───────────e▶ |Prices|           │
+│   e┆reprice({Sku})                         │
+│    ┆↩ {Ack}                                │
+╰────────────────────────────────────────────╯
+
+|Listings|   [Warehouse]
+
+── [Checkout] := { … } ─────────────────────────────────────────────────────────────────────────────
+
+                               [Basket] ──────────┬a▶ [Payments]
+                               a┆charge({Total})  ├b▶ |Orders|
+                                ┆↩ {Receipt}      ╰╌▶ <OrderPlaced>
+                               b┆save({Order})
+                                ┆↩ {Ack}
+
+── [Fulfilment] := { … } ───────────────────────────────────────────────────────────────────────────
+
+                           [Picker] ────────a▶ [Packer] ▸ ╌╌▶ <Shipped>
+                           a┆pack({Order})
+                            ┆↩ {Parcel}
+
+07-export.sigil: 10 nodes, 8 edges, 2 expansions · #!spec

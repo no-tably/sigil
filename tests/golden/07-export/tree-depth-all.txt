@@ -1,0 +1,33 @@
+── shop ──────────────────────────────────────
+(Shopper) ◀────────────────────●─┐
+[Storefront] ◀─────────────────┴─✖─●─●
+                                   │ │
+[Catalog] ◀────────────────────────┘ │
+├── |Listings|                       │
+└── |Prices| ◀───────────────────────│─┐
+                                     │ │
+[Checkout] ◀─────────────────────────┴═│═›╍╍╍›
+├┄┄ [Basket] ══════════════════●═●═›╍╍╍│╍║╍› ╏
+├┄┄ [Payments] ◀───────────────┘ │ ║   │ ║ ╏ ╏
+├┄┄ |Orders| ◀───────────────────┘ ║   │ ║ ╏ ╏
+└┄┄ <OrderPlaced>                  ║   │ ║ ╏ ╏
+                                   ║   │ ║ ╏ ╏
+[Warehouse]                        ║   │ ║ ╏ ╏
+└── [Stock] ───────────────────────║───● ║ ╏ ╏
+                                   ║     ║ ╏ ╏
+[Fulfilment] <OrderPlaced> ◀═══════╩═════╝ ╏ ╏
+├┄┄ [Picker] ──────────────────●           ╏ ╏
+├┄┄ [Packer] ◀─────────────────┴╌╌╌╌╌╌╌○   ╏ ╏
+┆  ├─· ● ────────────────────────●     ╎   ╏ ╏
+┆  ├─· Packing <OrderPlaced> ◀─●─┴─┬╍╍╍╎╍╍╍┴╍┘
+┆  └─· Idle <Shipped> ◀────────┴───●╍┐ ╎
+└┄┄ <Shipped> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌◎╌┘
+
+tree   ─ contains  ┄ := internals  & has  * spawns  ? when  $ from data  @ attached  ! alerts
+       = gathers  _ one of  (N) weight
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of
+       ── ── section
+
+07-export.sigil: 10 nodes, 8 edges, 2 expansions · #!spec

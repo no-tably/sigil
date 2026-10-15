@@ -1,0 +1,46 @@
+{
+  "name": "Warehouse",
+  "kind": "tree",
+  "face": "[Warehouse]",
+  "parent": "07-export",
+  "depends_on": [
+    "Catalog"
+  ],
+  "description": [
+    "the warehouse: its stock counts set the prices of scarce items"
+  ],
+  "interface": [
+    {
+      "from": "[Stock]",
+      "to": "|Prices|",
+      "arrow": "->",
+      "mode": "sync",
+      "payload": "reprice({Sku}) => {Ack}",
+      "op": "reprice({Sku})",
+      "returns": "{Ack}"
+    }
+  ],
+  "components": [
+    {
+      "name": "Stock",
+      "kind": "service",
+      "glyph": "[Stock]",
+      "home": "Warehouse",
+      "interface": [
+        {
+          "dir": "out",
+          "peer": "|Prices|",
+          "arrow": "->",
+          "mode": "sync",
+          "payload": "reprice({Sku}) => {Ack}",
+          "op": "reprice({Sku})",
+          "returns": "{Ack}"
+        }
+      ]
+    }
+  ],
+  "hashes": {
+    "interface": "2e16d14892b8eed5",
+    "body": "43fb9956b782789c"
+  }
+}

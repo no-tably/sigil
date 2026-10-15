@@ -1,0 +1,323 @@
+{
+  "name": "07-export",
+  "kind": "top",
+  "depends_on": [
+    "Catalog",
+    "Checkout",
+    "Fulfilment",
+    "Warehouse"
+  ],
+  "description": [
+    "a small shop, locked as a spec and ready to export: each expansion and each composition tree becomes a system of its own (try export.py --out DIR)"
+  ],
+  "interface": [
+    {
+      "from": "[Basket]",
+      "to": "<OrderPlaced>",
+      "arrow": "~>",
+      "mode": "async"
+    }
+  ],
+  "flows": [
+    {
+      "from": "[Storefront]",
+      "to": "(Shopper)",
+      "arrow": "!>",
+      "mode": "failure",
+      "payload": "<Declined>"
+    },
+    {
+      "from": "<OrderPlaced>",
+      "to": "[Fulfilment]",
+      "arrow": "*>",
+      "mode": "async"
+    },
+    {
+      "from": "(Shopper)",
+      "to": "[Storefront]",
+      "arrow": "->",
+      "mode": "sync",
+      "payload": "browse({Query}) => {Page}",
+      "op": "browse({Query})",
+      "returns": "{Page}"
+    },
+    {
+      "from": "(Shopper)",
+      "to": "[Storefront]",
+      "arrow": "->",
+      "mode": "sync",
+      "payload": "buy({Basket}) => {Receipt}",
+      "op": "buy({Basket})",
+      "returns": "{Receipt}"
+    },
+    {
+      "from": "[Storefront]",
+      "to": "[Catalog]",
+      "arrow": "->",
+      "mode": "sync",
+      "payload": "lookup({Sku}) => {Item}",
+      "op": "lookup({Sku})",
+      "returns": "{Item}",
+      "mods": [
+        [
+          "fallback",
+          "\"cached\""
+        ],
+        [
+          "timeout",
+          "500ms"
+        ]
+      ]
+    },
+    {
+      "from": "[Storefront]",
+      "to": "[Checkout]",
+      "arrow": "->",
+      "mode": "sync",
+      "payload": "place({Basket}) => {Receipt}",
+      "op": "place({Basket})",
+      "returns": "{Receipt}",
+      "mods": [
+        [
+          "timeout",
+          "5s"
+        ]
+      ]
+    },
+    {
+      "from": "[Checkout]",
+      "to": "<OrderPlaced>",
+      "arrow": "~>",
+      "mode": "async"
+    }
+  ],
+  "components": [
+    {
+      "name": "Shopper",
+      "kind": "actor",
+      "glyph": "(Shopper)",
+      "home": "07-export",
+      "description": [
+        "signed-in shoppers only; the storefront answers every request",
+        "a failed payment reaches the shopper"
+      ],
+      "interface": [
+        {
+          "dir": "in",
+          "peer": "[Storefront]",
+          "arrow": "!>",
+          "mode": "failure",
+          "payload": "<Declined>"
+        },
+        {
+          "dir": "out",
+          "peer": "[Storefront]",
+          "arrow": "->",
+          "mode": "sync",
+          "payload": "browse({Query}) => {Page}",
+          "op": "browse({Query})",
+          "returns": "{Page}"
+        },
+        {
+          "dir": "out",
+          "peer": "[Storefront]",
+          "arrow": "->",
+          "mode": "sync",
+          "payload": "buy({Basket}) => {Receipt}",
+          "op": "buy({Basket})",
+          "returns": "{Receipt}"
+        }
+      ]
+    },
+    {
+      "name": "OrderPlaced",
+      "kind": "event",
+      "glyph": "<OrderPlaced>",
+      "home": "07-export",
+      "also_in": [
+        "Checkout"
+      ],
+      "interface": [
+        {
+          "dir": "out",
+          "peer": "[Fulfilment]",
+          "arrow": "*>",
+          "mode": "async"
+        },
+        {
+          "dir": "in",
+          "peer": "[Basket]",
+          "arrow": "~>",
+          "mode": "async"
+        },
+        {
+          "dir": "in",
+          "peer": "[Checkout]",
+          "arrow": "~>",
+          "mode": "async"
+        }
+      ]
+    },
+    {
+      "name": "Catalog",
+      "kind": "service",
+      "glyph": "[Catalog]",
+      "home": "07-export",
+      "description": [
+        "the catalogue: one tree of listings, each item with its price and stock"
+      ],
+      "interface": [
+        {
+          "dir": "in",
+          "peer": "[Storefront]",
+          "arrow": "->",
+          "mode": "sync",
+          "payload": "lookup({Sku}) => {Item}",
+          "op": "lookup({Sku})",
+          "returns": "{Item}",
+          "mods": [
+            [
+              "fallback",
+              "\"cached\""
+            ],
+            [
+              "timeout",
+              "500ms"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Checkout",
+      "kind": "service",
+      "glyph": "[Checkout]",
+      "home": "07-export",
+      "interface": [
+        {
+          "dir": "in",
+          "peer": "[Storefront]",
+          "arrow": "->",
+          "mode": "sync",
+          "payload": "place({Basket}) => {Receipt}",
+          "op": "place({Basket})",
+          "returns": "{Receipt}",
+          "mods": [
+            [
+              "timeout",
+              "5s"
+            ]
+          ]
+        },
+        {
+          "dir": "out",
+          "peer": "<OrderPlaced>",
+          "arrow": "~>",
+          "mode": "async"
+        }
+      ]
+    },
+    {
+      "name": "Fulfilment",
+      "kind": "service",
+      "glyph": "[Fulfilment]",
+      "home": "07-export",
+      "interface": [
+        {
+          "dir": "in",
+          "peer": "<OrderPlaced>",
+          "arrow": "*>",
+          "mode": "async"
+        }
+      ]
+    },
+    {
+      "name": "Storefront",
+      "kind": "service",
+      "glyph": "[Storefront]",
+      "home": "07-export",
+      "interface": [
+        {
+          "dir": "out",
+          "peer": "(Shopper)",
+          "arrow": "!>",
+          "mode": "failure",
+          "payload": "<Declined>"
+        },
+        {
+          "dir": "in",
+          "peer": "(Shopper)",
+          "arrow": "->",
+          "mode": "sync",
+          "payload": "browse({Query}) => {Page}",
+          "op": "browse({Query})",
+          "returns": "{Page}"
+        },
+        {
+          "dir": "in",
+          "peer": "(Shopper)",
+          "arrow": "->",
+          "mode": "sync",
+          "payload": "buy({Basket}) => {Receipt}",
+          "op": "buy({Basket})",
+          "returns": "{Receipt}"
+        },
+        {
+          "dir": "out",
+          "peer": "[Catalog]",
+          "arrow": "->",
+          "mode": "sync",
+          "payload": "lookup({Sku}) => {Item}",
+          "op": "lookup({Sku})",
+          "returns": "{Item}",
+          "mods": [
+            [
+              "fallback",
+              "\"cached\""
+            ],
+            [
+              "timeout",
+              "500ms"
+            ]
+          ]
+        },
+        {
+          "dir": "out",
+          "peer": "[Checkout]",
+          "arrow": "->",
+          "mode": "sync",
+          "payload": "place({Basket}) => {Receipt}",
+          "op": "place({Basket})",
+          "returns": "{Receipt}",
+          "mods": [
+            [
+              "timeout",
+              "5s"
+            ]
+          ]
+        }
+      ],
+      "requirements": {
+        "modifiers": [
+          [
+            "sla",
+            "p99<200ms"
+          ]
+        ]
+      }
+    },
+    {
+      "name": "Warehouse",
+      "kind": "service",
+      "glyph": "[Warehouse]",
+      "home": "07-export",
+      "description": [
+        "the warehouse: its stock counts set the prices of scarce items"
+      ]
+    }
+  ],
+  "hashes": {
+    "interface": "f418b361e094547a",
+    "body": "856cc9df7dafa83f"
+  }
+}

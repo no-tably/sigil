@@ -1,0 +1,72 @@
+{
+  "sigil_export": 1,
+  "spec": "07-export.sigil",
+  "spec_hash": "8c05e20fdfd8e0f2",
+  "systems": {
+    "07-export": {
+      "path": "07-export",
+      "interface": "f418b361e094547a",
+      "body": "856cc9df7dafa83f",
+      "components": [
+        "(Shopper)",
+        "<OrderPlaced>",
+        "[Catalog]",
+        "[Checkout]",
+        "[Fulfilment]",
+        "[Storefront]",
+        "[Warehouse]"
+      ],
+      "depends_on": [
+        "Catalog",
+        "Checkout",
+        "Fulfilment",
+        "Warehouse"
+      ]
+    },
+    "Catalog": {
+      "path": "catalog",
+      "interface": "6ee737df5791f50f",
+      "body": "047fc4d040438706",
+      "components": [
+        "|Listings|",
+        "|Prices|"
+      ],
+      "depends_on": []
+    },
+    "Checkout": {
+      "path": "checkout",
+      "interface": "c5e61598f9c8e9b7",
+      "body": "4a4cefe89c2592b6",
+      "components": [
+        "[Basket]",
+        "[Payments]",
+        "|Orders|"
+      ],
+      "depends_on": [
+        "07-export"
+      ]
+    },
+    "Fulfilment": {
+      "path": "fulfilment",
+      "interface": "f4c9217ea2e53929",
+      "body": "13deb10563612e66",
+      "components": [
+        "<Shipped>",
+        "[Packer]",
+        "[Picker]"
+      ],
+      "depends_on": []
+    },
+    "Warehouse": {
+      "path": "warehouse",
+      "interface": "2e16d14892b8eed5",
+      "body": "43fb9956b782789c",
+      "components": [
+        "[Stock]"
+      ],
+      "depends_on": [
+        "Catalog"
+      ]
+    }
+  }
+}

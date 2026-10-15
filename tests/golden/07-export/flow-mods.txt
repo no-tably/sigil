@@ -1,0 +1,25 @@
+── shop ────────────────────────────────────────────────────────────────────────────────────────────
+
+╭─✖ (Shopper) ──▶ [Storefront] ─────────┬a▶ [Catalog]
+│                 @sla p99<200ms        ├b▶ [Checkout] ▾ ╌╌▶ <OrderPlaced> ══▶ [Fulfilment] ▾
+│                 a┆@timeout 500ms      │
+│                  ┆@fallback "cached"  │
+│                 b┆@timeout 5s         │
+│   [Stock] ────▶ |Prices|              │
+╰───────────────────────────────────────╯
+
+|Listings|   [Warehouse]
+
+── [Checkout] := { … } ─────────────────────────────────────────────────────────────────────────────
+
+                         [Basket] ─────────────────┬a▶ [Payments]
+                         a┆×3 @after 1s            ├─▶ |Orders|
+                          ┆@inv idempotent(order)  ╰╌▶ <OrderPlaced>
+
+── [Fulfilment] := { … } ───────────────────────────────────────────────────────────────────────────
+
+                       [Picker] ──▶ [Packer] ▸ ╌╌╌╌╌╌╌╌╌╌╌▶ <Shipped>
+                                    @inv ordered(order)
+                                    @inv retention(1h)
+
+07-export.sigil: 10 nodes, 8 edges, 2 expansions · #!spec

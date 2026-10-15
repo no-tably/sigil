@@ -1,0 +1,56 @@
+── shop ────────────────────────────────────────────────────────────────────────
+
+╭d✖ (Shopper) ─────────a▶ [Storefront] ─────────┬──▶①
+│   #1                    @sla p99<200ms        │
+│   a┆browse({Query})     b┆lookup({Sku})       │
+│    ┆↩ {Page}             ┆↩ {Item}            │
+│    ┆buy({Basket})        ┆@timeout 500ms      │
+│    ┆↩ {Receipt}          ┆@fallback "cached"  │
+│                         c┆place({Basket})     │
+│                          ┆↩ {Receipt}         │
+│                          ┆@timeout 5s         │
+│                         d┆<Declined> #2       │
+│   [Stock] ───────────e▶ |Prices|              │
+│   e┆reprice({Sku})      #4                    │
+│    ┆↩ {Ack}                                   │
+╰───────────────────────────────────────────────╯
+
+①──┬b▶ [Catalog]
+   │   #3
+   ╰c▶ [Checkout] ▾ ╌╌▶ <OrderPlaced> ══▶ [Fulfilment] ▾
+
+|Listings|   [Warehouse]
+
+── [Checkout] := { … } ─────────────────────────────────────────────────────────
+
+      [Basket] ─────────────────┬a▶ [Payments]
+      #6                        ├b▶ |Orders|
+      a┆charge({Total})         ╰╌▶ <OrderPlaced>
+       ┆↩ {Receipt}
+       ┆×3 @after 1s
+       ┆@inv idempotent(order)
+      b┆save({Order})
+       ┆↩ {Ack}
+
+── [Fulfilment] := { … } ───────────────────────────────────────────────────────
+
+ [Picker] ────────a▶ [Packer] ▸ ╌╌╌╌╌╌╌╌╌╌╌▶ <Shipped>
+ #7                  #8
+ a┆pack({Order})     @inv ordered(order)
+  ┆↩ {Parcel}        @inv retention(1h)
+
+── notes ───────────────────────────────────────────────────────────────────────
+
+¶ a small shop, locked as a spec and ready to export: each expansion and
+  each composition tree becomes a system of its own (try export.py --out
+  DIR)
+#1 signed-in shoppers only; the storefront answers every request
+#2 a failed payment reaches the shopper
+#3 the catalogue: one tree of listings, each item with its price and stock
+#4 one price per sku, in the shop's currency
+#5 the warehouse: its stock counts set the prices of scarce items
+#6 holds the basket until it is paid
+#7 picks and packs one order at a time
+#8 the packer's modes
+
+07-export.sigil: 10 nodes, 8 edges, 2 expansions · #!spec

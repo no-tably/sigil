@@ -1,0 +1,34 @@
+── shop ───────────────────────────────────────────────────────────────────
+(Shopper) ◀─────────────────────────────────────────────●─┐
+[Storefront] @sla p99<200ms ◀───────────────────────────┴─✖─●─●
+                                                            │ │
+[Catalog] ◀─────────────────────────────────────────────────┘┄│┄┄┄┄┄┄┄┄┄┆a┆
+├── |Listings|                                                │
+└── |Prices| ◀────────────────────────────────────────────────│─┐
+                                                              │ │
+[Checkout] ◀──────────────────────────────────────────────────┴═│═›╍╍╍›┄┆b┆
+├┄┄ [Basket] ═══════════════════════════════════════════●═●═›╍╍╍│╍║╍› ╏
+├┄┄ [Payments] ◀────────────────────────────────────────┘┄│┄║┄┄┄│┄║┄╏┄╏┄┆c┆
+├┄┄ |Orders| ◀────────────────────────────────────────────┘ ║   │ ║ ╏ ╏
+└┄┄ <OrderPlaced>                                           ║   │ ║ ╏ ╏
+                                                            ║   │ ║ ╏ ╏
+[Warehouse]                                                 ║   │ ║ ╏ ╏
+└── [Stock] ────────────────────────────────────────────────║───● ║ ╏ ╏
+                                                            ║     ║ ╏ ╏
+[Fulfilment] <OrderPlaced> ◀════════════════════════════════╩═════╝ ╏ ╏
+├┄┄ [Picker] ───────────────────────────────────────────●           ╏ ╏
+├┄┄ [Packer] ▸ @inv ordered(order) @inv retention(1h) ◀─┴╍┬╍○╍╍╍╍╍╍╍┴╍┘
+└┄┄ <Shipped> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌◎╌┘
+
+                                    ┆a┆ @timeout 500ms @fallback "cached"
+                                    ┆b┆ @timeout 5s
+                                    ┆c┆ ×3 @after 1s @inv idempotent(order)
+
+tree   ─ contains  ┄ := internals  & has  * spawns  ? when  $ from data  @ attached  ! alerts
+       = gathers  _ one of  (N) weight
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  ┆@… ×N┆ modifiers
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of
+       ── ── section
+
+07-export.sigil: 10 nodes, 8 edges, 2 expansions · #!spec

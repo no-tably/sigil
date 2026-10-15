@@ -1,0 +1,33 @@
+── shop ────────────────────────────────────────────────────────────────────────────────
+
+╭─✖ (Shopper) #1 ──▶ [Storefront] ─┬─▶ [Catalog] #3
+│   [Stock] ───────▶ |Prices| #4   ├─▶ [Checkout] ▾ ╌╌▶ <OrderPlaced> ══▶ [Fulfilment] ▾
+╰─ #2 ─────────────────────────────╯
+
+|Listings|   [Warehouse] #5
+
+── [Checkout] := { … } ─────────────────────────────────────────────────────────────────
+
+                             [Basket] #6 ─┬─▶ [Payments]
+                                          ├─▶ |Orders|
+                                          ╰╌▶ <OrderPlaced>
+
+── [Fulfilment] := { … } ───────────────────────────────────────────────────────────────
+
+                      [Picker] #7 ──▶ [Packer] #8 ▸ ╌╌▶ <Shipped>
+
+── notes ───────────────────────────────────────────────────────────────────────────────
+
+¶ a small shop, locked as a spec and ready to export: each expansion and
+  each composition tree becomes a system of its own (try export.py --out
+  DIR)
+#1 signed-in shoppers only; the storefront answers every request
+#2 a failed payment reaches the shopper
+#3 the catalogue: one tree of listings, each item with its price and stock
+#4 one price per sku, in the shop's currency
+#5 the warehouse: its stock counts set the prices of scarce items
+#6 holds the basket until it is paid
+#7 picks and packs one order at a time
+#8 the packer's modes
+
+07-export.sigil: 10 nodes, 8 edges, 2 expansions · #!spec

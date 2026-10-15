@@ -1,0 +1,175 @@
+{
+  "name": "Checkout",
+  "kind": "expansion",
+  "face": "[Checkout]",
+  "parent": "07-export",
+  "depends_on": [
+    "07-export"
+  ],
+  "interface": [
+    {
+      "from": "[Storefront]",
+      "to": "[Checkout]",
+      "arrow": "->",
+      "mode": "sync",
+      "payload": "place({Basket}) => {Receipt}",
+      "op": "place({Basket})",
+      "returns": "{Receipt}",
+      "mods": [
+        [
+          "timeout",
+          "5s"
+        ]
+      ]
+    },
+    {
+      "from": "[Basket]",
+      "to": "<OrderPlaced>",
+      "arrow": "~>",
+      "mode": "async"
+    },
+    {
+      "from": "[Checkout]",
+      "to": "<OrderPlaced>",
+      "arrow": "~>",
+      "mode": "async"
+    }
+  ],
+  "flows": [
+    {
+      "from": "[Basket]",
+      "to": "[Payments]",
+      "arrow": "->",
+      "mode": "sync",
+      "payload": "charge({Total}) => {Receipt}",
+      "op": "charge({Total})",
+      "returns": "{Receipt}",
+      "mods": [
+        [
+          "after",
+          "1s"
+        ],
+        [
+          "inv",
+          "idempotent(order)"
+        ],
+        [
+          "×",
+          "3"
+        ]
+      ]
+    },
+    {
+      "from": "[Basket]",
+      "to": "|Orders|",
+      "arrow": "->",
+      "mode": "sync",
+      "payload": "save({Order}) => {Ack}",
+      "op": "save({Order})",
+      "returns": "{Ack}"
+    }
+  ],
+  "components": [
+    {
+      "name": "Basket",
+      "kind": "service",
+      "glyph": "[Basket]",
+      "home": "Checkout",
+      "description": [
+        "holds the basket until it is paid"
+      ],
+      "interface": [
+        {
+          "dir": "out",
+          "peer": "[Payments]",
+          "arrow": "->",
+          "mode": "sync",
+          "payload": "charge({Total}) => {Receipt}",
+          "op": "charge({Total})",
+          "returns": "{Receipt}",
+          "mods": [
+            [
+              "after",
+              "1s"
+            ],
+            [
+              "inv",
+              "idempotent(order)"
+            ],
+            [
+              "×",
+              "3"
+            ]
+          ]
+        },
+        {
+          "dir": "out",
+          "peer": "|Orders|",
+          "arrow": "->",
+          "mode": "sync",
+          "payload": "save({Order}) => {Ack}",
+          "op": "save({Order})",
+          "returns": "{Ack}"
+        },
+        {
+          "dir": "out",
+          "peer": "<OrderPlaced>",
+          "arrow": "~>",
+          "mode": "async"
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "kind": "service",
+      "glyph": "[Payments]",
+      "home": "Checkout",
+      "interface": [
+        {
+          "dir": "in",
+          "peer": "[Basket]",
+          "arrow": "->",
+          "mode": "sync",
+          "payload": "charge({Total}) => {Receipt}",
+          "op": "charge({Total})",
+          "returns": "{Receipt}",
+          "mods": [
+            [
+              "after",
+              "1s"
+            ],
+            [
+              "inv",
+              "idempotent(order)"
+            ],
+            [
+              "×",
+              "3"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Orders",
+      "kind": "store",
+      "glyph": "|Orders|",
+      "home": "Checkout",
+      "interface": [
+        {
+          "dir": "in",
+          "peer": "[Basket]",
+          "arrow": "->",
+          "mode": "sync",
+          "payload": "save({Order}) => {Ack}",
+          "op": "save({Order})",
+          "returns": "{Ack}"
+        }
+      ]
+    }
+  ],
+  "hashes": {
+    "interface": "c5e61598f9c8e9b7",
+    "body": "4a4cefe89c2592b6"
+  }
+}

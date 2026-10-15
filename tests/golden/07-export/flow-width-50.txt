@@ -1,0 +1,76 @@
+── shop ──────────────────────────────────────────
+
+        [Stock] ─────────────▶①
+        e┆reprice({Sku})
+         ┆↩ {Ack}
+  ④──d✖ (Shopper) ───────────▶②
+        #1
+        a┆browse({Query})
+         ┆↩ {Page}
+         ┆buy({Basket})
+         ┆↩ {Receipt}
+
+  ②──a▶ [Storefront] ─────────┬──▶③
+        @sla p99<200ms        ╰──▶④↑
+        b┆lookup({Sku})
+         ┆↩ {Item}
+         ┆@timeout 500ms
+         ┆@fallback "cached"
+        c┆place({Basket})
+         ┆↩ {Receipt}
+         ┆@timeout 5s
+        d┆<Declined> #2
+  ①──e▶ |Prices|
+        #4
+
+  ③──┬b▶ [Catalog]
+     │   #3
+     ╰c▶ [Checkout] ▾ ╌╌╌▶⑤
+
+  ⑤╌╌╌▶ <OrderPlaced> ══▶ [Fulfilment] ▾
+
+  |Listings|   [Warehouse]
+
+── [Checkout] := { … } ───────────────────────────
+
+[Basket] ─────────────────┬a▶ [Payments]
+#6                        ├b▶ |Orders|
+a┆charge({Total})         ╰╌▶ <OrderPlaced>
+ ┆↩ {Receipt}
+ ┆×3 @after 1s
+ ┆@inv idempotent(order)
+b┆save({Order})
+ ┆↩ {Ack}
+
+── [Fulfilment] := { … } ─────────────────────────
+
+  [Picker] ──────────▶①
+  #7
+  a┆pack({Order})
+   ┆↩ {Parcel}
+
+  ①──a▶ [Packer] ▸ ╌╌╌╌╌╌╌╌╌╌╌▶ <Shipped>
+        #8
+        @inv ordered(order)
+        @inv retention(1h)
+
+── notes ─────────────────────────────────────────
+
+¶ a small shop, locked as a spec and ready to
+  export: each expansion and each composition tree
+  becomes a system of its own (try export.py --out
+  DIR)
+#1 signed-in shoppers only; the storefront answers
+   every request
+#2 a failed payment reaches the shopper
+#3 the catalogue: one tree of listings, each item
+   with its price and stock
+#4 one price per sku, in the shop's currency
+#5 the warehouse: its stock counts set the prices
+   of scarce items
+#6 holds the basket until it is paid
+#7 picks and packs one order at a time
+#8 the packer's modes
+
+07-export.sigil: 10 nodes, 8 edges, 2 expansions
+  · #!spec

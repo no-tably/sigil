@@ -1,0 +1,31 @@
+── shop ────────────────────────────────────────
+(Shopper) ◀──────────────────●─┐┄┄┄┄┄┄┄┄┄┄┄┄┄┆a┆
+[Storefront] ◀───────────────┴─✖─●─●┄┄┄┄┄┄┄┄┄┆b┆
+                                 │ │
+[Catalog] ◀──────────────────────┘┄│┄┄┄┄┄┄┄┄┄┆c┆
+├── |Listings|                     │
+└── |Prices| ◀─────────────────────│─┐┄┄┄┄┄┄┄┆d┆
+                                   │ │
+[Checkout] ◀───────────────────────┴═│═›╍╍╍›┄┆e┆
+├┄┄ [Basket] ════════════════●═●═›╍╍╍│╍║╍› ╏
+├┄┄ [Payments] ◀─────────────┘┄│┄║┄┄┄│┄║┄╏┄╏┄┆f┆
+├┄┄ |Orders| ◀─────────────────┘┄║┄┄┄│┄║┄╏┄╏┄┆g┆
+└┄┄ <OrderPlaced>                ║   │ ║ ╏ ╏                         ┆a┆ ✖ <Declined>
+                                 ║   │ ║ ╏ ╏                         ┆b┆ browse({Query}) ↩ {Page}
+[Warehouse]                      ║   │ ║ ╏ ╏                             buy({Basket}) ↩ {Receipt}
+└── [Stock] ─────────────────────║───● ║ ╏ ╏                         ┆c┆ lookup({Sku}) ↩ {Item}
+                                 ║     ║ ╏ ╏                         ┆d┆ reprice({Sku}) ↩ {Ack}
+[Fulfilment] <OrderPlaced> ◀═════╩═════╝ ╏ ╏                         ┆e┆ place({Basket}) ↩ {Receipt}
+├┄┄ [Picker] ────────────────●           ╏ ╏                         ┆f┆ charge({Total}) ↩ {Receipt}
+├┄┄ [Packer] ▸ ◀─────────────┴╍┬╍○╍╍╍╍╍╍╍┴╍┘┄┆h┆                     ┆g┆ save({Order}) ↩ {Ack}
+└┄┄ <Shipped> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌◎╌┘                                   ┆h┆ pack({Order}) ↩ {Parcel}
+
+tree   ─ contains  ┄ := internals  & has  * spawns  ? when  $ from data  @ attached  ! alerts
+       = gathers  _ one of  (N) weight
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour  ↩ returns
+       ┄┆{…}┆ payload, on its target row
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of
+       ── ── section
+
+07-export.sigil: 10 nodes, 8 edges, 2 expansions · #!spec

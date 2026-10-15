@@ -1,0 +1,37 @@
+                                  ── shop ────────────────────────────────────────
+╭ signed-in shoppers only; ╮ ──#> (Shopper) ◀──────────────────●─┐┄┄┄┄┄┄┄┄┄┄┄┄┄┆a┆
+│ the storefront answers   │      [Storefront] ◀───────────────┴─✖─●─●
+╰ every request            ╯                                       │ │
+                              ┌#> [Catalog] ◀──────────────────────┘ │
+╭ the catalogue: one tree  ╮ ─┘   ├── |Listings|                     │
+│ of listings, each item   │      └── |Prices| ◀─────────────────────│─┐┄┄┄┄┄┄┄┆b┆
+╰ with its price and stock ╯                                         │ │
+                                  [Checkout] ◀───────────────────────┴═│═›╍╍╍›
+╭ holds the basket until   ╮ ──#> ├┄┄ [Basket] ════════════════●═●═›╍╍╍│╍║╍› ╏
+╰ it is paid               ╯      ├┄┄ [Payments] ◀─────────────┘ │ ║   │ ║ ╏ ╏
+                                  ├┄┄ |Orders| ◀─────────────────┘ ║   │ ║ ╏ ╏
+                                  └┄┄ <OrderPlaced>                ║   │ ║ ╏ ╏
+                                                                   ║   │ ║ ╏ ╏
+╭ the warehouse: its stock ╮ ──#> [Warehouse]                      ║   │ ║ ╏ ╏
+│ counts set the prices of │      └── [Stock] ─────────────────────║───● ║ ╏ ╏
+╰ scarce items             ╯                                       ║     ║ ╏ ╏   ┆a┆ # a failed
+                                  [Fulfilment] <OrderPlaced> ◀═════╩═════╝ ╏ ╏       payment reaches
+╭ picks and packs one      ╮ ──#> ├┄┄ [Picker] ────────────────●           ╏ ╏       the shopper
+╰ order at a time          ╯  ┌#> ├┄┄ [Packer] ▸ ◀─────────────┴╍┬╍○╍╍╍╍╍╍╍┴╍┘   ┆b┆ # one price per
+                              │   └┄┄ <Shipped> ◀╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌◎╌┘                 sku, in the
+│ the packer's modes       │ ─┘                                                      shop's currency
+
+── notes ──
+
+¶ a small shop, locked as a spec and ready to export: each expansion and
+  each composition tree becomes a system of its own (try export.py --out
+  DIR)
+
+tree   ─ contains  ┄ := internals  & has  * spawns  ? when  $ from data  @ attached  ! alerts
+       = gathers  _ one of  (N) weight
+wires  ●─ call  ○╌ async  ◆━ produces  ✖─ error  ◇┄ maybe  ✱═ broadcast  ◀─▶ both ways  ◎╍ trigger
+       ›─ emits  ◀ target  ─│─ crossing  ■ lane: its source's colour
+blocks ┌─ ↺ loop  ∥ parallel  ◇ branch ‹arm›  □ scope / owns  ◀& joined: all  ◀&? race  ◀/ one of
+       ── ── section
+
+07-export.sigil: 10 nodes, 8 edges, 2 expansions · #!spec

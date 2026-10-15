@@ -1,0 +1,59 @@
+── run · happy — no scenario chosen: the happy run ─────────────────────────────
+
+                  0         10        20        30        40
+  (Shopper)       █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+  [Storefront]    ╰──▶██░░░░░░░░░█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░───↩
+  [Catalog]            ╰──▶█───↩ │
+  [Checkout]                     ╰──▶█░░░░░░░░░░░░░░░░░░░░───↩
+    [Basket]                          █░░░░░░░░░█░░░░░░░░░╮
+    [Payments]                        ╰──▶█───↩ │         ╎
+    |Orders|                                    ╰──▶█───↩ ╎
+    <OrderPlaced>                                         ╰╌╌▶◆█░░░
+  Packing                                                      ├╍╍▶
+  [Fulfilment]                                                 ╰══▶
+
+                   50        60        70        80        90        100
+  (Shopper)       ░█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+  [Storefront]     ╰──▶██░░░░░░░░░█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░───↩
+  [Catalog]             ╰──▶█───↩ │
+  [Checkout]                      ╰──▶█░░░░░░░░░░░░░░░░░░░░───↩
+    [Basket]                           █░░░░░░░░░█░░░░░░░░░╮
+    [Payments]                         ╰──▶█───↩ │         ╎
+    |Orders|                                     ╰──▶█───↩ ╎
+    <OrderPlaced> ░░░░░░░░░░░░                             ╰╌╌▶◆█░░░░░░░░░░░░░░░
+  Packing                                                       ├╍╍▶
+  [Fulfilment]    █░░░░░░░░░░                                   ╰══▶█░░░░░░░░░░
+    [Picker]       █░░░░░░░░░                                        █░░░░░░░░░
+    [Packer]       ╰──▶█┬──↩                                         ╰──▶█┬──↩
+    <Shipped>           ╰╌╌▶◆╮                                            ╰╌╌▶◆╮
+  Idle                       ╰╍╍▶                                              ╰
+
+                       ep2 120   126
+  Idle            ╍╍▶ ┆
+  [Stock]             ┆█░░░░░░░░░
+  |Prices|            ┆╰──▶█───↩
+
+  (Shopper)       episode 1's entry; calls [Storefront]
+  [Storefront]    calls [Catalog], then [Checkout]; returns {Receipt}; runs 2×
+  [Catalog]       returns {Item}; runs 2×
+  [Checkout]      returns {Receipt}; runs 2×
+    [Basket]      calls 2 others; emits <OrderPlaced>, doesn't wait; runs 2×
+    [Payments]    returns {Receipt}; runs 2×; 2 attempts
+    |Orders|      returns {Ack}; runs 2×
+    <OrderPlaced> lands 2×
+  [Fulfilment]    runs 2×
+    [Picker]      calls [Packer]; runs 2×
+    [Packer]      emits <Shipped>, doesn't wait; returns {Parcel}; runs 2×
+    <Shipped>     lands 2×
+  [Stock]         [Warehouse]'s; episode 2's entry; calls |Prices|
+  |Prices|        [Catalog]'s; returns {Ack}
+
+happy run (every default) · ok · 127 frames   x plays it   [ ] another scenario
+
+run    █ working  ░ waiting  ◆ lands  ╰──▶ call  ╰╌╌▶ async  ╰━━▶ produces
+       ╰══▶ broadcast  ╰──✖ error  ───↩ reply  ✖ fails on arrival  ✕ failed
+       ⊘ cancelled  ↺ self-call  ↻k depth k  ∥k at once  ┤ base case  ⇱ host
+       • reached  ◌ spawning  ┆ episode  ≈ quiet ticks  ↺k iteration k  ▼ now
+       ▸ running
+
+07-export.sigil: 10 nodes, 8 edges, 2 expansions · #!spec

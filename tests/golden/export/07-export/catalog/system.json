@@ -1,0 +1,71 @@
+{
+  "name": "Catalog",
+  "kind": "tree",
+  "face": "[Catalog]",
+  "parent": "07-export",
+  "description": [
+    "the catalogue: one tree of listings, each item with its price and stock"
+  ],
+  "interface": [
+    {
+      "from": "[Stock]",
+      "to": "|Prices|",
+      "arrow": "->",
+      "mode": "sync",
+      "payload": "reprice({Sku}) => {Ack}",
+      "op": "reprice({Sku})",
+      "returns": "{Ack}"
+    },
+    {
+      "from": "[Storefront]",
+      "to": "[Catalog]",
+      "arrow": "->",
+      "mode": "sync",
+      "payload": "lookup({Sku}) => {Item}",
+      "op": "lookup({Sku})",
+      "returns": "{Item}",
+      "mods": [
+        [
+          "fallback",
+          "\"cached\""
+        ],
+        [
+          "timeout",
+          "500ms"
+        ]
+      ]
+    }
+  ],
+  "components": [
+    {
+      "name": "Listings",
+      "kind": "store",
+      "glyph": "|Listings|",
+      "home": "Catalog"
+    },
+    {
+      "name": "Prices",
+      "kind": "store",
+      "glyph": "|Prices|",
+      "home": "Catalog",
+      "description": [
+        "one price per sku, in the shop's currency"
+      ],
+      "interface": [
+        {
+          "dir": "in",
+          "peer": "[Stock]",
+          "arrow": "->",
+          "mode": "sync",
+          "payload": "reprice({Sku}) => {Ack}",
+          "op": "reprice({Sku})",
+          "returns": "{Ack}"
+        }
+      ]
+    }
+  ],
+  "hashes": {
+    "interface": "6ee737df5791f50f",
+    "body": "047fc4d040438706"
+  }
+}

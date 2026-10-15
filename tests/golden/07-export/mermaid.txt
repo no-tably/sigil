@@ -1,0 +1,62 @@
+flowchart TD
+    Shopper_actor(("Shopper"))
+    Storefront_service["Storefront"]
+    OrderPlaced_event>"OrderPlaced"]
+    subgraph Checkout_service["Checkout"]
+        direction TB
+        Basket_service["Basket"]
+        Payments_service["Payments"]
+        Orders_store[("Orders")]
+        Checkout_service__OrderPlaced_event>"OrderPlaced"]
+        Basket_service --> Payments_service
+        Basket_service --> Orders_store
+        Basket_service -.-> Checkout_service__OrderPlaced_event
+        class Basket_service,Payments_service service
+        class Checkout_service__OrderPlaced_event event
+        class Orders_store store
+    end
+    subgraph Fulfilment_service["Fulfilment"]
+        direction TB
+        Picker_service["Picker"]
+        Packer_service["Packer"]
+        Shipped_event>"Shipped"]
+        Picker_service --> Packer_service
+        Packer_service -.-> Shipped_event
+        class Picker_service,Packer_service service
+        class Shipped_event event
+    end
+    subgraph Catalog_service["Catalog"]
+        direction TB
+        Catalog_service__Listings_store[("Listings")]
+        Catalog_service__Prices_store[("Prices")]
+    end
+    subgraph Warehouse_service["Warehouse"]
+        direction TB
+        Warehouse_service__Stock_service["Stock"]
+    end
+    Shopper_actor --> Storefront_service
+    Shopper_actor --> Storefront_service
+    Storefront_service --> Catalog_service
+    Storefront_service --> Checkout_service
+    Storefront_service -- "!" --> Shopper_actor
+    Warehouse_service__Stock_service --> Catalog_service__Prices_store
+    Checkout_service -.-> OrderPlaced_event
+    OrderPlaced_event --> Fulfilment_service
+    class Storefront_service,Checkout_service,Fulfilment_service service
+    class OrderPlaced_event event
+    class Shopper_actor actor
+    class Catalog_service__Listings_store,Catalog_service__Prices_store store
+    class Catalog_service,Warehouse_service__Stock_service,Warehouse_service service
+    OrderPlaced_event -. "triggers" .-> Packer_service
+    OrderPlaced_event -. "triggers" .-> Packer_service
+    Shipped_event -. "triggers" .-> Packer_service
+    OrderPlaced_event -. "triggers" .-> Packer_service
+
+    classDef service fill:#E3F2FD,stroke:#1976D2,color:#0D47A1
+    classDef data    fill:#F3E5F5,stroke:#7B1FA2,color:#4A148C
+    classDef event   fill:#FFF3E0,stroke:#F57C00,color:#E65100
+    classDef actor   fill:#E8F5E9,stroke:#388E3C,color:#1B5E20
+    classDef store   fill:#FFF9C4,stroke:#F9A825,color:#F57F17
+    classDef state   fill:#E0F2F1,stroke:#00897B,color:#004D40
+    classDef hole    stroke-dasharray:5 5,opacity:0.7
+    classDef mutable stroke-width:3px

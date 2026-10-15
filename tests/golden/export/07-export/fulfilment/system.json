@@ -1,0 +1,141 @@
+{
+  "name": "Fulfilment",
+  "kind": "expansion",
+  "face": "[Fulfilment]",
+  "parent": "07-export",
+  "interface": [
+    {
+      "from": "<OrderPlaced>",
+      "to": "[Fulfilment]",
+      "arrow": "*>",
+      "mode": "async"
+    }
+  ],
+  "flows": [
+    {
+      "from": "[Picker]",
+      "to": "[Packer]",
+      "arrow": "->",
+      "mode": "sync",
+      "payload": "pack({Order}) => {Parcel}",
+      "op": "pack({Order})",
+      "returns": "{Parcel}"
+    },
+    {
+      "from": "[Packer]",
+      "to": "<Shipped>",
+      "arrow": "~>",
+      "mode": "async"
+    }
+  ],
+  "components": [
+    {
+      "name": "Shipped",
+      "kind": "event",
+      "glyph": "<Shipped>",
+      "home": "Fulfilment",
+      "interface": [
+        {
+          "dir": "in",
+          "peer": "[Packer]",
+          "arrow": "~>",
+          "mode": "async"
+        }
+      ]
+    },
+    {
+      "name": "Packer",
+      "kind": "service",
+      "glyph": "[Packer]",
+      "home": "Fulfilment",
+      "description": [
+        "the packer's modes"
+      ],
+      "interface": [
+        {
+          "dir": "in",
+          "peer": "[Picker]",
+          "arrow": "->",
+          "mode": "sync",
+          "payload": "pack({Order}) => {Parcel}",
+          "op": "pack({Order})",
+          "returns": "{Parcel}"
+        },
+        {
+          "dir": "out",
+          "peer": "<Shipped>",
+          "arrow": "~>",
+          "mode": "async"
+        }
+      ],
+      "requirements": {
+        "modifiers": [
+          [
+            "inv",
+            "ordered(order)"
+          ],
+          [
+            "inv",
+            "retention(1h)"
+          ]
+        ]
+      },
+      "lifecycle": {
+        "states": [
+          "Idle",
+          "Packing"
+        ],
+        "initial": [
+          "Packing"
+        ],
+        "terminal": [],
+        "transitions": [
+          {
+            "from": "+",
+            "to": "Packing",
+            "on": "<OrderPlaced>"
+          },
+          {
+            "from": "Idle",
+            "to": "Packing",
+            "on": "<OrderPlaced>"
+          },
+          {
+            "from": "Packing",
+            "to": "Idle",
+            "on": "<Shipped>"
+          },
+          {
+            "from": "Packing",
+            "to": "Packing",
+            "on": "<OrderPlaced>"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Picker",
+      "kind": "service",
+      "glyph": "[Picker]",
+      "home": "Fulfilment",
+      "description": [
+        "picks and packs one order at a time"
+      ],
+      "interface": [
+        {
+          "dir": "out",
+          "peer": "[Packer]",
+          "arrow": "->",
+          "mode": "sync",
+          "payload": "pack({Order}) => {Parcel}",
+          "op": "pack({Order})",
+          "returns": "{Parcel}"
+        }
+      ]
+    }
+  ],
+  "hashes": {
+    "interface": "f4c9217ea2e53929",
+    "body": "13deb10563612e66"
+  }
+}
