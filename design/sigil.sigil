@@ -1,0 +1,101 @@
+#!craft
+# sigil's toolchain as it should be: one package, one direction only:
+# text -> tokens -> document -> scene -> runs -> findings / drawings / exports.
+# Each expansion is a layer (a subpackage); a layer calls only the layers above
+# it. One parser is the source of truth: lint reads its tokens and statements,
+# it does not scan text again. One command, `sigil`, with a subcommand per tool.
+# Behaviour stays exactly as 0.5.0's (tests, goldens, dialect layer, plugins).
+
+--- who runs it ---
+
+(Author) -> [Cli] : run({Argv}) => {Output}
+(Host) -> [Cli] : frames({Argv}) => {Frames}                 # CC pane, pi: `sigil frames`
+(Visitor) -> [Playground] : play({Text}) => {Drawing}        # Pyodide imports the package
+(Dialect) -> [Cli] : run({Argv}) => {Output}                 # a dialect's wrapper passes its name
+
+--- the one entry point: flags in, one layer called, output out ---
+
+[Cli]
+    \-> [LintCmd]       # sigil lint   (--deep also runs check: the command joins them)
+    \-> [CheckCmd]      # sigil check
+    \-> [ViewCmd]       # sigil view   (interactive, --once, --sim)
+    \-> [ExportCmd]     # sigil export (skeleton, or --mermaid for review)
+    \-> [FramesCmd]     # sigil frames (packed rows for the hosts)
+
+[Cli] -> [Analyse] : diagnose({Doc}) => {Findings}
+[Cli] -> [Present] : draw({Scene}) => {Drawing}
+[Cli] -> [Publish] : export({Doc}) => {Delta}
+[Playground] -> [Present] : frames({Doc}) => {Frames}
+[Playground] -> [Analyse] : diagnose({Doc}) => {Findings}
+
+--- the spine: each layer calls only the layers above it ---
+
+[Model] -> [Core] : parse({Text}) => {Doc}
+[Analyse] -> [Core] : parse({Text}) => {Doc}
+[Analyse] -> [Model] : explore({Scene}) => {Trace}
+[Publish] -> [Model] : scene({Doc}) => {Scene}
+[Publish] -> [Analyse] : ready({Doc}) => {Findings}
+[Present] -> [Model] : run({Scene}) => {Trace}
+[Present] -> [Analyse] : findings({Doc}) => {Findings}
+
+--- the layers ---
+
+[Core] := {
+  # text in, one document out. The only code that reads sigil text.
+  [Lex] -> [Dialects] : vocabulary({Name}) => {Dialect}      # glyphs, arrows, mods, comment marks
+  [Parse] -> [Lex] : tokens({Text}) => {Statements}           # every token keeps its line and column
+  [Parse] -> [Comments] : notes({Statements}) => {Acks}       # notes and `# accepts:` read once
+  [Parse] -> [Graph] : build({Statements}) => {Doc}           # nodes, wires, trees (with lines), blocks, gaps
+}
+
+[Model] := {
+  # what the design means and how it runs
+  [Scene] -> [Core] : parse({Text}) => {Doc}
+  [Sim] -> [Scene] : scene({Doc}) => {Scene}
+  [Sim]
+      \-> [Program]       # the scene compiled into units, machines, triggers
+      \-> [Engine]        # the run: tasks, flights, failures
+      \-> [Scenarios]     # happy, deviations, overlaps, limits
+      \-> [Narration]     # beats, the log, run events
+}
+
+[Analyse] := {
+  # diagnosis: lint (form) and checks (meaning), one finding shape
+  [Lint] -> [Core] : parse({Text}) => {Doc}                   # rules over tokens and statements
+  [Check] -> [Model] : explore({Scene}) => {Trace}
+  [Check] -> [Rules] : match({Doc}) => {Hit}
+  [Check] -> [Lint] : lint({Doc}) => {Findings}               # --deep and the export gate see both
+  [Rules]
+      \-> [FlowRules]
+      \-> [StateRules]
+      \-> [TraceRules]
+      \-> [InvRules]
+      \-> [ExportRules]
+}
+
+[Publish] := {
+  # what leaves sigil: the build skeleton (the export edge) and review charts
+  [Exporter] -> [Analyse] : ready({Doc}) => {Findings}        # gate: #!spec, lint clean, check --export clean
+  [Exporter] -> [Systems] : systems({Doc}) => {Spine}
+  [Systems] -> [Model] : scene({Doc}) => {Scene}
+  [Exporter] -> [Delta] : compare({Manifest}) => {Changes}
+  [Exporter] -> |ExportDir| : write({Manifest})              # manifest last (temp + replace)
+  |ExportDir| @inv serialised(|ExportDir|)                    # one export per folder at a time
+  [Review] -> [Systems] : systems({Doc}) => {Spine}           # Mermaid, any mode, grouped by system
+}
+
+[Present] := {
+  # drawing in cells: the kit and themes, the four views, the app, frames
+  [App] -> [Views] : compose({Scene}) => {Drawing}            # keys, pan, sim player, findings overlay
+  [App] -> [Model] : run({Scene}) => {Trace}
+  [App] -> [Analyse] : findings({Doc}) => {Findings}
+  [Views] -> [Kit] : cells({Drawing}) => {Canvas}
+  [Frames] -> [Views] : compose({Scene}) => {Drawing}         # packed rows for pane, pi, playground
+  [Kit] -> [Themes] : theme({Name}) => {Palette}
+  [Themes] -> |ThemeFiles| : read({Yaml})
+  [Views]
+      \-> [GraphView]
+      \-> [TreeView]
+      \-> [FlowView]
+      \-> [RunView]
+}

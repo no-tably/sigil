@@ -1,0 +1,80 @@
+#!craft
+# sigil's own toolchain as it is in 0.5.0: 21 stdlib scripts in one flat folder,
+# each loading its siblings by file path. Drawn to find the spine a refactor should
+# follow; read every call here as "imports and uses".
+
+--- tools: what people and hosts run ---
+
+(Author) -> [Lint] : lint({Text}) => {Diagnostics}
+(Author) -> [Check] : check({Text}) => {Findings}
+(Author) -> [View] : view({Text}) => {Drawing}
+(Author) -> [Render] : mermaid({Text}) => {Mermaid}
+(Author) -> [Export] : export({Text}) => {Delta}
+(Maintainer) -> [Build] : build({Tree}) => {Archives}
+(Visitor) -> [Playground] : play({Text}) => {Drawing}       # site/playground.py in Pyodide
+(Host) -> [Pane] : show({Text}) => {Frames}                 # plugin/claude/scripts/pane.py
+
+--- the parse: render.py is both the parser and the Mermaid writer ---
+
+[Render] -> [Dialects] : load({Name}) => {Dialect}
+[Lint] -> [Render] : parse({Text}) => {Graph}               # and its private _walk, _VerbPattern
+[Lint] -> [Check] : deep({Text}) => {Findings}              # lint --deep: a cycle (check reaches lint through the kit)
+
+--- the kit: viewkit.py is the hub every layer reaches the parse through ---
+
+[Kit] -> [Render] : parse({Text}) => {Graph}
+[Kit] -> [Lint] : lint({Text}) => {Diagnostics}
+[Kit] -> [Themes] : theme({Name}) => {Palette}
+[Themes] -> |ThemeFiles| : read({Yaml})
+
+[Scene] -> [Kit] : parse({Text}) => {Graph}                 # the scene reaches the parser through the drawing kit
+[Sim] -> [Scene] : scene({Graph}) => {Scene}
+
+--- checks ---
+
+[Check] -> [Kit] : parse({Text}) => {Graph}
+[Check] -> [Scene] : scene({Graph}) => {Scene}
+[Check] -> [Sim] : explore({Scene}) => {Trace}
+[Check] -> [Rules] : match({Doc}) => {Hit}                  # rule modules loaded by path
+[Check] -> [Dialects] : pack({Dialect}) => {Rules}
+
+[Rules]
+    \-> [FlowRules]              # check_flow.py
+    \-> [StateRules]             # check_state.py
+    \-> [TraceRules]             # check_trace.py
+    \-> [InvRules]               # check_inv.py
+    \-> [ExportRules]            # check_export.py
+
+[ExportRules] -> [ExportModel] : model({Graph}) => {Model}
+
+--- views ---
+
+[View] -> [Kit] : parse({Text}) => {Graph}
+[View] -> [Scene] : scene({Graph}) => {Scene}
+[View] -> [Sim] : simulate({Scenario}) => {Trace}
+[View] -> [Check] : check({Text}) => {Findings}             # the c overlay
+[View] -> [Views] : draw({Scene}) => {Drawing}
+
+[Views]
+    \-> [GraphView]              # view_graph.py
+    \-> [TreeView]               # view_tree.py
+    \-> [FlowView]               # view_flow.py, borrows from view_graph
+    \-> [RunView]                # view_run.py, reads the sim directly
+
+[Views] -> [Kit] : cells({Drawing}) => {Frames}
+[Views] -> [Scene] : wires({Scene}) => {Scene}
+
+--- export ---
+
+[Export] -> [ExportModel] : model({Text}) => {Model}
+[Export] -> [Check] : ready({Text}) => {Findings}           # the gate
+[Export] -> |ExportDir| : write({Manifest})
+[ExportModel] -> [Check] : acks({Text}) => {Acks}           # reads acknowledgements through check.py
+[ExportModel] -> [Kit] : parse({Text}) => {Graph}
+
+--- hosts: everything else draws what view.py draws ---
+
+[Playground] -> [View] : frames({Text}) => {Frames}
+[Pane] -> [Kit] : cells({Frames}) => {Frames}
+[Pane] -> [View] : frames({Text}) => {Frames}
+[Build] -> |Archives| : write({Scripts})                     # copies the flat scripts into four plugin layouts
