@@ -300,7 +300,8 @@ _CORE_FILES = ("lint.py", "render.py", "dialects.py", "themes.py",
                "view.py", "viewkit.py", "view_graph.py", "view_tree.py", "view_flow.py",
                "view_run.py", "scene.py",
                "sim.py", "check.py", "check_state.py", "check_trace.py",
-               "check_flow.py", "check_inv.py")
+               "check_flow.py", "check_inv.py", "check_export.py",
+               "export.py", "export_model.py")
 # Directories whose every text file must also be free of dialect/host vocabulary.
 _SCANNED_DIRS = ("highlight", "tests", "site", "themes", "plugin")
 # Generated directories (gitignored) hold no files of ours: `bun install` in
