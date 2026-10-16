@@ -1,4 +1,8 @@
 # Cases expected to change: fnmatch patterns over case ids (command/corpus name), one a line.
+# Two campaigns' sections; the union holds for both baselines (self-model at 90a67da,
+# one-walk at 3bdc5dd: the X1 cases already match the one-walk baseline).
+
+# --- self-model ---
 
 # X1: SGC204's hint says to declare `@inv serialised(|S|)` on the store's own line
 check-export/tests/fixtures/cjk.sigil
@@ -38,3 +42,46 @@ lint-deep/tests/fixtures/checks/trace-204-overlap.sigil
 lint-deep/tests/fixtures/checks/trace-204-owns.sigil
 lint-deep/tests/fixtures/checks/trace-204-users.sigil
 lint-deep/tests/fixtures/cjk.sigil
+
+# --- one-walk (vs .claude/campaigns/one-walk/baseline; reasons in one-walk/DIVERGENCES.md) ---
+
+# C1: stderr prefix 'export.py:' -> 'sigil export:' (14 cases: examples.md blocks 02 03 05 12 13 16
+# 20 24, language.md block-28, checks/export-no-home, export-untyped-boundary,
+# flow-timeout-budget-block, cjk, executions)
+export-dry/*
+
+# D4: '\-' inside grammar quotes after prose is text, not a branch (SGL110 @66 @67 gone, 27 -> 25 issues)
+lint/language.md/block-38.sigil
+# D4 + D10 + D11: the grammar fragment's broken glyphs and header modifier args place no phantom nodes
+# (check-spec: SGC151@19 and SGC146@81 gone, SGC166@21 on [[arrow]] appears; check/ does not differ)
+lint-deep/language.md/block-38.sigil
+check-json/language.md/block-38.sigil
+check-spec/language.md/block-38.sigil
+mermaid-d1/language.md/block-38.sigil
+mermaid-d2/language.md/block-38.sigil
+mermaid-subgraphs/language.md/block-38.sigil
+
+# D10: an unclosed/empty glyph is a void endpoint (nodes 'Broken -', 'A -' x2, 'A-', 'B -' and their
+# edges gone; SGC145@14 orphan '<B ->' gone)
+mermaid-d1/tests/fixtures/lint/SGL120.sigil
+mermaid-d2/tests/fixtures/lint/SGL120.sigil
+mermaid-subgraphs/tests/fixtures/lint/SGL120.sigil
+check/tests/fixtures/lint/SGL120.sigil
+check-json/tests/fixtures/lint/SGL120.sigil
+check-spec/tests/fixtures/lint/SGL120.sigil
+lint-deep/tests/fixtures/lint/SGL120.sigil
+# D10: the '<>' continuation's phantom edge A -> B gone
+mermaid-d1/tests/fixtures/lint/SGL121.sigil
+mermaid-d2/tests/fixtures/lint/SGL121.sigil
+mermaid-subgraphs/tests/fixtures/lint/SGL121.sigil
+
+# D11: block-header refs skip modifier arguments (phantom actors '(2)' and 'Physics, Steering' gone)
+mermaid-d1/tests/fixtures/checks/flow-unguarded-call-loop.sigil
+mermaid-d2/tests/fixtures/checks/flow-unguarded-call-loop.sigil
+mermaid-subgraphs/tests/fixtures/checks/flow-unguarded-call-loop.sigil
+mermaid-d1/tests/fixtures/checks/state-shared-data-order-declared.sigil
+mermaid-d2/tests/fixtures/checks/state-shared-data-order-declared.sigil
+mermaid-subgraphs/tests/fixtures/checks/state-shared-data-order-declared.sigil
+
+# No corpus case from D1 (string-aware header modifiers), D12 (payload token), D18 (${...} outside a
+# payload: dialect corpus only, merlang Mermaid phantom out_subtree_data nodes gone).
