@@ -268,7 +268,7 @@ def _refresh_kinds() -> None:
                        if colour else spec)
 
 
-# The built-in colours until a theme is applied (view.main() applies --theme /
+# The built-in colours until a theme is applied (`sigil view` applies --theme /
 # $SIGIL_THEME). Defines BG, FILL, HOLE_COLOR, GREY, EDGE_COLOR, EDGE_DEFAULT,
 # the *_STYLE tuples, OK_COLOR, SEVERITY_COLOR and EPISODE_COLORS — see _theme_styles().
 apply_theme({})

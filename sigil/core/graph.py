@@ -16,7 +16,7 @@ of it every layer above shares. No drawing here.
     joins, access   drawn_join, access_kind, writer_badges; base_kind of an
                     edge kind (`access:w` → `access`)
 
-ALL_DEPTH is `--depth all` (depth_arg reads `N|all`). This module imports none
+ALL_DEPTH is `--depth all` (sigil.cli's depth_arg reads `N|all`). This module imports none
 of sigil.
 """
 
@@ -480,20 +480,6 @@ def matching_occurrences(graph: Graph, occ: list, nid: str, path) -> list:
         if t.node == nid and (not path or chain[-len(path):] == tuple(path)):
             out.append(oid)
     return out
-
-
-def depth_arg(value: str) -> int:
-    """argparse type for --depth: a non-negative number, or `all` (the views and the Mermaid export)."""
-    import argparse
-    if value == "all":
-        return ALL_DEPTH
-    try:
-        depth = int(value)
-    except ValueError:
-        depth = -1
-    if depth < 0:
-        raise argparse.ArgumentTypeError(f"expected a number >= 0 or 'all', got {value!r}")
-    return depth
 
 
 def walk_breadth(g):

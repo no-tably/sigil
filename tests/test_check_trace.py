@@ -33,6 +33,7 @@ _FIXTURES = ROOT / "tests" / "fixtures" / "checks"
 
 
 from sigil.analyse import check as ck  # noqa: E402
+from sigil import cli  # noqa: E402
 from sigil.analyse.rules import state as cs  # noqa: E402
 from sigil.analyse.rules import trace as ct  # noqa: E402
 from sigil.model import sim  # noqa: E402
@@ -646,11 +647,11 @@ class Exploration(unittest.TestCase):
                           off.overlaps_left_out), (0, 0))
 
     def test_the_overlaps_option_reads_a_mode_or_a_number(self):
-        self.assertEqual(ck.overlaps_arg("listed"), "listed")
-        self.assertEqual(ck.overlaps_arg("7"), 7)
+        self.assertEqual(cli.overlaps_arg("listed"), "listed")
+        self.assertEqual(cli.overlaps_arg("7"), 7)
         for bad in ("0", "some", "-1"):
             with self.assertRaises(Exception):
-                ck.overlaps_arg(bad)
+                cli.overlaps_arg(bad)
 
     def test_the_listed_starts_come_first_then_each_deviation_then_every_tick(self):
         d = make_doc(fixture("trace-204-overlap.sigil"))

@@ -1,7 +1,7 @@
 /* Sigil site — themes from YAML, the live-coding editor, the 3D background of
    view planes and the view strip that brings each forward, and the playground
    (the repo's own Python, run by Pyodide).
-   No dependencies. The background frames are view.py's own output (frames.json,
+   No dependencies. The background frames are the viewer's own output (frames.json,
    made by build_site.py), coloured by theme role so they follow a theme change. */
 (() => {
   "use strict";
@@ -75,7 +75,7 @@
   }
 
   // ------------------------------------------------------------------ YAML subset
-  // Exactly the subset themes.py reads (its module docstring is the contract;
+  // Exactly the subset sigil/present/themes.py reads (its module docstring is the contract;
   // tests/fixtures/yaml_cases.json checks both): nested maps, plain / "JSON-
   // escaped" / 'single-quoted' scalars, # comments, space indentation. Lists,
   // flow collections, tabs in the indent, duplicate and empty keys are errors.
@@ -403,8 +403,8 @@
     .join("\n");
 
   // ------------------------------------------------------------------ scene
-  // A plane per view (view.py's order) in the 3D background from the start,
-  // each playing view.py's frames as the editor types. Below the editor, a strip
+  // A plane per view (the viewer's order) in the 3D background from the start,
+  // each playing the viewer's frames as the editor types. Below the editor, a strip
   // of short sections (#views .vsec), one per view: the one across the reading
   // line pulls ITS plane forward beside its text (larger, sharper, still a
   // little tilted) while the others slide aside and back, dimmer, in order —
@@ -413,7 +413,7 @@
 
   const PLANES = ["graph", "tree", "flow", "run"];
   const PLANE_LABEL = {
-    graph: "view.py · graph", tree: "view.py · tree", flow: "view.py · flow", run: "view.py · run",
+    graph: "sigil view · graph", tree: "sigil view · tree", flow: "sigil view · flow", run: "sigil view · run",
   };
   // home: the hero arrangement — tree near, graph behind it, flow and run
   // further back above them, dimmer and softer (d: blur, o: opacity)
@@ -620,7 +620,7 @@
     };
   }
 
-  /** A view.py command with its --sim scenario set to the one playing. */
+  /** A `sigil view` command with its --sim scenario set to the one playing. */
   const withSim = (cmd, scenario) => cmd.replace(/--sim \S+/, `--sim ${scenario}`);
 
   /** The playground's scenario menu: off, then each scenario as an option (name ·
@@ -637,7 +637,7 @@
       [...groups].map(([g, ss]) => `<optgroup label="${esc(g)}">${ss.map(option).join("")}</optgroup>`).join("");
   }
 
-  /** A run's narration line: its label, view.py's words for the frame, and the
+  /** A run's narration line: its label, the viewer's words for the frame, and the
       outcome on the last frame. */
   function runSayHtml(run, i) {
     const f = run.frames[i];
@@ -970,8 +970,8 @@
 
   // ------------------------------------------------------------------ playground
   // The repo's own Python (copied byte for byte into py/ by build_site.py) run by
-  // Pyodide: playground.py asks view.py / lint.py / sim.py for a drawing and packs
-  // it the way frames.json is packed, and check.py for the design's findings.
+  // Pyodide: playground.py asks the sigil package for a drawing (viewer, linter, simulator)
+  // packed the way frames.json is packed, and the checker for the design's findings.
   // Nothing about the notation is decided here.
 
   const PYODIDE = "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/";
@@ -991,7 +991,7 @@
     return Number.isInteger(i) && i >= 0 && i < SIM_SPEEDS.length ? i : SIM_SPEED;
   }
 
-  // The findings panel's list items: check.py's findings, then the acknowledged
+  // The findings panel's list items: `sigil check`'s findings, then the acknowledged
   // ones (dimmed, with their reason). data-line is the line a click selects.
   function findingsHtml(findings, accepted) {
     const item = (f, cls, tail) =>
@@ -1002,9 +1002,9 @@
       accepted.map((f) => item(f, "accepted", f.acknowledged || "")).join("");
   }
 
-  // A run's story under the drawing, worded by view.py (sim.narrate) as the
+  // A run's story under the drawing, worded by the viewer (sim narration) as the
   // terminal viewer's rows under its footer: `path` and the episode's hops so
-  // far by branch (view.py's styled rows, the hop now bold, drawn by
+  // far by branch (the viewer's styled rows, the hop now bold, drawn by
   // `rowsHtml`; without them the text), the STORY_ROWS beats before this one
   // (dim), then this one after `›` — the narration line. Mono reads them all;
   // the classes only rank them.
@@ -1235,7 +1235,7 @@
       else simOff();
     }
 
-    // the findings panel: check.py at k = 1, after the drawing, within CHECK_BUDGET
+    // the findings panel: the checker at k = 1, after the drawing, within CHECK_BUDGET
     const checkRequest = () => ({ text: el.src.value, mode: el.mode.value || null });
 
     function scheduleCheck() {

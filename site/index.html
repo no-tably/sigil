@@ -62,7 +62,7 @@
       <span id="st-lint"></span><span id="st-count"></span><span id="st-line"></span>
     </div>
   </div>
-  <p class="hint">Behind the editor, <code>view.py</code> redraws after every line in all four
+  <p class="hint">Behind the editor, <code>sigil view</code> redraws after every line in all four
   of its views. Scroll on and each one comes forward in turn; <kbd>focus</kbd> sharpens them here.</p>
 </section>
 
@@ -73,21 +73,21 @@ editor, brought forward. All four draw the URL shortener.</p>
   <div class="vsec-text">
     <h2 id="vh-graph"><span class="vsec-n">1</span> graph</h2>
     <p class="vsec-what">The whole design at once: layered boxes coloured by glyph, every arrow its own stroke.</p>
-    <pre class="snippet cmd">view.py shortener.sigil --graph</pre>
+    <pre class="snippet cmd">sigil view shortener.sigil --graph</pre>
   </div>
 </section>
 <section class="vsec" id="view-tree" data-view="tree" aria-labelledby="vh-tree">
   <div class="vsec-text">
     <h2 id="vh-tree"><span class="vsec-n">2</span> tree</h2>
     <p class="vsec-what">What holds what: the composition as an outline, each flow a lane in the gutter.</p>
-    <pre class="snippet cmd">view.py shortener.sigil --tree</pre>
+    <pre class="snippet cmd">sigil view shortener.sigil --tree</pre>
   </div>
 </section>
 <section class="vsec" id="view-flow" data-view="flow" aria-labelledby="vh-flow">
   <div class="vsec-text">
     <h2 id="vh-flow"><span class="vsec-n">3</span> flow</h2>
     <p class="vsec-what">Who calls whom: the call graph left to right, each payload on its wire.</p>
-    <pre class="snippet cmd">view.py shortener.sigil  # flow, the default</pre>
+    <pre class="snippet cmd">sigil view shortener.sigil  # flow, the default</pre>
   </div>
 </section>
 <section class="vsec" id="view-run" data-view="run" aria-labelledby="vh-run">
@@ -96,7 +96,7 @@ editor, brought forward. All four draw the URL shortener.</p>
     <p class="vsec-what">What happens: one run as a timeline, a lane per participant, time left to
     right. Here the happy run, then the one where the lookup fails.</p>
     <p class="say"></p>
-    <pre class="snippet cmd">view.py shortener.sigil --run --sim happy</pre>
+    <pre class="snippet cmd">sigil view shortener.sigil --run --sim happy</pre>
   </div>
 </section>
 </div>
@@ -191,8 +191,8 @@ editor, brought forward. All four draw the URL shortener.</p>
 <section id="playground" class="panel">
   <h2><span class="sec-rail">---</span> playground <span class="sec-rail">---</span></h2>
   <p>Write a design and watch it draw, lint, check and run. This is not a copy of the
-  tools: the repository's own <code>view.py</code>, <code>lint.py</code>,
-  <code>check.py</code> and <code>sim.py</code> run in your browser on <a href="https://pyodide.org">Pyodide</a> (Python compiled to
+  tools: the repository's own <code>sigil</code> package — viewer, linter, checker and
+  simulator — runs in your browser on <a href="https://pyodide.org">Pyodide</a> (Python compiled to
   WebAssembly — about 10&nbsp;MB, fetched once when you start).</p>
   <div class="pg" id="pg" data-state="idle">
     <div class="pg-start">
@@ -252,7 +252,7 @@ editor, brought forward. All four draw the URL shortener.</p>
 </section>
 <section id="viewer" class="panel">
   <h2><span class="sec-rail">---</span> viewer <span class="sec-rail">---</span></h2>
-  <p>Keep a design open in one pane and <code>view.py</code> in another: it redraws on every
+  <p>Keep a design open in one pane and <code>sigil view</code> in another: it redraws on every
   save. Zero dependencies — Python's standard library and a terminal with truecolor.</p>
   <div class="cards two">
     <article class="card">
@@ -261,20 +261,20 @@ editor, brought forward. All four draw the URL shortener.</p>
       stroke. Payloads ride their edges as chips (<kbd>p</kbd>), events wire with a dashed edge
       to the owners whose state they drive, and
       <code class="hl">:=</code> expansions open as sections below, as deep as you ask.</p>
-      <pre class="snippet cmd">view.py design.sigil --graph --depth all</pre>
+      <pre class="snippet cmd">sigil view design.sigil --graph --depth all</pre>
     </article>
     <article class="card">
       <h3>tree view</h3>
       <p>The composition tree as an outline with every flow as a lane in a gutter beside it —
       a hierarchy and a wired graph at the same time. Comments become margin callouts.</p>
-      <pre class="snippet cmd">view.py design.sigil --tree --notes callouts</pre>
+      <pre class="snippet cmd">sigil view design.sigil --tree --notes callouts</pre>
     </article>
     <article class="card">
       <h3>flow view</h3>
       <p>The call graph read left to right, like the toy graphs behind this page: bare glyph
       labels in columns by call depth, bent wires between them, each flow's chip on its wire.
       The quickest way to read who calls whom.</p>
-      <pre class="snippet cmd">view.py design.sigil  # the default view</pre>
+      <pre class="snippet cmd">sigil view design.sigil  # the default view</pre>
     </article>
     <article class="card">
       <h3>run view</h3>
@@ -283,7 +283,7 @@ editor, brought forward. All four draw the URL shortener.</p>
       tick it was sent, retries as repeated segments, spawned instances forking off their
       spawner — what did happen, where the other views draw what can. Without a scenario,
       the happy run.</p>
-      <pre class="snippet cmd">view.py design.sigil --run --sim happy</pre>
+      <pre class="snippet cmd">sigil view design.sigil --run --sim happy</pre>
     </article>
   </div>
   <div class="cards two">
@@ -295,7 +295,7 @@ editor, brought forward. All four draw the URL shortener.</p>
       state machines. A line under the drawing says each step in plain words, after the
       path of hops so far, numbered by branch. No values are computed: it walks the
       wiring, not your code.</p>
-      <pre class="snippet cmd">view.py design.sigil --once --tree --sim happy</pre>
+      <pre class="snippet cmd">sigil view design.sigil --once --tree --sim happy</pre>
     </article>
     <article class="card">
       <h3>calls</h3>
@@ -303,7 +303,7 @@ editor, brought forward. All four draw the URL shortener.</p>
       <code>↻</code> recursion, <code>↩</code> a call's return, <code>⇱</code> an op the
       host provides — opaque, and it may fail. The <em>executions.sigil</em> example above shows
       them all.</p>
-      <pre class="snippet cmd">view.py site/examples/05-executions.sigil --payloads</pre>
+      <pre class="snippet cmd">sigil view site/examples/05-executions.sigil --payloads</pre>
     </article>
   </div>
   <p class="keys"><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd> graph / tree / flow / run <kbd>t</kbd> next view <kbd>x</kbd> simulate <kbd>d</kbd> depth
@@ -329,10 +329,10 @@ editor, brought forward. All four draw the URL shortener.</p>
     is new, which flows changed shape.</p></article>
     <article class="card"><h3>lint &amp; normalise</h3><p>Validate against the spec and
     tighten hand-written sketches into normal form.</p></article>
-    <article class="card"><h3>draw</h3><p>Check the drawing with <code>view.py --once</code>,
-    or emit Mermaid for docs with <code>render.py</code>.</p></article>
+    <article class="card"><h3>draw</h3><p>Check the drawing with <code>sigil view --once</code>,
+    or emit Mermaid for docs with <code>sigil export --mermaid</code>.</p></article>
     <article class="card"><h3>export</h3><p>Turn a ready <code class="hl">#!spec</code> into a
-    build skeleton with <code>export.py</code>: a folder per system, a manifest of hashes, and
+    build skeleton with <code>sigil export</code>: a folder per system, a manifest of hashes, and
     on a re-export the systems to redo.</p></article>
   </div>
   <p class="small">Commands: <code>sigil-view &lt;file&gt;</code> draws a document;
@@ -383,7 +383,7 @@ unzip sigil-opencode-{{version}}.zip
     </div>
     <div class="pane" id="pane-source" role="tabpanel" aria-labelledby="tab-source" hidden>
 <pre class="cmd copy">git clone {{repo_url}}.git &amp;&amp; cd sigil
-./view.py site/examples/02-shop.sigil --tree --depth all
+bin/sigil view site/examples/02-shop.sigil --tree --depth all
 ./build.py            # every agent's archive, into dist/</pre>
       <p class="small">Python 3, standard library only.</p>
     </div>

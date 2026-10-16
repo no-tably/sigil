@@ -79,11 +79,8 @@ Standard library only. Deterministic: no clock, no randomness, no set-order outp
 
 from __future__ import annotations
 
-import argparse
 import importlib
-import json
 import re
-import sys
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
@@ -176,15 +173,6 @@ DEFAULT_K = {"sketch": 1, "craft": 1, "spec": 2}
 OVERLAPS = ("off", "listed", "all")
 DEFAULT_OVERLAPS = {"sketch": "off", "craft": "off", "spec": "all"}
 
-
-def overlaps_arg(value: str):
-    """--overlaps: off, listed, all, or N (all, at most N overlap runs)."""
-    if value in OVERLAPS:
-        return value
-    if value.isdigit() and int(value) >= 1:
-        return int(value)
-    raise argparse.ArgumentTypeError(f"{value!r}: one of {', '.join(OVERLAPS)}, or a "
-                                     "number of runs (at least 1)")
 
 # tier → mode → (severity, hidden); None: not emitted (catalog §1.2).
 SEVERITY = {
@@ -1060,7 +1048,7 @@ def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
 
 
 # ---------------------------------------------------------------------------
-# Output and CLI
+# Output (the `sigil check` command is sigil.cli's)
 # ---------------------------------------------------------------------------
 
 def format_lines(report: Report, show_hidden: bool = False) -> list:
@@ -1087,66 +1075,3 @@ def registry_lines(registry: dict) -> list:
         out.append(f"{rid}  {name:<28} {tier:<9} {'' if rule else '(not implemented)'}"
                    .rstrip())
     return out
-
-
-def _read_input(path: str) -> str:
-    if path == "-":
-        if hasattr(sys.stdin, "reconfigure"):
-            sys.stdin.reconfigure(encoding="utf-8")
-        return sys.stdin.read()
-    return Path(path).read_text(encoding="utf-8")
-
-
-def main(argv=None, default_dialect=None) -> int:
-    ap = argparse.ArgumentParser(prog="check.py", description="Check a Sigil design's "
-                                 "composition: risks it leaves undeclared.")
-    ap.add_argument("file", nargs="?", help="a .sigil file, or - for stdin")
-    ap.add_argument("--mode", choices=MODES, help="check as this mode")
-    ap.add_argument("--k", type=int, help="failure combinations per scenario")
-    ap.add_argument("--budget", type=int,
-                    help="runs one exploration may make (deviations, then overlap runs)")
-    ap.add_argument("--overlaps", type=overlaps_arg, metavar="off|listed|all|N",
-                    help="overlap runs to make: none, the listed starts, every start "
-                         "tick, or every tick but at most N runs (default: all in spec, "
-                         "else off)")
-    ap.add_argument("--limit", action="append", default=[], metavar="NAME=N",
-                    help="raise one simulator limit (repeatable; e.g. depth=5)")
-    ap.add_argument("--json", action="store_true", help="print one JSON object")
-    ap.add_argument("--all", action="store_true", help="also print hidden findings")
-    ap.add_argument("--export", action="store_true",
-                    help="also check export readiness (SGC401 no-home, SGC402 "
-                         "untyped-boundary)")
-    ap.add_argument("--rules", action="store_true", help="list the rules and exit")
-    ap.add_argument("--dialect", default=default_dialect,
-                    help="dialect name or path (default: $SIGIL_DIALECT)")
-    a = ap.parse_args(argv)
-    if a.k is not None and a.k < 1:
-        ap.error("--k must be at least 1")
-    if a.budget is not None and a.budget < 1:
-        ap.error("--budget must be at least 1")
-    if not (a.rules or a.file):
-        ap.error("a file is required (or --rules)")
-    try:
-        dialect = _dialects().load(a.dialect)
-        pack = dialect_pack(dialect)
-        registry = default_registry(pack.rules, export=a.export or a.rules)
-        limits = limits_from(a.limit, _sim().Limits()) if a.limit else None
-        text = None if a.rules else _read_input(a.file)
-    except RegistryError as exc:
-        print(f"check.py: rule registry: {exc}", file=sys.stderr)
-        return 2
-    except (ValueError, OSError) as exc:
-        print(f"check.py: {exc}", file=sys.stderr)
-        return 2
-    if a.rules:
-        print("\n".join(registry_lines(registry)))
-        return 0
-    report = check(text, mode=a.mode, k=a.k, dialect=dialect, registry=registry, pack=pack,
-                   budget=a.budget, limits=limits, overlaps=a.overlaps, export=a.export)
-    if a.json:
-        print(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
-    else:
-        out = format_lines(report, a.all)
-        print("\n".join(out) if out else "sigil check: OK (no findings)")
-        print(summary(report), file=sys.stderr)
-    return report.exit_code()

@@ -172,7 +172,7 @@ body.focused .plane.view { opacity: max(var(--o, 0.85), 0.9); }
 .vsec-what { color: var(--text); margin: 0 0 0.7em; }
 .vsec .snippet { margin-top: 0.4em; font-size: var(--fs-s); }
 
-/* the run's narration under the section's sentence: view.py's words */
+/* the run's narration under the section's sentence: the viewer's words */
 .say {
   min-height: 3.2em;
   margin: 0 0 0.7em;

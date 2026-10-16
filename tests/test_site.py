@@ -680,7 +680,7 @@ class TestSiteJs(unittest.TestCase):
         scenarios = [scenario for scenario, _ in site.RUNS]
         out = json.loads(self._run(code + f"\nprocess.stdout.write(JSON.stringify("
                                    f"{json.dumps(scenarios)}.map((s) => withSim({json.dumps(cmd)}, s))));"))
-        self.assertEqual(out, [f"view.py shortener.sigil --run --sim {s}" for s in scenarios])
+        self.assertEqual(out, [f"sigil view shortener.sigil --run --sim {s}" for s in scenarios])
         js = (SITE / "site.js").read_text()
         self.assertIn('$("#view-run .cmd")', js)                # the loop is handed the line
 

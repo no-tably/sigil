@@ -57,12 +57,10 @@ in sigil.core.graph); this module only writes it out.
 from __future__ import annotations
 
 import re
-import sys
 from dataclasses import replace
-from pathlib import PurePath
 from typing import Optional
 
-from sigil.core.graph import (Edge, Graph, Node, depth_arg, matching_occurrences, occurrences,
+from sigil.core.graph import (Edge, Graph, Node, matching_occurrences, occurrences,
                               walk_depth)
 from sigil.core.dialects import _hook
 from sigil.core.parse import parse_document
@@ -455,49 +453,3 @@ def render(text: str, depth: int = 1, dialect=None, composition: Optional[str] =
     if any(n.kind == "alias" for g, _o, _l in walk_depth(graph) for n in g.nodes.values()):
         classes += "\n    " + _ALIAS_CLASSDEF
     return f"flowchart TD\n{body}\n\n{classes}"
-
-
-def main(argv=None, default_dialect=None) -> int:
-    import argparse
-    ap = argparse.ArgumentParser(prog="render.py",
-                                 description="Render a Sigil document as Mermaid.")
-    ap.add_argument("file", help="a .sigil file, or - for stdin")
-    ap.add_argument("--depth", type=depth_arg, default=1,
-                    help="expansion depth (N or 'all')")
-    ap.add_argument("--composition", choices=("subgraphs", "edges", "none"), default=None,
-                    help="composition trees as nested subgraphs (default), dotted "
-                         "relation edges, or not at all")
-    ap.add_argument("--spine", action="store_true",
-                    help="group the chart by the export's systems (a subgraph per system)")
-    ap.add_argument("--dialect", default=default_dialect,
-                    help="dialect name or path (default: $SIGIL_DIALECT)")
-    a = ap.parse_args(argv)
-    from sigil.core import dialects
-    try:
-        dialect = dialects.load(a.dialect)
-    except ValueError as exc:
-        print(f"render.py: {exc}", file=sys.stderr)
-        return 2
-
-    try:
-        if a.file == "-":
-            text = sys.stdin.read()
-        else:
-            with open(a.file, "r", encoding="utf-8") as f:
-                text = f.read()
-    except OSError as exc:
-        print(f"render.py: cannot read {a.file}: {exc.strerror or exc}", file=sys.stderr)
-        return 2
-
-    if a.spine:
-        from sigil.publish.spine import spine
-        print(spine(text, stem_of(a.file), dialect=dialect))
-    else:
-        print(render(text, depth=a.depth, dialect=dialect, composition=a.composition))
-    return 0
-
-
-def stem_of(path: str) -> str:
-    """The top system's name for a file (as `sigil export` names it); stdin's
-    is `document`."""
-    return "document" if path == "-" else PurePath(path).stem

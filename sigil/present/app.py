@@ -237,7 +237,6 @@ is also reachable here as view.NAME.
 
 from __future__ import annotations
 
-import argparse
 import importlib.util
 import json
 import os
@@ -251,8 +250,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import NamedTuple
 
-from sigil.core import dialects, parse
-from sigil.core.graph import depth_arg
+from sigil.core import parse
 from sigil.present import kit
 from sigil.present.views import graph as vgraph
 from sigil.present.views import tree as vtree
@@ -2263,205 +2261,34 @@ def tui(state: ViewState) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Run — what `sigil view` does once sigil.cli has read its flags
 # ---------------------------------------------------------------------------
 
-def _width_arg(text: str) -> int:
-    try:
-        width = int(text)
-    except ValueError:
-        width = 0
-    if width < 1:
-        raise argparse.ArgumentTypeError(f"expected a number of columns >= 1, got {text!r}")
-    return width
+class Output(NamedTuple):
+    """Where a view's drawing goes, as the command found it."""
+    once: bool                  # print once and exit (--once, or no terminal)
+    colour: bool                # colour the --once drawing
+    width: int                  # the --once drawing's columns
 
 
-def _frame_arg(text: str) -> int:
-    """--frame N|last: N ≥ 0, or last (-1)."""
-    if text == "last":
-        return -1
-    if not text.isdigit():
-        raise argparse.ArgumentTypeError(f"expected a frame number >= 0 or last, got {text!r}")
-    return int(text)
-
-
-def _unroll_arg(text: str) -> int:
-    """--unroll N|all: N ≥ 1, or all (0: nothing folds)."""
-    if text == "all":
-        return 0
-    try:
-        n = int(text)
-    except ValueError:
-        n = 0
-    if n < 1:
-        raise argparse.ArgumentTypeError(f"expected a number >= 1 or all, got {text!r}")
-    return n
-
-
-def _readable(path: Path) -> bool:
-    """Whether path opens for reading; if not, say so on stderr. (The live view
-    waits for the file instead: reload keeps the last view while it is missing.)"""
-    try:
-        path.open("rb").close()
-    except OSError as exc:
-        print(f"view.py: cannot read {path}: {exc.strerror or exc}", file=sys.stderr)
-        return False
-    return True
-
-
-def main(argv=None, default_dialect=None) -> int:
-    keys = ", ".join(f"{i} {v}" for i, v in enumerate(VIEWS, 1))
-    ap = argparse.ArgumentParser(
-        description="Draw a Sigil document in the terminal and redraw it on every save "
-                    "(--once: print it once and exit). Four views, by their keys: "
-                    f"{keys}; it starts in the {DEFAULT_VIEW} view.")
-    ap.add_argument("file", type=Path, help="the Sigil file to draw")
-    ap.add_argument("--depth", type=depth_arg, default=None, metavar="N|all",
-                    help="how many levels of `X := { … }` expansions to draw "
-                         "(default 1; all: every level); a run's narration and path "
-                         "name the nodes drawn there and the run view folds deeper "
-                         "lanes (with --sim NAME --json / --run --json: only "
-                         "when given)")
-    ap.add_argument("--payloads", action="store_true",
-                    help="show what each flow carries: a chip on its edge (graph and flow "
-                         "views), a list under the tree (tree view)")
-    ap.add_argument("--no-lint", action="store_true",
-                    help="leave out the lint problems under the drawing")
-    ap.add_argument("--dialect", default=default_dialect, metavar="NAME",
-                    help="a dialect to read the document with: a name or a path "
-                         "(default: $SIGIL_DIALECT)")
-    ap.add_argument("--once", action="store_true",
-                    help="print the drawing and the lint once and exit, instead of "
-                         "redrawing on every save (exit status 1 on a lint error)")
-    ap.add_argument("--notes", choices=NOTE_MODES, default="off",
-                    help="the document's comments: off (default), markers (#N on the "
-                         "drawing, the notes listed under it) or callouts (tree view: "
-                         "boxes in the left margin)")
-    ap.add_argument("--compact", action="store_true",
-                    help="tree view: no blank row between top-level parts")
-    ap.add_argument("--no-triggers", action="store_true",
-                    help="hide the wires from an event to the state it changes (dashed "
-                         "edges in the graph view, lanes in the tree view)")
-    ap.add_argument("--access", action="store_true",
-                    help="draw who may read or write each store: dotted edges from the "
-                         "principal to the store, headed r / w / b")
-    ap.add_argument("--mods", action="store_true",
-                    help="show modifiers (timeouts, retries, limits): on an edge's chip and "
-                         "after a node's label")
-    ap.add_argument("--events", choices=EVENT_MODES, default=None,
-                    help="how an event that only passes through is drawn: land (each "
-                         "sender wired straight to each receiver) or nodes (a box or row "
-                         "of its own); default: land in the tree view, nodes in the others")
-    views = ap.add_argument_group(
-        "views", f"Start in one view (default: {DEFAULT_VIEW}); live, keys {keys} "
-                 "switch between them and t steps to the next.").add_mutually_exclusive_group()
-    views.add_argument("--graph", action="store_true",
-                       help="graph (key 1): boxes and edges laid out top-down in layers")
-    views.add_argument("--tree", action="store_true",
-                       help="tree (key 2): the composition tree as an outline, each flow a "
-                            "lane beside it")
-    views.add_argument("--flow", action="store_true",
-                       help="flow (key 3, the default): who calls whom, read left to right, "
-                            "one column per call depth")
-    views.add_argument("--run", action="store_true",
-                       help="run (key 4): one simulated run as a timeline, a lane per "
-                            "participant, time left to right (--sim's run, else the happy "
-                            "path)")
-    ap.add_argument("--unroll", type=_unroll_arg, default=None, metavar="N|all",
-                    help="run view: how many instances of one node to show before the rest "
-                         f"fold into one row (default {RUN_UNROLL[0]}; all: none fold)")
-    ap.add_argument("--layout", choices=LAYOUTS, default=LAYOUTS[0],
-                    help="a drawing wider than the window: wrap (fit the width, grow "
-                         "down), pan (keep its natural shape and scroll sideways) or auto "
-                         "(default: whichever overflows less; --once: wrap)")
-    ap.add_argument("--width", type=_width_arg, default=None, metavar="N",
-                    help="--once: fit the drawing to N columns (default: the terminal's "
-                         f"width, or {ONCE_WIDTH} when the output is not a terminal)")
-    ap.add_argument("--sim", default=None, metavar="SCENARIO",
-                    help="simulate a run: happy (every default), a scenario's name, or "
-                         "a+b to combine two scenarios. --once prints the run's last frame "
-                         "(or --frame's), outcome and log; live, it starts with the run shown. list: the scenarios; "
-                         "all: run every one and print a table of outcomes")
-    ap.add_argument("--frame", type=_frame_arg, default=None, metavar="N|last",
-                    help="with --sim: the frame of the run to show (counting from 0) or "
-                         "its last (past the end: the last). --once draws that frame in "
-                         "any view (the run view: its playhead there); live, the run "
-                         "starts there, paused unless --play")
-    ap.add_argument("--play", action="store_true",
-                    help="live, with --sim: start with the run playing")
-    ap.add_argument("--limit", action="append", default=[], metavar="NAME=N",
-                    help="with --sim: raise one of the simulator's bounds, e.g. "
-                         "frames=5000 or depth=5 (repeat for more)")
-    ap.add_argument("--json", action="store_true",
-                    help="print JSON instead of a drawing. With --sim list / all: the "
-                         "scenarios / every run's facts; with --sim SCENARIO: its facts, "
-                         "the run in plain words and its log; with --run: the run's "
-                         "timeline (lanes, spans, moves, marks)")
-    ap.add_argument("--checks", action="store_true",
-                    help="mark the composition checks' findings (check.py) on the drawing "
-                         "and list them with their questions (live: key c toggles it)")
-    ap.add_argument("--color", choices=("auto", "always", "never"), default="auto",
-                    help="when to colour the output: auto (default: when it goes to a "
-                         "terminal), always or never")
-    ap.add_argument("--theme", default=None,
-                    help="colour theme: a name in themes/ or a .yaml path (default: "
-                         "$SIGIL_THEME, else sigil)")
-    a = ap.parse_args(argv)
-    try:
-        kit.use_theme(a.theme)
-    except ValueError as exc:
-        print(f"view.py: {exc}", file=sys.stderr)
-        return 2
-    dialect = None
-    if dialects is not None:
-        try:
-            dialect = dialects.load(a.dialect)
-        except ValueError as exc:
-            print(f"view.py: {exc}", file=sys.stderr)
-            return 2
-    elif a.dialect:
-        print("view.py: --dialect needs dialects.py next to view.py", file=sys.stderr)
-        return 2
-    try:
-        limits = simulator.limits_from(a.limit) if a.limit else None
-    except ValueError as exc:
-        print(f"view.py: {exc}", file=sys.stderr)
-        return 2
-    if a.json and a.sim is None and not a.run:
-        print("view.py: --json needs --sim (list, all or a scenario) or --run", file=sys.stderr)
-        return 2
-    if (a.frame is not None or a.play) and (a.sim is None or a.sim in SIM_BATCH):
-        print("view.py: --frame and --play need --sim SCENARIO", file=sys.stderr)
-        return 2
-    view = next((v for v in VIEWS if getattr(a, v)), DEFAULT_VIEW)
-    batch = a.sim in SIM_BATCH             # never drawn: the same live or --once
-    tty_out = sys.stdout.isatty()
-    once_out = a.once or not tty_out or not sys.stdin.isatty()
-    if (batch or once_out) and not _readable(a.file):
-        return 2
-    if batch:
+def run(args, dialect, limits, output: Output) -> int:
+    """Draw `args.file` (the parsed `sigil view` flags): the --sim list/all table,
+    one run's JSON, a --once drawing, or the live view. Its exit status; raises
+    UnknownScenario for an unknown --sim name (outside the live view, which
+    shows it and plays `happy`)."""
+    a = args
+    view = next((v for v in VIEWS if getattr(a, v)), DEFAULT_VIEW)   # --graph/--tree/…
+    if a.sim in SIM_BATCH:                 # never drawn: the same live or --once
         return sim_batch(a.file, a.sim, dialect, a.json, limits)
     if a.json:                             # one run, no drawing: the same live or --once
-        if not _readable(a.file):
-            return 2
-        try:
-            if a.run:
-                return run_json(a.file, a.sim, dialect, limits, a.unroll, a.depth)
-            return sim_json(a.file, a.sim, dialect, limits, a.depth)
-        except UnknownScenario as exc:
-            print(f"view.py: --sim: {exc}", file=sys.stderr)
-            return 2
-    if once_out:
-        colour = a.color == "always" or (a.color == "auto" and tty_out)
-        width = a.width or (shutil.get_terminal_size().columns if tty_out else ONCE_WIDTH)
-        try:
-            return once(a.file, a.depth, a.payloads, not a.no_lint, dialect, colour, a.tree,
-                        not a.no_triggers, not a.compact, a.notes, width, a.access, a.mods,
-                        a.events, a.sim, a.checks, limits, view, a.unroll, a.layout,
-                        a.frame)
-        except UnknownScenario as exc:     # the message lists the known ones
-            print(f"view.py: --sim: {exc}", file=sys.stderr)
-            return 2
+        if a.run:
+            return run_json(a.file, a.sim, dialect, limits, a.unroll, a.depth)
+        return sim_json(a.file, a.sim, dialect, limits, a.depth)
+    if output.once:
+        return once(a.file, a.depth, a.payloads, not a.no_lint, dialect, output.colour,
+                    a.tree, not a.no_triggers, not a.compact, a.notes, output.width,
+                    a.access, a.mods, a.events, a.sim, a.checks, limits, view, a.unroll,
+                    a.layout, a.frame)
     state = ViewState(a.file, a.depth, a.payloads, not a.no_lint, dialect, a.tree,
                       not a.no_triggers, not a.compact, a.notes, a.access, a.mods, a.events,
                       a.sim, a.checks, limits, view, a.unroll, a.layout)

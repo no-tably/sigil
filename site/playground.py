@@ -9,7 +9,7 @@ is packed.
 
     draw(request)    the document drawn in one view, its lint and its scenarios
     sim(request)     one frame of a scenario's run, drawn over the same view
-    check(request)   the document's composition findings (check.py at k = 1, CHECK_RUNS runs)
+    check(request)   the document's composition findings (the checker at k = 1, CHECK_RUNS runs)
 
 A request: {"text", "view": "tree"|"graph"|"flow"|"run", "width": cols|null, "depth",
 "payloads", "notes", "events"} (+ "scenario", "frame" for sim; "text" and
@@ -41,7 +41,7 @@ kit.use_theme(None)
 
 MAX_DEPTH = 99
 CHECK_K = 1                 # failure combinations per scenario: the RFC's playground k
-CHECK_RUNS = 96             # runs per exploration: below check.py's default, since overlap
+CHECK_RUNS = 96             # runs per exploration: below `sigil check`'s default, since overlap
                             # runs fill whatever budget a large many-entry document is given
                             # (coverage.sigil craft: ~5.5s at the default, ~1.6s here, natively);
                             # the bundled examples find exactly what the default finds
@@ -119,9 +119,9 @@ def sim(request: str) -> str:
     last], "say": the run in plain words at this frame (the latest beat,
     `tNNN …`; "" before any), "story": [the beats so far, newest last], "beats":
     [the frame of every beat, for stepping by event], "trail": the hops of the
-    frame's episode so far as text (view.py's path row, the hop now marked `▸`),
-    "path": that row as view.py draws it (packed rows, the hop now bold), "outcome" (on the final frame), "styles"}; an
-    unknown scenario: {"error"}. The wording is view.py's (sim.narrate) — the
+    frame's episode so far as text (the viewer's path row, the hop now marked `▸`),
+    "path": that row as the viewer draws it (packed rows, the hop now bold), "outcome" (on the final frame), "styles"}; an
+    unknown scenario: {"error"}. The wording is the simulator's narration — the
     viewer's narration line, recent events and path row say the same."""
     req = json.loads(request)
     text, o = req.get("text", ""), _opts(req)
@@ -156,7 +156,7 @@ def sim(request: str) -> str:
 
 
 def _finding(f) -> dict:
-    """The fields the findings panel shows (check.py's --json record, trimmed)."""
+    """The fields the findings panel shows (`sigil check --json`'s record, trimmed)."""
     d = f.to_dict()
     return {key: d[key] for key in ("severity", "line", "rule", "name", "message", "tier",
                                     "why", "fix", "acknowledged")}
@@ -165,7 +165,7 @@ def _finding(f) -> dict:
 def check(request: str) -> str:
     """{"mode", "k", "findings": [{severity, line, rule, name, message, tier, why,
     fix}], "hidden": count, "acknowledged": [… + "acknowledged" (the reason)]};
-    a document check.py cannot read: {"error"}. "mode" in the request overrides
+    a document the checker cannot read: {"error"}. "mode" in the request overrides
     the document's mode line (null: the document's). Always k = CHECK_K and at
     most CHECK_RUNS runs per exploration (what that leaves unrun is SGC090's
     finding, as on the command line); the page also bounds the wall time itself."""

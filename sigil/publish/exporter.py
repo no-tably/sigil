@@ -73,18 +73,14 @@ Standard library only. Deterministic: no clock, no randomness, no set-order outp
 
 from __future__ import annotations
 
-import argparse
 import hashlib
 import json
 import os
-import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
-from sigil.analyse import check, lint
-from sigil.core import dialects
 from sigil.publish import systems as em
 from sigil.publish.delta import (
     DELTA, EXPORT_VERSION, delta, delta_lines, dropped_folders, manifest_problem)
@@ -99,7 +95,8 @@ _README_KEY = "\0readme"                     # reserves `readme` among component
 
 def gate(text: str, dialect, lint, check) -> tuple:
     """The lines that block exporting `text` (none: it is ready). `lint` and
-    `check` are the lint.py and check.py modules. A document that is no spec, or
+    `check` are the sigil.analyse lint and check modules (the command passes
+    them in). A document that is no spec, or
     that lint finds errors in, is not checked further. Raises ValueError for a
     rule pack check.py refuses."""
     mode = check.read_mode(text.splitlines())
@@ -411,7 +408,7 @@ def write_export(out: Path, plan: ExportPlan, only: Optional[Iterable] = None,
     if change is not None:
         write_changed(out / DELTA, json_text(change))
     manifest = json_text(plan.manifest)
-    if read_text(out / MANIFEST) != manifest:
+    if written_text(out / MANIFEST) != manifest:
         replace_text(out / MANIFEST, manifest)
     return kept
 
@@ -419,7 +416,7 @@ def write_export(out: Path, plan: ExportPlan, only: Optional[Iterable] = None,
 def read_manifest(out: Path) -> Optional[dict]:
     """The manifest of the export already in `out` (None: there is none). Raises
     ValueError for one export.py cannot read."""
-    text = read_text(out / MANIFEST)
+    text = written_text(out / MANIFEST)
     if text is None:
         return None
     try:
@@ -445,7 +442,7 @@ def folder_differs(folder: Path, files: dict, ours: frozenset) -> bool:
     names an earlier export wrote (`ours`)."""
     if not folder.is_dir():
         return True
-    return any(read_text(folder / n) != files.get(n) for n in sorted(set(files) | ours))
+    return any(written_text(folder / n) != files.get(n) for n in sorted(set(files) | ours))
 
 
 def remove_system(folder: Path, ours: frozenset) -> bool:
@@ -461,7 +458,7 @@ def remove_system(folder: Path, ours: frozenset) -> bool:
     return True
 
 
-def read_text(path: Path) -> Optional[str]:
+def written_text(path: Path) -> Optional[str]:
     """A file's exact text (newlines as written; bytes that are no UTF-8 as
     U+FFFD), or None when there is none."""
     try:
@@ -472,7 +469,7 @@ def read_text(path: Path) -> Optional[str]:
 
 
 def write_changed(path: Path, content: str) -> None:
-    if read_text(path) != content:
+    if written_text(path) != content:
         write_text(path, content)
 
 
@@ -511,7 +508,8 @@ def replace_text(path: Path, content: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# CLI
+# The run: plan, delta, write (the `sigil export` command is sigil.cli's, which
+# reads the spec, loads the dialect and runs the gate first)
 # ---------------------------------------------------------------------------
 
 def done_lines(plan: ExportPlan, out: Path) -> list:
@@ -524,52 +522,38 @@ def done_lines(plan: ExportPlan, out: Path) -> list:
 
 
 def report(change: dict, as_json: bool, head: list) -> str:
-    """What export.py prints: the delta as JSON, or `head` and the delta in words."""
+    """What the export prints: the delta as JSON, or `head` and the delta in words."""
     return json_text(change) if as_json else "\n".join(head + delta_lines(change)) + "\n"
 
 
-def main(argv=None, default_dialect=None) -> int:
-    ap = argparse.ArgumentParser(
-        prog="export.py",
-        description="Export a ready Sigil spec as a build skeleton: a folder per "
-                    "system, a file per component, manifest.json as the contract.")
-    ap.add_argument("spec", help="a .sigil file whose mode line is #!spec")
-    ap.add_argument("--out", required=True, metavar="DIR",
-                    help="the export folder (empty, or an earlier export)")
-    ap.add_argument("--dialect", default=default_dialect,
-                    help="dialect name or path (default: $SIGIL_DIALECT)")
-    ap.add_argument("--json", action="store_true",
-                    help="print the delta (what changed since the export in DIR) as JSON")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="print the delta and write nothing")
-    a = ap.parse_args(argv)
-    spec, out = Path(a.spec), Path(a.out)
-    try:
-        dialect = dialects.load(a.dialect)
-        text = spec.read_text(encoding="utf-8")
-        blocking = gate(text, dialect, lint, check)
-    except (ValueError, OSError) as exc:
-        print(f"export.py: {exc}", file=sys.stderr)
-        return 2
-    if blocking:
-        print("\n".join(blocking))
-        print(f"export.py: {spec.name} is not ready to export: {len(blocking)} "
-              "blocking line(s); nothing written", file=sys.stderr)
-        return 2
+@dataclass(frozen=True)
+class Outcome:
+    """What one export did. `status`: 0 exported (or a dry run), 1 the folder
+    could not be written, 2 refused (`problem` says why). `printed`: the report
+    for stdout. `kept`: removed systems' folders left in place because they hold
+    files the export did not write."""
+    status: int
+    printed: str = ""
+    problem: Optional[str] = None
+    kept: tuple = ()
+
+
+def run(text: str, spec: Path, out: Path, dialect, as_json: bool = False,
+        dry_run: bool = False) -> Outcome:
+    """Export `text` (a spec the gate passed, read from `spec`) into `out`, or
+    with `dry_run` only say what would change."""
     try:
         problem = out_problem(out)
         old = None if problem else read_manifest(out)
     except (ValueError, OSError) as exc:
         problem = str(exc)
     if problem:
-        print(f"export.py: {problem}", file=sys.stderr)
-        return 2
+        return Outcome(2, problem=problem)
     plan = plan_export(em.build_model(text, spec.stem, dialect), spec.name, text)
     change = delta(old, plan.manifest)
-    if a.dry_run:
+    if dry_run:
         head = [f"sigil export (dry run): nothing written to {out}"]
-        print(report(change, a.json, head), end="")
-        return 0
+        return Outcome(0, report(change, as_json, head))
     written = written_files(old)
     try:
         kept = write_export(out, plan, only=changed_systems(out, plan, written),
@@ -577,10 +561,5 @@ def main(argv=None, default_dialect=None) -> int:
                             change=change if old is not None else None,
                             written=written)
     except OSError as exc:
-        print(f"export.py: cannot write {out}: {exc}", file=sys.stderr)
-        return 1
-    for name in kept:
-        print(f"export.py: kept {out / name}/: it holds files export.py did not "
-              "write (its system is gone)", file=sys.stderr)
-    print(report(change, a.json, done_lines(plan, out)), end="")
-    return 0
+        return Outcome(1, problem=f"cannot write {out}: {exc}")
+    return Outcome(0, report(change, as_json, done_lines(plan, out)), kept=tuple(kept))
