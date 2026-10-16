@@ -1,9 +1,9 @@
 """
-themes.py — load a Sigil colour theme (themes/<name>.yaml).
+sigil themes — load a Sigil colour theme (themes/<name>.yaml).
 
 A theme is a small YAML document: nested maps, scalar values, # comments. A
 value "$name" refers to palette.name; `extends: other` starts from another
-theme and overrides only the keys this one sets. view.py and the site both read
+theme and overrides only the keys this one sets. sigil view and the site both read
 the same files, so a theme colours the terminal viewer and the web page alike.
 
     sigil themes [NAME|PATH]       # print the resolved theme as JSON

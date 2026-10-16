@@ -214,6 +214,8 @@ class TestLookupAndCli(_EnvCase):
         code, out, _ = _run(themes.main, ["--help"])
         self.assertEqual(code, 0)
         self.assertIn("--list", out)
+        self.assertTrue(out.startswith("sigil themes — "), out[:40])
+        self.assertNotIn("themes.py", out)
         code, _, err = _run(themes.main, ["sigil", "extra"])
         self.assertEqual(code, 2)
         self.assertIn("usage", err)
