@@ -13,6 +13,7 @@ reader take the Graph from here.
 
 import dataclasses
 import re
+from functools import lru_cache
 from typing import NamedTuple, Optional
 
 from sigil.core.lex import (  # noqa: F401  (also read as parse.<name> by the model's readers)
@@ -43,22 +44,30 @@ def parse_glyph(text: str, layer: str = "L1", dialect=None) -> Optional[Node]:
                 if kind == "glyph":
                     return node
 
+    return _core_node(text, layer)
+
+
+def _core_node(text: str, layer: str) -> Optional[Node]:
+    """A fresh node for a core glyph's (stripped) text, or None."""
+    fields = _core_glyph(text)
+    if fields is None:
+        return None
+    gid, name, kind, is_hole, is_mutable, is_stream, params = fields
+    return Node(id=gid, name=name, kind=kind, is_hole=is_hole, is_mutable=is_mutable,
+                is_stream=is_stream, layer=layer, params=params)
+
+
+@lru_cache(maxsize=4096)
+def _core_glyph(text: str) -> Optional[tuple]:
+    """A core glyph's node fields (id, name, kind, is_hole, is_mutable, is_stream,
+    params), or None when the text is no glyph. Pure: a glyph is read once."""
     m = GLYPH_RE.match(text)
     if not m:
         return None
     name = m.group("name").replace("\x00", "").strip()
     kind = OPEN_TO_KIND[m.group("open")]
-    is_hole = name == "?"
-    return Node(
-        id=mk_id(name + "_" + kind),
-        name=name,
-        kind=kind,
-        is_hole=is_hole,
-        is_mutable=m.group("mut") == "~",
-        is_stream=m.group("stream") == "*",
-        layer=layer,
-        params=generic_params(name),
-    )
+    return (mk_id(name + "_" + kind), name, kind, name == "?", m.group("mut") == "~",
+            m.group("stream") == "*", generic_params(name))
 
 
 def generic_params(name: str) -> tuple:
@@ -124,17 +133,18 @@ def extract_flows(toks: list, graph: Graph, layer: str, last_src=None,
     tokens, mods, payload, payload_span, event_args, glued = _model_tokens(toks, layer)
     head = _head(tokens, lead)
     tokens, paths = _fold_paths(tokens)
-    if not any(t[0] == "glyph" for t in tokens):
+    glyphs = [t[1] for t in tokens if t[0] == "glyph"]
+    if not glyphs:
         return last_src
 
     # Every hole is its own node: `[?] -> [X]` and `[?] -> [Y]` are two unknowns.
-    for kind, tok, _c in tokens:
-        if kind == "glyph" and tok.is_hole:
+    for tok in glyphs:
+        if tok.is_hole:
             graph.hole_seq[0] += 1
             tok.id = f"{tok.id}{graph.hole_seq[0]}"
 
     if first is not None:
-        first.append(next(t[1] for t in tokens if t[0] == "glyph"))
+        first.append(glyphs[0])
 
     groups, links, link_cols = _group_endpoints(tokens, graph, last_src)
     placed = _place_groups(groups, graph, paths, event_args, line_no)
@@ -144,9 +154,11 @@ def extract_flows(toks: list, graph: Graph, layer: str, last_src=None,
             e.payload = f"{e.target_op} : {payload}" if e.target_op else payload
         new_edges += _return_emits(graph, final, payload, layer, line_no)
     graph.edges.extend(new_edges)
-    _attach_mods(mods, tokens, graph, final=final, op_edges=op_edges, link_edges=link_edges,
-                 link_cols=link_cols, glued=glued, payload=payload,
-                 payload_span=payload_span, layer=layer, line_no=line_no)
+    if mods:
+        _attach_mods(mods, tokens, graph, final=final, op_edges=op_edges,
+                     link_edges=link_edges, link_cols=link_cols, glued=glued,
+                     payload=payload, payload_span=payload_span, layer=layer,
+                     line_no=line_no)
 
     if out is not None:
         out["nodes"] = list(dict.fromkeys(placed))
@@ -212,7 +224,7 @@ def _token_node(t, layer: str) -> Optional[Node]:
                                    mods=list(t.node.mods))
     if t.flag == "void":
         return None
-    return parse_glyph(t.text, layer)
+    return _core_node(t.text.strip(), layer)     # a dialect's glyph carries its node
 
 
 def _close_paren(text: str) -> int:
@@ -227,6 +239,8 @@ def _close_paren(text: str) -> int:
 def _fold_paths(tokens: list) -> tuple:
     """Fold `a/b/c` into one reference to `c`, remembering its qualifying path.
     Returns (the tokens without slashes, {id(node token): (name, …, name)})."""
+    if "slash" not in [t[0] for t in tokens]:
+        return tokens, {}
     paths = {}                                  # id(node token) -> (name, …, name)
     folded = []
     for tok in tokens:
@@ -601,13 +615,17 @@ class _Builder:
 
     def frame(self) -> Optional[_Frame]:
         """The innermost open control block the model draws."""
+        if not self.frames:
+            return None
         return next((f for f in reversed(self.frames) if f.idx is not None), None)
 
     # -- driver ---------------------------------------------------------------
 
     def run(self):
         for it in self.doc.items:
-            if isinstance(it, NoteItem):
+            if isinstance(it, Flow):            # the most common item first
+                self._flow_line(it.line, it.statement, it.arm)
+            elif isinstance(it, NoteItem):
                 self.above.append((it.text, self.ln(it.line)))
             elif isinstance(it, Blank):          # a blank line detaches waiting comments
                 self._detach()
@@ -630,8 +648,6 @@ class _Builder:
                 self._block_close(it.line)
             elif isinstance(it, BlockMods):
                 self._block_mods(it)
-            elif isinstance(it, Flow):
-                self._flow_line(it.line, it.statement, it.arm)
         return self._end(self.doc.end)
 
     def _end(self, n: int) -> Graph:
@@ -950,7 +966,9 @@ class _Builder:
               and subject.nodes == self.last_src.nodes):
             self.last_src = subject             # the same subject, its latest flow line
         edges = acc["edges"]
-        keys = list(dict.fromkeys(e.key for e in edges))
+        # The edge keys the open blocks record (none to record outside them).
+        keys = (list(dict.fromkeys([e.key for e in edges]))
+                if self.frames or self.after_block is not None else [])
         for f in self.frames:
             if f.idx is None:
                 continue
@@ -971,7 +989,7 @@ class _Builder:
                 fr.subjects.extend(subject.nodes)
         if out is not None:
             out["nodes"], out["edges"] = acc["nodes"], edges
-        drawn = tuple(dict.fromkeys(e.key for e in edges if e.src != e.dst))
+        drawn = tuple(dict.fromkeys([e.key for e in edges if e.src != e.dst]))
         self.attach(self.anchor, k, drawn)
 
     def _flow(self, st, col: int, last, k: int, acc: dict, heads: bool = True):
@@ -981,6 +999,7 @@ class _Builder:
         starts with the label."""
         graph = self.graph
         text = st.code.text
+        line_no = self.ln(k)
 
         def first_col(at: int) -> int:
             return at + len(text[at:]) - len(text[at:].lstrip())
@@ -988,11 +1007,15 @@ class _Builder:
         def flows(toks, lead, last, cap):
             out = {}
             res = extract_flows(toks, graph, self.layer, last, self.dialect, first=cap,
-                                line_no=self.ln(k), out=out, lead=lead)
-            acc["nodes"].extend(n for n in out.get("nodes", ()) if n not in acc["nodes"])
+                                line_no=line_no, out=out, lead=lead)
+            nodes = acc["nodes"]
+            if nodes:
+                nodes.extend(n for n in out.get("nodes", ()) if n not in nodes)
+            else:                               # out["nodes"] holds each id once
+                nodes.extend(out.get("nodes", ()))
             acc["edges"].extend(out.get("edges", ()))
             if heads and out.get("head"):
-                graph.heads.append((self.ln(k), out["head"]))
+                graph.heads.append((line_no, out["head"]))
             return res
 
         lead = first_col(0)

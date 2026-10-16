@@ -33,6 +33,7 @@ does not read (a join with no glyph before it, a broken glyph) says so in its
 
 import re
 from functools import lru_cache
+from operator import itemgetter
 from typing import NamedTuple, Optional
 
 from sigil.core.lex import (
@@ -104,7 +105,7 @@ class Code(NamedTuple):
 
 def code_line(raw: str, lx: Lexicon = NO_DIALECT) -> Code:
     """The Code of a raw line: comment cut, strings and dialect glyphs blanked."""
-    code = raw[:code_end(raw, lx.marker)]
+    code = raw if lx.marker is None and "#" not in raw else raw[:code_end(raw, lx.marker)]
     masked = mask_strings(code)
     if not lx.tokenizers:
         return Code(masked, code)
@@ -205,10 +206,21 @@ def _blank(n: int, spaced: bool = True) -> str:
     return (" " + _GAP * (n - 1)) if spaced and n else _GAP * n
 
 
+_MOD_HEAD_RE = re.compile(r"@([A-Za-z][\w-]*)\s*")
+_MOD_PAREN_RE = re.compile(r"@[A-Za-z][\w-]*\s*\(")
+_REF_NAME_RE = re.compile(r"[A-Za-z_][\w-]*")
+_NOT_POSITIVE_RE = re.compile(r"^(?:-|0+(?:\.0+)?(?:[a-z]+)?$)")
+_ZERO_RE = re.compile(r"0+")
+_BOUND_COUNT_RE = re.compile(r"\^(\w*)")
+_TAIL_COUNT_RE = re.compile(r"[×^x]\s*(\w*)")
+_LOOSE_COUNT_RE = re.compile(r"×\s*(\w*)|\^(\w*)(?:@[a-z]+)?")
+_WORD_END_RE = re.compile(r"[A-Za-z_\d][\w.-]*$")
+
+
 def mod_pair(text: str) -> tuple:
     """`@timeout(30s)` → ("timeout", "30s"); `@inv >= 0` → ("inv", ">= 0");
     `@all` → ("all", None). A lone `( … )` argument loses its parens."""
-    m = re.match(r"@([A-Za-z][\w-]*)\s*", text)
+    m = _MOD_HEAD_RE.match(text)
     if not m:
         return (text.strip(), None)
     rest = text[m.end():].strip()
@@ -231,12 +243,13 @@ def _mod_spans(rx, text: str) -> list:
     modifier's trailing text that is only `×N` / `xN` / `!` is left out of its
     span (those are modifiers of their own)."""
     spans = []
+    quoted = '"' in text
     for m in rx.finditer(text):
-        if in_string(text, m.start()):
+        if quoted and in_string(text, m.start()):
             continue
         start, end = m.start(), m.end()
         tok = m.group(0)
-        pm = re.match(r"@[A-Za-z][\w-]*\s*\(", tok)
+        pm = _MOD_PAREN_RE.match(tok)
         if pm:
             close = _close_paren(tok[pm.end() - 1:])
             if close >= 0:
@@ -254,6 +267,13 @@ class _Mod(NamedTuple):
     bound: bool          # a stream bound `^N@policy`
 
 
+# The modifier patterns in the order _capture_mods takes them, each with a
+# pattern for the text every match of it holds.
+_MOD_KINDS = ((STREAM_BOUND_RE, re.compile(r"\^")),
+              (PRINCIPAL_SET_RE, re.compile("@read|@write")),
+              (MODIFIER_RE, re.compile("@")))
+
+
 def _capture_mods(text: str) -> tuple:
     """A statement's modifiers, each with its span, and the text with them
     blanked (length-preserving). Stream bounds first (their `@policy` is not a
@@ -264,7 +284,9 @@ def _capture_mods(text: str) -> tuple:
     mods = []
     if "@" not in text and "^" not in text:
         return text, mods
-    for rx in (STREAM_BOUND_RE, PRINCIPAL_SET_RE, MODIFIER_RE):
+    for rx, needs in _MOD_KINDS:
+        if not needs.search(text):              # no such modifier left to find
+            continue
         for start, end in _mod_spans(rx, text):
             tok = text[start:end]
             if rx is STREAM_BOUND_RE:
@@ -286,6 +308,10 @@ class _Payload(NamedTuple):
     peeled: list         # [(column, kind, text, pair)] its tail and alias references
 
 
+# A character every payload tail (PAYLOAD_TAIL_RE, PAYLOAD_TAIL_LOOSE_RE) holds.
+_TAIL_CHARS_RE = re.compile("[×x^!]")
+
+
 def _take_payload(text: str) -> tuple:
     """The terminal `: payload` (not a `:=` alias) of a modifier-blanked line, kept
     as text less its trailing cardinality / stream-bound / `!` modifiers and
@@ -296,13 +322,15 @@ def _take_payload(text: str) -> tuple:
         return text, None
     raw = pm.group(1)
     peeled = []
-    refs = ALIAS_REF_RE.search(raw.replace(_GAP, " "))
+    refs = (ALIAS_REF_RE.search(raw.replace(_GAP, " "))
+            if "×" in raw or "x" in raw else None)        # a count comes first
     if refs:
         at = pm.start(1) + refs.start("names")
-        for nm in re.finditer(r"[A-Za-z_][\w-]*", refs.group("names")):
+        for nm in _REF_NAME_RE.finditer(refs.group("names")):
             peeled.append((at + nm.start(), "aref", nm.group(0), (ALIAS_REF, nm.group(0))))
         raw = raw[:refs.start("names")]
-    tail = PAYLOAD_TAIL_RE.search(raw.replace(_GAP, " "))   # same length
+    tail = (PAYLOAD_TAIL_RE.search(raw.replace(_GAP, " "))   # same length
+            if _TAIL_CHARS_RE.search(raw) else None)
     if tail and tail.start() < len(raw):
         at = pm.start(1) + tail.start()
         for t in TAIL_MOD_RE.finditer(tail.group(0)):
@@ -314,16 +342,16 @@ def _take_payload(text: str) -> tuple:
     payload = raw.replace(_GAP, "").strip() or None
     colon = text.index(":", pm.start())
     out = text[:pm.start()] + _blank(pm.end() - pm.start()) + text[pm.end():]
-    out = PAYLOAD_RE.sub(lambda m: _blank(len(m.group(0))), out)
+    if ":" in out:
+        out = PAYLOAD_RE.sub(lambda m: _blank(len(m.group(0))), out)
     return out, _Payload(colon, pm.start(1), pm.end(), payload, raw, sorted(peeled))
 
 
 def _overlay(base: str, blanked: str, spans) -> str:
     """`base` with the columns of each (start, end) taken from `blanked`."""
-    out = list(base)
     for start, end in spans:
-        out[start:end] = blanked[start:end]
-    return "".join(out)
+        base = base[:start] + blanked[start:end] + base[end:]
+    return base
 
 
 def scan_mods(text: str) -> list:
@@ -376,11 +404,22 @@ _KEY_VALUE_RE = re.compile(r":[A-Za-z_][\w-]*(?=\s*(?:@|$))")
 _CLOSERS = tuple("]}>)|")
 
 
+# A glyph whose text holds no bracket at all up to its closer: _scan_glyph's
+# loop would meet only its closer (`<A->` excepted: an arrow, checked first).
+_PLAIN_GLYPH = {o: re.compile(re.escape(o) + r"[^\]})>\[{(|<]*" + re.escape(c))
+                for o, c in CLOSER.items()}
+
+
 def _scan_glyph(s: str, i: int) -> tuple:
     """Scan the glyph whose opener is s[i]: (end, problem). `problem` is "" for a
     well-formed glyph (`end` is past its closer), else "empty", "unclosed" (an
     arrow, another glyph or the line end came first; `end` is where the scan
     stopped) or "mismatched" (closed by another kind's bracket; `end` is past it)."""
+    fast = _PLAIN_GLYPH[s[i]].match(s, i)
+    if fast is not None and not (s[i] == "<" and fast.end() - i > 3
+                                 and s[fast.end() - 2] in "-~=!?*"):
+        end = fast.end()
+        return end, ("" if s[i + 1:end - 1].strip(" " + _GAP) else "empty")
     closer = CLOSER[s[i]]
     j = i + 1
     while j < len(s):
@@ -407,7 +446,7 @@ def _mod_problem(name: str, arg: str) -> str:
     """What is wrong with a modifier's argument: "no-arg", "bad-duration" or ""."""
     if name in _NEEDS_ARG_MODS and not arg:
         return "no-arg"
-    if name in _POSITIVE_MODS and re.match(r"^(?:-|0+(?:\.0+)?(?:[a-z]+)?$)", arg):
+    if name in _POSITIVE_MODS and _NOT_POSITIVE_RE.match(arg):
         return "bad-duration"
     if name == "after" and arg.startswith("-"):
         return "bad-duration"
@@ -417,12 +456,12 @@ def _mod_problem(name: str, arg: str) -> str:
 def _free_arg_end(s: str, j: int) -> int:
     """Where a free (unparenthesised) modifier argument starting at j ends: the
     next arrow, `@`, block `{` or the line end."""
-    k = j
-    while k < len(s):
-        if s[k] == "@" or ARROW_RE.match(s, k) or BLOCK_OPEN_RE.match(s, k):
-            return k
-        k += 1
-    return k
+    m = _FREE_ARG_STOP_RE.search(s, j)
+    return m.start() if m else len(s)
+
+
+# What ends a free modifier argument: an `@`, an arrow or a block `{`.
+_FREE_ARG_STOP_RE = re.compile("@|" + ARROW_RE.pattern + "|" + BLOCK_OPEN_RE.pattern)
 
 
 def _lint_mod(s: str, i: int) -> tuple:
@@ -450,7 +489,7 @@ def _lint_mod(s: str, i: int) -> tuple:
 def _count_problem(count: str) -> str:
     if not count:
         return "no-count"
-    return "zero" if re.fullmatch(r"0+", count) else ""
+    return "zero" if _ZERO_RE.fullmatch(count) else ""
 
 
 def _payload_problem(raw: str) -> str:
@@ -460,21 +499,30 @@ def _payload_problem(raw: str) -> str:
     if raw.count('"') % 2:
         return "unclosed"
     s = mask_strings(raw)
-    depth = []
-    for ch in s:
-        if ch in "([{":
-            depth.append(ch)
-        elif ch in ")]}":
-            if not depth or "([{"[")]}".index(ch)] != depth.pop():
-                return "unclosed"
-    if depth:
-        return "unclosed"
+    brackets = "".join(_BRACKET_RE.findall(s))
+    if brackets:
+        depth = []
+        for ch in brackets:
+            if ch in "([{":
+                depth.append(ch)
+            elif ch in ")]}":
+                if not depth or "([{"[")]}".index(ch)] != depth.pop():
+                    return "unclosed"
+        if depth:
+            return "unclosed"
+    if not _LATER_GLYPH_RE.search(s):       # no item after the first starts a glyph
+        return ""
     items = _top_level_items(s)
     for prev, item in zip(items, items[1:]):
         if (_GLYPH_START_RE.match(item) and not _OPERATOR_RE.match(item)
                 and not _OPERATOR_RE.match(prev) and not prev.endswith(",")):
             return "glyph-after"
     return ""
+
+
+_BRACKET_RE = re.compile(r"[(\[{)\]}]")        # what _payload_problem balances
+# An item after whitespace that _GLYPH_START_RE would take as a glyph.
+_LATER_GLYPH_RE = re.compile(r"\s[~*]*[\[{<(|]")
 
 
 def _top_level_items(s: str) -> list:
@@ -527,15 +575,16 @@ class _Reader:
         text, out = self.code.text, []
         for m in self.mods:
             if m.bound:
-                count = re.match(r"\^(\w*)", self.code.raw[m.start:m.end]).group(1)
+                count = _BOUND_COUNT_RE.match(self.code.raw[m.start:m.end]).group(1)
                 out.append(Tok("bound", text[m.start:m.end], m.start,
                                _count_problem(count), pair=m.pair))
                 continue
-            tok, _end = _lint_mod(text, m.start) if MOD_NAME_RE.match(text, m.start) \
-                else (Tok("mod", text[m.start:m.end], m.start), m.end)
-            if tok.problem != "unclosed":       # lint names an unclosed one to the line end
-                tok = tok._replace(text=text[m.start:m.end])
-            out.append(tok._replace(pair=m.pair))
+            problem, tok_text = "", text[m.start:m.end]
+            if MOD_NAME_RE.match(text, m.start):
+                problem = _lint_mod(text, m.start)[0].problem
+                if problem == "unclosed":       # lint names an unclosed one to the line end
+                    tok_text = text[m.start:]
+            out.append(Tok("mod", tok_text, m.start, problem, pair=m.pair))
         p = self.payload
         if p is not None:
             out += self._payload_tokens(p)
@@ -547,14 +596,14 @@ class _Reader:
         count (`: x ×`), which the model leaves in the payload's text."""
         out = []
         for col, kind, text, pair in p.peeled:
-            count = re.match(r"[×^x]\s*(\w*)", text)
+            count = _TAIL_COUNT_RE.match(text)
             problem = _count_problem(count.group(1)) if kind in ("card", "bound") and count \
                 else ""
             out.append(Tok(kind, text, col, problem, pair=pair))
         rest = p.rest.replace(_GAP, " ")
-        loose = PAYLOAD_TAIL_LOOSE_RE.search(rest)
+        loose = PAYLOAD_TAIL_LOOSE_RE.search(rest) if _TAIL_CHARS_RE.search(rest) else None
         if loose and loose.start() > 0:
-            for t in re.finditer(r"×\s*(\w*)|\^(\w*)(?:@[a-z]+)?", loose.group(0)):
+            for t in _LOOSE_COUNT_RE.finditer(loose.group(0)):
                 count = t.group(1) if t.group(0).startswith("×") else t.group(2)
                 if _count_problem(count) == "no-count":
                     out.append(Tok("card" if t.group(0).startswith("×") else "bound",
@@ -576,34 +625,34 @@ class _Reader:
         text = self.code.text
         if not _KEY_VALUE_RE.match(text, colon):
             return False
-        wm = re.search(r"[A-Za-z_\d][\w.-]*$", text[:colon])
+        wm = _WORD_END_RE.search(text[:colon])
         return bool(wm) and any(not m.bound and m.end <= wm.start()
                                 and not text[m.end:wm.start()].strip() for m in self.mods)
 
     # -- the scan ------------------------------------------------------------
 
     def scan(self) -> list:
-        w = self.w
-        i = 0
-        while i < len(w):
-            if w[i].isspace() or w[i] == _GAP:
+        w, text, toks = self.w, self.code.text, self.toks
+        dialect = bool(self.lx.tokenizers)
+        i, n = 0, len(w)
+        while i < n:
+            ch = w[i]
+            if ch.isspace() or ch == _GAP:
                 i += 1
                 continue
-            hit = self._dialect(i)
-            if hit is None and self.code.text[i] == DIALECT_COL:
+            hit = self._dialect(i) if dialect else None
+            if hit is None and text[i] == DIALECT_COL:
                 # Glued to a dialect glyph (`[[a]]>[[b]]`): dialect syntax, read by
                 # no core rule.
                 hit = [], i + 1, False
             if hit is None:
-                for scanner in _SCANNERS:
+                for scanner in _scanners_for(ch):
                     hit = scanner(self, i)
                     if hit is not None:
                         break
-            new, end, prev = hit
-            self.toks.extend(new)
-            self.prev = prev
-            i = end
-        return self.toks
+            new, i, self.prev = hit
+            toks.extend(new)
+        return toks
 
     def _dialect(self, i: int):
         if not self.lx.tokenizers:
@@ -720,11 +769,11 @@ def _scan_glyph_token(r: _Reader, i: int):
         end = balanced_end(s, i)
         end = end if end > 0 else len(s)
         return [Tok("evarg", r.code.raw[i:end].replace(_GAP, ""), i)], end, True
-    if s.startswith("()", i):
+    if ch == "(" and s.startswith("()", i):
         return [Tok("nothing", "()", i)], i + 2, False
     if ch == "<" and (i + 1 >= len(s) or s[i + 1] in " =-"):
         return [], i + 1, False                     # a comparison; `<-` is SGL060's
-    if _MERGE_OP_RE.match(s, i):
+    if ch == "|" and _MERGE_OP_RE.match(s, i):
         return [], i + 3, False                     # the `|||` value operator, no glyph
     if ch in "[{<(|":
         end, problem = _scan_glyph(s, i)
@@ -804,11 +853,40 @@ _SCANNERS = (_scan_arrow_or_alias, _scan_join, _scan_modifier, _scan_glyph_token
              _scan_op_target, _scan_marker, _scan_value, _scan_other)
 
 
+# The ASCII characters each scanner can start at (from its patterns); a scanner
+# never tried at another ASCII character would return None there. A non-ASCII
+# character (`→`, `×`, a letter a verb starts with) tries every scanner.
+_LETTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"
+_STARTS = {
+    _scan_arrow_or_alias: "<-~=!?*:",
+    _scan_join: "&/",
+    _scan_modifier: "@^x*",
+    _scan_glyph_token: "~*[{<(|}",
+    _scan_op_target: _LETTERS,
+    _scan_marker: "!?.",
+    _scan_value: '"$0123456789' + _LETTERS,
+}
+
+
+@lru_cache(maxsize=None)
+def _scanners_for(ch: str) -> tuple:
+    """The scanners, in precedence order, that can read a token starting at `ch`."""
+    if not ch.isascii():
+        return _SCANNERS
+    return tuple(s for s in _SCANNERS if s is _scan_other or ch in _STARTS[s])
+
+
 def tokenize_statement(code: Code, lx: Lexicon = NO_DIALECT) -> list:
     """Tokenize one statement (pure: the same Code always gives the same tokens),
     in column order. Unreadable text becomes a `bad` token or a token with a
     `problem`, which the hardening rules report; only symbols the model also
     ignores are skipped."""
     r = _Reader(code, lx)
-    toks = r.scan() + r.span_tokens()
-    return sorted(toks, key=lambda t: t.col)
+    toks = r.scan()
+    spans = r.span_tokens()
+    if not spans:               # the scan's tokens come in column order
+        return toks
+    return sorted(toks + spans, key=_COL)
+
+
+_COL = itemgetter(2)        # a Tok's column

@@ -120,3 +120,43 @@ class StatementHeads(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ScannerShortcuts(unittest.TestCase):
+    """The tokenizer's shortcuts read as its full rules do."""
+
+    def test_a_glyph_scans_the_same_with_or_without_brackets_inside(self):
+        cases = {
+            "[A]": (3, ""), "[]": (2, "empty"), "[ \x00]": (4, "empty"),
+            "{Order}": (7, ""), "|S|": (3, ""), "(User)": (6, ""), "<E>": (3, ""),
+            "<A->": (2, "unclosed"), "<AB->": (3, "unclosed"), "<X=>": (2, "unclosed"),
+            "<A>->": (3, ""), "[A}": (3, "mismatched"), "[Cache<K,V>]": (12, ""),
+            "[A": (2, "unclosed"), "[A -> [B]": (3, "unclosed"), "(a(b))": (2, "unclosed"),
+        }
+        for text, want in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(tokens._scan_glyph(text, 0), want)
+
+    def test_a_scanner_left_out_for_a_character_reads_nothing_there(self):
+        tails = ["", " ", "1", "3 ", "N", "> [B]", "-> [B]", "= 1", ">", "(x)", "()",
+                 "[A]", "a(b)", "|", "||", "&", "!", "?", ".f", "{", "@x"]
+        befores = [(), (tokens.Tok("arrow", "->", 0),), (tokens.Tok("glyph", "[A]", 0),)]
+        for code in range(32, 127):
+            ch = chr(code)
+            kept = tokens._scanners_for(ch)
+            left_out = [s for s in tokens._SCANNERS if s not in kept]
+            for lead in ("", "[A]", "[A] "):
+                for tail in tails:
+                    for toks in befores:
+                        line = lead + ch + tail
+                        r = tokens._Reader(tokens.Code(line, line), tokens.NO_DIALECT)
+                        if r.w[len(lead)] != ch:    # blanked: the scan skips it
+                            continue
+                        r.toks, r.prev = list(toks), bool(lead)
+                        for scanner in left_out:
+                            with self.subTest(ch=ch, line=line, scanner=scanner.__name__):
+                                self.assertIsNone(scanner(r, len(lead)))
+
+    def test_a_statement_with_no_modifier_or_payload_keeps_its_scan_order(self):
+        toks = tokens.tokenize_statement(tokens.code_line("[A] -> [B] & [C] => <D>"))
+        self.assertEqual([t.col for t in toks], sorted(t.col for t in toks))

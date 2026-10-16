@@ -149,10 +149,8 @@ def _block_open_pos(raw: str) -> Optional[int]:
     """Index of an opening `\"\"\"` on this line that is NOT comment text, or
     None. A `#!` mode line never opens a block; a `\"\"\"` after the line's
     comment `#` is comment text (`# see \"\"\"` is inert)."""
-    if raw.lstrip().startswith("#!"):
-        return None
     pos = raw.find(BLOCK_DELIM)
-    if pos == -1:
+    if pos == -1 or raw.lstrip().startswith("#!"):
         return None
     col = comment_col(raw)
     if col is not None and col < pos:

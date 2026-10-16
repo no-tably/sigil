@@ -245,16 +245,18 @@ def comment_of(line: str, marker) -> Optional[tuple]:
     (not the `#!` mode line, nor a `#&` marker — see lex.COMMENT_START_RE); a
     dialect's markers (`marker`, one pattern) too. A marker inside a `"…"` string
     starts no comment."""
+    if marker is None and "#" not in line:
+        return None
     if line.lstrip().startswith(("#!", "#&")):
         return None
-    hits = [comment_start(line, notes_only=True)]
+    m = comment_start(line, notes_only=True)
     if marker:
-        hits.append(next((h for h in marker.finditer(line)
-                          if not in_string(line, h.start())), None))
-    hits = [h for h in hits if h]
-    if not hits:
+        hits = [m, next((h for h in marker.finditer(line)
+                         if not in_string(line, h.start())), None)]
+        hits = [h for h in hits if h]
+        m = min(hits, key=lambda h: h.start()) if hits else None
+    if m is None:
         return None
-    m = min(hits, key=lambda h: h.start())
     text = line[m.end():].strip()
     return (text, not line[:m.start()].strip()) if text else None
 
@@ -345,6 +347,8 @@ class _Walker:
 
     def __init__(self, lines, codes, comments, inner, lx, keywords=(), decl_blocks=()):
         self.lines, self.codes, self.lx = lines, codes, lx
+        self.leads = [line.strip() for line in lines]       # each line stripped
+        self.heads = [code.raw.strip() for code in codes]   # each line's code stripped
         self.comments, self.inner = comments, inner
         self.keyword_re = (re.compile(r"^(" + "|".join(map(re.escape, sorted(keywords)))
                                       + r")\b") if keywords else None)
@@ -358,7 +362,8 @@ class _Walker:
         self.bare: list = []
         self.continuations: list = []
         self.spans: list = []       # (header line, closing line), 1-based, as they close
-        self.defined = frozenset(filter(None, (self.definition_name(c) for c in codes)))
+        self.defined = frozenset(filter(None, (self.definition_name(c) for c in codes
+                                                if ":=" in c.raw)))
 
     def finish(self, doc, lines, comments, bodies, folded) -> Walk:
         return Walk(tuple(self.stmts), tuple(self.blocks + self.open_blocks),
@@ -387,8 +392,8 @@ class _Walker:
         lows: list = []                     # lows[i]: -min(offs[:i + 1]) (ascending)
         acc = 0
         for t, code in enumerate(self.codes):
-            line = code.raw.strip()
-            delta = (self.delta(self.lines[t].strip(), code.raw)
+            line = self.heads[t]
+            delta = (self.delta(self.leads[t], code.raw)
                      if offs and line and not line.startswith("#!") else 0)
             j = bisect_left(lows, acc + delta)
             if j == len(lows):              # closes no body: the innermost reads it
@@ -520,18 +525,19 @@ class _Walker:
         s = code.text
         lead = len(s) - len(s.lstrip())
         cont = bool(ARROW_RE.match(code.raw.strip()))
-        m = BRANCH_RE.search(s, lead)
+        marked = "\\-" in s                  # every branch marker starts `\-`
+        m = BRANCH_RE.search(s, lead) if marked else None
         if m is not None and m.start() > lead \
                 and not BRANCH_PARENT_RE.match(code.raw[lead:m.start()]):
             m = None
         if m is None:
             marks = []
-            x = BRANCH_ANY_RE.search(s, lead)
+            x = BRANCH_ANY_RE.search(s, lead) if marked else None
             if x is not None and (x.start() == lead
                                   or BRANCH_PARENT_RE.match(code.raw[lead:x.start()])):
                 marks.append(x.start())
             body = self._strip(code, lead)
-            toks = _shift(tokenize_statement(body, self.lx), 0)
+            toks = tokenize_statement(body, self.lx)
             return Statement(k + 1, body, alias, tuple(toks), -1, tuple(marks), quiet, shift,
                              cont)
         marks = [m.start()] + [x.start() for x in BRANCH_ANY_RE.finditer(s, m.end())]
@@ -539,7 +545,7 @@ class _Walker:
         code = code.blank(later)
         left = self._strip(code.cut(0, m.start()), lead) if s[lead:m.start()].strip() else None
         rest = self._strip(code.cut(m.end()), 0)
-        toks = (_shift(tokenize_statement(left, self.lx), 0) if left is not None else [])
+        toks = tokenize_statement(left, self.lx) if left is not None else []
         branch = len(toks)
         toks.append(Tok("branch", m.group(0), m.start()))
         toks += _shift(tokenize_statement(rest, self.lx), m.end())
@@ -649,10 +655,11 @@ class _DocReader:
 
     def line(self, k: int, piece: Optional[str], shift: int):
         w = self.w
-        raw = piece if piece is not None else w.lines[k]
-        code = w.code(k, piece, shift)
-        raw_lead = raw.strip()
-        line = code.raw.strip()
+        if piece is None:
+            code, raw_lead, line = w.codes[k], w.leads[k], w.heads[k]
+        else:
+            code = w.code(k, piece, shift)
+            raw_lead, line = piece.strip(), code.raw.strip()
         if self.state is None and self.decl is None:
             c = None if piece is not None else (w.comments if self.top else w.inner).get(k)
             if c and c[1]:                  # a comment on its own line
@@ -660,7 +667,7 @@ class _DocReader:
                 return
             if not line:
                 self.items.append(Blank(k))
-        if self._declaration(k, raw_lead, line):
+        if (self.decl is not None or w.decl_blocks) and self._declaration(k, raw_lead, line):
             return
         if not line:
             if not raw_lead:
@@ -701,7 +708,7 @@ class _DocReader:
         return False
 
     def _section(self, k: int, line: str, code: Code) -> bool:
-        sec = SECTION_RE.match(line)
+        sec = SECTION_RE.match(line) if line.startswith("--") else None
         if not sec:
             return False
         self.w.sections.append((k + 1, code.text.strip()))
@@ -801,6 +808,8 @@ class _DocReader:
     def _state_head(self, k: int, code: Code) -> bool:
         """`state <owner> { … }`: its lines are collected (transitions); with no
         owner glyph (`state {`, `state Foo {`) the block is consumed unread."""
+        if "state" not in code.raw:
+            return False
         line = code.raw.strip()
         sm = STATE_HEAD_RE.match(line)
         if not sm:
@@ -868,12 +877,16 @@ class _DocReader:
         `name {`, an `[X] @owns |R| {`, a dialect keyword — opens a block whose
         body statements are ordinary flows."""
         t = code.raw.strip()
+        hm = LOOP_HEAD_RE.match(t)
+        keyword = (hm is None and self.w.keyword_re is not None
+                   and self.w.keyword_re.match(t))
+        if hm is None and not keyword and "{" not in code.text:
+            return False                        # no header and no `{` to open a block
         om = BLOCK_OPEN_RE.search(code.text)
         head_raw = code.raw[:om.start()] if om else code.raw
-        hm = LOOP_HEAD_RE.match(t)
         if hm:
             kind = hm.group(1)
-        elif self.w.keyword_re is not None and self.w.keyword_re.match(t):
+        elif keyword:
             kind = "keyword"
         elif om and SCOPE_HEAD_RE.match(t):
             kind = "scope"
@@ -904,10 +917,11 @@ class _DocReader:
 
     def _flow(self, k: int, code: Code, quiet: bool, shift: int):
         """A flow statement: a branch arm's label is read off first."""
-        t = code.raw.strip()
-        fr = next((f for f in reversed(self.frames) if f.kind != "keyword"), None)
+        fr = (next((f for f in reversed(self.frames) if f.kind != "keyword"), None)
+              if self.frames else None)
         arm = None
         if fr is not None and fr.kind == "branch":
+            t = code.raw.strip()
             am = ARM_RE.match(t)
             if am and not ARROW_RE.match(t):
                 fr.content = True
@@ -918,7 +932,6 @@ class _DocReader:
                     self.items.append(Flow(k, None, arm))
                     return
                 code = code.cut(code.raw.find(body))
-                t = body.strip()
         self._mark_content()
         masked = code.text.strip()
         bare = bool(BARE_BRANCH_RE.match(masked))
@@ -926,11 +939,9 @@ class _DocReader:
             self.w.bare.append((k + 1, masked))
         quiet = quiet or bare
         st = self.w.statement(k, code, self.alias, quiet, shift)
-        if self.alias and not quiet:
-            draws = ANY_GLYPH_RE.search(code.text) or DIALECT_COL in code.text
-            if not (ARROW_RE.search(code.text) and draws):
-                st = st._replace(quiet=True)
         has_glyph = bool(ANY_GLYPH_RE.search(code.text) or DIALECT_COL in code.text)
+        if self.alias and not quiet and not (has_glyph and ARROW_RE.search(code.text)):
+            st = st._replace(quiet=True)
         lead = masked.lstrip("}").strip() if not self.frames else masked
         if ARROW_RE.match(lead):                # a continuation line
             self.w.continuations.append(Continuation(k + 1, lead, self.subject, self.blank))

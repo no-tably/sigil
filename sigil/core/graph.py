@@ -457,7 +457,8 @@ def walk_depth(g, owner=None, level=0):
     while todo:
         g, owner, level = todo.pop()
         yield g, owner, level
-        todo.extend((sub, nid, level + 1) for nid, sub in reversed(g.expansions.items()))
+        if g.expansions:
+            todo.extend((sub, nid, level + 1) for nid, sub in reversed(g.expansions.items()))
 
 
 def occurrences(graph: Graph) -> list:
