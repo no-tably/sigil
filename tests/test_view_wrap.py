@@ -22,7 +22,6 @@ Run:  python3 -m unittest discover tests
 from __future__ import annotations
 
 import contextlib
-import importlib.util
 import io
 import sys
 import tempfile
@@ -30,18 +29,15 @@ import unittest
 from pathlib import Path
 
 _DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_DIR))
 
-
-def _load(name: str, fname: str):
-    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-view = _load("sigil_view_wrap", "view.py")
-vgraph, vtree, kit = view.vgraph, view.vtree, view.kit
+from sigil import cli  # noqa: E402
+from sigil.core.parse import parse_document  # noqa: E402
+from sigil.present import app as view  # noqa: E402
+from sigil.present import kit  # noqa: E402
+from sigil.present.views import graph as vgraph  # noqa: E402
+from sigil.present.views import tree as vtree  # noqa: E402
+from sigil.present.views import flow as vflow  # noqa: E402
 
 
 def text_rows(rows):
@@ -49,7 +45,7 @@ def text_rows(rows):
 
 
 def parse(text):
-    return view.render.parse_document(text)
+    return parse_document(text)
 
 
 # One service fanning out to eight: a single layer ~130 columns wide.
@@ -121,7 +117,7 @@ class TestGraphWraps(unittest.TestCase):
         import re
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            view.main([str(_DIR / "tests" / "fixtures" / "coverage.sigil"), "--once",
+            cli.main(["view", str(_DIR / "tests" / "fixtures" / "coverage.sigil"), "--once",
                        "--no-lint", "--graph", "--color", "never", "--width", "60"])
         out = buf.getvalue()
         self.assertIn("▼ [Bullet]/", out)
@@ -145,7 +141,7 @@ class TestTitlesFit(unittest.TestCase):
         # once widened the rules to 65 and centred every part inside them
         g = parse(self.SHOP.read_text())
         for compose in (lambda: vgraph.compose(g, kit.ALL_DEPTH, False, width=40),
-                        lambda: view.vflow.compose_flow(g, kit.ALL_DEPTH, False, width=40)):
+                        lambda: vflow.compose_flow(g, kit.ALL_DEPTH, False, width=40)):
             rows = text_rows(compose()[0])
             self.assertLessEqual(max(len(r) for r in rows), 40, "\n".join(rows))
             self.assertFalse(any("wide," in r for r in rows))
@@ -160,14 +156,14 @@ class TestFrameTitlesFit(unittest.TestCase):
         # `╭╌ ↺ loop @while |Q|.nonempty ╌╮` (32) once overflowed --width 28 with no hint
         g = parse(self.BLOCK)
         for compose in (lambda: vgraph.compose(g, 1, False, width=28),
-                        lambda: view.vflow.compose_flow(g, 1, False, width=28)):
+                        lambda: vflow.compose_flow(g, 1, False, width=28)):
             rows = text_rows(compose()[0])
             self.assertLessEqual(max(len(r) for r in rows), 28, "\n".join(rows))
             self.assertIn("╭╌ ↺ loop @while |Q|.non… ╌╮", rows)
 
     def test_a_cut_frame_title_keeps_its_note_tag(self):
         g = parse((_DIR / "tests" / "fixtures" / "executions.sigil").read_text())
-        rows = text_rows(view.vflow.compose_flow(g, 1, False, notes="markers", width=40)[0])
+        rows = text_rows(vflow.compose_flow(g, 1, False, notes="markers", width=40)[0])
         self.assertLessEqual(max(len(r) for r in rows), 40)
         self.assertIn("╭╌ ↺ loop @each page of {Site}.pa… #8 ╌╮", rows)
 
@@ -241,7 +237,7 @@ class TestOnceLayout(unittest.TestCase):
             path.write_text(FAN)
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):
-                view.main([str(path), "--once", "--no-lint", "--graph", "--width", "60", *flags])
+                cli.main(["view", str(path), "--once", "--no-lint", "--graph", "--width", "60", *flags])
         return buf.getvalue().split("\n\n")[0].splitlines()      # the drawing
 
     def test_pan_prints_the_natural_layout_wrap_and_auto_fit(self):
@@ -252,7 +248,7 @@ class TestOnceLayout(unittest.TestCase):
 
     def test_a_bad_layout_is_refused(self):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-            view.main(["x.sigil", "--layout", "sideways"])
+            cli.main(["view", "x.sigil", "--layout", "sideways"])
 
 
 class TestInfoLines(unittest.TestCase):

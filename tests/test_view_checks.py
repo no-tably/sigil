@@ -11,7 +11,9 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import view  # noqa: E402
+from sigil.core import parse  # noqa: E402
+from sigil.model import scene  # noqa: E402
+from sigil.present import app as view, kit  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -46,13 +48,13 @@ def runs_with(rows, text: str) -> list:
 class _Doc(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.graph = view.kit.render.parse_document(DOC)
+        cls.graph = parse.parse_document(DOC)
         cls.report = view.run_checks(DOC)
         cls.overlay = view.ChecksOverlay(cls.graph, cls.report, view.checks_summary(cls.report))
 
     def draw(self, tree: bool, checks: bool, events: str | None = None):
         events = events or view.DEFAULT_EVENTS[view.view_name(tree)]
-        options = view.scene.SceneOptions(events, True, False, 1)
+        options = scene.SceneOptions(events, True, False, 1)
         rows, _w = view.compose_view(self.graph, tree, depth=1, payloads=False, notes="off",
                                      triggers=True, spaced=True, width=None, access=False,
                                      mods=False, events=events,
@@ -73,7 +75,7 @@ class TestEntries(_Doc):
     def test_marks_land_on_nodes_and_wires(self):
         for tree in (False, True):
             events = view.DEFAULT_EVENTS[view.view_name(tree)]
-            m = self.overlay.marks(view.scene.SceneOptions(events, True, False, 1))
+            m = self.overlay.marks(scene.SceneOptions(events, True, False, 1))
             self.assertEqual({nid: [k.number for k in ms] for nid, ms in m.nodes.items()},
                              {"API_service": [1], "PaymentFailed_event": [3],
                               "Orders_store": [4]})
@@ -81,12 +83,12 @@ class TestEntries(_Doc):
                              {("API_service", "Payments_service", "->"): [2]})
 
     def test_anchors_with_nothing_drawn_are_listed_only(self):
-        view_scene = view.scene.build_scene(self.graph, events="nodes")
+        view_scene = scene.build_scene(self.graph, events="nodes")
         for anchor in (("block", "3"), ("document", "budget"), ("limit", "depth")):
             self.assertEqual(view.finding_targets(anchor, view_scene, {}, {}), (set(), set()))
 
     def test_a_line_anchor_marks_the_wires_written_there(self):
-        view_scene = view.scene.build_scene(self.graph, events="nodes")
+        view_scene = scene.build_scene(self.graph, events="nodes")
         _nodes, wires = view.finding_targets(("line", 6), view_scene, {}, {})
         self.assertEqual({w[:3] for w in wires}, {("Worker_service", "Orders_store", "->")})
 
@@ -131,11 +133,11 @@ class TestOverlayRows(_Doc):
 
     def test_another_theme_recolours_the_overlay(self):
         try:
-            view.kit.apply_theme({"ui": {"warn": "#123456"}})
+            kit.apply_theme({"ui": {"warn": "#123456"}})
             ((_t, st),) = runs_with(self.draw(False, True), "▲3")
             self.assertEqual((str(st[0]), st[0].role), ("#123456", "ui-warn"))
         finally:
-            view.kit.apply_theme(view.kit.themes.load(None) if view.kit.themes else {})
+            kit.apply_theme(kit.themes.load(None) if kit.themes else {})
 
 
 class TestPanel(_Doc):
@@ -147,7 +149,7 @@ class TestPanel(_Doc):
 
     def test_wraps_and_limits(self):
         rows = self.overlay.panel(40)
-        self.assertTrue(all(view.kit.row_len(r) <= 40 for r in rows[1:]))
+        self.assertTrue(all(kit.row_len(r) <= 40 for r in rows[1:]))
         short = self.overlay.panel(40, limit=4)
         self.assertLessEqual(len(short), 4)
         self.assertTrue(plain(short)[-1].startswith("… "))
@@ -156,7 +158,7 @@ class TestPanel(_Doc):
     def test_acknowledged_text_is_dimmed(self):
         rows = self.overlay.panel(200)
         row = next(r for r in rows if r and r[0][0] == "✓4")
-        self.assertEqual(row[1][1][0], view.kit.GREY["dim"])
+        self.assertEqual(row[1][1][0], kit.GREY["dim"])
 
     def test_legend_lists_the_marks_in_check_roles(self):
         legend = view.checks_legend()
@@ -238,7 +240,7 @@ class TestLiveView(unittest.TestCase):
             for cols, rows in ((40, 10), (80, 24), (30, 5)):
                 frame = self.st.frame(cols, rows)
                 self.assertEqual(len(frame), rows)
-                self.assertTrue(all(view.row_len(r) <= cols for r in frame))
+                self.assertTrue(all(kit.row_len(r) <= cols for r in frame))
 
 
 class TestOnce(unittest.TestCase):
@@ -251,7 +253,7 @@ class TestOnce(unittest.TestCase):
         self.tmp.cleanup()
 
     def run_view(self, *args):
-        return subprocess.run([sys.executable, str(ROOT / "view.py"), str(self.path), "--once",
+        return subprocess.run([sys.executable, str(ROOT / "bin" / "sigil"), "view", str(self.path), "--once",
                                *args], capture_output=True, text=True)
 
     def test_checks_flag_marks_lists_and_keeps_lints_status(self):

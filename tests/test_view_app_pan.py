@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import view  # noqa: E402
+from sigil.present import app as view, kit  # noqa: E402
 
 TALL = "".join(f"[N{i}] -> [N{i + 1}]\n" for i in range(30))
 WIDE = """\
@@ -150,7 +150,7 @@ class TestFitToggle(_Doc):
                         for cols, rows in ((40, 10), (80, 24), (30, 5), (200, 60)):
                             frame = st.frame(cols, rows)
                             self.assertEqual(len(frame), rows)
-                            self.assertTrue(all(view.row_len(r) <= cols for r in frame),
+                            self.assertTrue(all(kit.row_len(r) <= cols for r in frame),
                                             (text[:8], tree, fit, k, cols, rows))
 
 

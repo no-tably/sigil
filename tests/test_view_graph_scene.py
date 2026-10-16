@@ -18,29 +18,21 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
-import importlib.util
 import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
-
-def _load(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-view = _load("sigil_view", ROOT / "view.py")
-vgraph, kit = view.vgraph, view.kit
+from sigil.core import parse  # noqa: E402
+from sigil.present import kit  # noqa: E402
+from sigil.present.views import graph as vgraph  # noqa: E402
 
 
 def compose(text: str, depth: int = 1, events: str = "nodes", notes: str = "off",
             payloads: bool = False, access: bool = False):
-    g = kit.render.parse_document(text)
+    g = parse.parse_document(text)
     rows, _w = vgraph.compose(g, depth, payloads, notes, True, None, access, False, events)
     return rows
 
@@ -70,7 +62,7 @@ class ColourPolicy(unittest.TestCase):
 
 class WireKey(unittest.TestCase):
     def test_chip_and_join_stand_in_for_their_wire_ends(self):
-        g = kit.render.parse_document("[A] & [B] -> [C] : {X}\n")
+        g = parse.parse_document("[A] & [B] -> [C] : {X}\n")
         gc = vgraph.with_chips(g, payloads=True)
         keys = {vgraph._wire_key(gc, e) for e in gc.edges}
         self.assertTrue(keys <= {("A_service", "C_service", "->"),
@@ -108,7 +100,7 @@ class LandMode(unittest.TestCase):
 
     def test_one_stroke_per_landed_key(self):
         text = "[A] ~> <E>\n[A] ~> <E>\n<E> -> [B]\n"
-        g = kit.render.parse_document(text)
+        g = parse.parse_document(text)
         scn = vgraph.scene.build_scene(g, events="land")
         landed = vgraph._landed(g, scn, None)
         self.assertEqual([(e.src, e.dst) for e in landed.edges], [("A_service", "B_service")])
@@ -118,7 +110,7 @@ class SceneLinks(unittest.TestCase):
     def test_trigger_then_access_links_after_the_chip_edges(self):
         text = "[P] -> <Paid> : {Amount}\nstate {Order} {\n  Open -<Paid>-> Settled\n}\n" \
                "|DB| @write(P)\n"
-        g = kit.render.parse_document(text)
+        g = parse.parse_document(text)
         scn = vgraph.scene.build_scene(g, access=True)
         gc = vgraph.with_chips(g, payloads=True, scn=scn)
         kinds = [e.kind for e in gc.edges]

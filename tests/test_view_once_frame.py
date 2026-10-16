@@ -14,8 +14,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import scene  # noqa: E402
-import view  # noqa: E402
+from sigil.core import parse  # noqa: E402
+from sigil.model import scene  # noqa: E402
+from sigil.present import app as view, kit  # noqa: E402
 
 SHORTENER = ROOT / "site" / "examples" / "00-shortener.sigil"
 WIDTH = 100
@@ -33,19 +34,19 @@ def printed(**kw) -> str:
 def drawn_at(view_name: str, frame: int) -> list[str]:
     """The drawing compose_view makes of the happy run at `frame` in a view, as
     plain text rows — what the live view shows paused there."""
-    g = view.kit.render.parse_document(SHORTENER.read_text())
+    g = parse.parse_document(SHORTENER.read_text())
     player = view.SimPlayer(g, "happy")
     events = view.DEFAULT_EVENTS[view_name]
     shown = player.shown(scene.SceneOptions(events, True, False, 1))
     rows, _w = view.compose_view(g, view_name, depth=1, payloads=False, notes="off",
                                  triggers=True, spaced=True, width=WIDTH, access=False,
                                  mods=False, events=events, trace=shown, tick=frame)
-    return [view.kit.ansi(r, False) for r in rows]
+    return [kit.ansi(r, False) for r in rows]
 
 
 def last_frame() -> int:
     """The index of the happy run's final frame."""
-    return view.SimPlayer(view.kit.render.parse_document(SHORTENER.read_text()), "happy").last
+    return view.SimPlayer(parse.parse_document(SHORTENER.read_text()), "happy").last
 
 
 class TestFrameIndex(unittest.TestCase):
@@ -91,7 +92,7 @@ class TestOnceFrame(unittest.TestCase):
 
 class TestCli(unittest.TestCase):
     def run_view(self, *args):
-        return subprocess.run([sys.executable, str(ROOT / "view.py"), *args],
+        return subprocess.run([sys.executable, str(ROOT / "bin" / "sigil"), "view", *args],
                               capture_output=True, text=True)
 
     def test_the_flag_reaches_once(self):

@@ -16,7 +16,9 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import view  # noqa: E402
+from sigil.core.parse import parse_document  # noqa: E402
+from sigil.model import scene, sim as simulator  # noqa: E402
+from sigil.present import app as view, kit  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 CHECKOUT = ROOT / "site" / "examples" / "01-checkout.sigil"
@@ -30,7 +32,7 @@ def plain(rows):
 
 
 def parse(path: Path):
-    return view.kit.render.parse_document(path.read_text())
+    return parse_document(path.read_text())
 
 
 class TestSimPlayer(unittest.TestCase):
@@ -102,7 +104,7 @@ class TestSimPlayer(unittest.TestCase):
     def test_shown_is_one_trace_per_run_and_options(self):
         """Every frame of a run is drawn from the same Trace object, so the graph
         view's per-trace badge slots (view_graph._trace_slots) are worked out once."""
-        opts = view.scene.SceneOptions("nodes", True, False, 1)
+        opts = scene.SceneOptions("nodes", True, False, 1)
         shown = self.p.shown(opts)
         self.p.step(1)
         self.assertIs(self.p.shown(opts), shown)
@@ -142,9 +144,9 @@ class TestSimPlayer(unittest.TestCase):
         g = parse(ORDERS)
         p = view.SimPlayer(g)
         for events in view.EVENT_MODES:
-            opts = view.scene.SceneOptions(events, True, False, 1)
+            opts = scene.SceneOptions(events, True, False, 1)
             shown = p.shown(opts)
-            drawn = {w.ident for w in view.scene.build_scene(g, **opts._asdict()).wires}
+            drawn = {w.ident for w in scene.build_scene(g, **opts._asdict()).wires}
             used = {t.wire for f in shown.frames for t in f.tokens}
             self.assertTrue(used <= drawn, used - drawn)
             self.assertIs(p.shown(opts), shown)                 # cached
@@ -343,7 +345,7 @@ class TestSimFrames(_Doc):
                 for cols, rows in ((60, 20), (120, 45)):
                     frame = st.frame(cols, rows)
                     self.assertEqual(len(frame), rows)
-                    self.assertTrue(all(view.row_len(r) <= cols for r in frame))
+                    self.assertTrue(all(kit.row_len(r) <= cols for r in frame))
                 st.key(".")
 
 
@@ -369,7 +371,7 @@ class TestOnce(unittest.TestCase):
                 self.assertIn(": failed · ", tail[0])
                 # the run's path at its final frame, as the live view's row
                 self.assertTrue(tail[1].startswith("path   ① [Payments]"), tail[1])
-                self.assertTrue(tail[2].endswith(view.simulator.CONVENTIONS))
+                self.assertTrue(tail[2].endswith(simulator.CONVENTIONS))
                 self.assertIn("path   the hops taken so far:  ①② its branches", out)
                 self.assertIn("episode 2 begins at [Payments]", "\n".join(tail))
                 self.assertTrue(tail[-1].endswith("the run ends: failed"))
@@ -380,7 +382,7 @@ class TestOnce(unittest.TestCase):
         self.assertNotIn("sim ", out)
 
     def test_unknown_scenario_exits_2_listing_the_known(self):
-        res = subprocess.run([sys.executable, str(ROOT / "view.py"), str(CHECKOUT), "--once",
+        res = subprocess.run([sys.executable, str(ROOT / "bin" / "sigil"), "view", str(CHECKOUT), "--once",
                               "--sim", "nope"], capture_output=True, text=True)
         self.assertEqual(res.returncode, 2)
         self.assertIn("--sim: unknown scenario nope", res.stderr)
@@ -443,7 +445,7 @@ class TestReadablePlayback(unittest.TestCase):
         self.assertTrue(p.path().startswith("① [Payments] ~> <Paid>"), p.path())
 
     def test_sim_path_branches(self):
-        hop = view.simulator.Hop
+        hop = simulator.Hop
         hops = [hop(0, "a", "->", "b"), hop(1, "b", "->", "c", 2, "failed"),
                 hop(3, "b", "->", "c", 4, "failed"), hop(5, "x", "~>", "y", 6, "cancelled"),
                 hop(7, "e", "trigger", "s", 9)]
@@ -469,7 +471,7 @@ class TestReadablePlayback(unittest.TestCase):
                          "path   ① (Shopper) -> [API] ▸-> [Payments] ×2")
 
     def test_path_rows_wrap_then_fold_the_oldest(self):
-        hop = view.simulator.Hop
+        hop = simulator.Hop
         hops = [hop(k, f"n{k}", "->", f"m{k}") for k in range(6)]
         branches = view.sim_path(hops, str)
         rows = plain(view.path_rows(branches, 200))
@@ -486,7 +488,7 @@ class TestReadablePlayback(unittest.TestCase):
         self.assertEqual(rows, ["path   ① n0 -> m0", "  "])
 
     def test_path_rows_fold_a_long_branch(self):
-        hop = view.simulator.Hop
+        hop = simulator.Hop
         hops = [hop(k, f"n{k}", "->", f"n{k + 1}") for k in range(12)]
         rows = plain(view.path_rows(view.sim_path(hops, str), 40))
         self.assertEqual(len(rows), 2)
@@ -495,7 +497,7 @@ class TestReadablePlayback(unittest.TestCase):
         self.assertTrue(all(len(r) <= 40 for r in rows))
 
     def test_a_branch_entry_in_the_status_and_path(self):
-        doc = view.kit.render.parse_document("#!sketch\nbranch on mode {\n  a => [X]\n}\n")
+        doc = parse_document("#!sketch\nbranch on mode {\n  a => [X]\n}\n")
         p = view.SimPlayer(doc)
         self.assertTrue(p.status().endswith("episode 1: ◇ mode"), p.status())
         self.assertEqual(p.path(), "① ◇ mode ▸◇ [X]")             # the arm now
@@ -539,7 +541,7 @@ class TestFollow(_Doc):
         for v in view.VIEWS:
             with self.subTest(view=v):
                 events = view.DEFAULT_EVENTS[v]
-                trace = p.shown(view.scene.SceneOptions(events, True, False, 1))
+                trace = p.shown(scene.SceneOptions(events, True, False, 1))
                 kw = dict(depth=1, payloads=False, notes="off", triggers=True, spaced=True,
                           width=None, access=False, mods=False, events=events)
                 rows, _w = view.compose_view(g, v, trace=trace, tick=p.at, **kw)

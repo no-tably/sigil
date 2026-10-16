@@ -2,7 +2,7 @@
 
 Covers:
   1. wire_state and sim_look: a key takes its busiest wire's state; strokes in
-     scene.wire_style (active bold, untouched muted, a failure route edges-fail);
+     kit.wire_style (active bold, untouched muted, a failure route edges-fail);
   2. tokens: ● out on the wire's cells (the head cell at 1, the tail at 0), ○ a
      return in the produces role (fallback muted), a token on a chipped edge travels through its chip, a self-call's
      token on its stub's source mark (or its box's self mark);
@@ -22,26 +22,20 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
-import importlib.util
 import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
+from sigil.core import parse  # noqa: E402
+from sigil.model import scene  # noqa: E402
+from sigil.model import sim  # noqa: E402
+from sigil.present import kit  # noqa: E402
+from sigil.present.views import graph as vgraph  # noqa: E402
+from sigil.present.views import tree as vtree  # noqa: E402
 
-def _load(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-view = _load("sigil_view", ROOT / "view.py")
-vgraph, kit = view.vgraph, view.kit
-scene = vgraph.scene
-sim = vgraph._sibling("sigil_sim", "sim.py")
 
 EXAMPLES = ROOT / "site" / "examples"
 CHECKOUT = (EXAMPLES / "01-checkout.sigil").read_text()
@@ -60,7 +54,7 @@ class Run:
 
     def __init__(self, text: str, name: str = "happy", *, depth: int = kit.ALL_DEPTH,
                  events: str = "nodes", payloads: bool = False):
-        self.g = kit.render.parse_document(text)
+        self.g = parse.parse_document(text)
         canon = sim.canonical(self.g)
         self.scn = scene.build_scene(self.g, events=events, triggers=True, depth=depth)
         self.trace = sim.project(sim.simulate(canon, sim.scenario(canon, name)), self.scn)
@@ -123,14 +117,14 @@ class WireStates(unittest.TestCase):
         self.assertEqual(look.states[PAY], "inactive")
         fg, _bg, bold = look.styles[SHOP]
         self.assertTrue(bold)
-        self.assertEqual(look.styles[PAY], scene.wire_style(
+        self.assertEqual(look.styles[PAY], kit.wire_style(
             next(w for w in run.scn.wires if w.key == PAY), "inactive"))
 
     def test_a_failure_route_turns_fail(self):
         run = Run(CHECKOUT, "API.charge:fails")
         look = run.look(len(run.trace.frames) - 1)
         self.assertEqual(look.states[ROUTE], "failed")
-        self.assertEqual(look.styles[ROUTE][0], scene.colour_of("edges-fail"))
+        self.assertEqual(look.styles[ROUTE][0], kit.colour_of("edges-fail"))
 
 
 class Tokens(unittest.TestCase):
@@ -164,18 +158,18 @@ class Tokens(unittest.TestCase):
         run = Run(CHECKOUT)
         w = next(w for w in run.scn.wires if w.key == SHOP)
         produces = kit.edge_style("=>")[0]
-        self.assertNotEqual(scene.colour_of(w.colour), produces, "the test needs a coloured wire")
+        self.assertNotEqual(kit.colour_of(w.colour), produces, "the test needs a coloured wire")
 
         def drawn(**kw):
             t = vgraph._token(sim.Token(w.ident, 0.5, kw.pop("dir", "out"), 0, **kw), w)
             return t.mark, t.style
 
-        self.assertEqual(drawn(), ("●", scene.wire_style(w, "active")))
+        self.assertEqual(drawn(), ("●", kit.wire_style(w, "active")))
         self.assertEqual(drawn(dir="back"), ("○", (produces, None, True)))
         self.assertEqual(drawn(dir="back", state="fallback"),
                          ("○", (kit.muted(produces), None, False)))
-        self.assertEqual(drawn(state="failed"), ("✕", scene.wire_style(w, "failed")))
-        self.assertEqual(drawn(state="cancelled"), ("⊘", scene.wire_style(w, "inactive")))
+        self.assertEqual(drawn(state="failed"), ("✕", kit.wire_style(w, "failed")))
+        self.assertEqual(drawn(state="cancelled"), ("⊘", kit.wire_style(w, "inactive")))
 
     def test_token_marks_match_the_tree(self):
         """Both views play one Trace: every token state gets the same mark and
@@ -187,7 +181,7 @@ class Tokens(unittest.TestCase):
                             **{k: v for k, v in kw.items() if k != "dir"})
             t = vgraph._token(tok, w)
             with self.subTest(**kw):
-                self.assertEqual((t.mark, t.style), view.vtree._token_glyph(tok, w))
+                self.assertEqual((t.mark, t.style), vtree._token_glyph(tok, w))
 
     def test_token_through_a_chip(self):
         run = Run(CHECKOUT, payloads=True)
@@ -235,7 +229,7 @@ class Boxes(unittest.TestCase):
         last = run.text(len(run.trace.frames) - 1)
         self.assertIn("[Payments] ✕", "\n".join(last))
         rows = run.rows(len(run.trace.frames) - 1)
-        self.assertEqual(_cell_style(rows, "[Payments]")[0], scene.colour_of("edges-fail"))
+        self.assertEqual(_cell_style(rows, "[Payments]")[0], kit.colour_of("edges-fail"))
 
     def test_instances_and_recursion(self):
         arena = Run(ARENA)
@@ -290,7 +284,7 @@ class Stability(unittest.TestCase):
         self.assertIsNot(vgraph._trace_slots(other), vgraph._trace_slots(run.trace))
 
     def test_without_a_frame_nothing_changes(self):
-        g = kit.render.parse_document(CHECKOUT)
+        g = parse.parse_document(CHECKOUT)
         plain = vgraph.compose(g, kit.ALL_DEPTH, False)
         self.assertEqual(plain, vgraph.compose(g, kit.ALL_DEPTH, False, trace=None))
         self.assertNotIn("●", "".join(kit.ansi(r, False) for r in plain[0]))
@@ -337,7 +331,7 @@ class Focus(unittest.TestCase):
         self.assertLessEqual(box[1] + box[3], len(rows))
 
     def test_no_trace_no_focus(self):
-        g = kit.render.parse_document(CHECKOUT)
+        g = parse.parse_document(CHECKOUT)
         self.assertIsNone(vgraph.sim_focus(g, kit.ALL_DEPTH, False))
 
     def test_a_probe_style_never_merges_with_a_plain_one(self):
@@ -388,7 +382,7 @@ class WrappedTrunk(unittest.TestCase):
         hub_y = next(y for y, t in enumerate(text) if "[Hub]" in t) + 1    # its bottom border
         delta_y = next(y for y, t in enumerate(text) if "[Delta]" in t)
         self.assertGreater(delta_y - hub_y, 6, "the fixture must wrap the fan-out")
-        grid, fail = _grid(rows), scene.colour_of("edges-fail")
+        grid, fail = _grid(rows), kit.colour_of("edges-fail")
 
         def failed(cell):
             got = grid.get(cell)

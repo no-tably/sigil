@@ -28,26 +28,21 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
-import importlib.util
 import sys
 import unittest
 from pathlib import Path
 from unittest import mock
 
 _DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_DIR))
 
+from sigil.core import parse  # noqa: E402
+from sigil.model import scene  # noqa: E402
+from sigil.model import sim  # noqa: E402
+from sigil.present import kit  # noqa: E402
+from sigil.present.views import graph as vgraph  # noqa: E402
+from sigil.present.views import flow as vflow  # noqa: E402
 
-def _load(name: str, fname: str):
-    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-vflow = _load("sigil_view_flow_memo_tests", "view_flow.py")
-sim = _load("sigil_sim_view_flow_memo_tests", "sim.py")
-kit, scene, vgraph = vflow.kit, vflow.scene, vflow.vgraph
 
 OPTIONS = dict(depth=1, payloads=True, notes="markers", triggers=True, access=False,
                mods=True, events="land")
@@ -62,7 +57,7 @@ CASES = (
 
 def run(path: str, name: str):
     """(graph, trace) — the trace named as the flow draws it (OPTIONS)."""
-    g = kit.render.parse_document((_DIR / path).read_text())
+    g = parse.parse_document((_DIR / path).read_text())
     scn = scene.build_scene(g, events=OPTIONS["events"], triggers=OPTIONS["triggers"],
                             access=OPTIONS["access"], depth=OPTIONS["depth"])
     return g, sim.project(sim.simulate(scn, sim.scenario(scn, name)), scn)
@@ -164,7 +159,6 @@ class TestBlankCellsFollowed(unittest.TestCase):
                 self.assertEqual(draw(self.g, self.trace, 26, width, memo),
                                  draw(self.g, self.trace, 26, width))
                 self.assertEqual(blanks.called, looked)
-
 
 
 def painted(g, trace, ticks, width, memo, check=lambda t: True):

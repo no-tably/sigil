@@ -1,13 +1,15 @@
 """ViewState keeps one depth: `depth` is None until --depth or d gives one, and
 whatever sets it is what every view (the run view too) is drawn and told at."""
+import sys
 import unittest
 from pathlib import Path
 
-import view
-
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from sigil.present import app as view, kit  # noqa: E402
 SHOP = ROOT / "site" / "examples" / "02-shop.sigil"
-ALL = view.kit.ALL_DEPTH
+ALL = kit.ALL_DEPTH
 
 
 class OneDepth(unittest.TestCase):

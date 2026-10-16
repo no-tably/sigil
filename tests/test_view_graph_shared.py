@@ -20,26 +20,19 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
-import importlib.util
 import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
+from sigil.core import parse  # noqa: E402
+from sigil.model import scene  # noqa: E402
+from sigil.model import sim  # noqa: E402
+from sigil.present import kit  # noqa: E402
+from sigil.present.views import graph as vgraph  # noqa: E402
 
-def _load(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-view = _load("sigil_view_graph_shared", ROOT / "view.py")
-vgraph, kit = view.vgraph, view.kit
-scene = vgraph.scene
-sim = vgraph._sibling("sigil_sim", "sim.py")
 
 # [Api]'s `!>` runs two layers down, its siblings one: without the rule the
 # stem under [Api] belongs to a sibling (nearest its head) and the error wire
@@ -93,8 +86,8 @@ class ErrorWireNoRun(unittest.TestCase):
     """1. no run: the error wire reads red from under its source."""
 
     def setUp(self):
-        self.rows, _w = vgraph.compose(kit.render.parse_document(ERROR_FAN), 1, False)
-        self.fail = scene.colour_of("edges-fail")
+        self.rows, _w = vgraph.compose(parse.parse_document(ERROR_FAN), 1, False)
+        self.fail = kit.colour_of("edges-fail")
 
     def test_stem_takes_the_error_colour(self):
         ch, style = _stem(self.rows)
@@ -110,16 +103,16 @@ class ErrorWireNoRun(unittest.TestCase):
     def test_same_kind_fan_out_is_untouched(self):
         """Members as severe as each other keep the nearest-owner look."""
         text = "[Api] -> [Store]\n[Store] -> [Disk]\n[Api] -> [Disk]\n[Api] -> [Cache]\n"
-        rows, _w = vgraph.compose(kit.render.parse_document(text), 1, False)
+        rows, _w = vgraph.compose(parse.parse_document(text), 1, False)
         styles = {st for _c, st in _grid(rows).values() if st and _c in "│─┼┬┴┐┌└┘▼"}
-        self.assertNotIn(scene.colour_of("edges-fail"), {st[0] for st in styles})
+        self.assertNotIn(kit.colour_of("edges-fail"), {st[0] for st in styles})
 
 
 class RunNatural(unittest.TestCase):
     """1. under a run, an unwrapped fan-out's stem takes its most severe member."""
 
     def setUp(self):
-        self.g = kit.render.parse_document(RUN_FAN)
+        self.g = parse.parse_document(RUN_FAN)
         canon = sim.canonical(self.g)
         scn = scene.build_scene(self.g, events="nodes", triggers=True, depth=kit.ALL_DEPTH)
         self.trace = sim.project(sim.simulate(canon, sim.scenario(canon, "Gamma->Db:fails")), scn)
@@ -132,7 +125,7 @@ class RunNatural(unittest.TestCase):
     def test_failed_member_takes_the_stem(self):
         rows = self.compose(len(self.trace.frames) - 1)
         _ch, style = _stem(rows)
-        self.assertEqual(style[0], scene.colour_of("edges-fail"))
+        self.assertEqual(style[0], kit.colour_of("edges-fail"))
 
     def test_memo_repaints_the_stem(self):
         memo, last = kit.FrameMemo(), len(self.trace.frames) - 1
@@ -157,7 +150,7 @@ class WrappedJoinBar(unittest.TestCase):
     """3. a wrapped joined fan-out's bar spans its first row's branches and the trunk."""
 
     def test_bar_ports(self):
-        rows, w = vgraph.compose(kit.render.parse_document(JOINED), 1, False, width=80)
+        rows, w = vgraph.compose(parse.parse_document(JOINED), 1, False, width=80)
         text = [kit.ansi(r, False) for r in rows]
         bar = next(t for t in text if "━" in t)
         first = next(t for t in text if any(s in t for s in TARGETS))
@@ -169,7 +162,7 @@ class WrappedJoinBar(unittest.TestCase):
         self.assertEqual(len(span), 2 * ports + 1, bar)
 
     def test_natural_bar_keeps_a_port_per_branch(self):
-        rows, _w = vgraph.compose(kit.render.parse_document(JOINED), 1, False)
+        rows, _w = vgraph.compose(parse.parse_document(JOINED), 1, False)
         bar = next(kit.ansi(r, False) for r in rows if "━" in kit.ansi(r, False))
         self.assertEqual(len(bar.strip().split(" ")[0]), 2 * len(TARGETS) + 1)
 
@@ -178,7 +171,7 @@ class CrossedFanNoRun(unittest.TestCase):
     """4. no run, no `!>`: a crossing in a fan-out's channel keeps its owner."""
 
     def compose(self):
-        rows, _w = vgraph.compose(kit.render.parse_document(CROSSED_FAN), 1, False,
+        rows, _w = vgraph.compose(parse.parse_document(CROSSED_FAN), 1, False,
                                   width=100)
         return rows
 

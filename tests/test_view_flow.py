@@ -26,7 +26,6 @@ Run:  python3 -m unittest discover tests
 from __future__ import annotations
 
 import contextlib
-import importlib.util
 import io
 import subprocess
 import sys
@@ -35,26 +34,25 @@ import unittest
 from pathlib import Path
 
 _DIR = Path(__file__).resolve().parents[1]
-VIEW = _DIR / "view.py"
+sys.path.insert(0, str(_DIR))
 
+from sigil import cli  # noqa: E402
+from sigil.core import parse  # noqa: E402
+from sigil.model import scene  # noqa: E402
+from sigil.model import sim  # noqa: E402
+from sigil.present import app as view  # noqa: E402
+from sigil.present import kit  # noqa: E402
+from sigil.present.views import flow as vflow  # noqa: E402
 
-def _load(name: str, fname: str):
-    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+VIEW = [sys.executable, str(_DIR / "bin" / "sigil"), "view"]
 
-
-view = _load("sigil_view_flow_tests", "view.py")
-vflow, kit = view.vflow, view.kit
 
 CHECKOUT = (_DIR / "site" / "examples" / "01-checkout.sigil").read_text()
 EXECUTIONS = (_DIR / "site" / "examples" / "05-executions.sigil").read_text()
 
 
 def flow(text: str, **kw):
-    g = view.render.parse_document(text)
+    g = parse.parse_document(text)
     return vflow.compose_flow(g, kw.pop("depth", 1), kw.pop("payloads", False), **kw)[0]
 
 
@@ -197,7 +195,7 @@ class TestWiresBack(unittest.TestCase):
         # the shortener's `!> (Visitor)` and `-> (Visitor)` share their way down,
         # return row and way up: drawn in the error wire's look, from its source
         rows = flow(SHORTENER)
-        failed = view.scene.colour_of("edges-fail")
+        failed = kit.colour_of("edges-fail")
         ret = next(r for r in rows if "".join(t for t, _ in r).startswith("╰"))
         self.assertEqual({st[0] for t, st in ret if t.strip()}, {failed})
         up = next(r for r in rows if "".join(t for t, _ in r).startswith("├"))
@@ -337,9 +335,8 @@ class TestBlocksAndJoins(unittest.TestCase):
     def test_frames_fit_the_width_and_carry_tokens(self):
         rows = flow(BLOCKS, width=50)
         self.assertTrue(all(len(r) <= 50 for r in plain(rows)), "\n".join(plain(rows)))
-        g = view.render.parse_document(BLOCKS)
-        sim = view.simulator
-        scn = view.scene.build_scene(g, depth=1)
+        g = parse.parse_document(BLOCKS)
+        scn = scene.build_scene(g, depth=1)
         tr = sim.simulate(scn, sim.scenario(scn, "happy"))
         seen = set()
         for t in range(len(tr.frames)):
@@ -448,9 +445,9 @@ class TestWrap(unittest.TestCase):
         self.assertIn("┆a┆", drawn(SHORTENER, width=75, **RICH))
 
     def test_a_run_never_reflows_and_crosses_plugs(self):
-        g = view.render.parse_document(CHECKOUT)
+        g = parse.parse_document(CHECKOUT)
         player = view.SimPlayer(g, None)
-        trace = player.shown(view.scene.SceneOptions("nodes", True, False, 1))
+        trace = player.shown(scene.SceneOptions("nodes", True, False, 1))
         frames = [plain(vflow.compose_flow(g, 1, True, "markers", width=50, mods=True,
                                            trace=trace, tick=t)[0])
                   for t in range(len(trace.frames))]
@@ -461,9 +458,9 @@ class TestWrap(unittest.TestCase):
 
 class TestOverlays(unittest.TestCase):
     def frames(self, text, scenario="happy"):
-        g = view.render.parse_document(text)
+        g = parse.parse_document(text)
         player = view.SimPlayer(g, scenario)
-        return g, player, player.shown(view.scene.SceneOptions("nodes", True, False, 1))
+        return g, player, player.shown(scene.SceneOptions("nodes", True, False, 1))
 
     def test_tokens_travel_the_wires(self):
         g, player, trace = self.frames(CHECKOUT)
@@ -485,7 +482,7 @@ class TestOverlays(unittest.TestCase):
         text = (_DIR / "site" / "examples" / "00-shortener.sigil").read_text()
         g, player, trace = self.frames(text, "Redirect.lookup:fails")
         rows = vflow.compose_flow(g, 1, False, trace=trace, tick=player.last)[0]
-        failed = (view.scene.colour_of("edges-fail"), None, True)
+        failed = (kit.colour_of("edges-fail"), None, True)
         ret = next(r for r in rows if "".join(t for t, _ in r).startswith("╰"))
         self.assertEqual({st for t, st in ret if t.strip()}, {failed})
         up = next(r for r in rows if "".join(t for t, _ in r).startswith("├"))
@@ -506,9 +503,9 @@ class TestOverlays(unittest.TestCase):
 
     def test_checks_numbers_on_labels(self):
         text = "#!craft\n[LB] -> [App]×N\n[App] -> [Data]\n"
-        g = view.render.parse_document(text)
+        g = parse.parse_document(text)
         overlay = view.ChecksOverlay(g, view.run_checks(text), "")
-        marks = overlay.marks(view.scene.SceneOptions("nodes", True, False, 1))
+        marks = overlay.marks(scene.SceneOptions("nodes", True, False, 1))
         rows = vflow.compose_flow(g, 1, False, checks=marks)[0]
         self.assertTrue(marks.nodes)
         self.assertIn("[Data] △1", line(rows, "[Data]"))
@@ -557,7 +554,7 @@ class TestApp(unittest.TestCase):
         for flags, want in (((), "─▶ [API]"), (("--graph",), "┌──")):
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):
-                view.main([str(self.path), "--once", "--no-lint", "--width", "200", *flags])
+                cli.main(["view", str(self.path), "--once", "--no-lint", "--width", "200", *flags])
             self.assertIn(want, buf.getvalue(), flags)
 
     def test_t_steps_through_the_views_digits_select(self):
@@ -592,7 +589,7 @@ class TestApp(unittest.TestCase):
         self.assertIn("lint: OK", buf.getvalue())
 
     def run_view(self, *args):
-        return subprocess.run([sys.executable, str(VIEW), str(self.path), *args],
+        return subprocess.run([*VIEW, str(self.path), *args],
                               capture_output=True, text=True, timeout=60)
 
     def test_cli(self):

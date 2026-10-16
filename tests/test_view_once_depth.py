@@ -15,17 +15,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import view  # noqa: E402
-import view_run as vrun  # noqa: E402
+from sigil import cli  # noqa: E402
+from sigil.core import parse  # noqa: E402
+from sigil.present import app as view, kit  # noqa: E402
+from sigil.present.views import run as vrun  # noqa: E402
 
 SHOP = ROOT / "site" / "examples" / "02-shop.sigil"
 WIDTH = 140
-ALL = view.kit.ALL_DEPTH
+ALL = kit.ALL_DEPTH
 
 
 def shop():
     """The shop example's graph (its [Payments] expansion nests [Risk]'s)."""
-    return view.kit.render.parse_document(SHOP.read_text())
+    return parse.parse_document(SHOP.read_text())
 
 
 def run_rows(g, depth: int) -> list[str]:
@@ -33,7 +35,7 @@ def run_rows(g, depth: int) -> list[str]:
     rows, _w = view.compose_view(g, "run", depth=depth, payloads=False, notes="off",
                                  triggers=True, spaced=True, width=WIDTH, access=False,
                                  mods=False, events="land")
-    return [view.kit.ansi(r, False) for r in rows]
+    return [kit.ansi(r, False) for r in rows]
 
 
 def lanes_named(rows: list[str], name: str) -> int:
@@ -47,7 +49,7 @@ class RunViewDepth(unittest.TestCase):
         for depth in (0, 1, ALL):
             want, _w = vrun.compose_run(g, None, None, WIDTH, "run", chosen=False,
                                         depth=depth)
-            self.assertEqual(run_rows(g, depth), [view.kit.ansi(r, False) for r in want],
+            self.assertEqual(run_rows(g, depth), [kit.ansi(r, False) for r in want],
                              f"depth {depth}")
 
     def test_a_shallower_depth_folds_nested_lanes(self):
@@ -66,7 +68,7 @@ class RunViewDepth(unittest.TestCase):
                   tick=player.last)
         rows, _w = vrun.compose_run(g, player.trace, player.last, WIDTH, "run",
                                     probe=True, depth=1)
-        self.assertEqual(view.sim_focus(g, "run", depth=1, **kw), view.kit.probed_box(rows))
+        self.assertEqual(view.sim_focus(g, "run", depth=1, **kw), kit.probed_box(rows))
 
     def test_once_prints_the_folded_run(self):
         out = io.StringIO()
@@ -79,7 +81,7 @@ def json_lanes(argv: list[str]) -> list[str]:
     """The lane labels `view.py SHOP --run --json <argv>` prints."""
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
-        view.main([str(SHOP), "--run", "--json", *argv])
+        cli.main(["view", str(SHOP), "--run", "--json", *argv])
     return [lane["label"] for lane in json.loads(out.getvalue())["lanes"]]
 
 

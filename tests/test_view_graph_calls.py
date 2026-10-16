@@ -21,25 +21,18 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
-import importlib.util
 import re
 import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
+from sigil.core import parse  # noqa: E402
+from sigil.present import kit  # noqa: E402
+from sigil.present.views import graph as vgraph  # noqa: E402
 
-def _load(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-view = _load("sigil_view", ROOT / "view.py")
-vgraph, kit = view.vgraph, view.kit
 
 FIXTURE = ROOT / "tests" / "fixtures" / "executions.sigil"
 SHOWCASE = ROOT / "site" / "examples" / "05-executions.sigil"
@@ -47,7 +40,7 @@ SHOWCASE = ROOT / "site" / "examples" / "05-executions.sigil"
 
 def compose(text: str, payloads: bool = True, mods: bool = False, depth: int = 1,
             width: int | None = None):
-    g = kit.render.parse_document(text)
+    g = parse.parse_document(text)
     rows, _w = vgraph.compose(g, depth, payloads, "off", True, width, False, mods)
     return rows
 

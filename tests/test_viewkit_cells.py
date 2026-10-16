@@ -19,7 +19,6 @@ Run:  python3 -m unittest discover tests
 from __future__ import annotations
 
 import contextlib
-import importlib.util
 import io
 import re
 import sys
@@ -28,18 +27,11 @@ import unittest
 from pathlib import Path
 
 _DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_DIR))
 
+from sigil import cli  # noqa: E402
+from sigil.present import kit  # noqa: E402
 
-def _load(name: str, fname: str):
-    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-view = _load("sigil_view_cells_tests", "view.py")
-kit = view.kit
 
 CJK = _DIR / "tests" / "fixtures" / "cjk.sigil"
 ACUTE = "́"
@@ -180,7 +172,7 @@ def _twin(text: str) -> tuple[str, dict]:
 def _draw(path: Path, args: list) -> str:
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        view.main(["--once", "--color", "never", *args, str(path)])
+        cli.main(["view", "--once", "--color", "never", *args, str(path)])
     return buf.getvalue()
 
 

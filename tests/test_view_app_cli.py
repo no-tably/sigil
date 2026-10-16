@@ -15,7 +15,6 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
-import importlib.util
 import os
 import resource
 import subprocess
@@ -25,18 +24,16 @@ import unittest
 from pathlib import Path
 
 _DIR = Path(__file__).resolve().parents[1]
-VIEW = _DIR / "view.py"
+sys.path.insert(0, str(_DIR))
 
+from sigil.core import parse  # noqa: E402
+from sigil.present import app as view  # noqa: E402
+from sigil.present import kit  # noqa: E402
+from sigil.present.views import graph as vgraph  # noqa: E402
+from sigil.present.views import tree as vtree  # noqa: E402
 
-def _load(name: str, fname: str):
-    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-view = _load("sigil_view_app_cli", "view.py")
+VIEW = [sys.executable, str(_DIR / "bin" / "sigil"), "view"]
+APP = _DIR / "sigil" / "present" / "app.py"
 
 
 def plain(rows):
@@ -44,7 +41,7 @@ def plain(rows):
 
 
 def run_view(*args, env=None):
-    return subprocess.run([sys.executable, str(VIEW), *args], capture_output=True,
+    return subprocess.run([*VIEW, *args], capture_output=True,
                           text=True, env=env, timeout=60)
 
 
@@ -88,15 +85,15 @@ class TestKeys(_TempDoc):
     def test_depth_steps_to_the_next_larger(self):
         self.st.depth = 2                              # e.g. --depth 2, not in DEPTHS
         self.st.key("d")
-        self.assertEqual(self.st.depth, view.ALL_DEPTH)
+        self.assertEqual(self.st.depth, kit.ALL_DEPTH)
         self.st.key("d")
         self.assertEqual(self.st.depth, 0)
 
 
 class TestLaneStrokes(unittest.TestCase):
     def test_target_and_source_row_keeps_incoming_stroke(self):
-        g = view.render.parse_document("[A] ~> [B]\n[B] *> [C]\n")
-        rows, _w = view.compose_tree(g, 1)
+        g = parse.parse_document("[A] ~> [B]\n[B] *> [C]\n")
+        rows, _w = vtree.compose_tree(g, 1)
         b = next(ln for ln in plain(rows) if ln.startswith("[B]"))
         head = b.index("◀")
         self.assertEqual(b[head + 1], "╌")             # the async lane's dashes reach ◀
@@ -105,14 +102,14 @@ class TestLaneStrokes(unittest.TestCase):
         self.assertIn("✱", b)                          # and B still sources its lane
 
     def test_lane_colour_is_the_source_kind(self):
-        g = view.render.parse_document("(User) -> [API]\n[API] !> <Failed>\n")
-        rows, _w = view.compose_tree(g, 1)
+        g = parse.parse_document("(User) -> [API]\n[API] !> <Failed>\n")
+        rows, _w = vtree.compose_tree(g, 1)
         user = next(r for r in rows if plain([r])[0].startswith("(User)"))
         mark = next(st for t, st in user if "●" in t)
-        self.assertEqual(mark[0], view.kind_color("actor"))
+        self.assertEqual(mark[0], kit.kind_color("actor"))
         api = next(r for r in rows if plain([r])[0].startswith("[API]"))
         fail = next(st for t, st in api if "✖" in t)
-        self.assertEqual(fail[0], view.EDGE_COLOR["!>"])
+        self.assertEqual(fail[0], kit.EDGE_COLOR["!>"])
 
 
 class TestCli(_TempDoc):
@@ -152,46 +149,46 @@ class TestCli(_TempDoc):
 
 class TestThemeValidation(unittest.TestCase):
     def tearDown(self):
-        view.use_theme("sigil")
+        kit.use_theme("sigil")
 
     def test_fill_map_and_out_of_range(self):
-        view.apply_theme({"ui": {"fill": {"a": "b"}}})
-        self.assertEqual(view.FILL, 0.22)
-        view.apply_theme({"ui": {"fill": "3"}})
-        self.assertEqual(view.FILL, 1.0)
-        tint = view._tint(view.CORE_KINDS["service"]["color"])
+        kit.apply_theme({"ui": {"fill": {"a": "b"}}})
+        self.assertEqual(kit.FILL, 0.22)
+        kit.apply_theme({"ui": {"fill": "3"}})
+        self.assertEqual(kit.FILL, 1.0)
+        tint = kit._tint(kit.CORE_KINDS["service"]["color"])
         self.assertRegex(tint, r"^#[0-9a-f]{6}$")
-        view.apply_theme({"ui": {"fill": "-2"}})
-        self.assertEqual(view.FILL, 0.0)
-        view.apply_theme({"ui": {"fill": "nan"}})
-        self.assertEqual(view.FILL, 0.22)
+        kit.apply_theme({"ui": {"fill": "-2"}})
+        self.assertEqual(kit.FILL, 0.0)
+        kit.apply_theme({"ui": {"fill": "nan"}})
+        self.assertEqual(kit.FILL, 0.22)
 
     def test_malformed_colours_fall_back(self):
-        view.apply_theme({"kinds": {"service": "#zzzzzz", "data": "#abc"},
+        kit.apply_theme({"kinds": {"service": "#zzzzzz", "data": "#abc"},
                           "ui": {"key_bg": "#12", "bar_bg": 7}})
-        self.assertEqual(view.CORE_KINDS["service"]["color"], "#8aa0ff")
-        self.assertEqual(view.CORE_KINDS["data"]["color"], "#aabbcc")
-        self.assertEqual(view.KEY_STYLE[1], "#30363d")
-        self.assertEqual(view.BAR_STYLE[1], "#161b22")
-        view._sgr(view.KEY_STYLE)                      # every colour is SGR-safe
+        self.assertEqual(kit.CORE_KINDS["service"]["color"], "#8aa0ff")
+        self.assertEqual(kit.CORE_KINDS["data"]["color"], "#aabbcc")
+        self.assertEqual(kit.KEY_STYLE[1], "#30363d")
+        self.assertEqual(kit.BAR_STYLE[1], "#161b22")
+        kit._sgr(kit.KEY_STYLE)                      # every colour is SGR-safe
 
     def test_partial_theme_starts_from_the_builtins(self):
-        view.apply_theme({"kinds": {"service": "#123456"}})
-        view.apply_theme({"kinds": {"data": "#654321"}})
-        self.assertEqual(view.CORE_KINDS["service"]["color"], "#8aa0ff")
-        self.assertEqual(view.CORE_KINDS["data"]["color"], "#654321")
+        kit.apply_theme({"kinds": {"service": "#123456"}})
+        kit.apply_theme({"kinds": {"data": "#654321"}})
+        self.assertEqual(kit.CORE_KINDS["service"]["color"], "#8aa0ff")
+        self.assertEqual(kit.CORE_KINDS["data"]["color"], "#654321")
 
 
 class TestLegends(unittest.TestCase):
     def test_payload_sample_is_a_rounded_dotted_chip(self):
-        row = view.graph_legend(triggers=False, payloads=True)
+        row = vgraph.graph_legend(triggers=False, payloads=True)
         sample = next(t for t, _ in row if "{…}" in t)
         self.assertTrue(sample.startswith("╭┄") and sample.endswith("┄╯"), sample)
 
     def test_tree_legend_says_lanes_take_the_source_colour(self):
-        text = "".join(t for r in view.tree_legend() for t, _ in r)
+        text = "".join(t for r in vtree.tree_legend() for t, _ in r)
         self.assertIn("lane: its source's colour", text)
-        self.assertNotIn("l-arrow", VIEW.read_text())
+        self.assertNotIn("l-arrow", APP.read_text())
 
 
 if __name__ == "__main__":

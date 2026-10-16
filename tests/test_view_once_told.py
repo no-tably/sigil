@@ -15,15 +15,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import sim as simulator  # noqa: E402
-import view  # noqa: E402
+from sigil import cli  # noqa: E402
+from sigil.core import parse  # noqa: E402
+from sigil.model import sim as simulator  # noqa: E402
+from sigil.present import app as view  # noqa: E402
 
 SHOP = ROOT / "site" / "examples" / "02-shop.sigil"
 INSIDE = ("[Cart]", "[Checkout]", "[Payments]", "[Picker]")   # inside the shop's expansions
 
 
 def shop():
-    return view.kit.render.parse_document(SHOP.read_text())
+    return parse.parse_document(SHOP.read_text())
 
 
 def told(player) -> str:
@@ -36,7 +38,7 @@ def told(player) -> str:
 def printed(argv: list[str]) -> str:
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
-        status = view.main([str(SHOP), *argv])
+        status = cli.main(["view", str(SHOP), *argv])
     assert status == 0, status
     return out.getvalue()
 

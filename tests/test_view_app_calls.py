@@ -12,11 +12,12 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import view  # noqa: E402
+from sigil.core import parse  # noqa: E402
+from sigil.present import app as view  # noqa: E402
 
 
 def marks(text: str, payloads: bool = False, depth: int = 1) -> frozenset:
-    return view.drawn_call_marks(view.render.parse_document(text), depth, payloads)
+    return view.drawn_call_marks(parse.parse_document(text), depth, payloads)
 
 
 class TestDrawnCallMarks(unittest.TestCase):

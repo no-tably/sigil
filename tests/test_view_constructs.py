@@ -34,7 +34,6 @@ Run:  python3 -m unittest discover tests
 from __future__ import annotations
 
 import contextlib
-import importlib.util
 import io
 import re
 import sys
@@ -43,30 +42,28 @@ import unittest
 from pathlib import Path
 
 _DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_DIR))
+
+from sigil.core import parse  # noqa: E402
+from sigil.present import app as view  # noqa: E402
+from sigil.present import kit  # noqa: E402
+from sigil.present.views import graph as vgraph  # noqa: E402
+from sigil.present.views import tree as vtree  # noqa: E402
+from sigil.publish import mermaid  # noqa: E402
 
 
-def _load(name: str, fname: str):
-    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-view = _load("sigil_view", "view.py")
-render = view.render
 COVERAGE = _DIR / "tests" / "fixtures" / "coverage.sigil"
 
 
 def graph(text: str, **kw) -> str:
-    rows, _w = view.compose(render.parse_document(text), kw.pop("depth", 1),
+    rows, _w = vgraph.compose(parse.parse_document(text), kw.pop("depth", 1),
                             kw.pop("payloads", False), **kw)
-    return "\n".join(view.ansi(r, False) for r in rows)
+    return "\n".join(kit.ansi(r, False) for r in rows)
 
 
 def tree(text: str, **kw) -> str:
-    rows, _w = view.compose_tree(render.parse_document(text), kw.pop("depth", 1), **kw)
-    return "\n".join(view.ansi(r, False) for r in rows)
+    rows, _w = vtree.compose_tree(parse.parse_document(text), kw.pop("depth", 1), **kw)
+    return "\n".join(kit.ansi(r, False) for r in rows)
 
 
 def line_with(out: str, needle: str) -> str:
@@ -208,9 +205,9 @@ class TestAccess(unittest.TestCase):
             p.write_text(self.DOC)
             st = view.ViewState(p, do_lint=False)
             st.reload(force=True)
-            before = "\n".join(view.ansi(r, False) for r in st._rows)
+            before = "\n".join(kit.ansi(r, False) for r in st._rows)
             self.assertTrue(st.key("a"))
-            after = "\n".join(view.ansi(r, False) for r in st._rows)
+            after = "\n".join(kit.ansi(r, False) for r in st._rows)
             self.assertNotIn("2w", before)
             self.assertIn("2w", after)
             keys = "".join(t for t, _ in view.keys_legend(st))
@@ -236,7 +233,7 @@ class TestArrowKinds(unittest.TestCase):
         self.assertIn("›", line_with(t, "[Pay]"))        # the emitter's lane
         self.assertIn("{Order} <Paid> ◀", t)             # named where it lands
         self.assertRegex(t, "[╏╍]")
-        legend = "".join(t for t, _ in view.graph_legend())
+        legend = "".join(t for t, _ in vgraph.graph_legend())
         self.assertIn("╍╍▼ trigger", legend)
         self.assertIn("──✖ error", legend)
 
@@ -250,7 +247,7 @@ class TestArrowKinds(unittest.TestCase):
         out = tree("[A] <-> [B]\n")
         self.assertIn("▶", line_with(out, "[A]"))
         self.assertNotIn("●", out)
-        self.assertIn("◀─▶ both ways", "".join(t for r in view.tree_legend() for t, _ in r))
+        self.assertIn("◀─▶ both ways", "".join(t for r in vtree.tree_legend() for t, _ in r))
 
 
 class TestModifiers(unittest.TestCase):
@@ -289,8 +286,8 @@ class TestModifiers(unittest.TestCase):
         self.assertEqual(out.count("@timeout"), 1)
 
     def test_relocated_with_payloads_when_fitting(self):
-        rows, w = view.compose(render.parse_document(self.DOC), 1, True, mods=True, width=40)
-        out = "\n".join(view.ansi(r, False) for r in rows)
+        rows, w = vgraph.compose(parse.parse_document(self.DOC), 1, True, mods=True, width=40)
+        out = "\n".join(kit.ansi(r, False) for r in rows)
         self.assertIn("┆a┆", out)                            # the chip's letter in the panel
         self.assertIn("@timeout 30s ×3", out)                # and its modifiers beside it
 
@@ -301,7 +298,7 @@ class TestModifiers(unittest.TestCase):
             st = view.ViewState(p, do_lint=False)
             st.reload(force=True)
             st.key("m")
-            self.assertIn("@sla", "\n".join(view.ansi(r, False) for r in st._rows))
+            self.assertIn("@sla", "\n".join(kit.ansi(r, False) for r in st._rows))
             self.assertIn("m mods", "".join(t for t, _ in view.keys_legend(st)))
 
 
@@ -352,8 +349,8 @@ class TestAlias(unittest.TestCase):
         self.assertIn("[[walk]]", tree(self.DOC))
 
     def test_alias_colour_is_a_theme_role(self):
-        n = render.parse_document(self.DOC).nodes["walk_alias"]
-        runs = view.label_runs(n)
+        n = parse.parse_document(self.DOC).nodes["walk_alias"]
+        runs = kit.label_runs(n)
         self.assertEqual([t for t, _ in runs], ["[[", "walk", "]]"])
         self.assertEqual(runs[0][1][0].role, "kinds-alias")
 
@@ -363,31 +360,31 @@ class TestThemeRoles(unittest.TestCase):
         text = (_DIR / "themes" / "sigil.yaml").read_text()
         for key in ("alias:", "arm:", "access:", "frame:", "section:", "mode:"):
             self.assertIn("  " + key, text)
-        self.assertEqual(view.FRAME_STYLE[0].role, "ui-frame")
-        self.assertEqual(view.SECTION_STYLE[0].role, "ui-section")
-        self.assertEqual(view.EDGE_COLOR["access"].role, "edges-access")
-        self.assertEqual(view.EDGE_COLOR["arm"].role, "edges-arm")
+        self.assertEqual(kit.FRAME_STYLE[0].role, "ui-frame")
+        self.assertEqual(kit.SECTION_STYLE[0].role, "ui-section")
+        self.assertEqual(kit.EDGE_COLOR["access"].role, "edges-access")
+        self.assertEqual(kit.EDGE_COLOR["arm"].role, "edges-arm")
 
 
 class TestMermaidIds(unittest.TestCase):
     def test_same_name_in_two_graphs_gets_two_ids(self):
         doc = ("[Handler] -> [X]\n[Core] := {\n  [Router] -> [Handler]\n}\n"
                "--- L3: [Handler] ---\n[Handler] := {\n  [In] -> [Out]\n}\n")
-        out = render.render(doc, depth=99)
+        out = mermaid.render(doc, depth=99)
         defined = re.findall(r"^\s*(?:subgraph )?([A-Za-z0-9_]+)[\[\(\{>]", out, re.M)
         self.assertEqual(len(defined), len(set(defined)), defined)
         self.assertIn("Core_service__Handler_service", out)
         self.assertIn("Router_service --> Core_service__Handler_service", out)
 
     def test_coverage_fixture_ids_unique(self):
-        out = render.render(COVERAGE.read_text(), depth=99)
+        out = mermaid.render(COVERAGE.read_text(), depth=99)
         defined = re.findall(r"^\s*(?:subgraph )?([A-Za-z0-9_]+)[\[\(\{>]", out, re.M)
         self.assertEqual(len(defined), len(set(defined)))
 
     def test_triggers_follow_renamed_states(self):
         doc = ("[Shop] := {\n  [Pay] ~> <Paid>\n  {Order}\n}\n<Paid> -> {Order}\n"
                "state {Order} {\n  Open -<Paid>-> Done\n}\n")
-        out = render.render(doc, depth=99)
+        out = mermaid.render(doc, depth=99)
         for m in re.finditer(r"(\w+) -\. \"triggers\" \.-> (\w+)", out):
             for nid in m.groups():
                 self.assertRegex(out, r"(?m)^\s*(?:subgraph )?" + nid + r"[\[\(\{>]")
@@ -444,12 +441,12 @@ class TestStreamsAndRoles(unittest.TestCase):
         self.assertIn("*<Raw> ≋", out)
 
     def test_tree_legend_lists_the_marks_drawn(self):
-        marks = view.drawn_call_marks(render.parse_document(self.DOC), 1, False)
-        text = "".join(t for r in view.tree_legend(calls=marks) for t, _ in r)
+        marks = view.drawn_call_marks(parse.parse_document(self.DOC), 1, False)
+        text = "".join(t for r in vtree.tree_legend(calls=marks) for t, _ in r)
         self.assertIn("≋ stream", text)
         self.assertIn("[R‹N›] role: N members", text)
-        plain = view.drawn_call_marks(render.parse_document("[A] -> [B]\n"), 1, False)
-        text = "".join(t for r in view.tree_legend(calls=plain) for t, _ in r)
+        plain = view.drawn_call_marks(parse.parse_document("[A] -> [B]\n"), 1, False)
+        text = "".join(t for r in vtree.tree_legend(calls=plain) for t, _ in r)
         self.assertNotIn("stream", text)
 
 
@@ -462,11 +459,11 @@ class TestBlockStringsBorrowsErrorChips(unittest.TestCase):
             self.assertNotIn("block-string", out)
 
     def test_preview_cuts_at_a_word(self):
-        self.assertEqual(view.block_preview("one"), '"""one"""')
-        self.assertEqual(view.block_preview("\n a\n b\n"), '"""a…"""')
-        self.assertEqual(view.block_preview("Rate the draft 1-10 on ${state.rubric}."),
+        self.assertEqual(kit.block_preview("one"), '"""one"""')
+        self.assertEqual(kit.block_preview("\n a\n b\n"), '"""a…"""')
+        self.assertEqual(kit.block_preview("Rate the draft 1-10 on ${state.rubric}."),
                          '"""Rate the draft 1-10 on…"""')
-        self.assertEqual(view.block_preview("x" * 30), '"""' + "x" * 24 + '…"""')
+        self.assertEqual(kit.block_preview("x" * 30), '"""' + "x" * 24 + '…"""')
 
     def test_full_text_is_listed_with_the_notes(self):
         out = graph(self.BLOCK, notes="markers")
@@ -476,7 +473,7 @@ class TestBlockStringsBorrowsErrorChips(unittest.TestCase):
 
     def test_block_note_numbers_in_document_order(self):
         doc = "[A] -> [B]  # first\n" + self.BLOCK + "[C] -> [D]  # last\n"
-        idx = view.note_index(render.parse_document(doc))
+        idx = kit.note_index(parse.parse_document(doc))
         texts = [t for _n, t, _k, _e in sorted(e for es in idx.values() for e in es)]
         self.assertEqual(texts[0], "first")
         self.assertTrue(texts[1].startswith('"""You are'))
@@ -492,11 +489,11 @@ class TestBlockStringsBorrowsErrorChips(unittest.TestCase):
         self.assertRegex(line_with(tree(self.BORROW, access=True), "[Helper]"), r"┄ƀ┄b|┄b┄ƀ")
 
     def test_borrow_read_is_in_the_legends_when_drawn(self):
-        self.assertIn("ƀ borrow(read)", "".join(t for t, _ in view.graph_legend(access=True)))
-        marks = view.drawn_call_marks(render.parse_document(self.BORROW), 1, False)
-        text = "".join(t for r in view.tree_legend(access=True, calls=marks) for t, _ in r)
+        self.assertIn("ƀ borrow(read)", "".join(t for t, _ in vgraph.graph_legend(access=True)))
+        marks = view.drawn_call_marks(parse.parse_document(self.BORROW), 1, False)
+        text = "".join(t for r in vtree.tree_legend(access=True, calls=marks) for t, _ in r)
         self.assertIn("ƀ┄ borrows read", text)
-        text = "".join(t for r in view.tree_legend(access=True) for t, _ in r)
+        text = "".join(t for r in vtree.tree_legend(access=True) for t, _ in r)
         self.assertNotIn("ƀ", text)
 
     def test_tree_error_chip_leads_with_a_cross(self):
@@ -540,8 +537,8 @@ class TestInternalsAndOneOf(unittest.TestCase):
 
     def test_legend_lists_internals_and_brace_when_drawn(self):
         def legend(text, depth=1):
-            marks = view.drawn_call_marks(render.parse_document(text), depth, False)
-            return "".join(t for r in view.tree_legend(calls=marks) for t, _ in r)
+            marks = view.drawn_call_marks(parse.parse_document(text), depth, False)
+            return "".join(t for r in vtree.tree_legend(calls=marks) for t, _ in r)
         self.assertIn("┄ := internals", legend(self.DOC))
         self.assertNotIn("internals", legend(self.DOC, depth=0))
         self.assertIn("_⎫ one of", legend(self.ONE_OF))
@@ -565,7 +562,7 @@ class TestQualifiedPaths(unittest.TestCase):
         self.assertIn("▼ Ship/", graph("[A] -> [Ship]/{T}\n"))   # no [Ship] node: bare
 
     def test_legend_lists_the_path_mark(self):
-        legend = "".join(t for t, _ in view.graph_legend())
+        legend = "".join(t for t, _ in vgraph.graph_legend())
         self.assertIn("[A]/ in path", legend)
         self.assertIn("│ from [A]/ out of path", legend)
 
@@ -593,18 +590,18 @@ class TestQualifiedPaths(unittest.TestCase):
         self.assertIn("from [Bullet]/", out)
 
     def test_graph_legend_lists_the_stream_and_role_boxes(self):
-        legend = "".join(t for t, _ in view.graph_legend())
+        legend = "".join(t for t, _ in vgraph.graph_legend())
         self.assertIn("┒┃┛ ≋ stream", legend)
         self.assertIn("╖║╜ role", legend)
 
 
 class TestCoverageFixture(unittest.TestCase):
     def test_every_toggle_draws_the_fixture(self):
-        g = render.parse_document(COVERAGE.read_text())
+        g = parse.parse_document(COVERAGE.read_text())
         for kw in ({}, {"access": True, "mods": True}, {"width": 80, "mods": True}):
-            rows, w = view.compose(g, 99, True, "markers", True, **kw)
+            rows, w = vgraph.compose(g, 99, True, "markers", True, **kw)
             self.assertTrue(rows)
-            rows, w = view.compose_tree(g, 99, notes="callouts", payloads=True, **kw)
+            rows, w = vtree.compose_tree(g, 99, notes="callouts", payloads=True, **kw)
             self.assertTrue(rows)
             if "width" in kw:
                 self.assertLessEqual(w, max(kw["width"], w))
@@ -616,10 +613,10 @@ class TestBlockAndDocumentNotes(unittest.TestCase):
            "# entry\n[Api] -> [Reader]\n")
 
     def test_note_index_keys(self):
-        idx = view.kit.note_index(render.parse_document(self.DOC))
-        b = render.parse_document(self.DOC).blocks[0]
-        self.assertEqual(idx[view.kit.DOC_NOTE], [(0, "Router: the document header", "block", ())])
-        self.assertEqual(idx[view.kit.block_note_key(b)], [(1, "route by kind", "block", ())])
+        idx = kit.note_index(parse.parse_document(self.DOC))
+        b = parse.parse_document(self.DOC).blocks[0]
+        self.assertEqual(idx[kit.DOC_NOTE], [(0, "Router: the document header", "block", ())])
+        self.assertEqual(idx[kit.block_note_key(b)], [(1, "route by kind", "block", ())])
         self.assertEqual(idx["Api_service"][0][:2], (2, "entry"))   # numbering skips ¶
         self.assertNotIn("Reader_service", idx)
 
@@ -669,7 +666,7 @@ class TestArrowheadColour(unittest.TestCase):
         # [App] receives a call from (Rider) and a !> failure path: its ◀ must be
         # the colour of the lane whose stroke runs into it, not the last drawn.
         doc = "(Rider) -> [App]\n[Pay] !> [App]\n[X] -> [Pay]\n"
-        rows, _ = view.compose_tree(view.render.parse_document(doc), 1)
+        rows, _ = vtree.compose_tree(parse.parse_document(doc), 1)
         for row in rows:
             if not "".join(t for t, _ in row).startswith("[App]"):
                 continue

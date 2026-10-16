@@ -13,13 +13,13 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import view  # noqa: E402
+from sigil.present import app as view, kit  # noqa: E402
 
 DOC = "[Shop] -> <Paid>\n<Paid> -> [Mailer]\n"
 
 
 def text(rows):
-    return "\n".join(view.ansi(r, False) for r in rows)
+    return "\n".join(kit.ansi(r, False) for r in rows)
 
 
 def keys(st):
@@ -95,7 +95,7 @@ class TestEventsToggle(unittest.TestCase):
         st.key("v")
         frame = st.frame(60, 20)
         self.assertEqual(len(frame), 20)
-        self.assertTrue(all(view.row_len(r) <= 60 for r in frame))
+        self.assertTrue(all(kit.row_len(r) <= 60 for r in frame))
 
     def test_once_default_and_flag(self):
         def once(**kw):

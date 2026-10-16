@@ -14,23 +14,15 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
-import importlib.util
 import sys
 import unittest
 from pathlib import Path
 
 _DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_DIR))
 
+from sigil.present import kit as vk  # noqa: E402
 
-def _load(name: str, fname: str):
-    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-vk = sys.modules.get("viewkit") or _load("viewkit", "viewkit.py")
 
 HEX = "#6e7681"
 

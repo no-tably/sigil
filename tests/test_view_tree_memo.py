@@ -14,26 +14,20 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
-import importlib.util
 import sys
 import unittest
 from pathlib import Path
 from unittest import mock
 
 _DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_DIR))
 
+from sigil.core import parse  # noqa: E402
+from sigil.model import scene  # noqa: E402
+from sigil.model import sim  # noqa: E402
+from sigil.present import kit  # noqa: E402
+from sigil.present.views import tree as vtree  # noqa: E402
 
-def _load(name: str, fname: str):
-    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-vtree = _load("sigil_view_tree_memo_tests", "view_tree.py")
-sim = _load("sigil_sim_view_tree_memo_tests", "sim.py")
-kit, scene = vtree.kit, vtree.scene
 
 EXECUTIONS = (_DIR / "tests" / "fixtures" / "executions.sigil").read_text()
 OPTIONS = dict(depth=1, triggers=True, spaced=True, notes="markers", payloads=True,
@@ -42,7 +36,7 @@ OPTIONS = dict(depth=1, triggers=True, spaced=True, notes="markers", payloads=Tr
 
 def run(text: str, name: str = "happy"):
     """(graph, trace) — the trace named as the tree draws it (OPTIONS)."""
-    g = kit.render.parse_document(text)
+    g = parse.parse_document(text)
     scn = scene.build_scene(g, events=OPTIONS["events"], triggers=OPTIONS["triggers"],
                             access=OPTIONS["access"], depth=OPTIONS["depth"])
     return g, sim.project(sim.simulate(scn, sim.scenario(scn, name)), scn)

@@ -15,7 +15,6 @@ Run:  uv run python -m unittest discover notations/sigil/tests/
 from __future__ import annotations
 
 import contextlib
-import importlib.util
 import io
 import re
 import sys
@@ -24,23 +23,19 @@ import unittest
 from pathlib import Path
 
 _DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_DIR))
 
-
-def _load(name: str, fname: str):
-    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-view = _load("sigil_view", "view.py")
+from sigil import cli  # noqa: E402
+from sigil.core import parse  # noqa: E402
+from sigil.core.graph import Node  # noqa: E402
+from sigil.present import app as view, kit  # noqa: E402
+from sigil.present.views import graph as vgraph  # noqa: E402
 
 
 def draw(text: str, depth: int = 1) -> str:
-    g = view.render.parse_document(text)
+    g = parse.parse_document(text)
     out = []
-    for _title, _g, cv in view.sections(g, depth):
+    for _title, _g, cv in vgraph.sections(g, depth):
         out.extend("".join(t for t, _ in row) for row in cv.rows())
     return "\n".join(out)
 
@@ -76,13 +71,13 @@ class TestLayout(unittest.TestCase):
 
     def test_isolated_nodes_wrap(self):
         text = "\n".join(f"[Component{i}]" for i in range(40)) + "\n"
-        g = view.render.parse_document(text)
-        (_t, _g, cv), = list(view.sections(g, 1))
-        self.assertLessEqual(cv.w, view.ISOLATED_WRAP)
+        g = parse.parse_document(text)
+        (_t, _g, cv), = list(vgraph.sections(g, 1))
+        self.assertLessEqual(cv.w, vgraph.ISOLATED_WRAP)
 
     def test_state_machine_section_with_trigger_labels(self):
         text = "state {Job} {\n  + -<submit>-> Pending\n  Pending -<done>-> $\n}\n"
-        rows, _w = view.compose(view.render.parse_document(text), 1, False)
+        rows, _w = vgraph.compose(parse.parse_document(text), 1, False)
         out = "\n".join("".join(t for t, _ in r) for r in rows)
         self.assertIn("{Job} state machine", out)
         self.assertIn("●", out)
@@ -90,22 +85,22 @@ class TestLayout(unittest.TestCase):
         self.assertIn("<submit>", out)
 
     def test_payload_chip_splits_its_edge(self):
-        g = view.render.parse_document("[A] -> [B] : {Req}\n[A] -> [C]\n")
-        gc = view.with_chips(g, payloads=True)
-        chip = next(n for n in gc.nodes.values() if n.kind == view.CHIP)
+        g = parse.parse_document("[A] -> [B] : {Req}\n[A] -> [C]\n")
+        gc = vgraph.with_chips(g, payloads=True)
+        chip = next(n for n in gc.nodes.values() if n.kind == kit.CHIP)
         self.assertEqual(chip.name, "{Req}")
         self.assertEqual({(e.src, e.dst) for e in gc.edges},
                          {("A_service", chip.id), (chip.id, "B_service"), ("A_service", "C_service")})
         out = draw("[A] -> [B] : {Req}\n")
         self.assertEqual(out.count("▼"), 1)           # one head, on [B], none into the chip
-        self.assertIs(view.with_chips(g), g)          # nothing to add: the same graph
+        self.assertIs(vgraph.with_chips(g), g)          # nothing to add: the same graph
 
     def test_triggers_wire_event_to_owner_in_graph_view(self):
         text = "[P] ~> <Paid>\nstate {Order} {\n  Open -<Paid>-> Settled\n}\n"
-        rows, _ = view.compose(view.render.parse_document(text), 0, False, triggers=True)
+        rows, _ = vgraph.compose(parse.parse_document(text), 0, False, triggers=True)
         out = "\n".join("".join(t for t, _ in r) for r in rows)
         self.assertEqual(out.count("▼"), 2)           # [P] → <Paid>, <Paid> ⇢ {Order}
-        rows, _ = view.compose(view.render.parse_document(text), 0, False, triggers=False)
+        rows, _ = vgraph.compose(parse.parse_document(text), 0, False, triggers=False)
         self.assertEqual("\n".join("".join(t for t, _ in r) for r in rows).count("▼"), 1)
 
     def test_expansion_section(self):
@@ -130,13 +125,10 @@ class TestOnce(unittest.TestCase):
         with tempfile.NamedTemporaryFile("w", suffix=".sigil", delete=False) as f:
             f.write(text)
         buf = io.StringIO()
-        argv = sys.argv
-        sys.argv = ["view.py", f.name, "--once", *args]
         try:
             with contextlib.redirect_stdout(buf):
-                status = view.main()
+                status = cli.main(["view", f.name, "--once", *args])
         finally:
-            sys.argv = argv
             Path(f.name).unlink()
         return status, buf.getvalue()
 
@@ -185,7 +177,7 @@ class TestLiveView(unittest.TestCase):
         for cols, rows in ((80, 24), (40, 10), (200, 60)):
             frame = st.frame(cols, rows)
             self.assertEqual(len(frame), rows)
-            self.assertTrue(all(view.row_len(r) <= cols for r in frame))
+            self.assertTrue(all(kit.row_len(r) <= cols for r in frame))
 
     def test_small_graph_is_centred_both_ways(self):
         st = view.ViewState(self.path, do_lint=False)
@@ -245,9 +237,9 @@ class TestLiveView(unittest.TestCase):
                 if t in ("(", "[", "|", "User", "API", "DB"):
                     styles.setdefault(t, sty)
         # brackets in the kind's colour, the name off-white, all on the tinted fill
-        self.assertEqual(styles["("][0], view.CORE_KINDS["actor"]["color"])
-        self.assertEqual(styles["["][0], view.CORE_KINDS["service"]["color"])
-        self.assertEqual(styles["|"][0], view.CORE_KINDS["store"]["color"])
+        self.assertEqual(styles["("][0], kit.CORE_KINDS["actor"]["color"])
+        self.assertEqual(styles["["][0], kit.CORE_KINDS["service"]["color"])
+        self.assertEqual(styles["|"][0], kit.CORE_KINDS["store"]["color"])
         for name in ("User", "API", "DB"):
             self.assertTrue(styles[name][0].role.startswith("muted:kinds-"))
         self.assertTrue(all(s[1] for s in styles.values()))   # tinted fill
@@ -257,20 +249,20 @@ class TestLiveView(unittest.TestCase):
             NODE_KINDS = {"widget": {"open": "<<", "close": ">>", "color": "#123456",
                                      "border": "double", "legend": "widget"}}
         try:
-            view.use_dialect(Fake)
-            n = view.render.Node(id="w", name="W", kind="widget")
-            self.assertEqual(view.node_label(n), "<<W>>")
-            self.assertEqual(view.node_styles(n)[0][0], "#123456")
+            kit.use_dialect(Fake)
+            n = Node(id="w", name="W", kind="widget")
+            self.assertEqual(kit.node_label(n), "<<W>>")
+            self.assertEqual(kit.node_styles(n)[0][0], "#123456")
             st = view.ViewState(self.path, dialect=None)
             self.assertNotIn("widget", "".join(t for t, _ in st._legend_rule(200)))
-            view.use_dialect(Fake)
+            kit.use_dialect(Fake)
             self.assertIn("widget", "".join(t for t, _ in st._legend_rule(200)))
         finally:
-            view.use_dialect(None)
+            kit.use_dialect(None)
 
     def test_core_has_no_dialect_kinds(self):
-        view.use_dialect(None)
-        self.assertEqual(set(view.KINDS),
+        kit.use_dialect(None)
+        self.assertEqual(set(kit.KINDS),
                          {"service", "data", "event", "actor", "store", "state", "alias"})
 
     def test_once_colour_emits_truecolor(self):

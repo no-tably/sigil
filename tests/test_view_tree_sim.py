@@ -25,26 +25,21 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
-import importlib.util
 import re
 import sys
 import unittest
 from pathlib import Path
 
 _DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_DIR))
 
+from sigil.core import parse  # noqa: E402
+from sigil.model import scene  # noqa: E402
+from sigil.model import sim  # noqa: E402
+from sigil.present import app as view  # noqa: E402
+from sigil.present import kit  # noqa: E402
+from sigil.present.views import tree as vtree  # noqa: E402
 
-def _load(name: str, fname: str):
-    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-vtree = _load("sigil_view_tree_sim_tests", "view_tree.py")
-sim = _load("sigil_sim_view_tree_tests", "sim.py")
-kit, scene = vtree.kit, vtree.scene
 
 ORDERS = (_DIR / "site" / "examples" / "04-orders.sigil").read_text()
 EXECUTIONS = (_DIR / "tests" / "fixtures" / "executions.sigil").read_text()
@@ -53,7 +48,7 @@ CHAIN = "(User) -> [API]\n[API] -> |DB|\n[API] !> [Alarm]\n"
 
 def run(text: str, depth: int = 1, events: str = "land", name: str = "happy"):
     """(graph, trace) — the trace named as the tree draws it."""
-    g = kit.render.parse_document(text)
+    g = parse.parse_document(text)
     scn = scene.build_scene(g, events=events, triggers=True, access=False, depth=depth)
     return g, sim.project(sim.simulate(scn, sim.scenario(scn, name)), scn)
 
@@ -120,7 +115,7 @@ class LayoutHoldsStill(unittest.TestCase):
 
 class WithoutATrace(unittest.TestCase):
     def test_no_slot_and_no_restyling(self):
-        g = kit.render.parse_document(CHAIN)
+        g = parse.parse_document(CHAIN)
         self.assertEqual(vtree.compose_tree(g, 1), vtree.compose_tree(g, 1, trace=None, tick=5))
         self.assertTrue(plain(vtree.compose_tree(g, 1)[0])[0].startswith("(User)"))
 
@@ -160,15 +155,15 @@ class Rows(unittest.TestCase):
 
     def test_failed_row(self):
         g, trace = run(CHAIN, name=next(s.name for s in sim.scenarios(
-            scene.build_scene(kit.render.parse_document(CHAIN))) if s.name != "happy"))
+            scene.build_scene(parse.parse_document(CHAIN))) if s.name != "happy"))
         t = first_tick(trace, lambda f: "failed" in f.nodes.values())
         rows, _w = draw(g, trace, t)
         failed = [nid for nid, st in trace.frames[t].nodes.items() if st == "failed"]
         name = kit.node_label(g.nodes[failed[0]])
         y = find_row(rows, name)
         self.assertTrue(plain(rows)[y].startswith(f"  {name} ✕"))
-        self.assertEqual(str(style_at(rows, y, name)[0]), str(scene.colour_of("edges-fail")))
-        self.assertEqual(style_at(rows, y, "✕"), (scene.colour_of("edges-fail"), None, True))
+        self.assertEqual(str(style_at(rows, y, name)[0]), str(kit.colour_of("edges-fail")))
+        self.assertEqual(style_at(rows, y, "✕"), (kit.colour_of("edges-fail"), None, True))
 
 
 class Machines(unittest.TestCase):
@@ -229,7 +224,7 @@ class Lanes(unittest.TestCase):
         rows, _w = vtree.compose_tree(g, 1, trace=trace, tick=len(trace.frames) - 1)
         y = find_row(rows, "[Alarm]")
         style = cell(rows, plain(rows)[y].index("◀"), y)[1]
-        self.assertEqual(style, (scene.colour_of("edges-fail"), None, True))
+        self.assertEqual(style, (kit.colour_of("edges-fail"), None, True))
 
 
 class Tokens(unittest.TestCase):
@@ -263,18 +258,18 @@ class Tokens(unittest.TestCase):
         self.assertEqual(cell(rows, x, y)[1], (kit.kind_color("actor"), None, True))
         self.assertEqual(cell(self.at(1.0, dir="back"), x, y)[0], "○")
         failed = self.at(1.0, state="failed")
-        self.assertEqual(cell(failed, x, y), ("✕", (scene.colour_of("edges-fail"), None, True)))
+        self.assertEqual(cell(failed, x, y), ("✕", (kit.colour_of("edges-fail"), None, True)))
 
     def test_source_marks_muted_so_a_token_stands_out(self):
         rows = self.at(1.0)
         x = self.lane_x(rows)
         mark = cell(rows, x, find_row(rows, "(User)"))
-        self.assertEqual(mark, ("●", scene.wire_style(self.wire, "inactive")))
+        self.assertEqual(mark, ("●", kit.wire_style(self.wire, "inactive")))
         self.assertNotEqual(mark, cell(rows, x, find_row(rows, "[API]")))  # the token
         bare = vtree.compose_tree(self.g, 1)[0]     # without a trace: the lane's own style
         y = find_row(bare, "(User)")
         self.assertEqual(cell(bare, len(plain(bare)[y].rstrip()) - 1, y)[1],
-                         scene.wire_style(self.wire))
+                         kit.wire_style(self.wire))
 
     def test_token_on_an_undrawn_wire_is_skipped(self):
         frame = self.trace.frames[0]
@@ -331,7 +326,6 @@ class Legend(unittest.TestCase):
         def entries(row):
             return {(mark, word.strip()) for (mark, _s), (word, _w) in zip(row[1::2], row[2::2])}
 
-        view = _load("sigil_view_tree_sim_app", "view.py")
         graph = {e for e in entries(view.sim_legend()) if e[1] != "cancelled"}
         self.assertLessEqual(graph, entries(vtree.tree_legend(sim=True)[-1]))
 
@@ -344,7 +338,7 @@ class BadgeWidths(unittest.TestCase):
                   frame._replace(instances={"A": 12}, depth={"B": 2}),
                   frame._replace(machines={"M": "S", "N": "T"}))
         trace = sim.Trace(None, frames, "done", {})
-        nodes = {nid: kit.render.Node(nid, nid, "service") for nid in "ABMN"}
+        nodes = {nid: parse.Node(nid, nid, "service") for nid in "ABMN"}
         self.assertEqual(vtree._badge_widths(trace, nodes, {"M"}, {"S": "Start"}),
                          {"A": len(" ×12"), "B": len(" ↻2"), "M": len(" ◉ Start")})
 
@@ -352,7 +346,7 @@ class BadgeWidths(unittest.TestCase):
         """`×n` only when n ≠ 1, as the graph view's (view_graph._badge_runs)."""
         frame = sim.Frame(*([None] * len(sim.Frame._fields)))._replace(
             nodes={}, instances={"A": 1, "B": 2}, depth={}, machines={})
-        one, two = (kit.render.Node(nid, nid, "service") for nid in "AB")
+        one, two = (parse.Node(nid, nid, "service") for nid in "AB")
         self.assertEqual(vtree._badge_runs(one, frame, set(), {}), [])
         self.assertEqual(vtree._badge_runs(two, frame, set(), {}),
                          [(" ×2", (kit.kind_color("service"), None, False))])

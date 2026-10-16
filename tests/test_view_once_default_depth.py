@@ -14,17 +14,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import view  # noqa: E402
+from sigil import cli  # noqa: E402
+from sigil.present import app as view, kit  # noqa: E402
 
 SHOP = ROOT / "site" / "examples" / "02-shop.sigil"
-ALL = view.kit.ALL_DEPTH
+ALL = kit.ALL_DEPTH
 NESTED = "[Risk]"                       # a lane two expansions deep in the shop
 
 
 def printed(argv: list[str]) -> str:
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
-        status = view.main([str(SHOP), *argv])
+        status = cli.main(["view", str(SHOP), *argv])
     assert status == 0, status
     return out.getvalue()
 

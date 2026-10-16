@@ -14,32 +14,25 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
-import importlib.util
 import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
+from sigil.core import parse  # noqa: E402
+from sigil.model import scene  # noqa: E402
+from sigil.present import kit  # noqa: E402
+from sigil.present.views import graph as vgraph  # noqa: E402
 
-def _load(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-view = _load("sigil_view", ROOT / "view.py")
-vgraph, kit = view.vgraph, view.kit
-scene = vgraph.scene
 
 ORDERS = (ROOT / "site" / "examples" / "04-orders.sigil").read_text()
 CHECKOUT = (ROOT / "site" / "examples" / "01-checkout.sigil").read_text()
 
 
 def land_scene():
-    g = kit.render.parse_document(ORDERS)
+    g = parse.parse_document(ORDERS)
     return g, scene.build_scene(g, events="land", depth=kit.ALL_DEPTH)
 
 
@@ -132,7 +125,7 @@ class SharedCells(unittest.TestCase):
         self.assertEqual(vgraph._nearest_owners([across, down], lines), {})
 
     def test_fan_out_turn_cells_take_their_heads_colour(self):
-        g = kit.render.parse_document(CHECKOUT)
+        g = parse.parse_document(CHECKOUT)
         rows, _w = vgraph.compose(g, 1, False)
         grid = []
         for r in rows:

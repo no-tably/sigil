@@ -38,7 +38,6 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
-import importlib.util
 import random
 import sys
 import tempfile
@@ -46,18 +45,14 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
+from sigil.core import parse  # noqa: E402
+from sigil.model import scene  # noqa: E402
+from sigil.model import sim  # noqa: E402
+from sigil.present import app as view  # noqa: E402
+from sigil.present import kit  # noqa: E402
 
-def _load(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-view = _load("sigil_view_frames", ROOT / "view.py")
-kit, scene, sim = view.kit, view.scene, view.simulator
 
 EXAMPLES = sorted((ROOT / "site" / "examples").glob("*.sigil"))
 EXECUTIONS = ROOT / "tests" / "fixtures" / "executions.sigil"
@@ -124,7 +119,7 @@ class TestSameFrames(unittest.TestCase):
         turn (every combination is a few minutes: tools/ is not, this is)."""
         turn = 0
         for path in EXAMPLES + [EXECUTIONS]:
-            g = kit.render.parse_document(path.read_text())
+            g = parse.parse_document(path.read_text())
             names = self.scenarios(g)
             for v in VIEWS:
                 opts, width = OPTIONS[turn % len(OPTIONS)], (None, 60)[turn % 2]
@@ -136,13 +131,13 @@ class TestSameFrames(unittest.TestCase):
     def test_narrow_bands_and_folds(self):
         """The narrowest fits: flow bands with plugs, tree lanes folded, graph
         layers wrapped and hints under the drawing."""
-        g = kit.render.parse_document((EXAMPLES[2]).read_text())
+        g = parse.parse_document((EXAMPLES[2]).read_text())
         for v in VIEWS:
             with self.subTest(view=v):
                 self.assert_run(g, v, 30, dict(payloads=True), "happy", stride=6)
 
     def test_checks_overlay(self):
-        g = kit.render.parse_document(EXAMPLES[1].read_text())
+        g = parse.parse_document(EXAMPLES[1].read_text())
         report = view.run_checks(EXAMPLES[1].read_text())
         overlay = view.ChecksOverlay(g, report, view.checks_summary(report))
         for v in VIEWS:
@@ -155,13 +150,13 @@ class TestSameFrames(unittest.TestCase):
         """Frames that fit with the chips lettered: each frame hands out the
         letters the panel lists (a part drawn whole is not laid out again)."""
         for path in EXAMPLES[:3]:
-            g = kit.render.parse_document(path.read_text())
+            g = parse.parse_document(path.read_text())
             with self.subTest(path=path.name):
                 self.assert_run(g, "flow", 100, dict(payloads=True, mods=True), "happy",
                                 stride=3)
 
     def test_chain_long_run(self):
-        g = kit.render.parse_document(chain(40))
+        g = parse.parse_document(chain(40))
         for v in VIEWS:
             with self.subTest(view=v):
                 self.assert_run(g, v, 50, {}, "happy", stride=11)
@@ -236,7 +231,7 @@ class TestLongChain(unittest.TestCase):
         return slow / max(fast, 1)
 
     def test_fewer_calls_and_same(self):
-        g = kit.render.parse_document(chain(500))
+        g = parse.parse_document(chain(500))
         least = {"flow": 4, "tree": 3, "graph": 2}
         for v in VIEWS:
             for width in (None, 120):
@@ -245,7 +240,7 @@ class TestLongChain(unittest.TestCase):
 
     def test_flow_fits(self):
         """A drawing that fits the width is one part drawn whole, kept too."""
-        g = kit.render.parse_document(rows_of_chains(120))
+        g = parse.parse_document(rows_of_chains(120))
         for width in (None, 120):
             with self.subTest(width=width):
                 self.assertGreater(self.fewer_calls(g, "flow", width, played=True), 3)
