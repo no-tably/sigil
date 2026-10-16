@@ -25,7 +25,8 @@ from dataclasses import replace
 from typing import Iterable, Optional
 
 from sigil.core import parse
-from sigil.core.comments import layout_of, read_acks
+from sigil.core.comments import read_acks, walk_layout
+from sigil.core.statements import read_document
 from sigil.model import systems
 from sigil.model.systems import ARROW_MODE, Component, Flow, Model, System
 from sigil.analyse.check import CORE_NAMES
@@ -39,10 +40,10 @@ def build_model(text: str, stem: str, dialect=None) -> Model:
     """The model of a document, hashed: parsed, its acknowledgements read as
     check reads them."""
     lines = text.splitlines()
-    graph = parse.parse_document(text, dialect=dialect)
-    comments = {k + 1: v for k, v in parse.collect_comments(lines, dialect).items()}
-    acks = read_acks(comments, layout_of(lines, parse.strip_comment),
-                     frozenset(CORE_NAMES.values()))
+    walk = read_document(text, dialect)               # the one reading
+    graph = parse.parse_document(text, dialect=dialect, walk=walk)
+    comments = {k + 1: v for k, v in walk.comments.items()}
+    acks = read_acks(comments, walk_layout(walk), frozenset(CORE_NAMES.values()))
     return model_of(graph, lines, stem, acks)
 
 

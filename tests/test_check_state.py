@@ -163,7 +163,7 @@ class Stale(unittest.TestCase):
     def test_a_block_acknowledgement_names_its_block(self):
         rep = run("""
             #!craft
-            [A] {   # accepts: probe — nothing in here
+            loop @times(2) {   # accepts: probe — nothing in here
               [A] -> [B] : f()
             }
             """, probe())

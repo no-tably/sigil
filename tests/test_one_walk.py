@@ -153,12 +153,41 @@ def _ref_tokenizer(s, i, prev, layer, Node):
                            layer=layer))], m.end(), True
 
 
+def _text_layout(lines: list):
+    """The oracle: the Layout the text reading (check's and the export's before
+    D16) gave. A line whose code ends with `{` opens a block, one whose code
+    starts with `}` closes the innermost open block."""
+    from sigil.core.comments import Layout
+    from sigil.core.lex import STRING_RE, strip_comment
+    stmts, quoted, blocks, stack = set(), set(), {}, []
+    in_quote = False
+    for n, raw in enumerate(lines, start=1):
+        if in_quote:
+            quoted.add(n)
+            in_quote = raw.count('"""') % 2 == 0
+            continue
+        stripped = raw.strip()
+        if stripped.startswith("#!"):
+            continue
+        code = stripped if stripped.startswith("#&") else strip_comment(raw).strip()
+        if not code:
+            continue
+        stmts.add(n)
+        in_quote = code.count('"""') % 2 == 1
+        bare = STRING_RE.sub('""', code)
+        if bare.startswith("}") and stack:
+            head = stack.pop()
+            blocks[head] = blocks[n] = (head, n)
+        if bare.endswith("{"):
+            stack.append(n)
+    return Layout(frozenset(stmts), blocks, frozenset(quoted))
+
+
 class LayoutFromTheWalk(unittest.TestCase):
     """D16: statement lines, block spans and quoted lines from the one reading."""
 
     def test_the_walk_s_layout_is_the_text_reading_s_over_the_corpus(self):
-        from sigil.core.comments import layout_of, walk_layout
-        from sigil.core.lex import strip_comment
+        from sigil.core.comments import walk_layout
         sys.path.insert(0, str(ROOT / "tools"))
         from snapshot import DOC_FILES, doc_blocks
         docs = list(_corpus())
@@ -168,7 +197,7 @@ class LayoutFromTheWalk(unittest.TestCase):
         for name, text in docs:
             lines = text.splitlines()
             self.assertEqual(walk_layout(statements.read_lines(lines)),
-                             layout_of(lines, strip_comment), name)
+                             _text_layout(lines), name)
 
     def test_a_block_closed_at_a_statement_s_end_or_opened_mid_line(self):
         # What the text reading missed: a `}` that ends a statement, a `{` that is

@@ -8,9 +8,7 @@
                     payload is an inline note of its flow (block_lines,
                     block_string_of)
     layout          walk_layout(walk): statement lines and block spans (Layout)
-                    of the one reading; layout_of(lines, strip_comment) the
-                    same from a text walk of its own, until its callers read
-                    the walk
+                    of the one reading (check and the export read it)
     acknowledgements  `# accepts: rule-name — reason` comments: parse_ack,
                     ack_span, read_acks → [Ack] (catalog §10.1); check reads
                     them, and so does the export model
@@ -22,10 +20,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Optional
 
 from sigil.core.graph import Note, walk_breadth
-from sigil.core.lex import STRING_RE
 from sigil.core.parse import collect_comments  # noqa: F401  (re-exported)
 
 
@@ -153,33 +150,6 @@ class Layout:
             head, close = self.blocks[line]
             return frozenset(range(head, close + 1))
         return frozenset({line})
-
-
-def layout_of(lines: list, strip_comment: Callable) -> Layout:
-    """Statement lines and block spans. A line whose code ends with `{` opens a
-    block, one whose code starts with `}` closes the innermost open block."""
-    statements, quoted, blocks, stack = set(), set(), {}, []
-    in_quote = False
-    for n, raw in enumerate(lines, start=1):
-        if in_quote:
-            quoted.add(n)
-            in_quote = raw.count('"""') % 2 == 0
-            continue
-        stripped = raw.strip()
-        if stripped.startswith("#!"):
-            continue
-        code = stripped if stripped.startswith("#&") else strip_comment(raw).strip()
-        if not code:
-            continue
-        statements.add(n)
-        in_quote = code.count('"""') % 2 == 1
-        bare = STRING_RE.sub('""', code)
-        if bare.startswith("}") and stack:
-            head = stack.pop()
-            blocks[head] = blocks[n] = (head, n)
-        if bare.endswith("{"):
-            stack.append(n)
-    return Layout(frozenset(statements), blocks, frozenset(quoted))
 
 
 def walk_layout(walk) -> Layout:

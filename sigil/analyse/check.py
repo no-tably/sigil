@@ -89,8 +89,7 @@ from typing import Callable, Iterable, Optional
 # Layout and acknowledgements are read in core (check.Ack, check.read_acks, … keep
 # their names here).
 from sigil.core.comments import (  # noqa: F401  (re-exported)
-    Ack, Layout, RULE_ID_RE, ack_span, layout_of, parse_ack, read_acks)
-from sigil.core.lex import strip_comment
+    Ack, Layout, RULE_ID_RE, ack_span, parse_ack, read_acks, walk_layout)
 
 
 _RULES = Path(__file__).resolve().parent / "rules"      # the rule modules
@@ -446,8 +445,15 @@ class Doc:
         return self._writers.get(store, {})
 
     @cached_property
+    def walk(self):
+        """The document's one reading (sigil.core.statements.read_document): the
+        graph, the comments and the layout all come from it."""
+        from sigil.core.statements import read_document
+        return read_document(self.text, self.dialect)
+
+    @cached_property
     def graph(self):
-        return self.render.parse_document(self.text, dialect=self.dialect)
+        return self.render.parse_document(self.text, dialect=self.dialect, walk=self.walk)
 
     @cached_property
     def graphs(self) -> list:
@@ -457,13 +463,12 @@ class Doc:
 
     @cached_property
     def comments(self) -> dict:
-        """{1-based line: (text, own_line)} (render.collect_comments)."""
-        return {k + 1: v for k, v in
-                self.render.collect_comments(self.lines, self.dialect).items()}
+        """{1-based line: (text, own_line)}, the walk's comments."""
+        return {k + 1: v for k, v in self.walk.comments.items()}
 
     @cached_property
     def layout(self) -> Layout:
-        return layout_of(self.lines, strip_comment)
+        return walk_layout(self.walk)
 
     @cached_property
     def acks(self) -> list:
