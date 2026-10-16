@@ -32,7 +32,9 @@ Each input gets a directory `tests/golden/<input>/` with one file per variant:
   (the happy run at --width 80: notes shortened or below, bands);
 - `run-json-depth-<d>.txt` — what `sigil view <input>.sigil --run --json --depth <d>`
   prints (the happy run's timeline as JSON), for RUN_JSON_INPUTS at RUN_JSON_DEPTHS;
-- `mermaid.txt` — what `sigil export <input>.sigil --mermaid` prints.
+- `mermaid.txt` — what `sigil export <input>.sigil --mermaid` prints;
+- `mermaid-spine.txt` — what `sigil export <input>.sigil --mermaid --spine` prints
+  (the chart grouped by the export's systems), for SPINE_INPUTS only.
 
 The export variant: for each of EXPORT_INPUTS, `tests/golden/export/<input>/` holds
 every file `sigil export <input>.sigil --out DIR` writes into an empty DIR (the index,
@@ -69,7 +71,7 @@ from sigil.core import parse                    # noqa: E402
 from sigil.core.graph import ALL_DEPTH as GRAPH_ALL_DEPTH  # noqa: E402
 from sigil.model import sim as simulator        # noqa: E402
 from sigil.present import app, kit              # noqa: E402
-from sigil.publish import mermaid               # noqa: E402
+from sigil.publish import mermaid, spine        # noqa: E402
 
 GOLDEN_DIR = ROOT / "tests" / "golden"
 THEME = "sigil"
@@ -90,6 +92,7 @@ _BEAT = re.compile(r"t\d{3} ")       # a line of the run in words (app.beat_line
 FIXTURES = ("coverage.sigil", "executions.sigil")
 EXPORT_DIR = "export"           # tests/golden/export/<input>/: what `sigil export` writes
 EXPORT_INPUTS = ("07-export",)  # the inputs exported (each a ready #!spec document)
+SPINE_INPUTS = ("02-shop", "07-export")   # the inputs charted with `--mermaid --spine`
 GOLDEN_SUFFIXES = (".txt", ".md", ".json")   # the files a golden directory holds
 
 
@@ -140,6 +143,7 @@ def _variants() -> tuple[Variant, ...]:
 
 VARIANTS = _variants()
 MERMAID = "mermaid"
+SPINE = "mermaid-spine"
 
 
 # ---------------------------------------------------------------------------
@@ -253,7 +257,17 @@ def draw_input(workdir: Path, inp: Input, runs: frozenset = frozenset()) -> dict
     path.write_text(inp.text, encoding="utf-8")
     out = {f"{inp.name}/{v.name}.txt": draw(path, v) for v in VARIANTS
            if drawn_in(v, inp, runs)}
-    out[f"{inp.name}/{MERMAID}.txt"] = mermaid.render(inp.text, dialect=None) + "\n"
+    out.update(chart_input(inp))
+    return out
+
+
+def chart_input(inp: Input) -> dict[str, str]:
+    """The Mermaid charts of one input, keyed `<input>/<chart>.txt`: MERMAID for
+    every input, SPINE (its export systems as subgraphs, the top one named after
+    the input) for SPINE_INPUTS."""
+    out = {f"{inp.name}/{MERMAID}.txt": mermaid.render(inp.text, dialect=None) + "\n"}
+    if inp.name in SPINE_INPUTS:
+        out[f"{inp.name}/{SPINE}.txt"] = spine.spine(inp.text, inp.name, dialect=None) + "\n"
     return out
 
 
