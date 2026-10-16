@@ -524,6 +524,18 @@ class TestPageMarkup(unittest.TestCase):
         js = (SITE / "site.js").read_text()
         self.assertIn("const sayLive = liveSayer(el.say)", js)
 
+    def test_page_names_its_icon(self):
+        # without an icon link a browser asks for /favicon.ico: a 404 in the console
+        page = (SITE / "index.html").read_text(encoding="utf-8")
+        self.assertRegex(page, r'<link rel="icon" href="[^"]+">')
+
+    def test_playground_smoke_probes_the_pyodide_the_page_loads(self):
+        smoke = _load("sigil_playground_smoke_t", _DIR / "tools" / "playground_smoke.py")
+        js = (SITE / "site.js").read_text()
+        url = smoke.pyodide_url(js)
+        self.assertTrue(url.startswith("https://") and url.endswith("/pyodide.js"), url)
+        self.assertIn(f'const PYODIDE = "{url.removesuffix("pyodide.js")}"', js)
+
 
 NODE = shutil.which("node")
 
