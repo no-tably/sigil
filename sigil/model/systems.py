@@ -74,8 +74,8 @@ import re
 from dataclasses import dataclass, field, replace
 from typing import Iterable, NamedTuple, Optional
 
-from sigil.core import parse as render
 from sigil.core.graph import walk_depth
+from sigil.core.lex import BLOCK_SENTINEL, BRANCH_RE, comment_start, strip_comment
 
 
 # ---------------------------------------------------------------------------
@@ -200,9 +200,8 @@ def model_of(graph, lines: list, stem: str, acks: Iterable = ()) -> Model:
     flows = collect_flows(graph, nodes)
     facts = Facts(graph, layout, homes, flows,
                   {nid: glyph([n]) for g in walk(graph) for nid, n in g.nodes.items()},
-                  tuple((a, ack_text(lines, a.line, render.comment_start)) for a in acks))
-    heads = head_lines(lines, {nid: glyph(insts[:1]).lstrip("~*") for nid, insts in nodes.items()},
-                       render.strip_comment, render.BRANCH_RE)
+                  tuple((a, ack_text(lines, a.line)) for a in acks))
+    heads = head_lines(lines, {nid: glyph(insts[:1]).lstrip("~*") for nid, insts in nodes.items()})
     appears = merged(graph_lines(graph, nodes), heads)
     components = {nid: make_component(nid, insts, appears[nid], facts)
                   for nid, insts in nodes.items()}
@@ -216,7 +215,7 @@ def model_of(graph, lines: list, stem: str, acks: Iterable = ()) -> Model:
 
 class Facts(NamedTuple):
     """What the components and systems are made from, gathered once."""
-    graph: object                       # render.Graph
+    graph: object                       # sigil.core.graph.Graph
     lay: "Layout"
     homes: dict                         # node id → system key
     flows: list                         # Flows, document order
@@ -518,13 +517,13 @@ def graph_lines(graph, nodes: dict) -> dict:
     return out
 
 
-def head_lines(lines: list, marks: dict, strip_comment, branch_re) -> dict:
+def head_lines(lines: list, marks: dict) -> dict:
     """{node id: lines whose statement starts with its glyph}: a declaration
     (`[Api] @sla(…)`), a tree root, or a `\\-` branch's child (tree entries
     carry no line, and a bare declaration names no edge). `marks`: node id → its
     glyph without `~`/`*`. Only a statement's head counts: a glyph inside a
     payload or an op's arguments (`find(User)`) is no appearance."""
-    lead = rf"(?:^\s*|(?:{branch_re.pattern})\s*)[~*]*"
+    lead = rf"(?:^\s*|(?:{BRANCH_RE.pattern})\s*)[~*]*"
     pats = {nid: re.compile(lead + re.escape(mark) + r"(?!\w)") for nid, mark in marks.items()}
     out = {nid: set() for nid in marks}
     for k, raw in enumerate(lines, start=1):
@@ -544,7 +543,7 @@ def merged(*found: dict) -> dict:
     return {nid: tuple(sorted(v)) for nid, v in out.items()}
 
 
-def ack_text(lines: list, line: int, comment_start) -> str:
+def ack_text(lines: list, line: int) -> str:
     """The acknowledgement comment on a 1-based line, verbatim (no `#`)."""
     raw = lines[line - 1] if 0 < line <= len(lines) else ""
     m = comment_start(raw, notes_only=True)
@@ -572,7 +571,7 @@ def flow_of(e) -> Flow:
     text = None
     if e.block_string is not None:
         text = "\n".join(ln.rstrip() for ln in e.block_string.strip("\n").splitlines())
-        payload = payload.replace(render.BLOCK_SENTINEL, '"""…"""') if payload else None
+        payload = payload.replace(BLOCK_SENTINEL, '"""…"""') if payload else None
     return Flow(
         src=e.src, dst=e.dst, arrow=e.kind, line=e.line, payload=payload, text=text,
         op=tight(call.op) if call and call.op else None,
