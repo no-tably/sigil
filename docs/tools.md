@@ -14,6 +14,7 @@ sigil view FILE [--once] [--graph|--tree|--flow|--run] [--sim S] …
 sigil export SPEC --out DIR [--json] [--dry-run]
 sigil export FILE --mermaid [--depth N|all] [--composition …] [--spine]
 sigil frames draw FILE … | sigil frames follow CONTROL
+sigil themes [NAME|PATH] [--list]
 ```
 
 `sigil` with no subcommand prints that list. Each subcommand loads only the parts of
@@ -41,9 +42,9 @@ import each other. No module loads another by path; the one exception is
 
 ## Exit codes
 
-Every subcommand shares one table, and prints its errors to stderr after a name:
-for now the 0.5 script's (`lint.py: message`, `render.py: …` for `--mermaid`), so
-their output is unchanged.
+Every subcommand shares one table, and prints its errors to stderr after its own
+name: `sigil lint: message`, `sigil check: …`, `sigil view: …`, `sigil export: …`
+(`--mermaid` included); its usage line names it the same way.
 
 | Code | Means |
 | --- | --- |
@@ -59,6 +60,12 @@ is not ready to export.
 
 Validates a document and prints one `severity:line:rule: message` line per issue.
 Its exit code follows the [table](#exit-codes): 0 clean, 1 warnings, 2 errors.
+
+Lint reads a document once, the same way the parser does: one statement walk and
+one tokenizer (`sigil/core/statements`, `sigil/core/tokens`) give both the model
+every other subcommand draws and checks and the lines lint's rules judge. So a
+rule reports what the drawing shows: a `#`, a brace or a `\-` inside a `"…"`
+string is string text, and a branch marker counts only where the tree reads one.
 
 - `--deep` also runs the composition checks (`sigil check`) and merges both reports into
   one list by line. Acknowledged findings come last, as `accepted:` lines. The exit
@@ -626,8 +633,8 @@ What the Claude Code pane and the pi widget run; not meant to be typed.
 
 The viewer loads a colour theme from `themes/<name>.yaml`: `sigil view --theme NAME`
 or `SIGIL_THEME=NAME` picks one, and the web page reads the same files.
-`python3 -m sigil.present.themes [NAME|PATH]` prints a theme resolved, and `--list`
-lists them. The format is in the README under [Themes](../README.md#themes).
+`sigil themes [NAME|PATH]` prints a theme resolved (its `extends` and `$name`
+references filled in) as JSON, and `sigil themes --list` lists the themes found. The format is in the README under [Themes](../README.md#themes).
 
 ## Dialects
 
@@ -636,6 +643,27 @@ the linter, Mermaid and the checker. A dialect module imports the core's vocabul
 from `sigil.core.vocab`, the dialect API, and a dialect's own command calls
 `sigil.cli.main(argv, dialect=NAME)`. See "Dialects" in
 [`language.md`](../language.md).
+
+**One hook set.** A document is read once, and a dialect hooks that one reading:
+the statement walk, its tokenizer, the parser and lint all go through the same
+hooks (documented in `sigil/core/dialects.py`):
+
+| Hook | Shape | Does |
+| --- | --- | --- |
+| `prepasses()` | `[fn(lines, result) -> lines]` | line rewrites that keep the line count, run once after the block-string fold and before the walk; the place for a blank that depends on context (whether a line is a composition branch, what the line above says). `result` is the lint result a pass may report on (the parser hands a scratch one). |
+| `strips()` | `[fn(line) -> line]` | blanks of a flow statement's text that keep its length (spaces, never deletion), applied after its branch marker is read; never to block headers, definition heads, transitions or section headers. A strip sees text only, not its context. |
+| `tokenizers()` | `[fn(s, i, prev_was_glyph, layer, Node) -> None \| (tokens, end, prev_was_glyph)]` | extra glyph or arrow syntax, tried at each column before the core rules. A glyph one reads is a glyph everywhere: a node in the model, an endpoint for lint, a definition head, and (by name) a principal an access list may name. |
+| `COMMENT_MARKERS` | regex sources | extra comment markers; one ends a statement's code as `#` does, never inside a `"…"` string. |
+
+The other hooks keep their names: `lint_passes()`, `lint_payload_checks()` (its
+`site` also says `branch`, true on a composition-branch statement), the data hooks
+(`KNOWN_MODIFIERS`, `DECLARATION_BLOCKS`, `BLOCK_KEYWORDS`, `COMPOSITION_RELATIONS`,
+…) and the check hooks. The 0.5 hooks are refused by name: a dialect that still
+defines `lint_prepasses` or `render_prepasses` (now `prepasses`),
+`render_line_strips` (now `strips`), `render_tokenizers`, `lint_glyph_masks` or
+`lint_principal_scanners` (now `tokenizers`) fails to load with an error naming the
+hook that replaces it. `strip_comment` from `sigil.core.vocab` is string-aware: a `#`
+inside a `"…"` string starts no comment.
 
 ## `highlight/`
 

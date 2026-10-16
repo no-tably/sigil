@@ -5,9 +5,11 @@ Each release's notes, newest first. The same text is the GitHub release's descri
 ## 0.6.0 — unreleased
 
 One command instead of five scripts, Mermaid as an export with a new chart grouped
-by system, and the tools rebuilt as one package along the drawing of sigil in
-sigil (`design/sigil.sigil`). What the tools print is unchanged, apart from the
-fixes listed below.
+by system, the tools rebuilt as one package along the drawing of sigil in sigil
+(`design/sigil.sigil`), and one reading of the text: lint and the parser now read a
+document the same way. What the tools print is unchanged, apart from the messages
+naming `sigil <command>`, the few lint and drawing changes under "One reading of
+the text" and the fixes listed below.
 
 ### One command
 
@@ -25,17 +27,70 @@ fixes listed below.
   | `export.py SPEC --out DIR` | `sigil export SPEC --out DIR` |
   | `render.py FILE [--depth N] [--composition …]` | `sigil export FILE --mermaid [--depth N] [--composition …]` |
   | `plugin/claude/scripts/pane.py draw` / `follow` | `sigil frames draw` / `follow` |
-  | `themes.py [NAME] [--list]` | `python3 -m sigil.present.themes [NAME] [--list]` |
+  | `themes.py [NAME] [--list]` | `sigil themes [NAME] [--list]` |
 
   Each subcommand loads only what it needs: `sigil lint` loads neither the checker,
-  the simulator nor the views. Error messages still begin with the old script's
-  name (`lint.py: …`), so every output stays as it was.
+  the simulator nor the views.
+- **Messages say `sigil <command>`.** Errors on stderr and usage lines begin with
+  the subcommand (`sigil lint: …`, `sigil check: …`, `sigil view: …`,
+  `sigil export: …`, the Mermaid chart's too) where 0.5 printed `lint.py: …`,
+  `render.py: …` and so on, and an export's index `README.md` says it was written
+  "by sigil export".
+- **`sigil themes [NAME|PATH]`** prints a colour theme resolved, as JSON, and
+  `sigil themes --list` lists the themes it finds.
 - **Mermaid is an export.** `sigil export FILE --mermaid` prints the chart
   `render.py` printed, byte for byte, in any mode (no readiness gate: a sketch draws
   too, for review).
 - **New: `--mermaid --spine`** groups the chart by the systems an export would make:
   a subgraph per expansion or composition tree, nested as the export nests them,
   each component in its home. It is the shape to look at before exporting a spec.
+
+### One reading of the text
+
+Lint and the parser used to read a document separately, and they disagreed on odd
+input: lint could warn about something the drawing did not show, or the drawing
+could show something no rule reported. Now one statement walk and one tokenizer
+feed both, so lint reports what the drawing shows, and `sigil lint` reads a
+document once. Where the two readings differed, the parser's was kept unless it
+was plainly wrong. What changes:
+
+- **Inside a `"…"` string, everything is string text.** A `#` there starts no
+  comment for any rule (before, lint's line rules cut at any ` #`, so
+  `: "a #" """…` could raise a false SGL170 and SGL151), and a brace there opens
+  or closes no block (before, `: "}"` could end a loop or state block early, and
+  `: "{"` could swallow the rest of a block or of the document).
+- **A branch marker `\-` counts only where the tree reads one**: at the start of a
+  line, after a parent glyph, or after a line's leading branch. Elsewhere (inside a
+  string, a payload or prose) it is text, and SGL110 no longer fires on it. In the
+  repository this changes one output: the grammar fragment in `language.md` loses
+  two SGL110 errors.
+- **A broken glyph places no node.** An unclosed or empty glyph (`[A] -> <B -> [C]`,
+  `[]`) draws nothing, and nor does an arrow into or out of it; before, it drew a
+  node named after the broken text (`B -`) or joined the arrow to the line above.
+  A glyph closed by the wrong bracket (`[A}`) still reads as its opener's kind.
+  Lint reports the same SGL120–SGL122 as before; Mermaid and `sigil check` lose the
+  phantom nodes (and a check finding about one, such as an orphan event).
+- **Modifier arguments in a block header name no node.** `loop @times(2) {` no
+  longer draws an actor `(2)`, nor `@inv ordered(Physics, Steering)` an actor
+  `Physics, Steering`.
+- **A `${…}` ref names no data glyph**, outside a payload too:
+  `[X] -> |tree| ${out.subtree}` and `loop @each kid of ${out.kids} {` no longer
+  draw a phantom data node.
+- **State blocks.** `state Order {` (no owner glyph) is now reported (SGL161, "no
+  owner glyph") and draws nothing; before, its lines were drawn as stray flows. A
+  machine's lines are judged once: SGL161 quotes the line it means
+  (`` `A -<>-> B` has no trigger ``), a line the machine drops that writes a
+  trigger (`A-<x>->B`) gains SGL090, and an owner-less machine is reported once, on
+  its head.
+- **Access lists split at commas outside strings** and quote a member as written:
+  `@read(A, "B, C")` gives one SGL142 for `"B, C"` (before, two).
+- **Block-strings.** A line that closes one `"""` block and opens another reads
+  both; before, the parser missed the second and the flows after it.
+- **A continuation under a malformed section header** (`--- L2: [X]` with no closing
+  dashes) continues from the glyph that line drew, as the drawing does, so it no
+  longer adds SGL130 next to the header's SGL184.
+- **SGL153 is retired**: it compared the two readings of an event's arguments,
+  which can no longer differ. Its id stays reserved.
 
 ### Fixes
 
@@ -78,6 +133,22 @@ PERMISSION_MODIFIERS, VALID_LOOP_MODS`), not by loading `lint.py` by path. A
 dialect's wrapper command calls `sigil.cli.main(argv, dialect=NAME)`; dialects are
 still found by name next to the repository (`../sigil-<name>/dialect.py`) or on
 `SIGIL_DIALECT_PATH`.
+
+**One hook set.** A dialect hooks the one reading every tool shares, instead of a
+`lint_*` and a `render_*` hook for the same job:
+
+| 0.5 | 0.6 |
+| --- | --- |
+| `lint_prepasses()`, `render_prepasses()` | `prepasses()`: line rewrites before the walk, run by lint and the parser alike |
+| `render_line_strips()` | `strips()`: now **length-preserving** (blank with spaces, never delete), applied to flow statements only, after a branch marker is read; a blank that depends on context goes in a prepass |
+| `render_tokenizers()`, `lint_glyph_masks()`, `lint_principal_scanners()` | `tokenizers()` (the signature `render_tokenizers` had): a glyph it reads is a node, a lint endpoint, a definition head and a principal name alike |
+
+A dialect that still defines a 0.5 hook fails to load, with an error naming the
+hook that replaces it. `lint_passes()`, `lint_payload_checks()` (whose `site` adds
+`branch`, true on a composition-branch statement), `COMMENT_MARKERS` and the data
+and check hooks keep their names. `strip_comment` in `sigil.core.vocab` is now
+string-aware: a `#` inside a `"…"` string starts no comment. `docs/tools.md`
+("Dialects") lists the hooks.
 
 ## 0.5.0 — 2026-10-15
 

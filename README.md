@@ -119,7 +119,7 @@ stdin. Every flag and key is in [`docs/tools.md`](./docs/tools.md).
 | `sigil check FILE` | Composition checks ([RFC 0003](./rfcs/0003-composition-checks.md)): does the design say how its risks are handled — time bounds, idempotency, writers, failure routes, stuck state machines? A finding never forbids a shape: declare the handling, or accept the risk with a reason. |
 | `sigil export SPEC --out DIR` | Exports a ready `#!spec` document as a build skeleton: a folder per system, a file per component, `manifest.json` as the contract. A re-export says which systems changed (see [Export a spec](#export-a-spec)). |
 | `sigil export FILE --mermaid` | Emits a Mermaid `flowchart TD` for docs or review (GitHub, Obsidian, mermaid.live), in any mode. `--spine` groups it by the export's systems, a subgraph each. |
-| `themes/` | Colour themes from `themes/*.yaml`, shared by the viewer and the web page. |
+| `sigil themes [NAME]` | Prints a colour theme from `themes/*.yaml` resolved, as JSON (`--list` lists them); the viewer and the web page share the files. |
 | `--dialect NAME` | Every subcommand loads a dialect that extends the linter, Mermaid and checker. |
 | `highlight/` | Syntax highlighting for bat, nvim, VS Code, Sublime/TextMate. |
 
@@ -435,7 +435,8 @@ built from it — `kinds` (box colours by glyph; `kinds.service` colours
 `[component]` glyphs), `edges`, `syntax` (code highlighting), `ui` (viewer
 chrome), `run` (a colour per episode, for runs that overlap) and `site`. A value
 `$name` refers to `palette.name`, so a role follows its palette colour; a new theme can start with `extends: sigil` and override
-only what it changes. Drop it in `themes/` or a directory on `SIGIL_THEME_PATH`.
+only what it changes. Drop it in `themes/` or a directory on `SIGIL_THEME_PATH`;
+`sigil themes NAME` prints it resolved and `sigil themes --list` lists what it finds.
 The format is a small YAML subset (nested maps, scalars, `#` comments) that
 the viewer's theme loader and the page both parse without a YAML library.
 
@@ -475,8 +476,10 @@ language. Dialects are Python modules loaded by the core (`sigil/core/dialects.p
 from directories on `SIGIL_DIALECT_PATH`; select one with `--dialect NAME` or
 `SIGIL_DIALECT=NAME`. For example, `sigil-merlang` (maintained separately) adds a
 component type system and UI-layout vocabulary for one agent runtime. A dialect
-imports the core's vocabulary from `sigil.core.vocab` (the dialect API), and a
-dialect's own command calls `sigil.cli.main(argv, dialect=NAME)`. See "Dialects" in
+imports the core's vocabulary from `sigil.core.vocab` (the dialect API), hooks the
+one reading of a document every tool shares (`prepasses`, `strips`, `tokenizers`;
+see [`docs/tools.md`](./docs/tools.md#dialects)), and a dialect's own command calls
+`sigil.cli.main(argv, dialect=NAME)`. See "Dialects" in
 [`language.md`](./language.md) for the extension API.
 
 ## Development
@@ -498,8 +501,8 @@ layer imports only the layers above it (`tests/test_spine.py` checks every impor
 
 ```text
 bin/sigil        the command (puts the package on the path, calls sigil.cli)
-sigil/cli.py     one entry point: lint · check · view · export · frames; each
-                 subcommand imports its layers only when it runs
+sigil/cli.py     one entry point: lint · check · view · export · frames ·
+                 themes; each subcommand imports its layers only when it runs
 sigil/core/      the notation read: lex (the lexical tables, kept once),     ┐
                  tokens · statements · parse (a document → the graph model), │ core
                  graph, comments, dialects, vocab (the dialect API)          ┘

@@ -24,6 +24,11 @@ A **component** `[X]` is anything with identity that does work or is built from
 parts — a service, a module, a UI widget, a system, an entity in an
 entity-component design. "Service" is one kind of component, not the definition.
 
+**Broken glyphs.** A glyph left unclosed (`<B -> [C]`) or empty (`[]`, `<>`) places
+no node, and an arrow into or out of it draws nothing; a glyph closed by the wrong
+bracket (`[A}`) reads as its opening bracket's kind. Lint reports all three
+(`SGL120`–`SGL122`).
+
 **Holes.** Any glyph can take `?` as its name to mean "unspecified of this kind": `[?]` `{?}` `<?>` `|?|` `(?)`.
 
 **Wildcards / anonymous.** `_` in any position means "any" or "I don't care about identity here." Used in state blocks, branches, skeleton form, and pattern positions.
@@ -116,6 +121,10 @@ not invent exotic literal kinds or operators of its own.
 | `[a, b, …]`     | list        | `: [1, 2, 3]`                        |
 | `{k: v, …}`     | map         | `: {retries: 3, mode: "x"}`          |
 
+Inside a `"…"` string everything is string text: `: "issue #5"` keeps its `#`
+(no comment starts there), a brace (`: "{"`) opens or closes no block, and a `\-`
+is no branch marker.
+
 A `str` value also has a **multiline `"""…"""` block-string** form — the same
 `str` type, spanning multiple lines (see "Multiline block-strings" below).
 
@@ -124,6 +133,8 @@ run time — sigil does not say which) and is **type-preserving** (it resolves t
 referent's type): `${input}`, `${state.count}`, `${out.field}`. A ref may stand
 alone as a payload (`: ${input}`) or be substituted into a surrounding string. The
 path inside `${…}` is free-form: sigil names the referent, the consumer resolves it.
+A ref is never a glyph: the braces of `${out.kids}` name no data entity, in a payload
+or anywhere else on a line (`loop @each kid of ${out.kids} {`).
 
 ### `{…}` payload — entity glyph vs map literal
 
@@ -463,7 +474,8 @@ state {Name} {
 - **Any glyph owns a state machine.** `state {Order} { … }` is a record's lifecycle;
   `state [Checkout] { … }` is a component's own modes (idle / busy / draining);
   `state |Queue| { … }` a store's. The machine belongs to — and in views nests under —
-  its owner.
+  its owner. A `state` block with no owner glyph (`state {`, `state Order {`) draws
+  nothing; lint reports it (`SGL161`).
 - Per-transition modifiers: `×N` (retry count), `@inv`, `@timeout`, etc.
 
 Lifecycle is just a state machine with `+` and `$`. No separate keyword.
@@ -741,7 +753,9 @@ an optional `*-`. A count stays the ordinary cardinality token on the child's li
   component *works* (its internal flows); a composition tree states what it
   *consists of*. A document can use both; viewers nest expansions under their node.
 - Branch markers are recognised only at the start of a line or right after a
-  parent glyph — `\-` inside prose, a comment or a payload is just text.
+  parent glyph (and after a line's leading branch) — `\-` inside prose, a comment,
+  a string or a payload is just text, and lint judges only the markers the tree
+  reads.
 
 **Where it fits.** Entity-component-system designs (entities → components, prefabs →
 spawned instances, systems wired to components), UI component trees, deployment
@@ -1134,8 +1148,11 @@ A dialect **adds**; it never changes the meaning of core syntax:
   UI host).
 - **Rules.** Extra lint rules, including rules that *tighten* core leniency (for
   example, "every value payload in this dialect must carry a concern tag").
-- **Renderer hooks.** Pre-processing so that dialect-only lines render sensibly
-  (or are stripped) in diagrams.
+- **Reading hooks.** One set, used by every tool, since a document is read once:
+  line rewrites before the statement walk, length-preserving blanks of dialect-only
+  text in a flow, and extra glyph or arrow syntax the tokenizer reads (a glyph it
+  reads is a node in the model and an endpoint for lint alike). The hooks are
+  listed in `docs/tools.md` ("Dialects").
 - **Rule packs.** Extra composition checks for `sigil check` (see "Checks"), extra
   recognised `@inv` heads, and extra read verbs. A pack's rules use the dialect's
   own id prefix and never reuse a core rule's id or name, its heads never redefine
@@ -1159,7 +1176,8 @@ error, not a silent fallback.
 place, `sigil.core.vocab`: the modes, arrows (`ARROW_RE`), modifier sets
 (`VALID_MODIFIERS`, `CALL_RESILIENCE_MODIFIERS`, `PERMISSION_MODIFIERS`,
 `VALID_LOOP_MODS`, …), glyph patterns (`GLYPH_PATTERNS`, `ANY_GLYPH_RE`), the
-lint records (`Diagnostic`, `LintResult`) and `strip_comment`. These names are
+lint records (`Diagnostic`, `LintResult`) and `strip_comment` (string-aware: a `#`
+inside a `"…"` string starts no comment). These names are
 stable; nothing else in the package is. A dialect's own command (a wrapper that
 always selects it) calls `sigil.cli.main(argv, dialect=NAME)`.
 
