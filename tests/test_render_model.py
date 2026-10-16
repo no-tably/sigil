@@ -1,4 +1,4 @@
-"""Tests for the render.py graph MODEL (the single source of truth the Mermaid
+"""Tests for the parser's graph MODEL (sigil.core.parse / sigil.core.graph) (the single source of truth the Mermaid
 emitter, the terminal views and a future simulation engine read).
 
 One class per fix / model field:
@@ -14,7 +14,6 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
-import importlib.util
 import subprocess
 import sys
 import unittest
@@ -22,17 +21,13 @@ from pathlib import Path
 
 _DIR = Path(__file__).resolve().parents[1]
 FIXTURE = _DIR / "tests" / "fixtures" / "coverage.sigil"
+SIGIL = _DIR / "bin" / "sigil"
+sys.path.insert(0, str(_DIR))
 
-
-def _load(name: str, fname: str):
-    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-render = _load("sigil_render_model", "render.py")
+from sigil.analyse import lint  # noqa: E402
+from sigil.core import graph as core_graph  # noqa: E402
+from sigil.core import parse as render  # noqa: E402
+from sigil.publish import mermaid  # noqa: E402
 
 
 def parse(text):
@@ -116,7 +111,7 @@ class Generics(unittest.TestCase):
         })
 
     def test_mermaid_escapes_the_angle_brackets(self):
-        out = render.render("[Api] <-> [Cache<K,V>]\n")
+        out = mermaid.render("[Api] <-> [Cache<K,V>]\n")
         self.assertIn('Cache_K_V__service["Cache&lt;K,V&gt;"]', out)
         self.assertNotIn("<K", out)
 
@@ -128,7 +123,7 @@ class Generics(unittest.TestCase):
     def test_lint_agrees_and_roles_resolve(self):
         doc = ("#!spec\n[Worker<N>]\n[Coord]\n|Tasks| @read(Worker) @write(Coord)\n"
                "[Api] -> <Msg<T>> -> [Cache<K,V>]\n")
-        r = subprocess.run([sys.executable, str(_DIR / "lint.py"), "-"], input=doc,
+        r = subprocess.run([sys.executable, str(SIGIL), "lint", "-"], input=doc,
                            capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout)
         acc = {(a.principal, a.mode) for a in parse(doc).access}
@@ -195,7 +190,7 @@ class Branch(unittest.TestCase):
         self.assertIn("Request_data", self.g.nodes)
 
     def test_mermaid_draws_the_choice_not_a_chain(self):
-        out = render.render("[Metrics] -> |Obs|\n" + BRANCH)
+        out = mermaid.render("[Metrics] -> |Obs|\n" + BRANCH)
         self.assertIn('Request_data -. "read" .-> Reader_service', out)
         self.assertIn('Request_data -. "_" .-> Rejected_event', out)
         self.assertNotIn("==>", out)
@@ -460,7 +455,7 @@ class VanishedNodes(unittest.TestCase):
     def test_op_call_target_flow(self):
         e = edge(self.g, "Worker_service", "Worker_service")
         self.assertEqual((e.target_op, e.payload, e.mods), ("run()", "run()", [("deadline", "2s")]))
-        out = render.render("[Worker] -> run() @deadline(2s)\n")
+        out = mermaid.render("[Worker] -> run() @deadline(2s)\n")
         self.assertIn('Worker_service -- "run()" --> Worker_service', out)
 
     def test_op_call_then_chain(self):
@@ -491,8 +486,8 @@ class Zoom(unittest.TestCase):
         self.assertEqual(proc.joins[0].kind, "/")
 
     def test_depth_all_differs_from_depth_one(self):
-        one = render.render(self.text, depth=1)
-        every = render.render(self.text, depth=render.ALL_DEPTH)
+        one = mermaid.render(self.text, depth=1)
+        every = mermaid.render(self.text, depth=core_graph.ALL_DEPTH)
         self.assertNotEqual(one, every)
         self.assertIn('subgraph ingress_alias["ingress"]', every)
         self.assertIn("classDef alias", every)
@@ -665,7 +660,7 @@ class NestedExpansions(unittest.TestCase):
             g = g.expansions[f"N{i}_service"]
             self.assertIn(f"M{i}_service", g.nodes)
         self.assertEqual(g.expansions, {})                 # the innermost body
-        self.assertIn("flowchart TD", render.render(_nest(1000)))
+        self.assertIn("flowchart TD", mermaid.render(_nest(1000)))
 
     def test_each_line_is_read_once(self):
         read = []
@@ -763,7 +758,6 @@ class CommentAnchors(unittest.TestCase):
         self.assertFalse(any(n.node == "Reader_service" for n in g.notes))
 
     def test_lint_and_check_unchanged_by_anchoring(self):
-        lint = _load("sigil_lint_model", "lint.py")
         doc = "#!sketch\n# Title\n\n# why\nbranch on {R}.k {\n  a => [A] -> [B]\n}\n"
         bare = "#!sketch\n\n\n\nbranch on {R}.k {\n  a => [A] -> [B]\n}\n"
         self.assertEqual([(d.line, d.code) for d in lint.lint(doc).diagnostics],
@@ -800,7 +794,6 @@ class WideNames(unittest.TestCase):
         self.assertIsNone(render.OP_TARGET_RE.match("１番({網址})"))
 
     def test_a_wide_external_op_call_lints_clean(self):
-        lint = _load("sigil_lint_model", "lint.py")
         codes = lambda doc: [d.rule for d in lint.lint(doc).diagnostics]
         self.assertEqual(codes("#!sketch\n[A] -> [B] : op 外部.呼ぶ({X})\n"),
                          codes("#!sketch\n[A] -> [B] : op ext.call({X})\n"))
@@ -835,7 +828,7 @@ class WideNames(unittest.TestCase):
             self.assertIsNone(render.OP_TARGET_RE.match(text), text)
 
     def test_the_cjk_fixture_lints_clean(self):
-        out = subprocess.run([sys.executable, str(_DIR / "lint.py"),
+        out = subprocess.run([sys.executable, str(SIGIL), "lint",
                               str(_DIR / "tests" / "fixtures" / "cjk.sigil")],
                              capture_output=True, text=True)
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
@@ -843,7 +836,7 @@ class WideNames(unittest.TestCase):
 
 class ModelDocumented(unittest.TestCase):
     def test_docstring_names_every_graph_field(self):
-        src = (_DIR / "render.py").read_text(encoding="utf-8")
+        src = Path(core_graph.__file__).read_text(encoding="utf-8")
         start = src.index("THE MODEL")
         notes = src[start:src.index("@dataclass", start)]
         for name in ("nodes", "edges", "joins", "blocks", "access", "sections", "layers",

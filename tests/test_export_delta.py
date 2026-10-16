@@ -1,4 +1,4 @@
-"""export.py re-export: the delta (added / removed / rebuild / recheck / unchanged),
+"""`sigil export` re-export: the delta (added / removed / rebuild / recheck / unchanged),
 delta.json, --json, --dry-run, and rewriting only what changed."""
 
 import contextlib
@@ -14,7 +14,10 @@ from unittest import mock
 _DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_DIR))
 
-import export  # noqa: E402
+from sigil import cli  # noqa: E402
+from sigil.publish import delta as export_delta  # noqa: E402
+from sigil.publish import exporter as export  # noqa: E402
+from sigil.publish import systems as export_model  # noqa: E402
 
 READY = """\
 #!spec
@@ -66,7 +69,7 @@ OLD_MTIME = 1_000_000_000
 def run(argv) -> tuple:
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        code = export.main(argv)
+        code = cli.main(["export", *argv])
     return code, out.getvalue(), err.getvalue()
 
 
@@ -87,7 +90,7 @@ class TestDelta(unittest.TestCase):
                     "Gone": entry("gone", "ig", "bg")})
 
     def test_first_export_lists_everything_as_added(self):
-        d = export.delta(None, self.OLD)
+        d = export_delta.delta(None, self.OLD)
         self.assertIsNone(d["from"])
         self.assertEqual(d["to"], "s0")
         self.assertEqual(d["added"], ["x", "A", "B", "Gone"])
@@ -102,7 +105,7 @@ class TestDelta(unittest.TestCase):
                         "A": entry("a", "ia2", "ba2"),                 # body changed
                         "B": entry("b", "ib", "bb"),                   # same
                         "New": entry("new", "in", "bn")}, "s1")
-        d = export.delta(self.OLD, new)
+        d = export_delta.delta(self.OLD, new)
         self.assertEqual(d["sigil_delta"], 1)
         self.assertEqual((d["from"], d["to"]), ("s0", "s1"))
         self.assertEqual(d["added"], ["New"])
@@ -120,32 +123,32 @@ class TestDelta(unittest.TestCase):
 
     def test_body_change_wins_over_recheck(self):
         new = manifest({"x": entry("x", "i1", "b2", ["A"]), "A": entry("a", "ia2", "ba")})
-        self.assertEqual(export.delta(self.OLD, new)["rebuild"], ["x"])
+        self.assertEqual(export_delta.delta(self.OLD, new)["rebuild"], ["x"])
 
     def test_a_dependency_new_to_the_export_counts_as_changed(self):
         new = manifest({"x": entry("x", "i1", "b1", ["C"]), "C": entry("c", "ic", "bc")})
-        d = export.delta(self.OLD, new)
+        d = export_delta.delta(self.OLD, new)
         self.assertEqual(d["recheck"], ["x"])
         self.assertEqual(d["systems"]["x"]["because"], ["C"])
 
     def test_body_change_of_a_dependency_alone_is_no_recheck(self):
         new = manifest({"x": entry("x", "i1", "b1", ["A"]), "A": entry("a", "ia", "ba2")})
-        self.assertEqual(export.delta(self.OLD, new)["unchanged"], ["x"])
+        self.assertEqual(export_delta.delta(self.OLD, new)["unchanged"], ["x"])
 
     def test_delta_is_pure(self):
         old, new = json.dumps(self.OLD), json.dumps(manifest({}))
-        export.delta(self.OLD, manifest({}))
+        export_delta.delta(self.OLD, manifest({}))
         self.assertEqual((json.dumps(self.OLD), json.dumps(manifest({}))), (old, new))
 
     def test_dropped_folders(self):
         new = manifest({"A": entry("gone", "ia", "ba"), "B": entry("b", "ib", "bb")})
-        self.assertEqual(export.dropped_folders(self.OLD, new), ["a", "x"])
-        self.assertEqual(export.dropped_folders(None, new), [])
+        self.assertEqual(export_delta.dropped_folders(self.OLD, new), ["a", "x"])
+        self.assertEqual(export_delta.dropped_folders(None, new), [])
 
     def test_words(self):
         new = manifest({"x": entry("x", "i1", "b1", ["A"]), "A": entry("a", "ia2", "ba2"),
                         "B": entry("b", "ib", "bb"), "C": entry("c", "ic", "bc")}, "s1")
-        lines = export.delta_lines(export.delta(self.OLD, new))
+        lines = export_delta.delta_lines(export_delta.delta(self.OLD, new))
         self.assertEqual(lines, [
             "since spec s0: 1 added, 1 removed, 1 rebuild, 1 recheck, 1 unchanged",
             "  added      C",
@@ -153,13 +156,13 @@ class TestDelta(unittest.TestCase):
             "  rebuild    A (body ba → ba2)",
             "  recheck    x (interface changed: A)",
             "  unchanged  B"])
-        self.assertEqual(export.delta_lines(export.delta(None, new)),
+        self.assertEqual(export_delta.delta_lines(export_delta.delta(None, new)),
                          ["first export: 4 system(s) added"])
 
 
 class TestManifestProblem(unittest.TestCase):
     def test_an_export_manifest_is_fine(self):
-        self.assertIsNone(export.manifest_problem(TestDelta.OLD))
+        self.assertIsNone(export_delta.manifest_problem(TestDelta.OLD))
 
     def test_refused(self):
         bad_path = manifest({"A": entry("../a", "i", "b")})
@@ -171,7 +174,7 @@ class TestManifestProblem(unittest.TestCase):
                           (no_body, "body"), (bad_path, "no slug"),
                           (no_components, "components")):
             with self.subTest(obj=obj):
-                self.assertIn(word, export.manifest_problem(obj))
+                self.assertIn(word, export_delta.manifest_problem(obj))
 
 
 class Tmp(unittest.TestCase):
@@ -219,7 +222,6 @@ class TestWrittenFiles(unittest.TestCase):
         self.assertEqual(export.written_files(None), {})
 
     def test_they_match_the_plan(self):
-        import export_model
         plan = export.plan_export(export_model.build_model(READY, "shop"), "shop.sigil", READY)
         written = export.written_files(plan.manifest)
         for sp in plan.systems.values():

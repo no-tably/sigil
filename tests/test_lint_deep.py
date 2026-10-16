@@ -1,31 +1,22 @@
-"""`lint.py --deep`: lint, then the composition checks (check.py), one merged report.
+"""`sigil lint --deep`: lint, then the composition checks (`sigil check`), one merged report.
 
 The CLI is run as a subprocess (the way agents and the packaged skill run it);
-`deep_lines` is also tested directly for the merge order.
+`sigil.cli.deep_lines` is also tested directly for the merge order.
 """
 
 from __future__ import annotations
 
-import importlib.util
 import subprocess
 import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
-
-def _load(modname: str, filename: str):
-    mod = sys.modules.get(modname)
-    if mod is None:
-        spec = importlib.util.spec_from_file_location(modname, ROOT / filename)
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules[modname] = mod
-        spec.loader.exec_module(mod)
-    return mod
-
-
-lint = _load("sigil_lint_for_deep_tests", "lint.py")
+from sigil import cli  # noqa: E402
+from sigil.analyse import check, lint  # noqa: E402
+from sigil.core import vocab  # noqa: E402
 
 CLEAN = "#!sketch\n\n--- T ---\n(User) -> [API] -> |DB|\n"
 
@@ -44,7 +35,7 @@ ACKED = ("#!spec\n\n--- Shop ---\n"
 
 
 def run_lint(text: str, *args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([sys.executable, str(ROOT / "lint.py"), "-", *args],
+    return subprocess.run([sys.executable, str(ROOT / "bin" / "sigil"), "lint", "-", *args],
                           input=text, capture_output=True, text=True, encoding="utf-8")
 
 
@@ -112,11 +103,10 @@ class DeepCli(unittest.TestCase):
 
 class DeepLines(unittest.TestCase):
     def test_lint_first_on_a_shared_line(self):
-        check = _load("sigil_check_for_deep_tests", "check.py")
         report = check.check(MIXED)
-        result = lint.LintResult()
+        result = vocab.LintResult()
         result.add("warn", 5, "SGL999", "a lint row on the finding's line")
-        rows = codes("\n".join(lint.deep_lines(result, report)))
+        rows = codes("\n".join(cli.deep_lines(result.diagnostics, report)))
         self.assertEqual(rows, [(4, "SGC163"), (5, "SGL999"), (5, "SGC131")])
 
     def test_exit_code(self):

@@ -17,9 +17,11 @@ from pathlib import Path
 _DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_DIR))
 
-import check  # noqa: E402
-import export  # noqa: E402
-import lint  # noqa: E402
+from sigil import cli  # noqa: E402
+from sigil.analyse import check, lint  # noqa: E402
+from sigil.publish import delta as export_delta  # noqa: E402
+from sigil.publish import exporter as export  # noqa: E402
+from sigil.publish import systems as export_model  # noqa: E402
 
 EXAMPLE = _DIR / "site" / "examples" / "07-export.sigil"
 EDITED = _DIR / "tests" / "fixtures" / "export-edit.sigil"
@@ -35,7 +37,7 @@ EDIT = [("[Stock] -> |Prices| : reprice({Sku}) => {Ack}",
 def run(argv) -> tuple:
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        code = export.main(argv)
+        code = cli.main(["export", *argv])
     return code, out.getvalue(), err.getvalue()
 
 
@@ -60,7 +62,7 @@ class TestExampleIsReady(unittest.TestCase):
                 self.assertEqual(export.gate(text, None, lint, check), ())
 
     def test_systems_of_every_kind(self):
-        model = export._model().build_model(EXAMPLE.read_text(encoding="utf-8"), TOP)
+        model = export_model.build_model(EXAMPLE.read_text(encoding="utf-8"), TOP)
         kinds = {key: s.kind for key, s in model.systems.items()}
         self.assertEqual(kinds, {TOP: "top", "Catalog": "tree", "Warehouse": "tree",
                                  "Checkout": "expansion", "Fulfilment": "expansion"})
@@ -89,7 +91,7 @@ class TestEditDelta(unittest.TestCase):
         shutil.copyfile(EDITED, self.spec)
 
     def lists(self, change: dict) -> dict:
-        return {status: sorted(change[status]) for status in export.STATUSES}
+        return {status: sorted(change[status]) for status in export_delta.STATUSES}
 
     def test_dry_run_delta(self):
         code, out, err = run([str(self.spec), "--out", str(self.out), "--dry-run", "--json"])
@@ -98,7 +100,7 @@ class TestEditDelta(unittest.TestCase):
         self.assertEqual(self.lists(change), self.EXPECTED)
         self.assertEqual(change["from"], self.first["spec_hash"])
         self.assertNotEqual(change["to"], change["from"])
-        self.assertFalse((self.out / export.DELTA).exists())
+        self.assertFalse((self.out / export_delta.DELTA).exists())
 
     def test_recheck_names_the_changed_interfaces(self):
         _, out, _ = run([str(self.spec), "--out", str(self.out), "--dry-run", "--json"])
@@ -121,14 +123,14 @@ class TestEditDelta(unittest.TestCase):
     def test_re_export_writes_the_delta(self):
         code, out, err = run([str(self.spec), "--out", str(self.out), "--json"])
         self.assertEqual(code, 0, err)
-        written = json.loads((self.out / export.DELTA).read_text(encoding="utf-8"))
+        written = json.loads((self.out / export_delta.DELTA).read_text(encoding="utf-8"))
         self.assertEqual(written, json.loads(out))
         self.assertEqual(self.lists(written), self.EXPECTED)
 
     def test_delta_of_the_manifests(self):
         run([str(self.spec), "--out", str(self.out)])
         second = json.loads((self.out / export.MANIFEST).read_text(encoding="utf-8"))
-        self.assertEqual(self.lists(export.delta(self.first, second)), self.EXPECTED)
+        self.assertEqual(self.lists(export_delta.delta(self.first, second)), self.EXPECTED)
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@
 Covers:
   1. tools/wide_table.py: the WIDE tables in site/site.js and
      plugin/claude/hooks/logic.ts are current (`--check`); the ranges are
-     viewkit.char_cells's wide characters exactly; each format packs its ranges
+     sigil.present.kit.char_cells's wide characters exactly; each format packs its ranges
      into lines that fit; only the table's lines are rewritten; `--check` never
      writes, and a file without its table is an error, not a rewrite;
   2. tools/regen_docs.py: `--help` prints usage and draws nothing; `--check`
@@ -15,7 +15,6 @@ Run:  python3 -m unittest discover tests
 from __future__ import annotations
 
 import contextlib
-import importlib.util
 import io
 import subprocess
 import sys
@@ -24,18 +23,10 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "tools"))
 
-
-def _load(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-wide = _load("sigil_tools_wide_table", ROOT / "tools" / "wide_table.py")
-regen = _load("sigil_tools_regen_docs", ROOT / "tools" / "regen_docs.py")
+import regen_docs as regen  # noqa: E402  (tools/ is a folder of scripts, not a package)
+import wide_table as wide   # noqa: E402
 
 
 def quiet(fn, *args, **kwargs):

@@ -1,4 +1,4 @@
-"""render.py parsing edge cases: mid-line modifiers, expansions, one-line state
+"""Parser edge cases (sigil.core.parse, and the Mermaid export over it): mid-line modifiers, expansions, one-line state
 machines, aliases, triggers, strings and payload modifiers (one class per case).
 
 Run:  python3 -m unittest discover tests
@@ -6,24 +6,19 @@ Run:  python3 -m unittest discover tests
 from __future__ import annotations
 
 import contextlib
-import importlib.util
 import io
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 _DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_DIR))
 
-
-def _load(name: str, fname: str):
-    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-render = _load("sigil_render", "render.py")
+from sigil import cli  # noqa: E402
+from sigil.core import parse as render  # noqa: E402
+from sigil.publish import mermaid  # noqa: E402
 
 
 def parse(text):
@@ -129,12 +124,12 @@ class ExpansionOwnsItsLines(unittest.TestCase):     # 6
 
 class TriggerFromOccurrence(unittest.TestCase):     # 7
     def test_trigger_starts_at_the_drawn_occurrence(self):
-        out = render.render("[Shop] \\-> <Pay>\nstate {Order} { Draft -<Pay>-> Paid }")
+        out = mermaid.render("[Shop] \\-> <Pay>\nstate {Order} { Draft -<Pay>-> Paid }")
         self.assertIn('Shop_service__Pay_event -. "triggers" .-> Order_state_Paid', out)
         self.assertNotIn('\n    Pay_event -. "triggers"', out)
 
     def test_trigger_outside_trees_unchanged(self):
-        out = render.render("<Pay> -> [Shop]\nstate {Order} { Draft -<Pay>-> Paid }")
+        out = mermaid.render("<Pay> -> [Shop]\nstate {Order} { Draft -<Pay>-> Paid }")
         self.assertIn('Pay_event -. "triggers" .-> Order_state_Paid', out)
 
 
@@ -186,7 +181,7 @@ class PayloadDropsTrailingModifiers(unittest.TestCase):   # payload ×N / ^N
 
 class Docstring(unittest.TestCase):                 # 10
     def test_documents_current_cli_and_arrows(self):
-        doc = render.__doc__
+        doc = mermaid.__doc__
         self.assertIn("--composition", doc)
         self.assertIn('-- "!" -->', doc)
         self.assertIn("stadium", doc)
@@ -196,12 +191,13 @@ class Docstring(unittest.TestCase):                 # 10
 class DeadCodeGone(unittest.TestCase):              # 11-15
     def test_no_stale_names(self):
         self.assertFalse(hasattr(render, "CLASS_DEF"))
+        self.assertFalse(hasattr(mermaid, "CLASS_DEF"))
         self.assertIn("open", render.GLYPH_RE.groupindex)
 
     def test_kind_classes(self):
         class D:
             NODE_KINDS = {"gem": {"mermaid_class": "gemc"}}
-        kinds = render._kind_classes(D)
+        kinds = mermaid._kind_classes(D)
         self.assertEqual(kinds["service"], "service")
         self.assertEqual(kinds["gem"], "gemc")
 
@@ -237,8 +233,7 @@ class Cli(unittest.TestCase):                       # 21
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             try:
-                render.main(list(argv), default_dialect="")
-                code = 0
+                code = cli.main(["export", *argv, "--mermaid"], dialect="")
             except SystemExit as exc:
                 code = exc.code
         return code, out.getvalue(), err.getvalue()
@@ -262,16 +257,16 @@ class Cli(unittest.TestCase):                       # 21
 
 class LabelEscaping(unittest.TestCase):             # 22, 25
     def test_quote_in_node_label(self):
-        out = render.render('[say "hi"] -> [B]')
+        out = mermaid.render('[say "hi"] -> [B]')
         self.assertIn('say__hi__service["say &quot;hi&quot;"]', out)
 
     def test_subgraph_title_escaped(self):
-        out = render.render('[a "b"] := {\n  [C] -> [D]\n}\n[a "b"] -> [E]', composition="none")
+        out = mermaid.render('[a "b"] := {\n  [C] -> [D]\n}\n[a "b"] -> [E]', composition="none")
         self.assertIn('subgraph a__b__service["a &quot;b&quot;"]', out)
 
     def test_labels_on_every_arrow_kind(self):
         def emit(kind):
-            return render.emit_edge(render.Edge("a", "b", kind, label="<x>"), "")
+            return mermaid.emit_edge(render.Edge("a", "b", kind, label="<x>"), "")
         self.assertEqual(emit("->"), 'a -- "&lt;x&gt;" --> b')
         self.assertEqual(emit("~>"), 'a -.->|"&lt;x&gt;"| b')
         self.assertEqual(emit("=>"), 'a ==>|"&lt;x&gt;"| b')
@@ -280,7 +275,7 @@ class LabelEscaping(unittest.TestCase):             # 22, 25
 
 class ClassDefFooter(unittest.TestCase):            # 24
     def test_every_classdef_indented(self):
-        out = render.render("[A] -> [B]")
+        out = mermaid.render("[A] -> [B]")
         for ln in out.splitlines():
             if "classDef" in ln:
                 self.assertTrue(ln.startswith("    classDef"), ln)

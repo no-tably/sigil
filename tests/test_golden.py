@@ -8,24 +8,15 @@ Run:  python3 -m unittest tests.test_golden
 """
 from __future__ import annotations
 
-import importlib.util
 import subprocess
 import sys
 import unittest
 from pathlib import Path
 
 _DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_DIR / "tools"))
 
-
-def _load(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-golden = _load("sigil_golden", _DIR / "tools" / "golden.py")
+import golden  # noqa: E402  (tools/ is a folder of scripts, not a package)
 
 _SHOWN_CHARS = 6000             # of the --check --diff report, in a failure message
 
@@ -48,7 +39,7 @@ class TestGolden(unittest.TestCase):
         expected = {f"{i.name}/{v.name}.txt" for i in inputs for v in golden.VARIANTS
                     if golden.drawn_in(v, i, runs)}
         expected |= {f"{i.name}/{golden.MERMAID}.txt" for i in inputs}
-        # the export variant: every file export.py writes for each of EXPORT_INPUTS
+        # the export variant: every file `sigil export` writes for each of EXPORT_INPUTS
         self.assertLessEqual(set(golden.EXPORT_INPUTS), {i.name for i in inputs})
         exported = golden.draw_all(_DIR, only=golden.EXPORT_DIR)
         self.assertEqual({k.split("/")[1] for k in exported}, set(golden.EXPORT_INPUTS))

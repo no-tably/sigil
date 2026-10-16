@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-regen_docs.py — regenerate the drawings embedded in the docs from view.py.
+regen_docs.py — regenerate the drawings embedded in the docs from `sigil view`.
 
     tools/regen_docs.py           # rewrite them in place, report what changed
     tools/regen_docs.py --check   # exit 1 if any drawing is stale (for tests / CI)
 
 - examples.md: each ```text block (a `--tree` drawing) is redrawn from the Sigil
-  block just above it (`view.py --once --tree --no-lint --width 200`, the drawing
+  block just above it (`sigil view --once --tree --no-lint --width 200`, the drawing
   part only — no legend or summary);
 - README.md: the drawing after "`view.py` draws it in the terminal" is redrawn
-  from the README's first ```sigil block (`view.py --once`: the flow view, summary
+  from the README's first ```sigil block (`sigil view --once`: the flow view, summary
   included; the file is named shortener.sigil, the example it shows);
 - README.md: the drawing after "`--graph` draws the same design" is redrawn from
-  that block too (`view.py --once --graph --no-lint`, the drawing part only — no
+  that block too (`sigil view --once --graph --no-lint`, the drawing part only — no
   summary);
 - README.md: the block after the `--sim` command in "Simulation" is the real run of
   that command on site/examples/01-checkout.sigil (published as checkout.sigil):
@@ -49,7 +49,7 @@ def run(src: str, *args: str, name: str = "checkout.sigil") -> str:
         f.write(src)
         tmp = f.name
     try:
-        r = subprocess.run([sys.executable, str(ROOT / "view.py"), tmp, "--once",
+        r = subprocess.run([sys.executable, str(ROOT / "bin" / "sigil"), "view", tmp, "--once",
                             "--color", "never", *args], capture_output=True, text=True,
                            check=True)
     finally:
@@ -168,7 +168,7 @@ def parse_args(argv):
     ap = argparse.ArgumentParser(
         prog="regen_docs.py",
         description="Regenerate the drawings embedded in examples.md and README.md "
-                    "from view.py.")
+                    "from `sigil view`.")
     ap.add_argument("--check", action="store_true",
                     help="write nothing; exit 1 if any drawing is stale (for tests / CI)")
     return ap.parse_args(argv)

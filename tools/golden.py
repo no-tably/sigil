@@ -16,7 +16,7 @@ and takes no number.
 Each input gets a directory `tests/golden/<input>/` with one file per variant:
 
 - `graph-<v>.txt` / `tree-<v>.txt` / `flow-<v>.txt` — exactly what
-  `view.py <input>.sigil --once --color never --no-lint --width 100 [--tree|--flow] <flags>`
+  `sigil view <input>.sigil --once --color never --no-lint --width 100 [--tree|--flow] <flags>`
   prints, for <v> in: default (lint on: the summary line ends in the lint result),
   payloads (--payloads), notes-markers (--notes markers), notes-callouts
   (--notes callouts), depth-all (--depth all), access (--access), mods (--mods),
@@ -30,17 +30,18 @@ Each input gets a directory `tests/golden/<input>/` with one file per variant:
   words, its `tNNN …` lines, left out — tests/ holds no task-like ids, and the
   path and outcome stay), run-width-80
   (the happy run at --width 80: notes shortened or below, bands);
-- `run-json-depth-<d>.txt` — what `view.py <input>.sigil --run --json --depth <d>`
+- `run-json-depth-<d>.txt` — what `sigil view <input>.sigil --run --json --depth <d>`
   prints (the happy run's timeline as JSON), for RUN_JSON_INPUTS at RUN_JSON_DEPTHS;
-- `mermaid.txt` — what `render.py <input>.sigil` prints.
+- `mermaid.txt` — what `sigil export <input>.sigil --mermaid` prints.
 
 The export variant: for each of EXPORT_INPUTS, `tests/golden/export/<input>/` holds
-every file `export.py <input>.sigil --out DIR` writes into an empty DIR (the index,
+every file `sigil export <input>.sigil --out DIR` writes into an empty DIR (the index,
 a folder per system, manifest.json), byte for byte. `--only export` checks just
 these. No input may be named `export`.
 
-Drawings are made in-process (view.once, its stdout captured) with the built-in
-`sigil` theme and no dialect, so $SIGIL_THEME / $SIGIL_DIALECT don't leak in. The
+Drawings are made in-process (sigil.present.app.once, its stdout captured) with the
+built-in `sigil` theme and no dialect, so $SIGIL_THEME / $SIGIL_DIALECT don't leak in;
+the theme applied before is put back afterwards. The
 CLI re-runs itself with PYTHONHASHSEED=0: a drawing must not depend on set order,
 but if one does, the goldens still stay stable (see HASH_SEED).
 tests/test_golden.py runs the same check.
@@ -52,7 +53,6 @@ from __future__ import annotations
 import argparse
 import contextlib
 import difflib
-import importlib.util
 import io
 import os
 import re
@@ -62,9 +62,18 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from sigil import cli                           # noqa: E402  (the package sits at ROOT)
+from sigil.core import parse                    # noqa: E402
+from sigil.core.graph import ALL_DEPTH as GRAPH_ALL_DEPTH  # noqa: E402
+from sigil.model import sim as simulator        # noqa: E402
+from sigil.present import app, kit              # noqa: E402
+from sigil.publish import mermaid               # noqa: E402
+
 GOLDEN_DIR = ROOT / "tests" / "golden"
 THEME = "sigil"
-WIDTH = 100                     # view.py's --once width when stdout isn't a terminal
+WIDTH = 100                     # `sigil view --once` width when stdout isn't a terminal
 NARROW = 60
 FLOW_WRAPS = (80, 50)           # the flow view wrapped, chips and notes on
 RUN_WIDE, RUN_NARROW = 140, 80  # the run view: a wide pane, and one that wraps
@@ -76,10 +85,10 @@ ALL_DEPTH = "all"
 # Set iteration order (string hashing) must not change a drawing; pinning the seed
 # keeps the goldens stable while a drawing that still depends on it gets fixed.
 HASH_SEED = "0"
-_BEAT = re.compile(r"t\d{3} ")       # a line of the run in words (view.beat_line)
+_BEAT = re.compile(r"t\d{3} ")       # a line of the run in words (app.beat_line)
 # Fixtures drawn alongside the site examples (by stem, so each names its own directory).
 FIXTURES = ("coverage.sigil", "executions.sigil")
-EXPORT_DIR = "export"           # tests/golden/export/<input>/: what export.py writes
+EXPORT_DIR = "export"           # tests/golden/export/<input>/: what `sigil export` writes
 EXPORT_INPUTS = ("07-export",)  # the inputs exported (each a ready #!spec document)
 GOLDEN_SUFFIXES = (".txt", ".md", ".json")   # the files a golden directory holds
 
@@ -90,7 +99,7 @@ GOLDEN_SUFFIXES = (".txt", ".md", ".json")   # the files a golden directory hold
 
 @dataclass(frozen=True)
 class Variant:
-    """One way of drawing an input: the view.once() options (and their CLI flags)."""
+    """One way of drawing an input: the app.once() options (and their CLI flags)."""
     name: str
     view: str = "graph"         # "graph" | "tree" | "flow"
     depth: int | str | None = None  # None: not given (as the CLI); a number, or ALL_DEPTH
@@ -189,42 +198,37 @@ def collect_inputs(root: Path) -> list[Input]:
 # Drawing
 # ---------------------------------------------------------------------------
 
-def load_module(root: Path, fname: str, name: str):
-    """A private instance of the repo's tool `fname`, as module `name`."""
-    spec = importlib.util.spec_from_file_location(name, root / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod    # dataclasses resolve string annotations via sys.modules
-    spec.loader.exec_module(mod)
-    return mod
+@contextlib.contextmanager
+def themed(spec: str):
+    """Draw in theme `spec`; the theme applied before comes back on the way out
+    (the package keeps one theme per process)."""
+    before = dict(kit.THEME)
+    kit.use_theme(spec)
+    try:
+        yield
+    finally:
+        kit.apply_theme(before)
 
 
-def load_view(root: Path):
-    """A private instance of the repo's view.py (its own theme state), themed THEME.
-    view.render is the render.py it loaded."""
-    mod = load_module(root, "view.py", "sigil_golden_view")
-    mod.use_theme(THEME)
-    return mod
-
-
-def next_scenario(view, path: Path) -> str:
+def next_scenario(path: Path) -> str:
     """The first deviation after `happy` of the document at `path`: a listed
     scenario that starts no entry at a tick (an overlap, `Entry@t`, is not one);
     happy when there is none."""
-    g = view.render.parse_document(path.read_text(encoding="utf-8"))
-    found = view.simulator.scenarios(view.simulator.canonical(g))
+    g = parse.parse_document(path.read_text(encoding="utf-8"))
+    found = simulator.scenarios(simulator.canonical(g))
     return next((sc.name for sc in found[1:] if not sc.starts), found[0].name)
 
 
-def draw(view, path: Path, v: Variant) -> str:
-    """What `view.py path --once` prints for variant `v`."""
-    depth = view.ALL_DEPTH if v.depth == ALL_DEPTH else v.depth   # None stays not given
-    sim = next_scenario(view, path) if v.sim == NEXT_SCENARIO else v.sim
+def draw(path: Path, v: Variant) -> str:
+    """What `sigil view path --once` prints for variant `v`."""
+    depth = GRAPH_ALL_DEPTH if v.depth == ALL_DEPTH else v.depth   # None stays not given
+    sim = next_scenario(path) if v.sim == NEXT_SCENARIO else v.sim
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         if v.json:
-            view.run_json(path, sim, dialect=None, depth=depth)
+            app.run_json(path, sim, dialect=None, depth=depth)
             return buf.getvalue()
-        view.once(path, depth, v.payloads, v.lint, dialect=None, colour=v.colour,
+        app.once(path, depth, v.payloads, v.lint, dialect=None, colour=v.colour,
                   notes=v.notes, width=v.width, access=v.access, mods=v.mods,
                   view=v.view, sim=sim)
     out = buf.getvalue()
@@ -241,33 +245,31 @@ def drawn_in(v: Variant, inp: "Input", runs: frozenset) -> bool:
             and (v.inputs is None or inp.name in v.inputs))
 
 
-def draw_input(view, workdir: Path, inp: Input, runs: frozenset = frozenset()) -> dict[str, str]:
+def draw_input(workdir: Path, inp: Input, runs: frozenset = frozenset()) -> dict[str, str]:
     """Every variant of one input, keyed `<input>/<variant>.txt`. The input is
-    written to `workdir/<name>.sigil` (view.once reads a file; its name shows in
+    written to `workdir/<name>.sigil` (app.once reads a file; its name shows in
     the summary line). `runs`: the inputs drawn in the run view too."""
     path = workdir / f"{inp.name}.sigil"
     path.write_text(inp.text, encoding="utf-8")
-    out = {f"{inp.name}/{v.name}.txt": draw(view, path, v) for v in VARIANTS
+    out = {f"{inp.name}/{v.name}.txt": draw(path, v) for v in VARIANTS
            if drawn_in(v, inp, runs)}
-    out[f"{inp.name}/{MERMAID}.txt"] = view.render.render(inp.text, dialect=None) + "\n"
+    out[f"{inp.name}/{MERMAID}.txt"] = mermaid.render(inp.text, dialect=None) + "\n"
     return out
 
 
 def draw_all(root: Path, only: str | None = None) -> dict[str, str]:
     """Every golden drawing of the repo at `root` (only input `only`, when given;
     EXPORT_DIR: only the exports)."""
-    view = load_view(root)
     every = collect_inputs(root)
     inputs = [i for i in every if only is None or i.name == only]
     runs = run_inputs(root)
     out: dict[str, str] = {}
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory() as tmp, themed(THEME):
         for inp in inputs:
-            out.update(draw_input(view, Path(tmp), inp, runs))
+            out.update(draw_input(Path(tmp), inp, runs))
         if only in (None, EXPORT_DIR):
-            exporter = load_module(root, "export.py", "sigil_golden_export")
             for inp in (i for i in every if i.name in EXPORT_INPUTS):
-                out.update(export_input(exporter, Path(tmp), inp))
+                out.update(export_input(Path(tmp), inp))
     return out
 
 
@@ -275,8 +277,8 @@ def draw_all(root: Path, only: str | None = None) -> dict[str, str]:
 # Exporting
 # ---------------------------------------------------------------------------
 
-def export_input(exporter, workdir: Path, inp: Input) -> dict[str, str]:
-    """Every file `export.py <name>.sigil --out DIR` writes into an empty DIR,
+def export_input(workdir: Path, inp: Input) -> dict[str, str]:
+    """Every file `sigil export <name>.sigil --out DIR` writes into an empty DIR,
     keyed `EXPORT_DIR/<input>/<path in DIR>`. Raises ValueError when the input
     does not export (not ready, or the folder could not be written)."""
     path = workdir / f"{inp.name}.sigil"
@@ -284,7 +286,7 @@ def export_input(exporter, workdir: Path, inp: Input) -> dict[str, str]:
     out_dir = workdir / EXPORT_DIR / inp.name
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
-        code = exporter.main([str(path), "--out", str(out_dir)])
+        code = cli.main(["export", str(path), "--out", str(out_dir)])
     if code != 0:
         raise ValueError(f"{inp.name} does not export (exit {code}):\n{buf.getvalue()}")
     return {f"{EXPORT_DIR}/{inp.name}/{p.relative_to(out_dir).as_posix()}":
@@ -354,7 +356,7 @@ def pin_hash_seed(argv: list[str]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Golden outputs of view.py / render.py.")
+    ap = argparse.ArgumentParser(description="Golden outputs of sigil view / sigil export.")
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--check", action="store_true", help="exit 1 if any drawing differs")
     mode.add_argument("--update", action="store_true", help="rewrite tests/golden/")

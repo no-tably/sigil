@@ -50,7 +50,7 @@ SYNTAX_VIM = _HL / "syntax" / "sigil.vim"
 FTDET_VIM  = _HL / "ftdetect" / "sigil.vim"
 COLORS_VIM = _HL / "after" / "syntax" / "sigil.vim"
 SAMPLE     = _HL / "sample.sigil"
-LINT       = _ROOT / "lint.py"
+SIGIL      = _ROOT / "bin" / "sigil"
 
 # Role → the role-prefix scope. The grammar emits this scope (optionally with a
 # `.detail` leaf) and each theme keys a rule on it.
@@ -432,7 +432,7 @@ class TestRender(unittest.TestCase):
     """Real renders where the tool is installed; skipped otherwise."""
 
     def test_sample_lints_clean(self):
-        proc = subprocess.run([sys.executable, str(LINT), str(SAMPLE)],
+        proc = subprocess.run([sys.executable, str(SIGIL), "lint", str(SAMPLE)],
                               cwd=_ROOT, capture_output=True, text=True,
                               stdin=subprocess.DEVNULL, timeout=120)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)

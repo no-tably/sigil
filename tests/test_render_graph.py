@@ -1,4 +1,4 @@
-"""Tests for render.py's graph construction (the model view.py draws from).
+"""Tests for the parser's graph construction (sigil.core.parse; the model the views draw from).
 
 Covers the render fixes that landed with the live viewer:
   - `&` / `&?` joins group glyphs into ONE endpoint, so a `*>` fan-out (or any
@@ -12,21 +12,15 @@ Run:  uv run python -m unittest discover notations/sigil/tests/
 """
 from __future__ import annotations
 
-import importlib.util
+import sys
 import unittest
 from pathlib import Path
 
 _DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_DIR))
 
-
-def _load(name: str, fname: str):
-    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-render = _load("sigil_render", "render.py")
+from sigil.core import parse as render  # noqa: E402
+from sigil.publish import mermaid  # noqa: E402
 
 
 def edges(g):
@@ -96,7 +90,7 @@ class TestPayload(unittest.TestCase):
         self.assertNotIn("Hold_data", g.nodes)   # payload glyphs are not nodes
 
     def test_payload_not_in_mermaid(self):
-        out = render.render('[A] -> [B] : ${x} @state\n')
+        out = mermaid.render('[A] -> [B] : ${x} @state\n')
         self.assertNotIn("${x}", out)
 
 
@@ -148,7 +142,7 @@ class TestStateMachines(unittest.TestCase):
         self.assertFalse(a & b)
 
     def test_mermaid_escapes_trigger_labels(self):
-        out = render.render(JOB)
+        out = mermaid.render(JOB)
         self.assertIn('-- "&lt;submit&gt;" -->', out)
         self.assertIn("classDef state", out)
 
@@ -188,8 +182,8 @@ class TestStateOwnersAndTriggers(unittest.TestCase):
         self.assertEqual(g.triggers, [])
 
     def test_mermaid_trigger_edges_follow_depth(self):
-        self.assertIn('Paid_event -. "triggers" .-> Order_state_Settled', render.render(EVT))
-        self.assertIn('Paid_event -. "triggers" .-> Order_data', render.render(EVT, depth=0))
+        self.assertIn('Paid_event -. "triggers" .-> Order_state_Settled', mermaid.render(EVT))
+        self.assertIn('Paid_event -. "triggers" .-> Order_data', mermaid.render(EVT, depth=0))
 
     def test_machine_beside_an_expansion(self):
         doc = "[Checkout] := {\n  [Cart] -> [Pay]\n}\nstate [Checkout] {\n  Idle -<go>-> Busy\n}\n"

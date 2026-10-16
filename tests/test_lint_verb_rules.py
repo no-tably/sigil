@@ -1,7 +1,7 @@
-"""render.py and lint.py read an op verb by the same rule.
+"""The parser (sigil.core.parse) and lint read an op verb by the same rule.
 
-lint.py is a standalone tool, so it keeps its own copy of render's verb rule
-(`_is_mark`, `_marks_follow_letters`, `_VerbPattern`). One corpus drives both
+Lint keeps its own copy of the parser's verb rule (sigil.analyse.lint.scan:
+`_is_mark`, `_marks_follow_letters`, `_VerbPattern`). One corpus drives both
 copies here: every case must read the same verb (or no op-call) in each.
 """
 import sys
@@ -11,8 +11,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import lint    # noqa: E402
-import render  # noqa: E402
+from sigil.analyse import lint  # noqa: E402
+from sigil.analyse.lint import payloads, scan  # noqa: E402
+from sigil.core import parse as render  # noqa: E402
 
 # (verb as written, the verb an op-call reads, or None when it is no op-call)
 CORPUS = [
@@ -52,43 +53,43 @@ class VerbRulesAgree(unittest.TestCase):
     def test_is_mark_agrees_on_every_code_point(self):
         for cp in range(0x110000):
             ch = chr(cp)
-            if render._is_mark(ch) != lint._is_mark(ch):
+            if render._is_mark(ch) != scan._is_mark(ch):
                 self.fail(f"U+{cp:04X} {unicodedata.category(ch)}")
 
     def test_enclosing_marks_are_marks(self):
         for ch in ("⃝", "⃞", "҈"):
             self.assertEqual(unicodedata.category(ch), "Me")
             self.assertTrue(render._is_mark(ch))
-            self.assertTrue(lint._is_mark(ch))
+            self.assertTrue(scan._is_mark(ch))
 
     def test_a_flow_target_reads_one_verb_in_both(self):
         for written, want in CORPUS + DOTTED:
             with self.subTest(verb=written):
                 self.assertEqual(verb(render.OP_TARGET_RE, f"{written}()"), want)
-                self.assertEqual(verb(lint._OP_HEAD_RE, f"{written}("), want)
+                self.assertEqual(verb(scan._OP_HEAD_RE, f"{written}("), want)
 
     def test_an_op_payload_reads_one_verb_in_both(self):
         for written, want in CORPUS:
             with self.subTest(verb=written):
                 self.assertEqual(verb(render.OP_TARGET_RE, f"{written}({{X}})"), want)
-                self.assertEqual(verb(lint._INT_OP_RE, f"{written}({{X}})"), want)
+                self.assertEqual(verb(scan._INT_OP_RE, f"{written}({{X}})"), want)
         for written, want in DOTTED:
             with self.subTest(verb=written):
                 self.assertEqual(verb(render.OP_TARGET_RE, f"op {written}({{X}})"), want)
-                self.assertEqual(verb(lint._EXT_OP_RE, f"op {written}({{X}})"), want)
+                self.assertEqual(verb(scan._EXT_OP_RE, f"op {written}({{X}})"), want)
 
     def test_marks_follow_letters_agrees(self):
         for written, _ in CORPUS + DOTTED:
             with self.subTest(verb=written):
                 self.assertEqual(render._marks_follow_letters(written),
-                                 lint._marks_follow_letters(written))
+                                 scan._marks_follow_letters(written))
 
     def test_a_dotted_digit_segment_is_one_malformed_op_call(self):
         # Both read `op ns.9x(` as one op-call (render draws it as written);
         # lint reports it as malformed wherever it stands, payload or target.
         self.assertEqual(verb(render.OP_TARGET_RE, "ns.9x()"), "ns.9x")
-        self.assertEqual(verb(lint._OP_HEAD_RE, "ns.9x("), "ns.9x")
-        self.assertIsNone(verb(lint._EXT_OP_RE, "op ns.9x({X})"))
+        self.assertEqual(verb(scan._OP_HEAD_RE, "ns.9x("), "ns.9x")
+        self.assertIsNone(verb(scan._EXT_OP_RE, "op ns.9x({X})"))
         for line in ("[Api] -> op ns.9x({Job})", "[Api] -> [Db] : op ns.9x({Job})"):
             g = render.parse_document(line + "\n")
             self.assertIn("op ns.9x({Job})", [e.payload for e in g.edges])
@@ -109,9 +110,9 @@ class EnclosingMarkVerbs(unittest.TestCase):
         self.assertEqual([e.payload for e in g.edges], [f"{self.VERB}({{Job}})"])
 
     def test_lint_classifies_it_as_an_op_call(self):
-        self.assertEqual(lint._classify_payload(f"{self.VERB}({{X}})")[0], "int-op")
-        self.assertEqual(lint._classify_payload(f"op ns.{self.VERB}({{X}})")[0], "ext-op")
-        self.assertEqual(lint._classify_payload("op ns.⃝b({X})")[0], "ext-op-bad")
+        self.assertEqual(payloads._classify_payload(f"{self.VERB}({{X}})")[0], "int-op")
+        self.assertEqual(payloads._classify_payload(f"op ns.{self.VERB}({{X}})")[0], "ext-op")
+        self.assertEqual(payloads._classify_payload("op ns.⃝b({X})")[0], "ext-op-bad")
 
 
 if __name__ == "__main__":

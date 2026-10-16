@@ -1,9 +1,9 @@
-"""Tests for themes.py and the viewer's theming.
+"""Tests for sigil.present.themes and the viewer's theming.
 
 Covers:
   - the YAML subset: nesting, comments, quoting, and the errors it reports;
   - $palette references, `extends`, lookup by name / path / SIGIL_THEME_PATH;
-  - view.py applying a theme: box, edge and chrome colours come from it, each
+  - the views' kit applying a theme: box, edge and chrome colours come from it, each
     tagged with its role; --theme on the command line.
 
 Run:  python3 -m unittest discover tests
@@ -11,7 +11,6 @@ Run:  python3 -m unittest discover tests
 from __future__ import annotations
 
 import contextlib
-import importlib.util
 import io
 import os
 import sys
@@ -20,18 +19,11 @@ import unittest
 from pathlib import Path
 
 _DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_DIR))
 
-
-def _load(name: str, fname: str):
-    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-themes = _load("sigil_themes_t", "themes.py")
-view = _load("sigil_view_t", "view.py")
+from sigil import cli  # noqa: E402
+from sigil.core import parse as render  # noqa: E402
+from sigil.present import kit, themes  # noqa: E402
 
 
 class TestYamlSubset(unittest.TestCase):
@@ -99,32 +91,36 @@ class TestResolve(unittest.TestCase):
         t = themes.load("sigil")
         for section in ("palette", "kinds", "edges", "syntax", "ui", "site"):
             self.assertIn(section, t)
-        for kind in view.CORE_KINDS:
+        for kind in kit.CORE_KINDS:
             self.assertTrue(t["kinds"][kind].startswith("#"), kind)
 
 
 class TestViewTheme(unittest.TestCase):
+    # one kit per process: put back the theme and dialect found before each test
+    def setUp(self):
+        self.before = dict(kit.THEME)
+
     def tearDown(self):
-        view.use_theme("sigil")
-        view.use_dialect(None)
+        kit.apply_theme(self.before)
+        kit.use_dialect(None)
 
     def test_colours_come_from_the_theme_with_roles(self):
-        view.use_theme("sigil")
+        kit.use_theme("sigil")
         t = themes.load("sigil")
-        svc = view.CORE_KINDS["service"]["color"]
+        svc = kit.CORE_KINDS["service"]["color"]
         self.assertEqual(svc, t["kinds"]["service"])
         self.assertEqual(svc.role, "kinds-service")
-        self.assertEqual(view.EDGE_COLOR["!>"].role, "edges-fail")
-        self.assertEqual(view.BAR_STYLE[1], t["ui"]["bar_bg"])
-        self.assertEqual(view._tint(svc).role, "tint:kinds-service")
+        self.assertEqual(kit.EDGE_COLOR["!>"].role, "edges-fail")
+        self.assertEqual(kit.BAR_STYLE[1], t["ui"]["bar_bg"])
+        self.assertEqual(kit._tint(svc).role, "tint:kinds-service")
 
     def test_custom_theme_recolours_boxes(self):
         with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
             f.write('extends: sigil\nkinds:\n  service: "#123456"\n')
         try:
-            view.use_theme(f.name)
-            self.assertEqual(view.CORE_KINDS["service"]["color"], "#123456")
-            self.assertEqual(view.node_styles(view.render.Node(id="a", name="A", kind="service"))[0][0],
+            kit.use_theme(f.name)
+            self.assertEqual(kit.CORE_KINDS["service"]["color"], "#123456")
+            self.assertEqual(kit.node_styles(render.Node(id="a", name="A", kind="service"))[0][0],
                              "#123456")
         finally:
             Path(f.name).unlink()
@@ -135,9 +131,9 @@ class TestViewTheme(unittest.TestCase):
         with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
             f.write('extends: sigil\nkinds:\n  widget: "#abcdef"\n')
         try:
-            view.use_theme(f.name)
-            view.use_dialect(Fake)
-            self.assertEqual(view.KINDS["widget"]["color"], "#abcdef")
+            kit.use_theme(f.name)
+            kit.use_dialect(Fake)
+            self.assertEqual(kit.KINDS["widget"]["color"], "#abcdef")
             self.assertEqual(Fake.NODE_KINDS["widget"]["color"], "#000001")   # not mutated
         finally:
             Path(f.name).unlink()
@@ -145,13 +141,11 @@ class TestViewTheme(unittest.TestCase):
     def _main(self, *args):
         with tempfile.NamedTemporaryFile("w", suffix=".sigil", delete=False) as f:
             f.write("[A] -> [B]\n")
-        argv, sys.argv = sys.argv, ["view.py", f.name, "--once", "--no-lint", *args]
         out, err = io.StringIO(), io.StringIO()
         try:
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-                status = view.main()
+                status = cli.main(["view", f.name, "--once", "--no-lint", *args])
         finally:
-            sys.argv = argv
             Path(f.name).unlink()
         return status, out.getvalue(), err.getvalue()
 

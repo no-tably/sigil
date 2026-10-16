@@ -10,27 +10,21 @@ modifier alias after `×N` that the parser could not resolve (B7).
 
 Run:  python3 -m unittest discover tests
 """
-import importlib.util
 import re
+import sys
 import types
 import unittest
 from pathlib import Path
 
 _DIR = Path(__file__).resolve().parents[1]
 _FIXTURES = _DIR / "tests" / "fixtures" / "lint"
+sys.path.insert(0, str(_DIR))
 
+from sigil.analyse import lint  # noqa: E402
+from sigil.analyse.lint import hardening as hl  # noqa: E402
+from sigil.core import parse as render  # noqa: E402
 
-def _load(name: str, fname: str):
-    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-lint = _load("sigil_lint_hardening", "lint.py")
-render = _load("sigil_render_hardening", "render.py")
-
-CODES = set(lint.HARDENING_SEVERITY)
+CODES = set(hl.HARDENING_SEVERITY)
 # The parser reads this line since B8; its positive is stubbed below.
 STUBBED = {"SGL153"}
 
@@ -87,7 +81,7 @@ class Severity(unittest.TestCase):
     }
 
     def test_table_matches_the_catalog(self):
-        self.assertEqual(lint.HARDENING_SEVERITY, self.CATALOG)
+        self.assertEqual(hl.HARDENING_SEVERITY, self.CATALOG)
 
     def test_reported_severity_follows_the_table(self):
         for path in fixtures():
@@ -108,43 +102,43 @@ class ParserFacts(unittest.TestCase):
 
     @staticmethod
     def facts(sources=None, alias_refs=None, untriggered=(), dropped=()):
-        return lint.ParsedFacts(sources or {}, alias_refs or {}, frozenset(untriggered),
+        return hl.ParsedFacts(sources or {}, alias_refs or {}, frozenset(untriggered),
                                 tuple(dropped))
 
     @staticmethod
     def codes(lines):
-        return [lint.code_line(ln) for ln in lines]
+        return [hl.code_line(ln) for ln in lines]
 
     def test_event_argument_flagged_while_the_parser_loses_the_chain(self):
         lines = ["#!spec", "|P| ~> <H>({C}) -> [R]"]
-        found = lint.parser_gap_findings(self.codes(lines), self.facts())
+        found = hl.parser_gap_findings(self.codes(lines), self.facts())
         self.assertEqual([(f.line, f.rule) for f in found], [(2, "SGL153")])
 
     def test_event_argument_quiet_once_the_parser_reads_it(self):
         lines = ["#!spec", "|P| ~> <H>({C}) -> [R]"]
         facts = self.facts({2: {("store", "P"), ("event", "H")}})
-        self.assertEqual(lint.parser_gap_findings(self.codes(lines), facts), [])
+        self.assertEqual(hl.parser_gap_findings(self.codes(lines), facts), [])
         self.assertEqual(hardening("\n".join(lines) + "\n"), set())   # the real parser
 
     def test_event_argument_at_the_end_breaks_nothing(self):
         lines = ["#!spec", "|P| ~> <H>({C})"]
-        self.assertEqual(lint.parser_gap_findings(self.codes(lines), self.facts()), [])
+        self.assertEqual(hl.parser_gap_findings(self.codes(lines), self.facts()), [])
 
     def test_an_unresolved_alias_after_a_count_is_flagged(self):
         lines = ["#!spec", "[A] -> [B] : charge ×3 Retry"]
-        found = lint.parser_gap_findings(self.codes(lines), self.facts(alias_refs={2: {"Retry"}}))
+        found = hl.parser_gap_findings(self.codes(lines), self.facts(alias_refs={2: {"Retry"}}))
         self.assertEqual([(f.line, f.rule) for f in found], [(2, "SGL181")])
 
     def test_the_parser_resolves_a_defined_alias_and_keeps_an_undefined_one(self):
         g = render.parse_document("#!spec\nRetry := @after(1s)\n"
                                   "[A] -> [B] : charge ×3 Retry\n[A] -> [C] : pay ×2 Nope\n")
-        self.assertEqual(lint.parsed_facts(g).alias_refs, {4: {"Nope"}})
+        self.assertEqual(hl.parsed_facts(g).alias_refs, {4: {"Nope"}})
 
     def test_a_transition_without_trigger_is_read_from_the_model(self):
         g = render.parse_document("#!spec\nstate {X} {\n  + -<a>-> S\n  S -> T\n}\n")
-        facts = lint.parsed_facts(g)
+        facts = hl.parsed_facts(g)
         self.assertEqual(facts.untriggered, frozenset({4}))
-        found = lint.parser_gap_findings(self.codes(["", "", "", ""]), facts)
+        found = hl.parser_gap_findings(self.codes(["", "", "", ""]), facts)
         self.assertEqual([(f.line, f.rule) for f in found], [(4, "SGL161")])
 
     def test_dropped_lines_map_to_codes(self):
@@ -153,13 +147,13 @@ class ParserFacts(unittest.TestCase):
         dropped = [(2, "no-owner", "state {"), (3, "no-owner", "+ -<a>-> S"),
                    (4, "no-owner", "}"), (6, "not-a-transition", "hello"),
                    (7, "not-a-transition", "a -<go b")]
-        found = lint.parser_gap_findings(self.codes(lines), self.facts(dropped=dropped))
+        found = hl.parser_gap_findings(self.codes(lines), self.facts(dropped=dropped))
         # One finding for the owner-less machine; a malformed `-<` line is SGL090's.
         self.assertEqual([(f.line, f.rule) for f in found], [(2, "SGL161"), (6, "SGL161")])
 
     def test_the_parser_reports_what_it_dropped(self):
         g = render.parse_document("#!spec\n[A] := {\n  [B] -> [C]\n")
-        facts = lint.parsed_facts(g)
+        facts = hl.parsed_facts(g)
         self.assertIn((3, "unclosed", "[B] -> [C]"), facts.dropped)
 
     def test_an_unclosed_block_is_one_finding_at_its_opener(self):
@@ -169,14 +163,14 @@ class ParserFacts(unittest.TestCase):
 
     def test_parser_stand_in_when_the_walker_sees_no_block(self):
         lines = ["#!spec", "[A] -> [B]"]
-        found = lint.hardening_findings(lines, facts=self.facts(dropped=[(2, "unclosed", "x"),
+        found = hl.hardening_findings(lines, facts=self.facts(dropped=[(2, "unclosed", "x"),
                                                                          (3, "unclosed", "y")]))
         self.assertEqual([(f.line, f.rule) for f in found], [(2, "SGL160")])
 
 
 class Tokens(unittest.TestCase):
     def kinds(self, line):
-        return [(t.kind, t.problem) for t in lint.tokenize_statement(lint.code_line(line))]
+        return [(t.kind, t.problem) for t in hl.tokenize_statement(hl.code_line(line))]
 
     def test_a_flow_with_payload_and_modifiers(self):
         self.assertEqual(
@@ -191,11 +185,11 @@ class Tokens(unittest.TestCase):
                                                         ("bad", "closer"), ("mod", "no-arg")])
 
     def test_tokenizing_is_pure(self):
-        code = lint.code_line("[A] -> [B] : {X} [C]")
-        self.assertEqual(lint.tokenize_statement(code), lint.tokenize_statement(code))
+        code = hl.code_line("[A] -> [B] : {X} [C]")
+        self.assertEqual(hl.tokenize_statement(code), hl.tokenize_statement(code))
 
     def test_one_finding_per_rule_per_line_in_line_order(self):
-        found = lint.hardening_findings(["#!spec", "[A] -> -> -> [B]", "[] -> []"])
+        found = hl.hardening_findings(["#!spec", "[A] -> -> -> [B]", "[] -> []"])
         keys = [(f.line, f.rule) for f in found]
         self.assertEqual(keys, sorted(set(keys)))
 

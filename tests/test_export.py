@@ -1,4 +1,4 @@
-"""export.py: the gate, the plan, the Markdown and JSON writers, the write order."""
+"""`sigil export` (sigil.publish.exporter): the gate, the plan, the Markdown and JSON writers, the write order."""
 
 import contextlib
 import io
@@ -14,9 +14,12 @@ from unittest import mock
 _DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_DIR))
 
-import export  # noqa: E402
+from sigil import cli  # noqa: E402
+from sigil.analyse import check, lint  # noqa: E402
+from sigil.publish import exporter as export  # noqa: E402
+from sigil.publish import systems as em  # noqa: E402
 
-em = export._model()
+SIGIL = _DIR / "bin" / "sigil"
 FIXTURES = _DIR / "tests" / "fixtures" / "checks"
 
 READY = """\
@@ -58,7 +61,7 @@ REORDERED = """\
 def run(argv) -> tuple:
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        code = export.main(argv)
+        code = cli.main(["export", *argv])
     return code, out.getvalue(), err.getvalue()
 
 
@@ -86,14 +89,14 @@ class Tmp(unittest.TestCase):
 
 class TestGate(unittest.TestCase):
     def gate(self, text: str) -> tuple:
-        return export.gate(text, None, export._lint(), export._check())
+        return export.gate(text, None, lint, check)
 
     def test_ready_spec_passes(self):
         self.assertEqual(self.gate(READY), ())
 
     def test_info_does_not_block(self):
         text = (FIXTURES / "export-no-home-fixed.sigil").read_text(encoding="utf-8")
-        report = export._check().check(text, mode="spec", export=True)
+        report = check.check(text, mode="spec", export=True)
         self.assertTrue(any(f.severity == "info" for f in report.shown))
         self.assertEqual(self.gate(text), ())
 
@@ -371,8 +374,8 @@ class TestWrite(Tmp):
 
 class TestCommand(unittest.TestCase):
     def test_help_and_executable(self):
-        self.assertTrue(os.access(_DIR / "export.py", os.X_OK))
-        r = subprocess.run([sys.executable, str(_DIR / "export.py"), "--help"],
+        self.assertTrue(os.access(SIGIL, os.X_OK))
+        r = subprocess.run([sys.executable, str(SIGIL), "export", "--help"],
                            capture_output=True, text=True, timeout=60)
         self.assertEqual(r.returncode, 0)
         for word in ("--out", "--dialect", "#!spec"):
@@ -380,7 +383,7 @@ class TestCommand(unittest.TestCase):
 
     def test_out_is_required(self):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as cm:
-            export.main(["x.sigil"])
+            cli.main(["export", "x.sigil"])
         self.assertEqual(cm.exception.code, 2)
 
 

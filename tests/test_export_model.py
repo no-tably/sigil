@@ -1,4 +1,5 @@
-"""export_model.py: systems, homes, components, the normalised form and hashes."""
+"""The export model (sigil.model.systems, hashed by sigil.publish.systems): systems,
+homes, components, the normalised form and hashes."""
 
 import json
 import re
@@ -9,7 +10,8 @@ from pathlib import Path
 _DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_DIR))
 
-import export_model as em  # noqa: E402
+from sigil.model import systems as model_systems  # noqa: E402
+from sigil.publish import systems as em  # noqa: E402
 
 
 SHOP = """\
@@ -225,10 +227,10 @@ class TestHashes(unittest.TestCase):
         self.assertNotEqual(hashes(model(quoted, "t")), base)
 
     def test_tight(self):
-        self.assertEqual(em.tight(" save( {Order} ,  {Id} ) "), "save({Order},{Id})")
-        self.assertEqual(em.tight('f( "a  b" ) x  y'), 'f("a  b")x y')
-        self.assertEqual(em.tight("a  =>{B}"), "a => {B}")
-        self.assertEqual(em.tight('x  "q"  y'), 'x "q" y')
+        self.assertEqual(model_systems.tight(" save( {Order} ,  {Id} ) "), "save({Order},{Id})")
+        self.assertEqual(model_systems.tight('f( "a  b" ) x  y'), 'f("a  b")x y')
+        self.assertEqual(model_systems.tight("a  =>{B}"), "a => {B}")
+        self.assertEqual(model_systems.tight('x  "q"  y'), 'x "q" y')
 
     def test_hashes_are_16_hex(self):
         for i, b in hashes(model()).values():

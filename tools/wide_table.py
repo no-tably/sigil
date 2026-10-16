@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 wide_table.py — write the WIDE tables of the JavaScript copies of the cell-width
-rule from Python's unicodedata, by viewkit.char_cells's rule.
+rule from Python's unicodedata, by sigil.present.kit.char_cells's rule.
 
     tools/wide_table.py           # rewrite the tables in place, report what changed
     tools/wide_table.py --check   # write nothing; exit 1 if a table is stale
@@ -16,14 +16,13 @@ wide code points as a table:
 
 Only the lines inside each table are written; the code around them is left as it
 is. The ranges are exact over every code point (unassigned ones as unicodedata
-reads them), so the tables agree with viewkit wherever a character is.
+reads them), so the tables agree with the kit wherever a character is.
 
 Standard library only.
 """
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import re
 import sys
 from pathlib import Path
@@ -120,13 +119,13 @@ def with_table(text: str, table: Table, ranges: list) -> str:
     return "\n".join(lines[:start + 1] + table.lines(ranges) + lines[end:])
 
 
-def load_char_cells(root: Path) -> Callable[[str], int]:
-    """viewkit.char_cells, the rule the views draw by."""
-    spec = importlib.util.spec_from_file_location("sigil_viewkit_wide", root / "viewkit.py")
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
-    return mod.char_cells
+def load_char_cells() -> Callable[[str], int]:
+    """sigil.present.kit.char_cells, the rule the views draw by (the package
+    beside tools/, at ROOT)."""
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from sigil.present import kit
+    return kit.char_cells
 
 
 def parse_args(argv):
@@ -140,9 +139,9 @@ def parse_args(argv):
 
 
 def main(argv=None, root: Path = ROOT, cells: Callable[[str], int] | None = None) -> int:
-    """root: where the two files are; cells: the width rule (viewkit's by default)."""
+    """root: where the two files are; cells: the width rule (the kit's by default)."""
     check = parse_args(argv).check
-    ranges = wide_ranges(cells or load_char_cells(root))
+    ranges = wide_ranges(cells or load_char_cells())
     stale = 0
     for table in TABLES:
         path = root / table.path

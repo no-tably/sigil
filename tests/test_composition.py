@@ -14,25 +14,17 @@ Run:  uv run python -m unittest discover notations/sigil/tests/
 """
 from __future__ import annotations
 
-import importlib.util
 import sys
 import unittest
 from pathlib import Path
 
 _DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_DIR))
 
-
-def _load(name: str, fname: str):
-    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-render = _load("sigil_render", "render.py")
-lint = _load("sigil_lint", "lint.py")
-view = _load("sigil_view", "view.py")
+from sigil.analyse import lint  # noqa: E402
+from sigil.core import parse as render  # noqa: E402
+from sigil.present import app as view, kit  # noqa: E402
+from sigil.present.views import graph as vgraph, tree as vtree  # noqa: E402
 
 ECS = """#!sketch
 [Ship]
@@ -134,8 +126,8 @@ class TestLint(unittest.TestCase):
 
 class TestTreeView(unittest.TestCase):
     def draw(self, text):
-        rows, _w = view.compose_tree(render.parse_document(text), 1)
-        return [view.ansi(r, False) for r in rows]
+        rows, _w = vtree.compose_tree(render.parse_document(text), 1)
+        return [kit.ansi(r, False) for r in rows]
 
     def test_outline(self):
         out = self.draw(ECS)
@@ -202,8 +194,8 @@ class TestTreeView(unittest.TestCase):
     def test_graph_mode_lists_triggers(self):
         doc = ("#!sketch\n[Payments] ~> <Paid>\n"
                "state [Checkout] {\n  Idle -<Paid>-> Busy\n}\n")
-        rows, _ = view.compose(render.parse_document(doc), 1, False)
-        text = "\n".join(view.ansi(r, False) for r in rows)
+        rows, _ = vgraph.compose(render.parse_document(doc), 1, False)
+        text = "\n".join(kit.ansi(r, False) for r in rows)
         # drawn, not listed: the machine's section has the event as a node with a
         # trigger edge (╍) into the state it enters, the label not repeated
         machine = text.split("state machine")[1]
@@ -235,9 +227,9 @@ class TestTreeView(unittest.TestCase):
             spaced = len(st._rows)
             st.key("s")
             self.assertLess(len(st._rows), spaced)          # compact drops blank rows
-            with_trig = "\n".join(view.ansi(r, False) for r in st._rows)
+            with_trig = "\n".join(kit.ansi(r, False) for r in st._rows)
             st.key("e")
-            without = "\n".join(view.ansi(r, False) for r in st._rows)
+            without = "\n".join(kit.ansi(r, False) for r in st._rows)
             self.assertIn("╍", with_trig)                   # trigger lanes
             self.assertNotIn("╍", without)
 
@@ -245,8 +237,8 @@ class TestTreeView(unittest.TestCase):
              "(User) -> [Router] : {Query}\n")
 
     def test_notes_markers_and_list(self):
-        rows, _ = view.compose_tree(render.parse_document(self.NOTED), 1, notes="markers")
-        out = "\n".join(view.ansi(r, False) for r in rows)
+        rows, _ = vtree.compose_tree(render.parse_document(self.NOTED), 1, notes="markers")
+        out = "\n".join(kit.ansi(r, False) for r in rows)
         lines = out.splitlines()
         self.assertIn("[Router] #1", out)                # a block note: on its component
         zone = next(ln for ln in lines if "[ZoneA]" in ln)
@@ -256,15 +248,15 @@ class TestTreeView(unittest.TestCase):
         self.assertIn("#2 3:1 while B migrates", out)
 
     def test_notes_callouts_in_left_margin(self):
-        rows, _ = view.compose_tree(render.parse_document(self.NOTED), 1, notes="callouts")
-        out = [view.ansi(r, False) for r in rows]
+        rows, _ = vtree.compose_tree(render.parse_document(self.NOTED), 1, notes="callouts")
+        out = [kit.ansi(r, False) for r in rows]
         router = next(ln for ln in out if "#> [Router]" in ln)   # the leader points at it
         self.assertTrue(router.index("routes") < router.index("[Router]"))  # box is left
         self.assertNotIn("── notes ──", "\n".join(out))                   # no list needed
 
     def test_graph_mode_tags_boxes(self):
-        rows, _ = view.compose(render.parse_document(self.NOTED), 1, False, notes="markers")
-        out = "\n".join(view.ansi(r, False) for r in rows)
+        rows, _ = vgraph.compose(render.parse_document(self.NOTED), 1, False, notes="markers")
+        out = "\n".join(kit.ansi(r, False) for r in rows)
         self.assertIn("[ZoneA] #2", out)
         self.assertIn("── notes ──", out)
 
@@ -275,7 +267,7 @@ class TestTreeView(unittest.TestCase):
             p.write_text(self.NOTED)
             st = view.ViewState(p, do_lint=False, tree=True)
             st.reload(force=True)
-            text = lambda: "\n".join(view.ansi(r, False) for r in st._rows)
+            text = lambda: "\n".join(kit.ansi(r, False) for r in st._rows)
             self.assertNotIn("#1", text())
             st.key("n")
             self.assertEqual(st.notes, "markers")
@@ -286,8 +278,8 @@ class TestTreeView(unittest.TestCase):
             self.assertEqual(st.notes, "off")
 
     def test_payloads_in_tree_view(self):
-        rows, _ = view.compose_tree(render.parse_document(self.NOTED), 1, payloads=True)
-        out = [view.ansi(r, False) for r in rows]
+        rows, _ = vtree.compose_tree(render.parse_document(self.NOTED), 1, payloads=True)
+        out = [kit.ansi(r, False) for r in rows]
         router = next(ln for ln in out if ln.startswith("[Router]"))
         self.assertTrue(router.rstrip().endswith("┆ {Query} ┆"))    # a chip on its target row
         self.assertNotIn("── payloads ──", "\n".join(out))          # drawn, so not listed
@@ -298,9 +290,9 @@ class TestTreeView(unittest.TestCase):
         self.assertEqual([(n.text, n.kind, n.edges) for n in g.notes],
                          [("above", "block", ()), ("beside", "inline", ()),
                           ("about the flow", "inline", (("A_service", "B_service", "->"),))])
-        idx = view.note_index(g)
-        rows, _ = view.compose_tree(g, 1, notes="callouts")
-        out = [view.ansi(r, False) for r in rows]
+        idx = kit.note_index(g)
+        rows, _ = vtree.compose_tree(g, 1, notes="callouts")
+        out = [kit.ansi(r, False) for r in rows]
         a_row = next(ln for ln in out if "#> [A]" in ln)
         self.assertIn("│ above", a_row)                     # block: framed, on the left
         self.assertTrue(a_row.rstrip().endswith("# beside"))  # inline: trails its own line
@@ -309,17 +301,17 @@ class TestTreeView(unittest.TestCase):
         styles = {t: st[0].role for r in rows for t, st in r if st and t.strip()}
         self.assertEqual(styles["#>"], "ui-note-block")     # colour tells the kinds apart
         self.assertEqual(styles["# beside"], "ui-note-inline")
-        self.assertEqual(sorted(view.edge_notes(idx)), [("A_service", "B_service", "->")])
+        self.assertEqual(sorted(kit.edge_notes(idx)), [("A_service", "B_service", "->")])
 
     def test_inline_flow_note_rides_its_edge_in_graph_view(self):
         g = render.parse_document("#!sketch\n[A] -> [B]   # about the flow\n")
-        rows, _ = view.compose(g, 1, False, notes="markers")
-        out = "\n".join(view.ansi(r, False) for r in rows)
+        rows, _ = vgraph.compose(g, 1, False, notes="markers")
+        out = "\n".join(kit.ansi(r, False) for r in rows)
         self.assertIn("▼ #1", out)                           # beside the arrowhead
         self.assertNotIn("[A] #1", out)                      # not on the source box
 
     def test_payload_chips_are_colour_coded(self):
-        runs = view.payload_runs("quote(route) => {Fare} ×3")
+        runs = kit.payload_runs("quote(route) => {Fare} ×3")
         roles = {t: st[0].role for t, st in runs if t.strip()}
         self.assertEqual(roles["{"], "kinds-data")           # brackets: the kind's colour
         self.assertEqual(roles["Fare"], "muted:kinds-data")  # names: the kind colour, muted

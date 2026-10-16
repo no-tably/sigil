@@ -1,4 +1,4 @@
-"""themes.py and dialects.py edge cases: the YAML parser, resolve, extends, the
+"""sigil.present.themes and sigil.core.dialects edge cases: the YAML parser, resolve, extends, the
 CLI and dialect module loading.
 
 Covers:
@@ -12,7 +12,7 @@ Covers:
     index.yaml and non-YAML suffixes; find() treating "a/b" as a path;
   - dialects: modules registered in sys.modules (dataclasses work, a failed
     load leaves nothing behind), one module per file across separate copies of
-    dialects.py, "sigil-" prefixed names, path-like names rejected, distinct
+    the dialects module, "sigil-" prefixed names, path-like names rejected, distinct
     modules for names that differ only in punctuation, the CLI exit code.
 
 Run:  python3 -m unittest discover tests
@@ -29,18 +29,20 @@ import unittest
 from pathlib import Path
 
 _DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_DIR))
+
+from sigil.core import dialects  # noqa: E402
+from sigil.present import themes  # noqa: E402
 
 
-def _load(name: str, fname: str):
-    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
+def _second_copy(module, name: str):
+    """A second, separate instance of `module` (as a host that loads its own copy
+    would have), registered as `name`."""
+    spec = importlib.util.spec_from_file_location(name, module.__file__)
     mod = importlib.util.module_from_spec(spec)
     sys.modules[name] = mod
     spec.loader.exec_module(mod)
     return mod
-
-
-themes = _load("sigil_themes_parsing", "themes.py")
-dialects = _load("sigil_dialects_parsing", "dialects.py")
 
 
 def _run(main, argv):
@@ -277,7 +279,7 @@ class TestDialects(_EnvCase):
 
     def test_one_module_across_copies_of_dialects(self):              # item 2
         d = self._dialect("sigil-shared")
-        other = _load("sigil_dialects_parsing_copy", "dialects.py")
+        other = _second_copy(dialects, "sigil_dialects_parsing_copy")
         self.assertIsNot(other, dialects)
         self.assertIs(dialects.load(str(d)), other.load(str(d / "dialect.py")))
 

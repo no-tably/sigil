@@ -1,5 +1,5 @@
 """Core Sigil (no dialect) — the language as it stands alone, plus the dialect
-loading mechanism (dialects.py).
+loading mechanism (sigil.core.dialects).
 
 Covers:
   - core lint does NOT require a tag on a value payload, and treats modifiers it
@@ -18,7 +18,6 @@ Run:  uv run python -m unittest discover notations/sigil/tests/
 """
 from __future__ import annotations
 
-import importlib.util
 import os
 import re
 import subprocess
@@ -30,18 +29,14 @@ from pathlib import Path
 from unittest import mock
 
 _DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_DIR))
 
+from sigil.analyse import lint  # noqa: E402
+from sigil.core import dialects, vocab  # noqa: E402
+from sigil.core import parse as render  # noqa: E402
+from sigil.publish import mermaid  # noqa: E402
 
-def _load(name: str, fname: str):
-    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-lint = _load("sigil_lint", "lint.py")
-render = _load("sigil_render", "render.py")
-dialects = _load("sigil_dialects", "dialects.py")
+SIGIL = _DIR / "bin" / "sigil"
 
 
 def diags(text: str, dialect=None):
@@ -85,9 +80,9 @@ class TestCoreVocabulary(unittest.TestCase):
         for mod in ("@inv", "@sla", "@cap", "@owns", "@borrow", "@timeout", "@after",
                     "@deadline", "@fallback", "@grants", "@requires", "@loc",
                     "@read", "@write"):
-            self.assertIn(mod, lint.VALID_MODIFIERS)
+            self.assertIn(mod, vocab.VALID_MODIFIERS)
         for mod in ("@exec", "@state", "@render", "@log", "@spawn", "@tree", "@as"):
-            self.assertNotIn(mod, lint.VALID_MODIFIERS)
+            self.assertNotIn(mod, vocab.VALID_MODIFIERS)
 
     def test_loop_each_is_fine(self):
         doc = "#!spec\nloop @each x of {Xs} {\n  [A] -> [B]\n}\n"
@@ -101,7 +96,7 @@ class TestCoreVocabulary(unittest.TestCase):
                "\\-> [y] -//comment\non <click> |t| -> [v] : ${clicked}\n"
                "[lib]>[book]>[item(x)]\n")
         lint.lint(doc)
-        render.render(doc)
+        mermaid.render(doc)
         g = render.parse_document(doc)
         core_kinds = {"service", "data", "event", "actor", "store", "state"}
         self.assertLessEqual({n.kind for n in g.nodes.values()}, core_kinds)
@@ -123,7 +118,7 @@ class TestBlockStrings(unittest.TestCase):
 
     def test_collapse_preserves_length(self):
         lines = BLOCK.splitlines()
-        self.assertEqual(len(lint.collapse_block_strings(lines, lint.LintResult())), len(lines))
+        self.assertEqual(len(lint.collapse_block_strings(lines, vocab.LintResult())), len(lines))
 
     def test_line_numbers_preserved(self):
         doc = '#!spec\n~|s| : """\na\nb\n"""\n[X] -> [Y] : {a: 1, b}\n'
@@ -246,13 +241,13 @@ class TestDialectLoading(unittest.TestCase):
         g = render.parse_document("<<ruby>> -> [B]\n", dialect=d)
         self.assertEqual(g.nodes["ruby_gem"].kind, "gem")
         self.assertEqual(g.nodes["ruby_gem"].attrs, {"facets": 8})
-        out = render.render("<<ruby>> -> [B]\n", dialect=d)
+        out = mermaid.render("<<ruby>> -> [B]\n", dialect=d)
         self.assertIn('ruby_gem{{"ruby*"}}', out)
         self.assertIn("classDef gem fill:#fff", out)
         self.assertIn("class ruby_gem gem", out)
 
     def test_cli_unknown_dialect_exits_2(self):
-        p = subprocess.run([sys.executable, str(_DIR / "lint.py"), "-", "--dialect",
+        p = subprocess.run([sys.executable, str(SIGIL), "lint", "-", "--dialect",
                             "no-such-dialect-xyz"], input="#!spec\n", text=True,
                            capture_output=True)
         self.assertEqual(p.returncode, 2)
@@ -260,10 +255,10 @@ class TestDialectLoading(unittest.TestCase):
 
     def test_cli_dialect_flag(self):
         doc = "#!spec\n[A] -> [B] @shiny\n"
-        core = subprocess.run([sys.executable, str(_DIR / "lint.py"), "-"], input=doc,
+        core = subprocess.run([sys.executable, str(SIGIL), "lint", "-"], input=doc,
                               text=True, capture_output=True,
                               env={**os.environ, "SIGIL_DIALECT": ""})
-        toy = subprocess.run([sys.executable, str(_DIR / "lint.py"), "-", "--dialect",
+        toy = subprocess.run([sys.executable, str(SIGIL), "lint", "-", "--dialect",
                               str(self.path)], input=doc, text=True, capture_output=True)
         self.assertIn("SGL040", core.stdout)
         self.assertEqual(toy.returncode, 0, toy.stdout)
@@ -296,12 +291,11 @@ class TestExamplesLintClean(unittest.TestCase):
 # The core tools stand alone
 # ---------------------------------------------------------------------------
 
-_CORE_FILES = ("lint.py", "render.py", "dialects.py", "themes.py",
-               "view.py", "viewkit.py", "view_graph.py", "view_tree.py", "view_flow.py",
-               "view_run.py", "scene.py",
-               "sim.py", "check.py", "check_state.py", "check_trace.py",
-               "check_flow.py", "check_inv.py", "check_export.py",
-               "export.py", "export_model.py")
+# The core tools: every module of the package and the `sigil` command (paths
+# relative to the repository root).
+_CORE_FILES = tuple(sorted(
+    p.relative_to(_DIR).as_posix() for p in (_DIR / "sigil").rglob("*.py")
+    if "__pycache__" not in p.parts)) + ("bin/sigil",)
 # Directories whose every text file must also be free of dialect/host vocabulary.
 _SCANNED_DIRS = ("highlight", "tests", "site", "themes", "plugin")
 # Generated directories (gitignored) hold no files of ours: `bun install` in
