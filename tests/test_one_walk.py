@@ -77,6 +77,17 @@ class Readings(unittest.TestCase):
         self.assertEqual(g.edges[0].payload, '"issue #5"')
         self.assertEqual([n.text for n in g.notes], ["real note"])
 
+    def test_d1_an_at_in_a_string_starts_no_header_modifier(self):
+        g = parse.parse_document('loop @while("a @b c") @times(3) {\n  [A] -> [B]\n}\n'
+                                 'branch on {R}.k @x "q @y" {\n  [A] -> [B]\n}\n'
+                                 'loop @each x of {Xs} @timeout(3s) {\n  [A] -> [B]\n}\n'
+                                 '[Y]×2 @owns(|S|) {\n  [Y] -> |S|\n}\n')
+        self.assertEqual([(b.header, b.modifiers) for b in g.blocks], [
+            ('@while("a @b c") @times(3)', [("while", '"a @b c"'), ("times", "3")]),
+            ('{R}.k @x "q @y"', [("x", '"q @y"')]),
+            ("@each x of {Xs} @timeout(3s)", [("each", "x of {Xs}"), ("timeout", "3s")]),
+            ("[Y]×2 @owns(|S|)", [("×", "2"), ("owns", "|S|")])])
+
     def test_d2_a_brace_in_a_string_is_no_block_brace(self):
         g = parse.parse_document('loop @each x {\n  [A] -> [B] : "a { b"\n}\n[C] -> [D]\n')
         self.assertEqual(g.blocks[0].lines, (1, 3))

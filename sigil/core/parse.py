@@ -111,6 +111,34 @@ class Subject(NamedTuple):
     line: int = 0             # the most recent flow line under this subject (Edge.cont)
 
 
+# The token kinds that place a modifier of the statement (scan_mods' pairs): a
+# `@name`, a bound, a count; a mark only when it is `!` (`?` marks a glyph).
+def _is_modifier(t) -> bool:
+    return t.pair is not None and (t.kind in ("mod", "bound", "card")
+                                   or (t.kind == "mark" and t.text == "!"))
+
+
+def _header_text(it: BlockOpen) -> str:
+    """A control-block header less its keyword (`loop`, `parallel`, `branch`,
+    `branch on`), from its tokens; a scope's header is all of it."""
+    if it.kind == "scope":
+        return it.head
+    toks = it.toks[1:]                      # the keyword word
+    if it.kind == "branch" and toks and toks[0].kind == "word" and toks[0].text == "on":
+        toks = toks[1:]
+    return it.code.raw[toks[0].col:].strip() if toks else ""
+
+
+def _header_mods(raw: str, toks) -> list:
+    """A control-block header's modifiers, in token order: each `@name` token
+    read with the header text up to the next one — a header modifier's free
+    argument runs to the next modifier (`loop @while |Q|.nonempty`). A string
+    is string text: its `@` starts no modifier."""
+    mods = [t for t in toks if t.kind == "mod"]
+    ends = [t.col for t in mods[1:]] + [len(raw)]
+    return [mod_pair(raw[t.col:end]) for t, end in zip(mods, ends)]
+
+
 def _add_mod(mods: list, pair: tuple):
     if pair not in mods:
         mods.append(pair)
@@ -870,16 +898,14 @@ class _Builder:
             out = {}
             self._flow_line(k, it.header, None, out=out, in_header=True)
             header = it.head
-            mods = scan_mods(it.head)
+            mods = [t.pair for t in it.header.toks if _is_modifier(t)]
             refs = list(out.get("nodes", []))
             owned = [parse_glyph(gm.group(0), self.layer).id
                      for p in mods if p[0] == "owns" and p[1]
                      for gm in GLYPH_RE.finditer(p[1])]
         else:
-            header = re.sub(r"^(?:loop|parallel|branch(?:\s+on\b)?)\s*", "", it.head) \
-                if it.kind != "scope" else it.head
-            parts = [p for p in re.split(r"(?:^|\s+)(?=@[A-Za-z])", header) if p.strip()]
-            mods = [mod_pair(p) for p in parts if p.startswith("@")]
+            header = _header_text(it)
+            mods = _header_mods(it.code.raw, it.toks)
             # The glyphs the header names (not those inside a modifier's argument).
             for t in it.toks:
                 n = _token_node(t, self.layer) if t.kind == "glyph" else None
