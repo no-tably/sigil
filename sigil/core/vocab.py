@@ -22,22 +22,21 @@ vocab`), never from the linter.
                                 after whitespace starts one (not inside-string aware);
                                 a `#!` mode line is returned whole
 
-Standard library only; imports nothing of sigil.
+The lexical names (arrows, glyph patterns, the comment rule) are kept once in
+sigil.core.lex and re-exported here.
 """
 
-import re
 from dataclasses import dataclass, field
+
+from sigil.core.lex import (  # noqa: F401  (re-exported: the dialect API)
+    ANY_GLYPH_RE, ARROW_RE, ARROWS, COMMENT_START_RE, GLYPH_PATTERNS,
+    strip_comment_plain as strip_comment)
 
 # ---------------------------------------------------------------------------
 # Known vocabulary
 # ---------------------------------------------------------------------------
 
 VALID_MODES = {"#!spec", "#!sketch", "#!craft"}
-
-# The closed arrow set, ordered longest-first so `<->` is not matched as `->`.
-ARROWS = ["<->", "->", "~>", "=>", "!>", "?>", "*>", "→"]
-ARROW_RE = re.compile("(" + "|".join(map(re.escape, ARROWS)) + ")")
-
 
 # Call resilience is the trio `@timeout` · `×N` (retry cardinality) · `@fallback(x)`
 # — together a call's error policy (language.md "Call resilience"). `@timeout` sits
@@ -47,7 +46,7 @@ CALL_RESILIENCE_MODIFIERS = {"@fallback"}
 
 
 # Permission-graph access modifiers — `@read(…)` / `@write(…)`; see
-# lint's PRINCIPAL_SET_RE, language.md "Permission graph" + lint_permission_graph.
+# sigil.core.lex.PRINCIPAL_SET_RE, language.md "Permission graph" + lint_permission_graph.
 PERMISSION_MODIFIERS = {"@read", "@write"}
 
 
@@ -62,28 +61,6 @@ VALID_MODIFIERS = {
 VALID_LOOP_MODS = {"@each", "@while", "@until", "@times"}
 VALID_PARALLEL_MODS = {"@all", "@any", "@none"}
 VALID_STREAM_POLICIES = {"block", "drop", "latest", "err"}
-
-
-# Glyph patterns
-GLYPH_PATTERNS = {
-    "service": re.compile(r"\[([^\[\]]+)\]"),
-    "data":    re.compile(r"\{([^\{\}]+)\}"),
-    "event":   re.compile(r"<([^<>]+)>"),
-    "actor":   re.compile(r"\(([^()]+)\)"),
-    "store":   re.compile(r"\|([^|]+)\|"),
-}
-
-
-# Any glyph at all (for flow-line analysis). The `<->` bidirectional arrow is
-# never an event glyph `<-…>`.
-ANY_GLYPH_RE = re.compile(
-    r"(\[[^\[\]]+\]|\{[^\{\}]+\}|<(?!->)[^<>]+>|\([^()]+\)|\|[^|]+\|)"
-)
-
-
-# A comment start: a `#` preceded by whitespace/SOL, not part of `#!`. Used by
-# strip_comment, and to tell an opening `"""` from a `"""` sitting in a comment.
-COMMENT_START_RE = re.compile(r"(?<!\S)#(?!!)")
 
 
 # ---------------------------------------------------------------------------
@@ -113,18 +90,3 @@ class LintResult:
 
     def has_warnings(self) -> bool:
         return any(d.severity == "warn" for d in self.diagnostics)
-
-
-# ---------------------------------------------------------------------------
-# Comments
-# ---------------------------------------------------------------------------
-
-def strip_comment(line: str) -> str:
-    """Remove inline comments: a `#` at the start of the line or after whitespace
-    starts one, unless it is a `#!` (a mode line is returned whole)."""
-    if line.startswith("#!"):
-        return line
-    m = COMMENT_START_RE.search(line)
-    if m:
-        return line[: m.start()]
-    return line

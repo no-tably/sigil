@@ -7,8 +7,8 @@ PayloadSite is what a dialect's payload check is handed.
 import re
 from sigil.core.vocab import ARROW_RE, LintResult, VALID_MODIFIERS, strip_comment
 
-from sigil.analyse.lint.scan import (
-    _EXT_OP_RE, _INT_OP_RE, _MODIFIER_RE, _OP_HEAD_RE, _balanced_end)
+from sigil.core.lex import EXT_OP_RE, INT_OP_RE, MOD_TOKEN_RE, OP_HEAD_RE
+from sigil.analyse.lint.scan import _balanced_end
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +57,7 @@ def _split_payload_and_tags(seg: str):
         chunk = s[m.start():].strip()
         if chunk.startswith("@"):
             # Take just the @name (strip any (...) args for tag identity).
-            name = _MODIFIER_RE.match(chunk)
+            name = MOD_TOKEN_RE.match(chunk)
             if name:
                 tags.insert(0, name.group(0))
         s = s[: m.start()].rstrip()
@@ -138,7 +138,7 @@ def _classify_payload(value_text: str):
 
     # External op-call: `op <ns>.<verb>(args)`.
     if re.match(r"^op\b", v):
-        if _EXT_OP_RE.match(v):
+        if EXT_OP_RE.match(v):
             return ("ext-op", v)
         return ("ext-op-bad", v)
 
@@ -172,7 +172,7 @@ def _classify_payload(value_text: str):
         return ("value", v)
 
     # Bare `verb(args)` — internal op-call (structural, by-shape).
-    if _INT_OP_RE.match(v):
+    if INT_OP_RE.match(v):
         return ("int-op", v)
 
     # Anything else (a bare identifier label like `reserve`, `charge`) is an
@@ -248,7 +248,7 @@ def lint_payloads(lines: list, result: LintResult, checks=(),
         # same rule as one written as a payload: render reads both as an op-call.
         for am in ARROW_RE.finditer(line):
             j = len(line) - len(line[am.end():].lstrip())
-            om = _OP_HEAD_RE.match(line, j)
+            om = OP_HEAD_RE.match(line, j)
             if not om or not line.startswith("op", j):
                 continue
             end = _balanced_end(line, om.end() - 1)

@@ -1,8 +1,8 @@
 """
 Lint hardening (SGL120–188): the lines the parser would misread or drop. Parked
 here with the rules that read them: lint's statement scanner (code_line,
-tokenize_statement → Tok) and its block walk (_StructureWalk) — the parser steps
-move them to sigil.core.lex / sigil.core.parse.
+tokenize_statement → Tok) and its block walk (_StructureWalk). The lexical tables
+they read are sigil.core.lex's (the parser reads the same ones).
 """
 
 import re
@@ -11,10 +11,15 @@ from typing import NamedTuple, Optional
 
 from sigil.core import parse as render
 from sigil.core.graph import walk_depth
-from sigil.core.vocab import ANY_GLYPH_RE, ARROWS, ARROW_RE, COMMENT_START_RE as _COMMENT_START_RE, LintResult
+from sigil.core.dialects import _hook
+from sigil.core.lex import (
+    ALIAS_MASKED_RE, ANY_GLYPH_RE, ARM_RE, ARROW_RE, ARROWS, BARE_BRANCH_RE, BLOCK_OPEN_RE,
+    BOUND_RE, CARD_RE, CLOSER, DIALECT_COL, FIELD_RE, FREE_ARG_MODS, GENERIC_RE,
+    LOOP_HEAD_RE, MOD_NAME_RE, OP_HEAD_RE, PAYLOAD_TAIL_LOOSE_RE, SCOPE_HEAD_RE,
+    SECTION_RE, TAIL_ONLY_RE, close_at, comment_col, mask_strings, net_braces)
+from sigil.core.vocab import LintResult
 from sigil.analyse.lint.payloads import _classify_payload
-from sigil.analyse.lint.scan import (
-    _OP_HEAD_RE, _apply_masks, _balanced_end, _hook, _mask_strings)
+from sigil.analyse.lint.scan import _apply_masks, _balanced_end
 
 
 # ---------------------------------------------------------------------------
@@ -50,11 +55,6 @@ class Finding(NamedTuple):
     message: str
 
 
-# Stands in for each column of a dialect glyph (masked by the dialect's
-# lint_glyph_masks), so the glyph still counts as an endpoint.
-DIALECT_COL = "\x01"
-
-
 class Code(NamedTuple):
     """One line (or a slice of one) as the hardening rules read it, two aligned
     strings: `text` has the comment cut, string contents blanked and dialect glyphs
@@ -77,23 +77,11 @@ class Tok(NamedTuple):
     glued: bool = False
 
 
-def _comment_pos(line: str) -> Optional[int]:
-    """Column of the comment `#` on the line (not one inside a closed `"…"`
-    string, not a `#!` mode line), or None."""
-    if line.lstrip().startswith("#!"):
-        return None
-    for m in _COMMENT_START_RE.finditer(line):
-        inside = line.count('"', 0, m.start()) % 2 == 1 and '"' in line[m.start():]
-        if not inside:
-            return m.start()
-    return None
-
-
 def code_line(raw: str, masks=()) -> Code:
     """The Code of a raw line: comment cut, strings and dialect glyphs blanked."""
-    pos = _comment_pos(raw)
+    pos = comment_col(raw)
     code = raw if pos is None else raw[:pos]
-    masked = _mask_strings(code)
+    masked = mask_strings(code)
     dm = _apply_masks(masked, masks)
     if len(dm) != len(masked):          # a mask that is not length-preserving
         return Code(masked, code)
@@ -111,38 +99,11 @@ def code_line(raw: str, masks=()) -> Code:
 
 # -- the statement scanner ----------------------------------------------------
 
-_CLOSER = {"[": "]", "{": "}", "<": ">", "(": ")", "|": "|"}
-
-
-_GENERIC_RE = re.compile(r"<[^\[\]{}<>()|]*(?:<[^\[\]{}<>()|]*>[^\[\]{}<>()|]*)*>")
-
-
 _WORD_RE = re.compile(r"[A-Za-z_\d][\w.-]*")
-
-
-_MOD_NAME_RE = re.compile(r"@([A-Za-z][\w-]*)")
-
-
-_CARD_RE = re.compile(r"×\s*(\w*)|(?<![\w.])x(\d+|N)\b(?=\s|$|@)|\*(\d+)\b")
-
-
-_BOUND_RE = re.compile(r"\^(\w*)(?:@[a-z]+)?")
-
-
-_FIELD_RE = re.compile(r"\.[A-Za-z_][\w.]*")
 
 
 # Unicode arrows other than the core `→` (U+2192): `⇒`, `⟶`, `↦`, … are not arrows.
 _FOREIGN_ARROW_RE = re.compile("[\u2190\u2191\u2193-\u21ff\u27f0-\u27ff\u2900-\u297f\u2b00-\u2bff]")
-
-
-_BLOCK_OPEN_RE = re.compile(r"\{(?=\s|$)")
-
-
-# Modifiers whose argument may run on without parens (`@owns |Conn|`, `@inv x`),
-# to the next arrow, `@`, block `{` or line end — as the parser reads them.
-_FREE_ARG_MODS = {"inv", "sla", "cap", "grants", "requires", "owns", "borrow", "loc",
-                  "timeout", "after", "deadline"}
 
 
 _NEEDS_ARG_MODS = {"timeout", "after", "deadline", "fallback"}
@@ -152,14 +113,6 @@ _POSITIVE_MODS = {"timeout", "deadline"}         # a zero or negative duration i
 
 
 _RESILIENCE_MODS = {"timeout", "deadline", "fallback"}
-
-
-_TAIL_ONLY_RE = re.compile(r"^(?:\s*(?:×\s*\w+|x(?:\d+|N)\b|!(?![>=])))+\s*$")
-
-
-# Trailing `×N` / `xN` / `^N` / `!` peeled off a payload (they are modifiers).
-_PAYLOAD_TAIL_RE = re.compile(
-    r"(?:\s*×\s*\w*|\s+x(?:\d+|N)\b|(?<=[\s>\]})|])\^\w*(?:@[a-z]+)?|\s+!(?![>=]))+\s*$")
 
 
 _GLYPH_START_RE = re.compile(r"^[~*]*[\[{<(|]")
@@ -183,7 +136,7 @@ def _scan_glyph(s: str, i: int) -> tuple:
     well-formed glyph (`end` is past its closer), else "empty", "unclosed" (an
     arrow, another glyph or the line end came first; `end` is where the scan
     stopped) or "mismatched" (closed by another kind's bracket; `end` is past it)."""
-    closer = _CLOSER[s[i]]
+    closer = CLOSER[s[i]]
     j = i + 1
     while j < len(s):
         ch = s[j]
@@ -192,7 +145,7 @@ def _scan_glyph(s: str, i: int) -> tuple:
         if ch == closer:
             return j + 1, ("" if s[i + 1:j].strip() else "empty")
         if ch == "<":                                   # a generic: `[Cache<K,V>]`
-            m = _GENERIC_RE.match(s, j)
+            m = GENERIC_RE.match(s, j)
             if not m:
                 return j, "unclosed"
             j = m.end()
@@ -221,7 +174,7 @@ def _free_arg_end(s: str, j: int) -> int:
     next arrow, `@`, block `{` or the line end."""
     k = j
     while k < len(s):
-        if s[k] == "@" or ARROW_RE.match(s, k) or _BLOCK_OPEN_RE.match(s, k):
+        if s[k] == "@" or ARROW_RE.match(s, k) or BLOCK_OPEN_RE.match(s, k):
             return k
         k += 1
     return k
@@ -229,22 +182,22 @@ def _free_arg_end(s: str, j: int) -> int:
 
 def _scan_mod(s: str, i: int) -> tuple:
     """The modifier at s[i] (`@name`, its `( … )` and any free argument): (Tok, end)."""
-    m = _MOD_NAME_RE.match(s, i)
+    m = MOD_NAME_RE.match(s, i)
     name, j = m.group(1), m.end()
     k = j
-    while k < len(s) and s[k] == " " and name in _FREE_ARG_MODS:
+    while k < len(s) and s[k] == " " and name in FREE_ARG_MODS:
         k += 1
     if k < len(s) and s[k] == "(":
         end = _balanced_end(s, k)
         if end < 0:
             return Tok("mod", s[i:], i, "unclosed"), len(s)
         arg = s[k + 1:end - 1].strip()
-        if name in _FREE_ARG_MODS:
+        if name in FREE_ARG_MODS:
             more = _free_arg_end(s, end)
-            if s[end:more].strip() and not _TAIL_ONLY_RE.match(s[end:more]):
+            if s[end:more].strip() and not TAIL_ONLY_RE.match(s[end:more]):
                 end = more
         return Tok("mod", s[i:end], i, _mod_problem(name, arg)), end
-    end = _free_arg_end(s, j) if name in _FREE_ARG_MODS else j
+    end = _free_arg_end(s, j) if name in FREE_ARG_MODS else j
     return Tok("mod", s[i:end], i, _mod_problem(name, s[j:end].strip())), end
 
 
@@ -260,7 +213,7 @@ def _payload_problem(raw: str) -> str:
     `: {X} [C]`), or "" when nothing is."""
     if raw.count('"') % 2:
         return "unclosed"
-    s = _mask_strings(raw)
+    s = mask_strings(raw)
     depth = []
     for ch in s:
         if ch in "([{":
@@ -304,7 +257,7 @@ def _scan_payload(code: Code, i: int) -> tuple:
     end = s.find("@", i)
     end = len(s) if end < 0 else end
     value = code.raw[i + 1:end]
-    tail = _PAYLOAD_TAIL_RE.search(value)
+    tail = PAYLOAD_TAIL_LOOSE_RE.search(value)
     toks = []
     if tail and tail.start() > 0:
         base = i + 1 + tail.start()
@@ -384,14 +337,14 @@ def _scan_join(code: Code, i: int, toks: list):
 def _scan_modifier(code: Code, i: int, toks: list):
     s = code.text
     if s[i] == "@":
-        if not _MOD_NAME_RE.match(s, i):
+        if not MOD_NAME_RE.match(s, i):
             return [], i + 1
         tok, end = _scan_mod(s, i)
         return [tok], end
     if s[i] == "^":
-        m = _BOUND_RE.match(s, i)
+        m = BOUND_RE.match(s, i)
         return [Tok("bound", m.group(0), i, _count_problem(m.group(1)))], m.end()
-    cm = _CARD_RE.match(s, i)
+    cm = CARD_RE.match(s, i)
     if cm:
         count = next(g for g in cm.groups() if g is not None)
         return [Tok("card", cm.group(0), i, _count_problem(count),
@@ -406,13 +359,13 @@ def _scan_glyph_token(code: Code, i: int, toks: list):
     j = i
     while j < len(s) and s[j] in "~*":
         j += 1
-    if j < len(s) and s[j] in "[{<(|" and j > i and not _BLOCK_OPEN_RE.match(s, j):
+    if j < len(s) and s[j] in "[{<(|" and j > i and not BLOCK_OPEN_RE.match(s, j):
         end, problem = _scan_glyph(s, j)
         return [Tok("glyph", s[i:end], i, problem)], end
     if j > i:                                       # `~` / `*` before no glyph
         return [Tok("bad", "~", i, "not-arrow")] if s[i] == "~" else [], j
     ch = s[i]
-    if ch == "{" and _BLOCK_OPEN_RE.match(s, i):
+    if ch == "{" and BLOCK_OPEN_RE.match(s, i):
         return [Tok("blockopen", "{", i)], i + 1
     if ch == "}":
         return [Tok("blockclose", "}", i)], i + 1
@@ -436,7 +389,7 @@ def _scan_op_target(code: Code, i: int, toks: list):
     """`verb(args)` / `op ns.verb(args)` written as an arrow's target."""
     if not toks or toks[-1].kind != "arrow":
         return None
-    om = _OP_HEAD_RE.match(code.text, i)
+    om = OP_HEAD_RE.match(code.text, i)
     end = _balanced_end(code.text, om.end() - 1) if om else -1
     return ([Tok("op", code.text[i:end], i)], end) if end > 0 else None
 
@@ -448,7 +401,7 @@ def _scan_marker(code: Code, i: int, toks: list):
     if bang or s[i] == "?" and not s.startswith("?>", i):
         return [Tok("mark", s[i], i)], i + 1
     if s[i] == "." and _after_glyph(toks):
-        m = _FIELD_RE.match(s, i)
+        m = FIELD_RE.match(s, i)
         if m:
             return [Tok("field", m.group(0), i)], m.end()
     return None
@@ -652,7 +605,7 @@ def _trailing_findings(toks: list, sig: list) -> list:
     has_payload = any(t.kind == "payload" for t in sig)
     dst_text = link.dst.text.strip() if link.dst else ""
     for t in (t for t in toks if t.col > link.end_col):
-        if t.kind == "mod" and _MOD_NAME_RE.match(t.text).group(1) in _RESILIENCE_MODS:
+        if t.kind == "mod" and MOD_NAME_RE.match(t.text).group(1) in _RESILIENCE_MODS:
             data = link.dst is not None and link.dst.kind == "glyph" \
                 and dst_text.lstrip("~*")[:1] in "{<"
             if link.arrow.text == "=>" or data:
@@ -698,30 +651,7 @@ def statement_findings(line: int, code: Code, is_alias: bool = False) -> list:
 
 # -- the block structure -------------------------------------------------------
 
-_SECTION_RE = re.compile(r"^-{2,}\s*(L\d+)?\s*:?\s*(.+?)\s*-{2,}\s*$")
-
-
-_ALIAS_RE = re.compile(
-    r"^(?:\[(?P<svc>[^\]]+)\]|\{(?P<data>[^}]+)\}|(?P<word>[A-Za-z_][\w.]*)|(?P<dia>\x01+))"
-    r"\s*:=\s*(?P<rhs>.*)$")
-
-
-_CONTROL_HEAD_RE = re.compile(r"^(loop|parallel|branch)\b")
-
-
-_SCOPE_HEAD_RE = re.compile(r"^[A-Za-z_][\w.-]*\s*\{(?=\s|$)")
-
-
-_ARM_RE = re.compile(r'^(?P<label>_|[\w.-]+|"[^"]*")\s*=>\s*(?P<body>.*)$')
-
-
 _LOOP_BOUND_RE = re.compile(r"@(?:each|while|until|times)\b")
-
-
-# A composition-branch body written without its `\-` (`*-> [X]`, `-& {H}`).
-_BARE_BRANCH_RE = re.compile(
-    r"^(?:\*-[>&?$@!=_]|-\*(?=\s|$)|-[&?$@!=_](?=\s)|\(\d+\)-[>&?$@!=_]"
-    r"|\{[A-Za-z0-9_-]+\}-[>&?$@!=_])")
 
 
 _HEADER_GLYPH_RE = re.compile(r"^[~*]*[\[{<(|](?P<name>[^\[\]{}<>()|]+)[\]}>)|]$")
@@ -730,31 +660,18 @@ _HEADER_GLYPH_RE = re.compile(r"^[~*]*[\[{<(|](?P<name>[^\[\]{}<>()|]+)[\]}>)|]$
 _DROPS_BODY = ("alias", "state")
 
 
-def _net_braces(text: str) -> int:
-    return text.count("{") - text.count("}")
-
-
-def _close_at(text: str, depth: int) -> Optional[int]:
-    """Index of the `}` that closes a block open `depth` deep where `text` starts."""
-    for i, ch in enumerate(text):
-        depth += (ch == "{") - (ch == "}")
-        if ch == "}" and depth <= 0:
-            return i
-    return None
-
-
 def expansion_names(codes: list) -> set:
     """Names defined with `:=` anywhere in the document (`[Data] := {` → "Data")."""
     out = set()
     for code in codes:
-        m = _ALIAS_RE.match(code.text.strip())
+        m = ALIAS_MASKED_RE.match(code.text.strip())
         if m:
             out.add(_alias_name(m, code))
     return out
 
 
 def _alias_name(m: re.Match, code: Code) -> str:
-    """The name an `_ALIAS_RE` match defines; a dialect glyph (`[[rate]] := {`) is
+    """The name an `ALIAS_MASKED_RE` match defines; a dialect glyph (`[[rate]] := {`) is
     named by its raw text, less its brackets."""
     if m.group("dia") is None:
         return (m.group("svc") or m.group("data") or m.group("word")).strip()
@@ -826,12 +743,12 @@ class _StructureWalk:
     def _declaration(self, raw_lead: str, t: str) -> bool:
         """Dialect declaration blocks: consumed whole, never checked."""
         if self.decl_depth > 0:
-            self.decl_depth += _net_braces(raw_lead if self.decl_on_raw else t)
+            self.decl_depth += net_braces(raw_lead if self.decl_on_raw else t)
             return True
         for opener, on_raw in self.decl_blocks:
             txt = raw_lead if on_raw else t
             if opener.match(txt):
-                self.decl_depth = max(_net_braces(txt), 0)
+                self.decl_depth = max(net_braces(txt), 0)
                 self.decl_on_raw = on_raw
                 self.subject = False
                 return True
@@ -839,7 +756,7 @@ class _StructureWalk:
 
     def _section(self, no: int, t: str):
         self.subject = False
-        m = _SECTION_RE.match(t)
+        m = SECTION_RE.match(t)
         if not m:
             self.add(no, "SGL184", "malformed section header: write `--- Lk: Name ---` or "
                      "`--- Name ---` (closing dashes included); the parser reads this "
@@ -857,9 +774,9 @@ class _StructureWalk:
         if self.frames:
             fr = self.frames[-1]
             before = fr.depth
-            fr.depth += _net_braces(code.text)
+            fr.depth += net_braces(code.text)
             if fr.depth <= 0:
-                cut = _close_at(code.text, before)
+                cut = close_at(code.text, before)
                 cut = len(code.text) if cut is None else cut
                 if code.text[:cut].strip():
                     self._flow(no, code.cut(0, cut))
@@ -900,13 +817,13 @@ class _StructureWalk:
 
     def _alias(self, no: int, code: Code) -> bool:
         t = code.text.strip()
-        m = _ALIAS_RE.match(t)
+        m = ALIAS_MASKED_RE.match(t)
         if not m:
             return False
         self.subject = False
         rhs = m.group("rhs")
         at = code.text.index(rhs, code.text.index(":=")) if rhs else len(code.text)
-        brace = (code.text.index("{", at) if _BLOCK_OPEN_RE.match(rhs)
+        brace = (code.text.index("{", at) if BLOCK_OPEN_RE.match(rhs)
                  else code.text.rindex("{") if rhs.rstrip().endswith("{") else None)
         if brace is not None:
             self._push("alias", no, code.cut(brace + 1))
@@ -925,7 +842,7 @@ class _StructureWalk:
         t = code.text.strip()
         if not re.match(r"^state\b", t):
             return False
-        om = _BLOCK_OPEN_RE.search(code.text)
+        om = BLOCK_OPEN_RE.search(code.text)
         if om is None:
             return True
         saved = self.subject                    # a state block keeps the subject
@@ -935,9 +852,9 @@ class _StructureWalk:
 
     def _block_head(self, no: int, code: Code) -> bool:
         t = code.text.strip()
-        om = _BLOCK_OPEN_RE.search(code.text)
+        om = BLOCK_OPEN_RE.search(code.text)
         head = code.text[:om.start()] if om else code.text
-        hm = _CONTROL_HEAD_RE.match(t)
+        hm = LOOP_HEAD_RE.match(t)
         if hm:
             kind = hm.group(1)
             if kind == "loop" and not _LOOP_BOUND_RE.search(head):
@@ -945,7 +862,7 @@ class _StructureWalk:
                          "`@times`: say what bounds it.")
         elif self.keyword_re is not None and self.keyword_re.match(t):
             kind = "keyword"
-        elif om and _SCOPE_HEAD_RE.match(t):
+        elif om and SCOPE_HEAD_RE.match(t):
             kind = "scope"
         elif om and "@owns" in head and ANY_GLYPH_RE.search(head):
             kind = "owns"
@@ -962,9 +879,9 @@ class _StructureWalk:
         fr = self.frames[-1]
         t = code.text.strip()
         before = fr.depth
-        fr.depth += _net_braces(t)
+        fr.depth += net_braces(t)
         if fr.depth <= 0:
-            cut = _close_at(t, before)
+            cut = close_at(t, before)
             t = t[:cut] if cut is not None else t
             if t.strip():
                 fr.content = True
@@ -983,7 +900,7 @@ class _StructureWalk:
         t = code.text.strip()
         fr = self.frames[-1] if self.frames else None
         if fr is not None and fr.kind == "branch":
-            am = _ARM_RE.match(t)
+            am = ARM_RE.match(t)
             if am and not ARROW_RE.match(t):
                 fr.content = True
                 self.subject = False
@@ -993,7 +910,7 @@ class _StructureWalk:
                 code = code.cut(code.text.rindex(body))
                 t = body.strip()
         self._mark_content()
-        if _BARE_BRANCH_RE.match(t):
+        if BARE_BRANCH_RE.match(t):
             self.add(no, "SGL186", f"`{t.split()[0]}` looks like a composition branch "
                      "without its `\\-`; the parser reads it as a continuation line. "
                      "Write `\\-` before it.")
@@ -1018,7 +935,7 @@ def reserved_marker_findings(lines: list) -> list:
     """SGL188: `#=` is reserved for the decorated acknowledgement (RFC 0003 Q7)."""
     out = []
     for no, raw in enumerate(lines, 1):
-        pos = _comment_pos(raw)
+        pos = comment_col(raw)
         if pos is not None and raw.startswith("#=", pos):
             out.append(Finding(no, "SGL188", "`#=` is reserved for acknowledgements "
                                "(RFC 0003) and acknowledges nothing yet; write "

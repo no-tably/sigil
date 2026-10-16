@@ -17,7 +17,7 @@ _DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_DIR))
 
 from sigil import cli  # noqa: E402
-from sigil.core import parse as render  # noqa: E402
+from sigil.core import lex, parse as render  # noqa: E402
 from sigil.publish import mermaid  # noqa: E402
 
 
@@ -145,10 +145,10 @@ class HashInsideString(unittest.TestCase):          # 8, 19
         self.assertEqual(g.edges[0].payload, '"issue #5"')
 
     def test_unclosed_quote_opens_no_string(self):
-        self.assertEqual(render.strip_comment('[A] -> [B] : 5" # note'), '[A] -> [B] : 5" ')
+        self.assertEqual(lex.strip_comment('[A] -> [B] : 5" # note'), '[A] -> [B] : 5" ')
 
     def test_amp_marker_is_stripped_but_no_note(self):
-        self.assertEqual(render.strip_comment("[A] #&marker"), "[A] ")
+        self.assertEqual(lex.strip_comment("[A] #&marker"), "[A] ")
         self.assertEqual(render.collect_comments(["[A] #&marker # real"]), {0: ("real", False)})
 
     def test_at_sign_inside_string_payload(self):
@@ -192,7 +192,7 @@ class DeadCodeGone(unittest.TestCase):              # 11-15
     def test_no_stale_names(self):
         self.assertFalse(hasattr(render, "CLASS_DEF"))
         self.assertFalse(hasattr(mermaid, "CLASS_DEF"))
-        self.assertIn("open", render.GLYPH_RE.groupindex)
+        self.assertIn("open", lex.GLYPH_RE.groupindex)
 
     def test_kind_classes(self):
         class D:

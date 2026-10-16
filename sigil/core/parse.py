@@ -9,92 +9,24 @@ every other reader take the Graph from here.
 """
 
 import re
-import unicodedata
 from bisect import bisect_left
 from typing import NamedTuple, Optional
 
+from sigil.core.dialects import _hook
+from sigil.core.lex import (  # noqa: F401  (also read as parse.<name> by the model's readers)
+    ALIAS_RE, ALIAS_REF, ALIAS_REF_RE, ARG_MODIFIERS, ARM_RE, ARROW_RE, BLOCK_DELIM,
+    BLOCK_OPEN_RE, BLOCK_SENTINEL, BRANCH_RE, EXPANSION_OPEN_RE, GLUED_MOD_RE, GLYPH_RE,
+    JOIN_RE, LOOP_HEAD_RE, MODIFIER_RE, OP_TARGET_RE, OPEN_TO_KIND, PAYLOAD_RE,
+    PAYLOAD_TAIL_RE, PRINCIPAL_SET_RE, SCOPE_HEAD_RE, SECTION_RE, STATE_HEAD_RE,
+    STATE_OPEN_RE, STREAM_BOUND_RE, TAIL_MOD_RE, TAIL_ONLY_RE, close_at, comment_col,
+    comment_start, fold_block_strings, in_string, strip_comment)
 from sigil.core.graph import (
     Access, Block, Dropped, Edge, Graph, Join, Node, Note, Section, TreeEntry, Trigger,
     mk_id, walk_depth)
 
 # ---------------------------------------------------------------------------
-# Glyph parsing
+# Glyph parsing (the lexical tables are sigil.core.lex's)
 # ---------------------------------------------------------------------------
-
-# A glyph's name may carry generics (language.md "Parametric"): `[Cache<K,V>]`,
-# `{List<T>}`, `<Msg<T>>` — one level of nesting inside the generic list
-# (`{List<Map<K,V>>}`). The generic is part of the ONE glyph's name.
-_NAME_CHARS = r"[^\[\]\{\}<>()|]"
-_GENERIC = (r"<" + _NAME_CHARS + r"*(?:<" + _NAME_CHARS + r"*>" + _NAME_CHARS + r"*)*>")
-GLYPH_RE = re.compile(
-    r"(?P<mut>~)?(?P<stream>\*)?"
-    r"(?P<open>[\[\{<\(\|])"
-    r"(?P<name>" + _NAME_CHARS + r"+(?:" + _GENERIC + r")?)"
-    r"(?P<close>[\]\}>\)\|])"
-)
-
-# Permission-graph access modifiers `@read(…)` / `@write(…)` (language.md
-# "Permission graph"). These carry a `( )` comma-list of principal names — a
-# DECLARATION of access edges on a store, not a flow. The modifier + its list are
-# stripped before flow extraction so a list like `(boss, worker)` is not rendered
-# as a phantom actor-glyph node (mirrors the @inv/@cap modifier strips). The store
-# the edge anchors on still renders.
-PERMISSION_SET_RE = re.compile(r"@(?:read|write)\s*\([^()]*\)")
-
-OPEN_TO_KIND = {
-    "[": "service",
-    "{": "data",
-    "<": "event",
-    "(": "actor",
-    "|": "store",
-}
-
-ARROW_RE = re.compile(r"(<->|->|~>|=>|!>|\?>|\*>|→)")
-
-# Strict join `&` / race `&?` between glyphs (language.md "a & b").
-JOIN_RE = re.compile(r"&\??")
-
-# A modifier's `( … )` argument, one level of nested parens allowed (`@inv(f(x) > 0)`).
-_PAREN_ARG = r"\((?:[^()]|\([^()]*\))*\)"
-
-# Modifiers whose argument may also (or further) follow without parens (`@owns
-# |Conn|`, `@inv unique:order_id`, `@borrow(read) |tree|`): that argument runs to the
-# next arrow, `@` or line end. Their contents are semantic, not structural — they
-# must not leak as phantom glyphs.
-_ARG_MODIFIERS = ("inv", "sla", "cap", "grants", "requires", "owns", "borrow",
-                  "loc", "timeout", "after", "deadline", "notify")
-
-# Every modifier (a property, not a flow or a node — it leaves no phantom node): one
-# of the above with its argument, or any other `@name` with an optional `( … )`.
-# Only the modifier and its argument go: `[A] @timeout(5s) -> [B]` keeps its flow.
-MODIFIER_RE = re.compile(
-    r"(?P<arg>@(?:" + "|".join(_ARG_MODIFIERS) + r")\b"
-    r"(?:\s*" + _PAREN_ARG + r")?[^\n@]*?(?=\s*(?:" + ARROW_RE.pattern + r")|@|$))"
-    r"|@[a-z][a-z0-9_-]*(?:" + _PAREN_ARG + r")?"
-)
-
-# The terminal `: payload` of a flow (not a `:=` alias), up to any `@` left outside
-# a `"…"` string.
-PAYLOAD_RE = re.compile(r'\s*:(?!=)\s*((?:"[^"]*"|[^@])*?)(?=@|$)')
-
-# Trailing cardinality (`×3`, ` x3`) and stream-bound (`^5`) tokens after a payload:
-# modifiers, not payload text (a `×` inside a string or value is left alone).
-_PAYLOAD_TAIL_RE = re.compile(r"(?:\s*×\s*\w+|\s+x(?:\d+|N)\b|(?<=[\s>])\^\w+|\s+!(?![>=]))+\s*$")
-
-# ---------------------------------------------------------------------------
-# Parser
-# ---------------------------------------------------------------------------
-
-def _hook(dialect, name: str, default=()):
-    """Read an optional dialect hook (see dialects.py): a callable hook is called,
-    a data hook returned as-is, a missing one (or no dialect) gives `default`."""
-    if dialect is None:
-        return default
-    val = getattr(dialect, name, None)
-    if val is None:
-        return default
-    return val() if callable(val) else val
-
 
 def parse_glyph(text: str, layer: str = "L1", dialect=None) -> Optional[Node]:
     text = text.strip()
@@ -151,125 +83,12 @@ def _split_top(text: str, sep: str) -> list:
     return out
 
 
-# A comment starts at a `#` at line start or after whitespace — not the `#!` mode
-# line, and not inside a `"…"` string (`: "issue #5"` is a payload). A `#&…` marker
-# also starts here: it is erased from flows like a comment, but it is dialect
-# syntax (e.g. a declaration-block opener), not prose, so collect_comments never
-# makes a note of it.
-_COMMENT_START_RE = re.compile(r"(?<!\S)#(?!!)")
-
-
-def _in_string(line: str, pos: int) -> bool:
-    """Whether `pos` sits inside a closed `"…"` span (an odd number of quotes
-    before it and at least one after; an unclosed quote opens no string)."""
-    return line.count('"', 0, pos) % 2 == 1 and '"' in line[pos:]
-
-
-def comment_start(line: str, notes_only: bool = False):
-    """The match of the first comment `#` on the line, or None. `notes_only`
-    skips `#&` markers (see _COMMENT_START_RE)."""
-    for m in _COMMENT_START_RE.finditer(line):
-        if _in_string(line, m.start()):
-            continue
-        if notes_only and line.startswith("&", m.end()):
-            continue
-        return m
-    return None
-
-
-def strip_comment(line: str) -> str:
-    if line.startswith("#!"):
-        return line
-    m = comment_start(line)
-    if m:
-        return line[: m.start()]
-    return line
-
-
 # Modifiers that are always a declaration about the entity they follow: they go
 # on the node even when they trail a flow (see "Modifiers" in the model notes).
 _NODE_MODS = {"loc", "read", "write", "borrow", "owns", "grants", "requires", "^"}
 
-# A stream bound `^N` / `^N@policy` (language.md "Streams"), glued to a glyph:
-# captured before the generic `@name` modifier rule, which would otherwise take
-# its `@policy`. (`x^2` in a value is not a bound.)
-STREAM_BOUND_RE = re.compile(r"(?<=[\]}>)|\s])\^[A-Za-z0-9]+(?:@[a-z]+)?")
-
-# Modifiers glued to (or right after) a glyph, read by the tokenizer: `×N`, the
-# legacy `*N`, ASCII `xN`, `!` critical, `?` optional, `.field`.
-_GLUED_MOD_RE = re.compile(
-    r"×\s*(?P<card>\w+)"
-    r"|\*\s*(?P<card2>\d+)\b"
-    r"|(?<![\w.])x(?P<card3>\d+|N)\b(?=\s|$|@)"
-    r"|(?P<bang>!)(?![>=])"
-    r"|(?P<opt>\?)(?!>)"
-    r"|\.(?P<field>[A-Za-z_][\w.]*)"
-)
-
-# The modifiers peeled off a payload's tail (`: score ×3`, `: {Cart} !`).
-_TAIL_MOD_RE = re.compile(r"×\s*(\w+)|x(\d+|N)\b|\^(\w+(?:@\w+)?)|(!)")
-
-# Modifier aliases named after a retry count at a payload's end (`: charge ×3 Retry`,
-# `Retry := @after(…)`): each name is an ("alias", name) modifier until the
-# document is read, then the alias's own modifiers (_expand_alias_refs).
-_ALIAS_REF_RE = re.compile(r"(?:×\s*\w+|(?<!\w)x(?:\d+|N))(?P<names>(?:\s+[A-Za-z_][\w-]*)+)\s*$")
-ALIAS_REF = "alias"
-
 # Modifier names that are no `@name` (signs, cardinality, a stream bound).
 _SIGN_MODS = {"×", "!", "?", ".", "^"}
-
-def _is_mark(ch: str) -> bool:
-    """A combining mark that joins the letter before it: nonspacing (Mn),
-    spacing (Mc) or enclosing (Me, e.g. U+20DD around a letter)."""
-    return unicodedata.category(ch) in ("Mn", "Mc", "Me")
-
-
-def _marks_follow_letters(verb: str) -> bool:
-    """Every character of `verb` that is no word character or other ASCII is a
-    combining mark right after a letter or another mark: a decomposed `ガ`
-    (`カ` + U+3099) is one letter of a verb, a symbol is not."""
-    prev = ""
-    for ch in verb:
-        if not (ch.isascii() or ch.isalnum()) and not (
-                _is_mark(ch) and prev and (prev.isalpha() or _is_mark(prev))):
-            return False
-        prev = ch
-    return True
-
-
-class _VerbPattern:
-    """A compiled pattern whose `verb` group may also hold combining marks
-    (`re` has no class for them): `match` is `re.Pattern.match`, None when the
-    verb holds anything else that is no word character.
-
-    lint.py keeps its own copy of this rule (`_is_mark`, `_marks_follow_letters`,
-    `_VerbPattern`) because it is a standalone tool that imports nothing from
-    here; tests/test_lint_verb_rules.py asserts the two copies agree."""
-
-    _MARKISH = r"[^\s\w\x00-\x7f]"   # non-ASCII, no word character, no space
-
-    def __init__(self, pattern: str):
-        self.pattern = pattern.replace("{MARK}", self._MARKISH)
-        self._rx = re.compile(self.pattern)
-
-    def match(self, text: str, pos: int = 0):
-        m = self._rx.match(text, pos)
-        return m if m and _marks_follow_letters(m.group("verb")) else None
-
-
-# An internal op-call written as a flow's target: `[Worker] -> run()`,
-# `-> run({Job})`, `-> walk(.children)` (no space before the `(`: `-> x (Y)` is
-# a word and an actor). An `op ns.verb(…)` external reach is taken too. The
-# verb starts with any letter or `_` (`-> 短縮({網址})`), never a digit; a
-# combining mark after a letter stays in it (`-> カ\u3099ス()`).
-OP_TARGET_RE = _VerbPattern(
-    r"(?:op\s+)?(?P<verb>[^\W\d](?:[\w.]|{MARK})*)\((?:[^()]|\([^()]*\))*\)")
-
-
-# What may follow a modifier's `( … )` argument and still be other modifiers:
-# `@timeout(30s) ×3` is two modifiers, not one with the argument "(30s) ×3".
-_TAIL_ONLY_RE = re.compile(r"^(?:\s*(?:×\s*\w+|x(?:\d+|N)\b|!(?![>=])))+\s*$")
-
 
 def _mod_spans(rx, text: str) -> list:
     """(start, end) of each modifier `rx` finds outside `"…"` strings. A
@@ -277,7 +96,7 @@ def _mod_spans(rx, text: str) -> list:
     span (those are modifiers of their own)."""
     spans = []
     for m in rx.finditer(text):
-        if _in_string(text, m.start()):
+        if in_string(text, m.start()):
             continue
         start, end = m.start(), m.end()
         tok = m.group(0)
@@ -286,7 +105,7 @@ def _mod_spans(rx, text: str) -> list:
             close = _close_paren(tok[pm.end() - 1:])
             if close >= 0:
                 cut = pm.end() + close
-                if cut < len(tok) and _TAIL_ONLY_RE.match(tok[cut:]):
+                if cut < len(tok) and TAIL_ONLY_RE.match(tok[cut:]):
                     end = start + cut
         spans.append((start, end))
     return spans
@@ -330,13 +149,13 @@ def scan_mods(text: str) -> list:
     body, a transition's tail) as (name, arg) pairs, in written order."""
     out = []
     masked = text
-    for rx in (STREAM_BOUND_RE, PERMISSION_SET_RE, MODIFIER_RE):
+    for rx in (STREAM_BOUND_RE, PRINCIPAL_SET_RE, MODIFIER_RE):
         for start, end in _mod_spans(rx, masked):
             tok = masked[start:end]
             out.append((start, ("^", tok[1:]) if tok.startswith("^") else mod_pair(tok)))
             masked = masked[:start] + " " * (end - start) + masked[end:]
-    for m in _TAIL_MOD_RE.finditer(masked):
-        if _in_string(masked, m.start()):
+    for m in TAIL_MOD_RE.finditer(masked):
+        if in_string(masked, m.start()):
             continue
         card = m.group(1) or m.group(2)
         out.append((m.start(), ("×", card) if card else ("^", m.group(3)) if m.group(3)
@@ -429,13 +248,13 @@ def _capture_mods(stripped: str) -> tuple:
         for start, end in _mod_spans(rx, s):
             tok = s[start:end]
             mods.append((start, pair(tok)))
-            spaced = rx is PERMISSION_SET_RE or (rx is MODIFIER_RE and mod_pair(tok)[0]
-                                                  in _ARG_MODIFIERS)
+            spaced = rx is PRINCIPAL_SET_RE or (rx is MODIFIER_RE and mod_pair(tok)[0]
+                                                  in ARG_MODIFIERS)
             s = s[:start] + _blank(end - start, spaced) + s[end:]
         return s
 
     stripped = capture(STREAM_BOUND_RE, stripped, lambda tok: ("^", tok[1:]))
-    stripped = capture(PERMISSION_SET_RE, stripped, mod_pair)
+    stripped = capture(PRINCIPAL_SET_RE, stripped, mod_pair)
     stripped = capture(MODIFIER_RE, stripped, mod_pair)
     return stripped, mods
 
@@ -451,15 +270,15 @@ def _take_payload(stripped: str, mods: list) -> tuple:
     if pm:
         payload_span = (pm.start(), pm.end())
         raw = pm.group(1)
-        refs = _ALIAS_REF_RE.search(raw.replace(_GAP, " "))
+        refs = ALIAS_REF_RE.search(raw.replace(_GAP, " "))
         if refs:
             at = pm.start(1) + refs.start("names")
             mods += [(at, (ALIAS_REF, name)) for name in refs.group("names").split()]
             raw = raw[:refs.start("names")]
-        tail = _PAYLOAD_TAIL_RE.search(raw.replace(_GAP, " "))   # same length
+        tail = PAYLOAD_TAIL_RE.search(raw.replace(_GAP, " "))   # same length
         if tail and tail.start() < len(raw):
             at = pm.start(1) + tail.start()
-            for t in _TAIL_MOD_RE.finditer(tail.group(0)):
+            for t in TAIL_MOD_RE.finditer(tail.group(0)):
                 card = t.group(1) or t.group(2)
                 mods.append((at + t.start(), ("×", card) if card
                              else ("^", t.group(3)) if t.group(3) else ("!", None)))
@@ -542,7 +361,7 @@ def _tokenize_flow(stripped: str, layer: str, dialect, mods: list) -> tuple:
                 i = om.end()
                 prev_was_glyph = False
                 continue
-        mm = _GLUED_MOD_RE.match(stripped, i)
+        mm = GLUED_MOD_RE.match(stripped, i)
         if mm and (prev_was_glyph or mm.group("bang") or mm.group("card")
                    or mm.group("card2") or mm.group("card3")) and (
                 not (mm.group("opt") or mm.group("field"))
@@ -804,106 +623,10 @@ def _access(graph: Graph, owner: Node, pair: tuple, line_no: int, layer: str):
                                    gm.group(0) if gm else rest.strip()))
 
 
-# Multiline block-string delimiter — a `str` literal's
-# triple-quoted multiline form `"""…"""` (language.md "Multiline block-strings").
-BLOCK_DELIM = '"""'
-BLOCK_SENTINEL = '"block-string"'      # the masked STR a block-string folds to
-
-
-def collapse_block_strings(lines: list, bodies: Optional[dict] = None) -> list:
-    """Fold each `\"\"\"…\"\"\"` multiline block-string into a single masked STR
-    (`"block-string"`) on its opening line, blanking the consumed body lines.
-    Mirrors lint.py's pre-pass so render is block-aware for this one token: the
-    block is a payload VALUE, so the masked `"…"` is removed by the `: payload`
-    strip in extract_flows and leaves NO phantom node (the slot/component still
-    renders). An unterminated block simply blanks to EOF (lint flags it; render
-    renders nothing for it). Line numbering is preserved. `bodies`, when given,
-    gets {opening line index: the block's text} for each terminated block."""
-    out = list(lines)
-    n = len(out)
-    i = 0
-    while i < n:
-        raw = out[i]
-        if raw.lstrip().startswith("#!"):
-            i += 1
-            continue
-        pos = raw.find(BLOCK_DELIM)
-        if pos == -1:
-            i += 1
-            continue
-        cm = comment_start(raw)
-        if cm and cm.start() < pos:   # the `"""` is comment text, not a delimiter
-            i += 1
-            continue
-        prefix = raw[:pos]
-        after_open = raw[pos + len(BLOCK_DELIM):]
-        close_rel = after_open.find(BLOCK_DELIM)
-        if close_rel != -1:           # degenerate single-line `"""…"""`
-            if bodies is not None:
-                bodies[i] = after_open[:close_rel]
-            out[i] = prefix + BLOCK_SENTINEL + after_open[close_rel + len(BLOCK_DELIM):]
-            i += 1
-            continue
-        j = i + 1
-        while j < n and BLOCK_DELIM not in out[j]:
-            j += 1
-        if j >= n:                    # unterminated — blank from the opener (lint reports it)
-            for k in range(i, n):
-                out[k] = ""
-            break
-        close = out[j].find(BLOCK_DELIM)
-        if bodies is not None:
-            bodies[i] = "\n".join([after_open] + out[i + 1:j] + [out[j][:close]])
-        suffix = out[j][close + len(BLOCK_DELIM):]
-        out[i] = prefix + BLOCK_SENTINEL + suffix
-        for k in range(i + 1, j + 1):
-            out[k] = ""
-        i = j + 1
-    return out
-
-
-# Section header `-- L2: Name --` (the layer is optional).
-SECTION_RE = re.compile(r"^-{2,}\s*(L\d+)?\s*:?\s*(.+?)\s*-{2,}\s*$")
-
-# `name := expr`, `[name] := expr` or `{name} := expr` — a definition, not a flow.
-ALIAS_RE = re.compile(
-    r"^(?:\[(?P<svc>[^\]]+)\]|\{(?P<data>[^}]+)\}|(?P<word>[A-Za-z_][\w.]*))"
-    r"\s*:=\s*(?P<rhs>.*)$"
-)
-
-# An alias right-hand side that opens an expansion block: a bare `{` (`X := {`,
-# `X := { [A] -> [B] }`) — not a data glyph (`X := {Summary} cache` is an alias).
-EXPANSION_OPEN_RE = re.compile(r"\{(\s|$)")
-BLOCK_OPEN_RE = re.compile(r"\{(?=\s|$)")
-
-# A state-machine header: `state <glyph> {` — any glyph owns the machine (`{Order}`
-# a record's lifecycle, `[Checkout]` a component's own modes). STATE_OPEN_RE also
-# takes a malformed header (no owner glyph), whose block is consumed unparsed.
-STATE_HEAD_RE = re.compile(r"^state\s*([~*]*[\[{<(|]" + _NAME_CHARS + r"+(?:" + _GENERIC
-                           + r")?[\]}>)|])\s*\{")
-STATE_OPEN_RE = re.compile(r"^state\s*\{")
-
 # A transition inside a `state` block: `Src -<trigger>-> Dst` or `Src -> Dst`,
 # optionally followed by per-transition modifiers (`×3`, `@timeout(…)`, …).
 TRANSITION_RE = re.compile(r"^(\S+)\s+(?:-<([^<>]*)>->|->)\s+(\S+)\s*(.*)$")
 PSEUDO_STATES = {"+": "start", "$": "end", "_": "any"}
-
-# A control block header: its statements are ordinary flows (Graph.blocks).
-LOOP_HEAD_RE = re.compile(r"^(loop|parallel|branch)\b")
-# A scoped block `name { … }` (language.md "Structure").
-SCOPE_HEAD_RE = re.compile(r"^[A-Za-z_][\w.-]*\s*\{(?=\s|$)")
-# A branch arm `label => flow` (grammar: arm := (name | '_') '=>' flow).
-ARM_RE = re.compile(r'^(?P<label>_|[\w.-]+|"[^"]*")\s*=>\s*(?P<body>.*)$')
-
-# A composition-tree branch marker: `\\-` [`*-` spawn] [`(N)-` weight | `{cond}-`]
-# <rel>, or a bare spawn `\\-*`. Core relations are `> & ? $ @ ! = _`; the parser
-# accepts the wider punctuation set so a dialect's extra relations still place in
-# the tree (lint decides which relations are valid).
-BRANCH_RE = re.compile(
-    r"\\-(?:(?P<spawn>\*)-)?(?:\((?P<weight>\d+)\)-|\{(?P<cond>[A-Za-z0-9_-]+)\}-)?"
-    r"(?P<rel>[>+#_^v$?!&@=])(?=\s|$)"
-    r"|\\-(?P<bare_spawn>\*)(?=\s|$)"
-)
 
 # What may precede an inline branch (`[parent] \\-& [child]`): glyphs only — no
 # payload colon, no prose.
@@ -913,24 +636,11 @@ _BRANCH_PARENT_RE = re.compile(r"^\s*[~*]?[\[{<(|][^:]*[\]}>)|]\s*$")
 _CORE_KINDS = set(OPEN_TO_KIND.values())
 
 
-def _close_at(text: str, depth: int) -> Optional[int]:
-    """Index of the `}` in `text` that closes a block open `depth` deep where the
-    text starts, or None when the block stays open past it."""
-    for i, ch in enumerate(text):
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth <= 0:
-                return i
-    return None
-
-
 def _close_head(stripped: str, before: int) -> tuple:
     """The line that closes an expansion open `before` deep: the text before its
     `}` (the body's last line) and the modifiers after it (`} @inv x` — the
     node's)."""
-    cut = _close_at(stripped, before)
+    cut = close_at(stripped, before)
     if cut is None:
         return stripped, []
     return stripped[:cut], scan_mods(stripped[cut + 1:])
@@ -1093,7 +803,8 @@ class _DocParser:
         # so the block body never emits phantom nodes (block-aware for this token).
         # Then any dialect pre-passes (line-count preserving).
         bodies: dict = {}
-        lines = collapse_block_strings(text.splitlines(), bodies)
+        lines = fold_block_strings(text.splitlines(), comment_col, rescan=False,
+                                   bodies=bodies).lines
         self.comments = collect_comments(lines, self.dialect)   # before dialect pre-passes
         for prepass in self.prepasses:
             lines = prepass(lines)
@@ -1287,7 +998,7 @@ class _DocParser:
             before = fr.depth
             fr.depth += line.count("{") - line.count("}")
             if fr.depth <= 0:               # the line closes the innermost block
-                cut = _close_at(text, before)
+                cut = close_at(text, before)
                 head = text[:cut] if cut is not None else text
                 if head.strip():
                     self._flow_line(k, head, offset)
@@ -1525,7 +1236,7 @@ class _DocParser:
             self.pending_expansions.append((name, kind, sub if flow else None, self.layer,
                                             [] if flow else scan_mods(rhs), self.ln(k)))
             return True
-        cut = _close_at(body, 1)
+        cut = close_at(body, 1)
         if cut is not None:
             # One-line expansion `[X] := { … }`: its body is right here.
             self.pending_expansions.append((name, kind,
@@ -1556,7 +1267,7 @@ class _DocParser:
         owner = parse_glyph(sm.group(1), self.layer, self.dialect)
         self.attach(owner.id if owner else None, k)
         body = line[sm.end():]
-        cut = _close_at(body, 1)
+        cut = close_at(body, 1)
         if cut is not None:
             # One-line `state {X} { A -> B }`.
             if owner and body[:cut].strip():
@@ -1577,7 +1288,7 @@ class _DocParser:
         if st[2] > 0:
             st[1].append((line, self.ln(k)))
             return
-        cut = _close_at(line, before)
+        cut = close_at(line, before)
         if cut is not None and line[:cut].strip():
             st[1].append((line[:cut].strip(), self.ln(k)))   # a last transition before the `}`
         if st[0]:
@@ -1815,7 +1526,7 @@ def _attach_block_strings(graph: Graph, bodies: dict):
 
 def collect_comments(lines: list, dialect=None) -> dict:
     """{line index: (text, own_line)} for every comment. Core comments start with
-    `#` (not the `#!` mode line, nor a `#&` marker — see _COMMENT_START_RE); a
+    `#` (not the `#!` mode line, nor a `#&` marker — see lex.COMMENT_START_RE); a
     dialect may add markers (COMMENT_MARKERS, regex sources matched at line start
     or after whitespace). A marker inside a `"…"` string starts no comment."""
     marker = _comment_marker(dialect)
@@ -1840,7 +1551,7 @@ def _comment_of(line: str, marker) -> Optional[tuple]:
     hits = [comment_start(line, notes_only=True)]
     if marker:
         hits.append(next((h for h in marker.finditer(line)
-                          if not _in_string(line, h.start())), None))
+                          if not in_string(line, h.start())), None))
     hits = [h for h in hits if h]
     if not hits:
         return None

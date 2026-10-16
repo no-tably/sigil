@@ -58,7 +58,8 @@ from typing import Optional
 
 from sigil.core.graph import (Edge, Graph, Node, depth_arg, matching_occurrences, occurrences,
                               walk_depth)
-from sigil.core.parse import _hook, parse_document
+from sigil.core.dialects import _hook
+from sigil.core.parse import parse_document
 
 ARROW_MAP = {
     "<->": "<-->",

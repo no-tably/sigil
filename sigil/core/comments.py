@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from sigil.core.graph import Note, walk_breadth
+from sigil.core.lex import STRING_RE
 from sigil.core.parse import collect_comments  # noqa: F401  (re-exported)
 
 
@@ -152,9 +153,6 @@ class Layout:
         return frozenset({line})
 
 
-_STRING_RE = re.compile(r'"[^"]*"')
-
-
 def layout_of(lines: list, strip_comment: Callable) -> Layout:
     """Statement lines and block spans. A line whose code ends with `{` opens a
     block, one whose code starts with `}` closes the innermost open block."""
@@ -173,7 +171,7 @@ def layout_of(lines: list, strip_comment: Callable) -> Layout:
             continue
         statements.add(n)
         in_quote = code.count('"""') % 2 == 1
-        bare = _STRING_RE.sub('""', code)
+        bare = STRING_RE.sub('""', code)
         if bare.startswith("}") and stack:
             head = stack.pop()
             blocks[head] = blocks[n] = (head, n)

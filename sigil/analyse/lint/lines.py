@@ -12,9 +12,8 @@ from sigil.core.vocab import (
     ANY_GLYPH_RE, ARROW_RE, GLYPH_PATTERNS, LintResult, VALID_LOOP_MODS, VALID_MODES,
     VALID_MODIFIERS, VALID_PARALLEL_MODS, VALID_STREAM_POLICIES, strip_comment)
 
-from sigil.analyse.lint.scan import (
-    HOLE_RE, _MODIFIER_RE, _apply_masks, _iter_state_block,
-    _mask_principal_sets, _mask_strings)
+from sigil.core.lex import HOLE_RE, MOD_TOKEN_RE, mask_strings
+from sigil.analyse.lint.scan import _apply_masks, _iter_state_block, _mask_principal_sets
 
 
 # Vocabulary that strongly suggests a lifecycle state (if used as an actor)
@@ -70,7 +69,7 @@ def lint_holes_in_spec_mode(lines: list, mode: Optional[str], result: LintResult
     if mode != "#!spec":
         return
     for i, raw in enumerate(lines, start=1):
-        line = _mask_strings(strip_comment(raw))
+        line = mask_strings(strip_comment(raw))
         for m in HOLE_RE.finditer(line):
             result.add(
                 "error", i, "SGL010",
@@ -107,7 +106,7 @@ def lint_prose_verbs(lines: list, result: LintResult, masks=()):
     where the verb is a predicate name and is legitimately English.
     """
     for i, raw in enumerate(lines, start=1):
-        line = _mask_strings(strip_comment(raw).strip())
+        line = mask_strings(strip_comment(raw).strip())
         if not line:
             continue
         if line.startswith("---") or line.startswith("#!"):
@@ -153,7 +152,7 @@ def lint_invented_modifiers(lines: list, result: LintResult,
     if known is None:
         known = VALID_MODIFIERS
     for i, raw in enumerate(lines, start=1):
-        line = _mask_strings(strip_comment(raw).strip())
+        line = mask_strings(strip_comment(raw).strip())
         if not line or line.startswith("---") or line.startswith("#!"):
             continue
 
@@ -162,7 +161,7 @@ def lint_invented_modifiers(lines: list, result: LintResult,
         if re.match(r"^@[a-z][a-z0-9_-]*\s*:", line):
             continue
 
-        for m in _MODIFIER_RE.finditer(line):
+        for m in MOD_TOKEN_RE.finditer(line):
             mod = m.group(0)
             if mod in known:
                 continue
@@ -194,7 +193,7 @@ def lint_invented_modifiers(lines: list, result: LintResult,
 def lint_semicolon_separator(lines: list, result: LintResult):
     """Flag `;` used as a statement separator (not standard)."""
     for i, raw in enumerate(lines, start=1):
-        line = _mask_strings(strip_comment(raw))
+        line = mask_strings(strip_comment(raw))
         if ";" in line:
             result.add(
                 "warn", i, "SGL050",

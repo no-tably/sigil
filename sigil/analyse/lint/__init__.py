@@ -8,7 +8,8 @@ NAME] [--deep]` (the command, and --deep's join with check, live in sigil.cli).
 
 The rules, grouped by what they check:
 
-    scan          the masks, the block-string pre-pass, the verb rule (shared)
+    scan          the masks and the block-string pre-pass (the tables are
+                  sigil.core.lex's, shared with the parser)
     lines         per-line rules: mode line, holes, prose verbs, modifiers, …
     payloads      what follows a flow's `:`
     permissions   `@read` / `@write` / `@borrow`
@@ -39,7 +40,8 @@ from sigil.analyse.lint.lines import (
     lint_reverse_arrow, lint_semicolon_separator, lint_state_block_syntax)
 from sigil.analyse.lint.payloads import lint_payloads
 from sigil.analyse.lint.permissions import lint_permission_graph
-from sigil.analyse.lint.scan import _hook, collapse_block_strings  # noqa: F401  (a dialect's tests)
+from sigil.core.dialects import _hook
+from sigil.analyse.lint.scan import collapse_block_strings  # noqa: F401  (a dialect's tests)
 
 
 def lint(text: str, dialect=None) -> LintResult:

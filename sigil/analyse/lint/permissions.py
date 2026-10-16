@@ -6,8 +6,8 @@ principals, `@borrow(…)` narrows to read or write.
 import re
 
 from sigil.core.vocab import GLYPH_PATTERNS, LintResult, strip_comment
-from sigil.analyse.lint.scan import (
-    BORROW_ACCESS_RE, PRINCIPAL_NAME_RE, PRINCIPAL_SET_RE, _mask_principal_sets)
+from sigil.core.lex import PRINCIPAL_SET_RE
+from sigil.analyse.lint.scan import BORROW_ACCESS_RE, PRINCIPAL_NAME_RE, _mask_principal_sets
 
 
 def _collect_declared_principals(lines: list, scanners=()) -> set:
