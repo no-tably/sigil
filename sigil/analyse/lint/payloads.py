@@ -5,9 +5,9 @@ PayloadSite is what a dialect's payload check is handed.
 """
 
 import re
-from sigil.core.vocab import ARROW_RE, LintResult, VALID_MODIFIERS, strip_comment
+from sigil.core.vocab import ARROW_RE, LintResult, VALID_MODIFIERS
 
-from sigil.core.lex import EXT_OP_RE, INT_OP_RE, MOD_TOKEN_RE, OP_HEAD_RE, balanced_end
+from sigil.core.lex import EXT_OP_RE, INT_OP_RE, MOD_TOKEN_RE
 
 
 # ---------------------------------------------------------------------------
@@ -180,20 +180,29 @@ def _classify_payload(value_text: str):
 
 
 class PayloadSite:
-    """One `: payload` segment, as handed to dialect payload checks."""
-    __slots__ = ("line_no", "value", "tags", "kind", "known_modifiers")
+    """One `: payload` segment, as handed to dialect payload checks. `branch`: it
+    is the payload of a composition-branch statement (`\\-> [x] : …`)."""
+    __slots__ = ("line_no", "value", "tags", "kind", "known_modifiers", "branch")
 
-    def __init__(self, line_no, value, tags, kind, known_modifiers):
+    def __init__(self, line_no, value, tags, kind, known_modifiers, branch=False):
         self.line_no = line_no
         self.value = value
         self.tags = tags
         self.kind = kind
         self.known_modifiers = known_modifiers
+        self.branch = branch
 
 
-def lint_payloads(lines: list, result: LintResult, checks=(),
-                  blocks=(), keywords=(), known=None):
-    """Enforce the core payload/value grammar (language.md "Payloads & values"):
+_BAD_OP = ("malformed external op-call {text!r}. Expected `op <ns>.<verb>(args)`, "
+           "every part of the dotted name starting with a letter (e.g. "
+           "`op db.query(${{sql}})`).")
+
+
+def lint_payloads(statements: tuple, result: LintResult, checks=(), known=None):
+    """Enforce the core payload/value grammar (language.md "Payloads & values")
+    on each flow statement the walk read (a one-line definition's body is no
+    flow; a declaration block, a block header and a `state` block line are no
+    statement):
 
       - a `{...}` with a top-level ':' that is not pure key/value pairs is
         ambiguous and rejected (SGL100);
@@ -201,79 +210,27 @@ def lint_payloads(lines: list, result: LintResult, checks=(),
         part that starts with no letter) is rejected (SGL102), as a payload
         and as an arrow's target alike.
     Core Sigil does NOT require a tag on a value payload. A dialect may add
-    per-payload rules (`checks`, see dialects.py `lint_payload_checks`), declare
-    blocks whose bodies are declarations rather than flows (`blocks` — skipped),
-    and add statement-leading block keywords (`keywords` — header lines skipped).
+    per-payload rules (`checks`, see dialects.py `lint_payload_checks`).
     """
     if known is None:
         known = VALID_MODIFIERS
-    kw = ["state", "loop", "parallel", "branch"] + sorted(set(keywords))
-    in_block_header = re.compile(r"^(" + "|".join(map(re.escape, kw)) + r")\b")
-    active = None          # (regex, on_raw) of the declaration block we are inside
-    depth = 0
-    for i, raw in enumerate(lines, start=1):
-        raw_lead = raw.strip()
-        line = strip_comment(raw).strip()
-
-        # Declaration-block skip: a dialect-declared `name { … }` block carries
-        # DECLARATIONS, not flow payloads (mirrors the state/loop block skips).
-        # Brace depth is tracked on the raw line for raw-matched openers (a `#…`
-        # marker would be blanked by comment stripping), else on the stripped line.
-        if active is not None:
-            txt = raw_lead if active[1] else line
-            depth += txt.count("{") - txt.count("}")
-            if depth <= 0:
-                active = None
-            continue
-        opened = False
-        for opener, on_raw in blocks:
-            txt = raw_lead if on_raw else line
-            if opener.match(txt):
-                depth = txt.count("{") - txt.count("}")
-                active = (opener, on_raw) if depth > 0 else None
-                opened = True
-                break
-        if opened:
-            continue
-
-        if not line or line.startswith("#!") or line.startswith("---"):
-            continue
-        if in_block_header.match(line):
-            continue
-        # Skip aliases (`name := ...`) and state-block transitions.
-        if ":=" in line or "-<" in line:
+    for st in statements:
+        if st.alias:
             continue
         # An `op …(…)` written as an arrow's target (a self-call) holds to the
         # same rule as one written as a payload: render reads both as an op-call.
-        for am in ARROW_RE.finditer(line):
-            j = len(line) - len(line[am.end():].lstrip())
-            om = OP_HEAD_RE.match(line, j)
-            if not om or not line.startswith("op", j):
-                continue
-            end = balanced_end(line, om.end() - 1)
-            target = line[j:end] if end > 0 else ""
-            if target and _classify_payload(target)[0] == "ext-op-bad":
-                result.add(
-                    "error", i, "SGL102",
-                    f"malformed external op-call {target!r}. Expected "
-                    f"`op <ns>.<verb>(args)`, every part of the dotted name "
-                    f"starting with a letter (e.g. `op db.query(${{sql}})`)."
-                )
-        # Find each `: payload` segment: a `:` that is not part of `:=`,
-        # running to the next arrow or end of line.
-        for m in re.finditer(r"(?<![:=]):(?!=)", line):
-            start = m.end()
-            rest = line[start:]
-            am = ARROW_RE.search(rest)
-            seg = rest[: am.start()] if am else rest
-            if not seg.strip():
-                continue
+        for k, t in enumerate(st.toks):
+            if t.kind == "op" and k and st.toks[k - 1].kind == "arrow" \
+                    and t.text.startswith("op") \
+                    and _classify_payload(t.text)[0] == "ext-op-bad":
+                result.add("error", st.line, "SGL102", _BAD_OP.format(text=t.text))
+        for seg in payload_segments(st):
             value_text, tags = _split_payload_and_tags(seg)
             kind = _classify_payload(value_text)[0]
 
             if kind == "map-ambig":
                 result.add(
-                    "error", i, "SGL100",
+                    "error", st.line, "SGL100",
                     f"`{{...}}` payload {value_text!r} is ambiguous: it has a "
                     f"top-level ':' but is not pure key/value pairs. A map "
                     f"literal must be `{{k: v, ...}}`; a data entity must be a "
@@ -281,13 +238,66 @@ def lint_payloads(lines: list, result: LintResult, checks=(),
                 )
                 continue
             if kind == "ext-op-bad":
-                result.add(
-                    "error", i, "SGL102",
-                    f"malformed external op-call {value_text!r}. Expected "
-                    f"`op <ns>.<verb>(args)`, every part of the dotted name "
-                    f"starting with a letter (e.g. `op db.query(${{sql}})`)."
-                )
+                result.add("error", st.line, "SGL102", _BAD_OP.format(text=value_text))
             if checks:
-                site = PayloadSite(i, value_text, tags, kind, known)
+                site = PayloadSite(st.line, value_text, tags, kind, known, st.branch >= 0)
                 for check in checks:
                     check(site, result)
+
+
+def payload_segments(st) -> list:
+    """The `: payload` segments of a statement, as written (strings, modifiers and
+    trailing counts in): its payload token's text from the `:` to the next
+    top-level arrow, then the `: …` of each later link (`: call() => {R} : note`).
+    Blank segments are left out."""
+    tok = next((t for t in st.toks if t.kind == "payload" and t.flag != "kv"), None)
+    if tok is None:
+        return []
+    text, raw = st.code.text, st.code.raw
+    out = []
+    for n, (start, end) in enumerate(_links(text, tok.col + 1)):
+        if n:
+            colon = _top_level_colon(text, start, end)
+            if colon is None:
+                continue
+            start = colon + 1
+        if raw[start:end].strip():
+            out.append(raw[start:end])
+    return out
+
+
+def _links(text: str, start: int) -> list:
+    """The (start, end) spans of `text` from `start` split at each arrow outside
+    brackets (strings are blanked in `text`); the arrows are in no span."""
+    spans, begin, depth, i = [], start, 0, start
+    while i < len(text):
+        ch = text[i]
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth = max(0, depth - 1)
+        elif depth == 0:
+            m = ARROW_RE.match(text, i)
+            if m:
+                spans.append((begin, i))
+                begin = i = m.end()
+                continue
+        i += 1
+    spans.append((begin, len(text)))
+    return spans
+
+
+def _top_level_colon(text: str, start: int, end: int):
+    """The column of the first payload `:` (not part of `:=`) between `start` and
+    `end` outside brackets, or None."""
+    depth = 0
+    for i in range(start, end):
+        ch = text[i]
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth = max(0, depth - 1)
+        elif depth == 0 and ch == ":" and text[i + 1:i + 2] != "=" \
+                and (i == 0 or text[i - 1] not in ":="):
+            return i
+    return None

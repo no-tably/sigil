@@ -3,6 +3,9 @@ Per-line rules: the mode line (SGL001/SGL002), holes in spec mode, an actor name
 like a state, prose verbs between glyphs, invented modifiers, `;` separators,
 reversed arrows, a glyph twice in one flow, a `state` block's syntax — and the
 edit-distance index the near-name suggestions use (here and in lint.graph).
+
+The mode-line rules read the document's lines; the others read each line's code
+as the walk found it (lint.reading.LineView) or the walk's `state` block lines.
 """
 
 import re
@@ -10,10 +13,9 @@ from typing import Optional
 
 from sigil.core.vocab import (
     ANY_GLYPH_RE, ARROW_RE, GLYPH_PATTERNS, LintResult, VALID_LOOP_MODS, VALID_MODES,
-    VALID_MODIFIERS, VALID_PARALLEL_MODS, VALID_STREAM_POLICIES, strip_comment)
+    VALID_MODIFIERS, VALID_PARALLEL_MODS, VALID_STREAM_POLICIES)
 
-from sigil.core.lex import HOLE_RE, MOD_TOKEN_RE, apply_masks, mask_strings
-from sigil.analyse.lint.scan import _iter_state_block, _mask_principal_sets
+from sigil.core.lex import HOLE_RE, MOD_TOKEN_RE
 
 
 # Vocabulary that strongly suggests a lifecycle state (if used as an actor)
@@ -64,13 +66,12 @@ def lint_mode_line(lines: list, result: LintResult) -> Optional[str]:
     return None
 
 
-def lint_holes_in_spec_mode(lines: list, mode: Optional[str], result: LintResult):
+def lint_holes_in_spec_mode(views: tuple, mode: Optional[str], result: LintResult):
     """In #!spec mode, holes (`[?]`, `{?}` etc.) are errors."""
     if mode != "#!spec":
         return
-    for i, raw in enumerate(lines, start=1):
-        line = mask_strings(strip_comment(raw))
-        for m in HOLE_RE.finditer(line):
+    for i, view in enumerate(views, start=1):
+        for m in HOLE_RE.finditer(view.plain):
             result.add(
                 "error", i, "SGL010",
                 f"hole {m.group(0)} is not allowed in #!spec mode. "
@@ -78,18 +79,14 @@ def lint_holes_in_spec_mode(lines: list, mode: Optional[str], result: LintResult
             )
 
 
-def lint_actor_as_state(lines: list, result: LintResult, masks=()):
-    """Flag `(X)` where X looks like a state name. `masks` are dialect glyph masks
-    (length-preserving) applied before the actor-glyph scan."""
-    for i, line, where in _iter_state_block(lines):
-        if where is not None:
+def lint_actor_as_state(views: tuple, states: frozenset, result: LintResult):
+    """Flag `(X)` where X looks like a state name, outside `state` blocks (`states`:
+    the line numbers they cover). Dialect glyphs and `@read`/`@write` principal
+    lists hold no actor glyph (LineView.bare)."""
+    for i, view in enumerate(views, start=1):
+        if i in states:
             continue
-        # Outside a state block — scan for actor glyphs containing state words.
-        # Apply any dialect glyph masks first (so dialect syntax carrying `( )` is
-        # not mis-read as an actor glyph), then mask the `( )` principal lists of
-        # `@read`/`@write` so their members are not mis-read as actor glyphs.
-        scan = _mask_principal_sets(apply_masks(line, masks))
-        for m in GLYPH_PATTERNS["actor"].finditer(scan):
+        for m in GLYPH_PATTERNS["actor"].finditer(view.bare):
             name = m.group(1).strip().lower()
             if name in STATE_VOCABULARY:
                 result.add(
@@ -99,25 +96,21 @@ def lint_actor_as_state(lines: list, result: LintResult, masks=()):
                 )
 
 
-def lint_prose_verbs(lines: list, result: LintResult, masks=()):
+def lint_prose_verbs(views: tuple, result: LintResult):
     """Flag prose verbs appearing between glyphs on a flow-like line.
 
     Skip verbs that appear inside a modifier expression like `@inv excludes(...)`,
     where the verb is a predicate name and is legitimately English.
     """
-    for i, raw in enumerate(lines, start=1):
-        line = mask_strings(strip_comment(raw).strip())
-        if not line:
-            continue
-        if line.startswith("---") or line.startswith("#!"):
+    for i, view in enumerate(views, start=1):
+        line = view.bare.strip()
+        if not line or _section_or_mode(view.plain):
             continue
 
         # Blank out anything inside modifier expressions `@name(...)` so we
         # don't flag prose inside them. This is intentionally loose; invariant
-        # contents are allowed to be prose-like. Apply dialect glyph masks and mask
-        # `@read`/`@write` principal lists first (they are not glyphs).
-        masked = _mask_principal_sets(apply_masks(line, masks))
-        masked = re.sub(r"@[a-z][a-z0-9_-]*\([^)]*\)", lambda m: " " * len(m.group(0)), masked)
+        # contents are allowed to be prose-like.
+        masked = re.sub(r"@[a-z][a-z0-9_-]*\([^)]*\)", lambda m: " " * len(m.group(0)), line)
         # Also mask `@name ...rest-of-line` invariant-form (no parens)
         masked = re.sub(r"@inv\b[^\n]*", lambda m: " " * len(m.group(0)), masked)
         masked = re.sub(r"@sla\b[^\n]*", lambda m: " " * len(m.group(0)), masked)
@@ -140,7 +133,12 @@ def lint_prose_verbs(lines: list, result: LintResult, masks=()):
                     break
 
 
-def lint_invented_modifiers(lines: list, result: LintResult,
+def _section_or_mode(plain: str) -> bool:
+    """A `---` section line or a `#!` mode line (no flow there)."""
+    return plain.strip().startswith(("---", "#!"))
+
+
+def lint_invented_modifiers(views: tuple, result: LintResult,
                             known=None, deferred=frozenset()):
     """Flag @-modifiers not in the known vocabulary.
 
@@ -151,9 +149,9 @@ def lint_invented_modifiers(lines: list, result: LintResult,
     """
     if known is None:
         known = VALID_MODIFIERS
-    for i, raw in enumerate(lines, start=1):
-        line = mask_strings(strip_comment(raw).strip())
-        if not line or line.startswith("---") or line.startswith("#!"):
+    for i, view in enumerate(views, start=1):
+        line = view.plain.strip()
+        if not line or _section_or_mode(line):
             continue
 
         # Invariant-label form: line starts with @name and has a `:` after it,
@@ -190,11 +188,10 @@ def lint_invented_modifiers(lines: list, result: LintResult,
             )
 
 
-def lint_semicolon_separator(lines: list, result: LintResult):
+def lint_semicolon_separator(views: tuple, result: LintResult):
     """Flag `;` used as a statement separator (not standard)."""
-    for i, raw in enumerate(lines, start=1):
-        line = mask_strings(strip_comment(raw))
-        if ";" in line:
+    for i, view in enumerate(views, start=1):
+        if ";" in view.plain:
             result.add(
                 "warn", i, "SGL050",
                 "`;` is not a Sigil statement separator. "
@@ -202,12 +199,11 @@ def lint_semicolon_separator(lines: list, result: LintResult):
             )
 
 
-def lint_reverse_arrow(lines: list, result: LintResult):
+def lint_reverse_arrow(views: tuple, result: LintResult):
     """`<-` is not a valid Sigil arrow (flows are source-to-sink)."""
-    for i, raw in enumerate(lines, start=1):
-        line = strip_comment(raw)
+    for i, view in enumerate(views, start=1):
         # Careful: `<->` contains `<-`. Blank `<->` first.
-        stripped = line.replace("<->", "   ")
+        stripped = view.plain.replace("<->", "   ")
         if re.search(r"(?<!\w)<-(?!\w)", stripped):
             result.add(
                 "error", i, "SGL060",
@@ -216,10 +212,10 @@ def lint_reverse_arrow(lines: list, result: LintResult):
             )
 
 
-def lint_duplicate_glyph_in_flow(lines: list, result: LintResult):
+def lint_duplicate_glyph_in_flow(views: tuple, result: LintResult):
     """Warn when the same exact glyph appears twice in one flow line."""
-    for i, raw in enumerate(lines, start=1):
-        line = strip_comment(raw).strip()
+    for i, view in enumerate(views, start=1):
+        line = view.plain.strip()
         if not ARROW_RE.search(line):
             continue
         glyphs = [m.group(0) for m in ANY_GLYPH_RE.finditer(line)]
@@ -257,11 +253,10 @@ def lint_mode_not_first(lines: list, result: LintResult):
         seen_content = True
 
 
-def lint_state_block_syntax(lines: list, result: LintResult):
-    """Check that transitions inside state blocks use the `-<trigger>->` form."""
-    for i, line, where in _iter_state_block(lines):
-        if where != "body" or not line or line == "}":
-            continue
+def lint_state_block_syntax(transitions: tuple, result: LintResult):
+    """Check that transitions inside state blocks use the `-<trigger>->` form
+    (`transitions`: the walk's (line, text) of each `state` block line)."""
+    for i, line in transitions:
         # Inside state block: expect `name -<trigger>-> name`
         if "-<" in line or ">->" in line:
             if not re.search(r"\S+\s*-<[^>]+>->\s*\S+", line):

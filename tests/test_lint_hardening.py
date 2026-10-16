@@ -102,32 +102,20 @@ class ParserFacts(unittest.TestCase):
     """The rules that ask the parsed model (Graph.dropped, edges by line)."""
 
     @staticmethod
-    def facts(sources=None, alias_refs=None, untriggered=(), dropped=()):
-        return hl.ParsedFacts(sources or {}, alias_refs or {}, frozenset(untriggered),
-                                tuple(dropped))
+    def facts(alias_refs=None, untriggered=(), dropped=()):
+        return hl.ParsedFacts(alias_refs or {}, frozenset(untriggered), tuple(dropped))
 
-    @staticmethod
-    def codes(lines):
-        return [tokens.code_line(ln) for ln in lines]
-
-    def test_event_argument_flagged_while_the_parser_loses_the_chain(self):
+    def test_an_event_argument_chain_is_read_and_sgl153_is_retired(self):
+        # The parser reads `<H>({C})` from the walk's tokens, so the chain cannot
+        # break; SGL153 keeps its id (reserved) and its regression fixture.
         lines = ["#!spec", "|P| ~> <H>({C}) -> [R]"]
-        found = hl.parser_gap_findings(self.codes(lines), self.facts())
-        self.assertEqual([(f.line, f.rule) for f in found], [(2, "SGL153")])
-
-    def test_event_argument_quiet_once_the_parser_reads_it(self):
-        lines = ["#!spec", "|P| ~> <H>({C}) -> [R]"]
-        facts = self.facts({2: {("store", "P"), ("event", "H")}})
-        self.assertEqual(hl.parser_gap_findings(self.codes(lines), facts), [])
         self.assertEqual(hardening("\n".join(lines) + "\n"), set())   # the real parser
-
-    def test_event_argument_at_the_end_breaks_nothing(self):
-        lines = ["#!spec", "|P| ~> <H>({C})"]
-        self.assertEqual(hl.parser_gap_findings(self.codes(lines), self.facts()), [])
+        self.assertIn("SGL153", hl.HARDENING_SEVERITY)
+        g = render.parse_document("\n".join(lines) + "\n")
+        self.assertIn(("H_event", "R_service"), {(e.src, e.dst) for e in g.edges})
 
     def test_an_unresolved_alias_after_a_count_is_flagged(self):
-        lines = ["#!spec", "[A] -> [B] : charge ×3 Retry"]
-        found = hl.parser_gap_findings(self.codes(lines), self.facts(alias_refs={2: {"Retry"}}))
+        found = hl.parser_gap_findings(self.facts(alias_refs={2: {"Retry"}}))
         self.assertEqual([(f.line, f.rule) for f in found], [(2, "SGL181")])
 
     def test_the_parser_resolves_a_defined_alias_and_keeps_an_undefined_one(self):
@@ -139,16 +127,15 @@ class ParserFacts(unittest.TestCase):
         g = render.parse_document("#!spec\nstate {X} {\n  + -<a>-> S\n  S -> T\n}\n")
         facts = hl.parsed_facts(g)
         self.assertEqual(facts.untriggered, frozenset({4}))
-        found = hl.parser_gap_findings(self.codes(["", "", "", ""]), facts)
+        found = hl.parser_gap_findings(facts)
         self.assertEqual([(f.line, f.rule) for f in found], [(4, "SGL161")])
 
-    def test_dropped_lines_map_to_codes(self):
-        lines = ["#!spec", "state {", "  + -<a>-> S", "}", "state {X} {", "  hello",
-                 "  a -<go b", "}"]
+    def test_dropped_lines_map_to_findings(self):
+        # #!spec / state { / + -<a>-> S / } / state {X} { / hello / a -<go b / }
         dropped = [(2, "no-owner", "state {"), (3, "no-owner", "+ -<a>-> S"),
                    (4, "no-owner", "}"), (6, "not-a-transition", "hello"),
                    (7, "not-a-transition", "a -<go b")]
-        found = hl.parser_gap_findings(self.codes(lines), self.facts(dropped=dropped))
+        found = hl.parser_gap_findings(self.facts(dropped=dropped))
         # One finding for the owner-less machine; a malformed `-<` line is SGL090's.
         self.assertEqual([(f.line, f.rule) for f in found], [(2, "SGL161"), (6, "SGL161")])
 
@@ -162,11 +149,12 @@ class ParserFacts(unittest.TestCase):
              if x.rule == "SGL160"]
         self.assertEqual(d, [(2, "SGL160")])
 
-    def test_parser_stand_in_when_the_walker_sees_no_block(self):
+    def test_an_unclosed_block_is_the_walk_s_finding_alone(self):
+        # The lines the parser drops in a block never closed say nothing more.
         lines = ["#!spec", "[A] -> [B]"]
         found = hl.hardening_findings(lines, facts=self.facts(dropped=[(2, "unclosed", "x"),
                                                                          (3, "unclosed", "y")]))
-        self.assertEqual([(f.line, f.rule) for f in found], [(2, "SGL160")])
+        self.assertEqual(found, [])
 
 
 class Tokens(unittest.TestCase):

@@ -1,44 +1,76 @@
 """
 The permission graph: `@read(…)` / `@write(…)` access lists name declared
-principals, `@borrow(…)` narrows to read or write.
+principals, `@borrow(…)` narrows to read or write. The lists are the walk's
+modifier tokens (a flow's, an owns header's, a control-block header's).
 """
 
 import re
 
-from sigil.core.vocab import GLYPH_PATTERNS, LintResult, strip_comment
 from sigil.core.lex import PRINCIPAL_SET_RE
-from sigil.analyse.lint.scan import BORROW_ACCESS_RE, PRINCIPAL_NAME_RE, _mask_principal_sets
+from sigil.core.tokens import dialect_glyph_nodes
+from sigil.core.vocab import GLYPH_PATTERNS, LintResult
 
 
-def _collect_declared_principals(lines: list, scanners=()) -> set:
-    """Collect the set of declared ENTITY names a `@read`/`@write` principal may
-    name (the closed-reference universe). A principal is the BARE name of any
-    modeled entity — a glyph of any kind (`[X]`/`{X}`/`<X>`/`(X)`/`|X|`), plus any
-    names a dialect's principal scanners extract from its own glyph syntax.
-    Generics/inputs/`~`/`*` prefixes and dotted address tails are stripped to the
-    base principal name. Principal lists themselves are masked so a list member is
-    not counted as its own declaration."""
+# `@borrow(…)` with a narrowing arg, lending access to a delegate (the lent
+# resource is a store `|S|` or a bare name). The arg is captured whatever it is so
+# lint_permission_graph can reject anything but `read` / `write`; bare `@borrow`
+# (full access) has no arg to check.
+BORROW_ACCESS_RE = re.compile(r"@borrow\s*\((?P<arg>[^)]*)\)")
+
+
+# A bare principal name in a set — a declared entity name or a generic role name.
+PRINCIPAL_NAME_RE = re.compile(r"^[A-Za-z_][\w-]*$")
+
+
+def is_access_list(tok) -> bool:
+    """A `@read(…)` / `@write(…)` modifier token (its principal list)."""
+    return tok.kind == "mod" and PRINCIPAL_SET_RE.fullmatch(tok.text) is not None
+
+
+def principal_base(name: str) -> str:
+    """The principal a glyph's name declares: generics, inputs and a dotted
+    address tail dropped."""
+    return re.sub(r"<[^<>]*>|\([^()]*\)", "", name).strip().split(".")[0].strip()
+
+
+def declared_principals(views: tuple, statements: tuple, lx) -> set:
+    """The declared ENTITY names a `@read`/`@write` principal may name (the
+    closed-reference universe): the bare name of every glyph of any kind
+    (`[X]`/`{X}`/`<X>`/`(X)`/`|X|`) in the document's code (LineView.bare: an
+    access list's members are not their own declaration), and of each dialect
+    glyph (`lx`: the dialect's reading) a statement holds — as a token or inside
+    its payload or a modifier's argument."""
     declared: set = set()
-    for raw in lines:
-        line = strip_comment(raw)
-        # Don't let a `( )` principal list count as an `(X)` actor-glyph declaration.
-        line = _mask_principal_sets(line)
-        # Dialect glyph syntax first: each scanner yields names + a masked line.
-        for scan in scanners:
-            names, line = scan(line)
-            declared.update(names)
-        masked = line
-        for _kind, pat in GLYPH_PATTERNS.items():
-            for m in pat.finditer(masked):
-                name = m.group(1).strip()
-                base = re.sub(r"<[^<>]*>|\([^()]*\)", "", name).strip()
-                base = base.split(".")[0].strip()
+    for view in views:
+        for pat in GLYPH_PATTERNS.values():
+            for m in pat.finditer(view.bare):
+                base = principal_base(m.group(1).strip())
                 if base and base not in ("?", "_"):
                     declared.add(base)
+    if lx.tokenizers:
+        for st in statements:
+            for t in st.toks:
+                if t.node is not None:
+                    names = [t.node.name]
+                elif t.kind in ("payload", "mod") and not is_access_list(t):
+                    names = [node.name for node, _span in dialect_glyph_nodes(t.text, lx)]
+                else:
+                    continue
+                declared.update(b for b in map(principal_base, names) if b and b != "?")
     return declared
 
 
-def lint_permission_graph(lines: list, result: LintResult, scanners=()):
+def access_modifiers(statements: tuple, headers: list) -> list:
+    """(line, token) of every modifier token of the control-block headers
+    (`headers`: (line, tokens) pairs) and the statements, in reading order: by
+    line, a header before the statements after its `{`."""
+    found = [(line, 0, t) for line, toks in headers for t in toks if t.kind == "mod"]
+    found += [(st.line, 1, t) for st in statements for t in st.toks if t.kind == "mod"]
+    return [(line, t) for line, _order, t in sorted(found, key=lambda f: f[:2])]
+
+
+def lint_permission_graph(statements: tuple, headers: list, declared: set,
+                          result: LintResult):
     """Validate the permission-graph access modifiers (language.md "Permission
     graph"): `@read(…)` / `@write(…)` carrying a `( )` comma-list of principal
     names, and the `@borrow` delegation modifier. The surface is consumer-agnostic
@@ -49,67 +81,74 @@ def lint_permission_graph(lines: list, result: LintResult, scanners=()):
       - each member is a bare principal name — not a glyph, `k: v` pair, or dotted
         name (SGL142);
       - each member resolves to a declared entity — the closed-reference check
-        (SGL143);
+        (SGL143; `declared`: declared_principals);
       - a `@borrow(...)` narrowing arg is `read`/`write` (SGL144).
-    The list well-formedness (140-142) + borrow-arg (144) are local; the closed-
-    reference check (143) sees the whole document's declared entity set."""
-    declared = _collect_declared_principals(lines, scanners)
-    for i, raw in enumerate(lines, start=1):
-        line = strip_comment(raw)
+    Within a line the lists come first, then the borrows."""
+    mods = access_modifiers(statements, headers)
+    by_line: dict = {}
+    for line, tok in mods:
+        by_line.setdefault(line, []).append(tok)
+    for line, toks in by_line.items():
+        for tok in toks:
+            m = PRINCIPAL_SET_RE.fullmatch(tok.text)
+            if m:
+                _check_list(line, m.group("mod"), m.group("set").strip(), declared, result)
+        for tok in toks:
+            m = BORROW_ACCESS_RE.match(tok.text)
+            if m:
+                _check_borrow(line, m.group("arg").strip(), result)
 
-        # `@read(…)` / `@write(…)` principal lists.
-        for m in PRINCIPAL_SET_RE.finditer(line):
-            mod = m.group("mod")
-            body = m.group("set").strip()
-            if body == "":
-                result.add(
-                    "error", i, "SGL140",
-                    f"`@{mod}()` is an empty principal list — list at least one "
-                    f"principal entity, e.g. `@{mod}(boss)`."
-                )
-                continue
-            members = [p.strip() for p in body.split(",")]
-            seen: set = set()
-            for member in members:
-                if member == "":
-                    result.add(
-                        "error", i, "SGL142",
-                        f"`@{mod}({body})` has an empty member — principals are "
-                        f"comma-separated bare names."
-                    )
-                    continue
-                if not PRINCIPAL_NAME_RE.match(member):
-                    result.add(
-                        "error", i, "SGL142",
-                        f"`@{mod}` list member {member!r} is not a bare principal "
-                        f"name. A list holds entity names ("
-                        f"`@{mod}(boss, worker)`), not glyphs, `k: v` pairs, or "
-                        f"dotted names."
-                    )
-                    continue
-                if member in seen:
-                    result.add(
-                        "error", i, "SGL141",
-                        f"principal {member!r} appears twice in this `@{mod}` list."
-                    )
-                    continue
-                seen.add(member)
-                if member not in declared:
-                    result.add(
-                        "error", i, "SGL143",
-                        f"`@{mod}` principal {member!r} does not resolve to a "
-                        f"declared entity. A principal must be a modeled entity "
-                        f"(a glyph / reference / generic role) declared in the "
-                        f"document."
-                    )
 
-        # `@borrow(...)` narrowing arg.
-        for m in BORROW_ACCESS_RE.finditer(line):
-            arg = m.group("arg").strip()
-            if arg not in ("read", "write"):
-                result.add(
-                    "error", i, "SGL144",
-                    f"`@borrow({arg})` — a borrow narrowing arg is `read` or "
-                    f"`write` (a child borrows access ⊆ the parent's). Bare "
-                    f"`@borrow` lends the full access."
-                )
+def _check_list(i: int, mod: str, body: str, declared: set, result: LintResult):
+    """SGL140–143 for one `@read(…)` / `@write(…)` list (`body`: its members)."""
+    if body == "":
+        result.add(
+            "error", i, "SGL140",
+            f"`@{mod}()` is an empty principal list — list at least one "
+            f"principal entity, e.g. `@{mod}(boss)`."
+        )
+        return
+    seen: set = set()
+    for member in (p.strip() for p in body.split(",")):
+        if member == "":
+            result.add(
+                "error", i, "SGL142",
+                f"`@{mod}({body})` has an empty member — principals are "
+                f"comma-separated bare names."
+            )
+            continue
+        if not PRINCIPAL_NAME_RE.match(member):
+            result.add(
+                "error", i, "SGL142",
+                f"`@{mod}` list member {member!r} is not a bare principal "
+                f"name. A list holds entity names ("
+                f"`@{mod}(boss, worker)`), not glyphs, `k: v` pairs, or "
+                f"dotted names."
+            )
+            continue
+        if member in seen:
+            result.add(
+                "error", i, "SGL141",
+                f"principal {member!r} appears twice in this `@{mod}` list."
+            )
+            continue
+        seen.add(member)
+        if member not in declared:
+            result.add(
+                "error", i, "SGL143",
+                f"`@{mod}` principal {member!r} does not resolve to a "
+                f"declared entity. A principal must be a modeled entity "
+                f"(a glyph / reference / generic role) declared in the "
+                f"document."
+            )
+
+
+def _check_borrow(i: int, arg: str, result: LintResult):
+    """SGL144: a `@borrow(…)` narrowing arg that is not `read` / `write`."""
+    if arg not in ("read", "write"):
+        result.add(
+            "error", i, "SGL144",
+            f"`@borrow({arg})` — a borrow narrowing arg is `read` or "
+            f"`write` (a child borrows access ⊆ the parent's). Bare "
+            f"`@borrow` lends the full access."
+        )

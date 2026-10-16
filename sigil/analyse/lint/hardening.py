@@ -12,9 +12,9 @@ from typing import NamedTuple, Optional
 from sigil.core import parse as render
 from sigil.core.graph import walk_depth
 from sigil.core.dialects import _hook
-from sigil.core.lex import ARROW_RE, ARROWS, MOD_NAME_RE, SECTION_RE, balanced_end, comment_col
+from sigil.core.lex import ARROW_RE, ARROWS, MOD_NAME_RE, SECTION_RE, comment_col
 from sigil.core.statements import Statement, Walk, read_document
-from sigil.core.tokens import Code, Tok, code_line, tokenize_statement  # noqa: F401  (Code, code_line: read as hardening.<name> by tests)
+from sigil.core.tokens import Code, Tok
 from sigil.core.vocab import LintResult
 from sigil.analyse.lint.payloads import _classify_payload
 
@@ -32,8 +32,8 @@ from sigil.analyse.lint.payloads import _classify_payload
 # fixed by RFC 0003's catalog §8: a silent drop is an error in every mode. Since
 # the parser fix for `×3 Alias` (catalog §6 B7) an alias after `×N` is no longer
 # dropped, so SGL181 (now: the alias is undefined) is a warning; since the
-# `<H>({C})` chain fix (catalog §6 B8), SGL153 only guards against the chain
-# being lost again.
+# `<H>({C})` chain fix (catalog §6 B8) and the one reading, SGL153 is retired
+# (its id stays reserved, never reused).
 
 HARDENING_SEVERITY = {
     "SGL120": "error", "SGL121": "error", "SGL122": "error",
@@ -375,12 +375,10 @@ def reserved_marker_findings(lines: list) -> list:
 
 class ParsedFacts(NamedTuple):
     """What the parsed model says about each line, for the rules that ask the
-    parser rather than re-read the text. `sources`: line → {(kind, name)} of every
-    edge source on that line; `alias_refs`: line → {name} of each modifier alias
-    after a `×N` that no modifier-only alias defines (render.ALIAS_REF);
-    `untriggered`: lines of state-machine transitions with no trigger;
-    `dropped`: (line, reason, text) the parser discarded."""
-    sources: dict
+    parser rather than re-read the text. `alias_refs`: line → {name} of each
+    modifier alias after a `×N` that no modifier-only alias defines
+    (render.ALIAS_REF); `untriggered`: lines of state-machine transitions with no
+    trigger; `dropped`: (line, reason, text) the parser discarded."""
     alias_refs: dict
     untriggered: frozenset
     dropped: tuple
@@ -388,38 +386,27 @@ class ParsedFacts(NamedTuple):
 
 def parsed_facts(graph) -> ParsedFacts:
     """The ParsedFacts of a render.Graph (every expansion and machine included)."""
-    sources, alias_refs, untriggered = {}, {}, set()
+    alias_refs, untriggered = {}, set()
     for sub, _owner, _lvl in walk_depth(graph):
         for e in sub.edges:
-            src = sub.nodes.get(e.src)
-            if src is not None:
-                sources.setdefault(e.line, set()).add((src.kind, src.name))
             for name, arg in e.mods:
                 if name == render.ALIAS_REF:
                     alias_refs.setdefault(e.line, set()).add(arg)
             if sub.role == "state" and e.label is None:
                 untriggered.add(e.line)
     dropped = tuple((d.line, d.reason, d.text) for d in graph.dropped)
-    return ParsedFacts(sources, alias_refs, frozenset(untriggered), dropped)
+    return ParsedFacts(alias_refs, frozenset(untriggered), dropped)
 
 
-_EVENT_ARG_RE = re.compile(r"<([^<>\s][^<>]*)>\(")
-
-
-def parser_gap_findings(codes: list, facts: ParsedFacts) -> list:
-    """What the parsed model reports: SGL153 where an event argument still breaks
-    the chain (a guard since catalog §6 B8: quiet while the parser reads the line), SGL181 a
-    modifier alias after `×N` that nothing defines, SGL161 a transition with no
-    trigger, and SGL160 / SGL161 for the lines it dropped (Graph.dropped)."""
+def parser_gap_findings(facts: ParsedFacts) -> list:
+    """What the parsed model reports: SGL181 a modifier alias after `×N` that
+    nothing defines, SGL161 a transition with no trigger and the `state` lines it
+    dropped (Graph.dropped: a machine with no owner, a line that is no
+    transition). A block never closed is the walk's SGL160 at its opener; the
+    lines the parser drops in it say nothing more. SGL153 (an event argument
+    that breaks the chain) is retired: the parser reads `<E>(…)` from the same
+    tokens, so the chain cannot break; the id stays reserved."""
     out = []
-    for no, code in enumerate(codes, 1):
-        for m in _EVENT_ARG_RE.finditer(code.text):
-            end = balanced_end(code.text, m.end() - 1)
-            chained = end > 0 and ARROW_RE.match(code.text[end:].lstrip())
-            if chained and ("event", m.group(1).strip()) not in facts.sources.get(no, set()):
-                out.append(Finding(no, "SGL153", f"`<{m.group(1)}>(…)` breaks the chain: "
-                                   "the parser draws no flow out of the event. Put the "
-                                   "argument in a payload (`<E> -> [R] : {C}`)."))
     for no, names in facts.alias_refs.items():
         for name in sorted(names):
             out.append(Finding(no, "SGL181", f"`{name}` after `×N` names no modifier-only "
@@ -429,10 +416,7 @@ def parser_gap_findings(codes: list, facts: ParsedFacts) -> list:
         out.append(Finding(no, "SGL161", "transition with no trigger: write "
                            "`Src -<trigger>-> Dst`. The parser keeps no cause for it."))
     for line, reason, text in facts.dropped:
-        if reason == "unclosed":
-            out.append(Finding(line, "SGL160", "the parser drops this line: it sits in a "
-                               "block that is never closed."))
-        elif reason == "no-owner" and text.startswith("state"):
+        if reason == "no-owner" and text.startswith("state"):
             out.append(Finding(line, "SGL161", "`state` block with no owner glyph "
                                "(`state {Order} {`): the parser drops the whole machine."))
         elif reason == "not-a-transition" and "-<" not in text:
@@ -443,9 +427,10 @@ def parser_gap_findings(codes: list, facts: ParsedFacts) -> list:
 
 def hardening_findings(walk, facts: Optional[ParsedFacts] = None, target=None) -> list:
     """Every hardening finding of a document's reading (a Walk; a list of lines is
-    read first), in line order, at most one per rule per line. `facts` (from the
-    parsed document) adds the rules that ask the parser; without it they are
-    skipped. `target`: see statement_findings."""
+    read first), in line order, at most one per rule per line (the walk's own
+    finding first: its SGL161 names the transition). `facts` (from the parsed
+    document) adds the rules that ask the parser; without it they are skipped.
+    `target`: see statement_findings."""
     if not isinstance(walk, Walk):
         walk = read_document("\n".join(walk))
     found = walk_findings(walk) + reserved_marker_findings(walk.lines)
@@ -453,16 +438,8 @@ def hardening_findings(walk, facts: Optional[ParsedFacts] = None, target=None) -
         if not st.quiet:
             found += statement_findings(st, target)
     if facts is not None:
-        found = _with_parser_gaps(found, parser_gap_findings(walk.codes, facts))
+        found += parser_gap_findings(facts)
     return _one_per_rule_and_line(found)
-
-
-def _with_parser_gaps(found: list, gaps: list) -> list:
-    """Add the parser's findings: an unclosed block is one SGL160 at its opener (the
-    walker's); the parser's per-line SGL160 stands in only when the walker saw none."""
-    walker_saw = any(f.rule == "SGL160" for f in found)
-    dropped = [f for f in gaps if f.rule == "SGL160"]
-    return found + [f for f in gaps if f.rule != "SGL160"] + ([] if walker_saw else dropped[:1])
 
 
 def _one_per_rule_and_line(found: list) -> list:

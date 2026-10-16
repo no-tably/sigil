@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sigil.analyse import lint  # noqa: E402
-from sigil.analyse.lint import composition, hardening, lines, payloads, permissions, scan  # noqa: E402
+from sigil.analyse.lint import composition, hardening, lines, payloads, permissions, reading  # noqa: E402
 from sigil.core import comments, lex, parse, statements, tokens, vocab  # noqa: E402
 
 # (verb as written, the verb an op-call reads, or None when it is no op-call)
@@ -185,7 +185,7 @@ class Braces(unittest.TestCase):
 
 # Modules that read Sigil text; none may compile a pattern lex already holds.
 READERS = (parse, statements, tokens, comments, lint, composition, hardening, lines, payloads,
-           permissions, scan)
+           permissions, reading)
 
 
 class OneSourceOfTruth(unittest.TestCase):

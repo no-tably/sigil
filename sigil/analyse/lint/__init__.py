@@ -8,8 +8,9 @@ NAME] [--deep]` (the command, and --deep's join with check, live in sigil.cli).
 
 The rules, grouped by what they check:
 
-    scan          the masks and the block-string report (the tables are
-                  sigil.core.lex's, the reading sigil.core.statements')
+    reading       what the rules read off the one reading
+                  (sigil.core.statements): each line's code (LineView), the
+                  `state` block lines, header tokens; the block-string report
     lines         per-line rules: mode line, holes, prose verbs, modifiers, …
     payloads      what follows a flow's `:`
     permissions   `@read` / `@write` / `@borrow`
@@ -31,7 +32,7 @@ from sigil.core.vocab import (  # noqa: F401  (re-exported)
     ANY_GLYPH_RE, ARROW_RE, ARROWS, CALL_RESILIENCE_MODIFIERS, Diagnostic, GLYPH_PATTERNS,
     LintResult, PERMISSION_MODIFIERS, VALID_LOOP_MODS, VALID_MODES, VALID_MODIFIERS,
     VALID_PARALLEL_MODS, VALID_STREAM_POLICIES, strip_comment)
-from sigil.analyse.lint.composition import CORE_RELATIONS, lint_composition
+from sigil.analyse.lint.composition import CORE_RELATIONS, branch_markers, lint_composition
 from sigil.analyse.lint.graph import lint_graph, parse_for_lint
 from sigil.analyse.lint.hardening import lint_hardening
 from sigil.analyse.lint.lines import (
@@ -39,11 +40,12 @@ from sigil.analyse.lint.lines import (
     lint_invented_modifiers, lint_mode_line, lint_mode_not_first, lint_prose_verbs,
     lint_reverse_arrow, lint_semicolon_separator, lint_state_block_syntax)
 from sigil.analyse.lint.payloads import lint_payloads
-from sigil.analyse.lint.permissions import lint_permission_graph
+from sigil.analyse.lint.permissions import declared_principals, lint_permission_graph
+from sigil.analyse.lint.reading import (  # noqa: F401  (collapse_block_strings: a dialect's tests)
+    blank_lines, collapse_block_strings, header_tokens, line_views, state_lines,
+    unterminated_block)
 from sigil.core.dialects import _hook
 from sigil.core.statements import read_document
-from sigil.analyse.lint.scan import (  # noqa: F401  (collapse_block_strings: a dialect's tests)
-    collapse_block_strings, dialect_masks, principal_scanners, unterminated_block)
 
 
 def lint(text: str, dialect=None) -> LintResult:
@@ -58,40 +60,50 @@ def lint(text: str, dialect=None) -> LintResult:
     # dialect's prepasses run (what they report follows the core pre-passes').
     prepassed = LintResult()
     walk = read_document(text, dialect, prepassed)
+    graph = parse_for_lint(text, dialect, walk)
     unterminated_block(walk.unterminated, result)
-    lines = list(walk.lines)
-    masks = dialect_masks(walk.lexicon)
-    # Core pre-pass: composition-tree branch markers (unless the dialect owns them).
-    if _hook(dialect, "COMPOSITION_LINT", True):
-        lines = lint_composition(
-            lines, result, CORE_RELATIONS + "".join(_hook(dialect, "COMPOSITION_RELATIONS", "")))
+    markers, passed = _composition(walk, graph, dialect, result)
     result.diagnostics.extend(prepassed.diagnostics)
+    views = line_views(walk, markers)
+    headers = header_tokens(walk.doc)
 
+    lines = blank_lines(walk.lines, markers)
     mode = lint_mode_line(lines, result)
     lint_mode_not_first(lines, result)
-    lint_holes_in_spec_mode(lines, mode, result)
-    lint_actor_as_state(lines, result, masks)
-    lint_prose_verbs(lines, result, masks)
-    lint_invented_modifiers(lines, result, known, deferred)
-    lint_semicolon_separator(lines, result)
-    lint_reverse_arrow(lines, result)
-    lint_duplicate_glyph_in_flow(lines, result)
-    lint_state_block_syntax(lines, result)
-    lint_permission_graph(lines, result, principal_scanners(walk.lexicon))
-    lint_payloads(
-        lines, result,
-        checks=list(_hook(dialect, "lint_payload_checks")),
-        blocks=list(_hook(dialect, "DECLARATION_BLOCKS")),
-        keywords=set(_hook(dialect, "BLOCK_KEYWORDS", set())),
-        known=known,
-    )
-    graph = parse_for_lint(text, dialect, walk)
+    lint_holes_in_spec_mode(views, mode, result)
+    lint_actor_as_state(views, state_lines(walk.doc), result)
+    lint_prose_verbs(views, result)
+    lint_invented_modifiers(views, result, known, deferred)
+    lint_semicolon_separator(views, result)
+    lint_reverse_arrow(views, result)
+    lint_duplicate_glyph_in_flow(views, result)
+    lint_state_block_syntax(walk.transitions, result)
+    lint_permission_graph(walk.statements, headers,
+                          declared_principals(views, walk.statements, walk.lexicon), result)
+    lint_payloads(walk.statements, result,
+                  checks=list(_hook(dialect, "lint_payload_checks")), known=known)
     lint_hardening(walk, result, dialect, graph)
-    for extra in _hook(dialect, "lint_passes"):
-        extra(lines, result)
+    passes = list(_hook(dialect, "lint_passes"))
+    if passes:
+        pass_lines = blank_lines(walk.lines, passed)
+        for extra in passes:
+            extra(pass_lines, result)
     lint_graph(text, result, dialect, graph)
 
     return result
+
+
+def _composition(walk, graph, dialect, result: LintResult) -> tuple:
+    """Judge the composition-tree branch markers (SGL110/SGL111) unless the
+    dialect owns them (COMPOSITION_LINT = False). Returns the markers the rules
+    read past — the well-formed ones, or every one a dialect owns — and those its
+    lint passes read past (none of a dialect's own: it reads them as written)."""
+    if not _hook(dialect, "COMPOSITION_LINT", True):
+        return branch_markers(walk, relations=None), {}
+    relations = CORE_RELATIONS + "".join(_hook(dialect, "COMPOSITION_RELATIONS", ""))
+    lint_composition(walk, graph, result, relations)
+    markers = branch_markers(walk, relations)
+    return markers, markers
 
 
 def exit_code(severities) -> int:
