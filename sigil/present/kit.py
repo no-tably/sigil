@@ -46,7 +46,7 @@ from sigil.core.graph import (  # noqa: F401  (some for the views, as kit.NAME)
     access_kind, base_kind as _base_kind, drawn_join, edge_blocks, node_lines,
     section_of, use_dialect_kinds, walk_breadth as _walk)
 from sigil.core import graph as _graph
-from sigil.core.parse import BLOCK_SENTINEL, MODIFIER_RE
+from sigil.core.lex import BLOCK_SENTINEL, MODIFIER_RE
 from sigil.core.vocab import Diagnostic
 from sigil.analyse.lint import lint as _lint_document
 from sigil.model import scene
