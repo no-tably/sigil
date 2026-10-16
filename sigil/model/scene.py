@@ -153,7 +153,7 @@ import re
 from dataclasses import dataclass, field, replace
 from typing import NamedTuple, Optional
 
-from sigil.core import parse
+from sigil.core import lex, parse
 from sigil.core.comments import note_index
 from sigil.core.graph import (ALL_DEPTH, access_kind, base_kind, drawn_join, edge_blocks,
                               node_label, node_lines, section_of, writer_badges)
@@ -555,7 +555,7 @@ def split_op(text: str) -> Optional[tuple]:
     either followed by `=> X` — with the `op ` keyword and the return taken off
     the op; None when the text is no op-call (`{Doc}`, `child`, `"hi"`)."""
     text = text.strip()
-    m = parse.OP_TARGET_RE.match(text)
+    m = lex.OP_TARGET_RE.match(text)
     if not m:
         return None
     rest = text[m.end():]
@@ -806,7 +806,7 @@ def _owned(n) -> set:
     out = set()
     for name, arg in n.mods:
         if name == "owns" and arg:
-            for gm in parse.GLYPH_RE.finditer(arg):
+            for gm in lex.GLYPH_RE.finditer(arg):
                 owned = parse.parse_glyph(gm.group(0))
                 if owned is not None:
                     out.add(owned.id)
