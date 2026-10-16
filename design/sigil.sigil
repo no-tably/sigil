@@ -43,7 +43,7 @@
 [Core] := {
   # text in, one document out. The only code that reads sigil text.
   [Lex] -> [Dialects] : vocabulary({Name}) => {Dialect}      # glyphs, arrows, mods, comment marks
-  [Parse] -> [Lex] : tokens({Text}) => {Statements}           # every token keeps its line and column
+  [Parse] -> [Lex] : tokens({Text}) => {Statements}           # every token keeps its line and column (target: 0.6.0 still walks twice, PLAN.md L2)
   [Parse] -> [Comments] : notes({Statements}) => {Acks}       # notes and `# accepts:` read once
   [Parse] -> [Graph] : build({Statements}) => {Doc}           # nodes, wires, trees (with lines), blocks, gaps
 }
@@ -61,7 +61,7 @@
 
 [Analyse] := {
   # diagnosis: lint (form) and checks (meaning), one finding shape
-  [Lint] -> [Core] : parse({Text}) => {Doc}                   # rules over tokens and statements
+  [Lint] -> [Core] : parse({Text}) => {Doc}                   # rules over tokens and statements (target: per-line rules still read text, PLAN.md L2)
   [Check] -> [Model] : explore({Scene}) => {Trace}
   [Check] -> [Rules] : match({Doc}) => {Hit}
   [Check] -> [Lint] : lint({Doc}) => {Findings}               # --deep and the export gate see both
