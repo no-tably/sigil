@@ -50,10 +50,14 @@ jobs:
       - name: Smoke-test packaged tools
         run: |
           printf '#!sketch\n\n--- T ---\n(User) -> [API] -> |DB|\n' > /tmp/t.sigil
-          dist/claude/skills/sigil/scripts/lint.py /tmp/t.sigil
-          python dist/claude/skills/sigil/scripts/render.py /tmp/t.sigil
-          python dist/claude/skills/sigil/scripts/view.py /tmp/t.sigil --once
-          python dist/claude/skills/sigil/scripts/view.py /tmp/t.sigil --once --theme sigil
+          scripts=dist/claude/skills/sigil/scripts
+          $scripts/bin/sigil lint /tmp/t.sigil
+          python $scripts/bin/sigil check /tmp/t.sigil
+          python $scripts/bin/sigil export /tmp/t.sigil --mermaid
+          python $scripts/bin/sigil view /tmp/t.sigil --once
+          python $scripts/bin/sigil view /tmp/t.sigil --once --theme sigil
+          python $scripts/bin/sigil frames draw /tmp/t.sigil --width 80 > /dev/null
+          (cd $scripts && python -m sigil lint /tmp/t.sigil)
 
       - name: Build site
         run: python site/build_site.py --out _site

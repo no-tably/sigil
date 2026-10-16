@@ -1131,6 +1131,11 @@
         if (!res.ok) throw new Error(`py/manifest.json: HTTP ${res.status}`);
         const man = await res.json();
         py.FS.mkdirTree("/sigil/themes");
+        // the package's files carry their folders (sigil/core/lex.py, …)
+        for (const f of man.files) {
+          const dir = f.slice(0, f.lastIndexOf("/") + 1);
+          if (dir) py.FS.mkdirTree(`/sigil/${dir}`);
+        }
         const get = async (url) => {
           const r = await fetch(url);
           if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);

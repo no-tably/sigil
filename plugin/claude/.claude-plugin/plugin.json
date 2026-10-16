@@ -5,7 +5,7 @@
     "display": {
       "type": "string",
       "title": "Viewer display",
-      "description": "Where the agent's sigil viewer draws: mod (a pane inside Claude Code) or multiplex (a herdr / tmux / zellij split running view.py live). auto: multiplex inside a multiplexer, else mod.",
+      "description": "Where the agent's sigil viewer draws: mod (a pane inside Claude Code) or multiplex (a herdr / tmux / zellij split running sigil view live). auto: multiplex inside a multiplexer, else mod.",
       "options": [
         "auto",
         "mod",

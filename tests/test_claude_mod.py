@@ -1,16 +1,17 @@
 """Tests for the Claude Code viewer mod (plugin/claude) and its packaging.
 
 Covers:
-  - pane.py draw: what it draws is what view.py draws (every cell one column,
-    the styles as hex colours, never theme role names), a run's frames and
-    status, the tree legend, the flow view and a run in it, errors as
-    {"error"} for a missing file and an unknown scenario, a view.py without
-    the flow view named;
-  - pane.py follow: runs view.py as its control file says, keeps waiting past
-    a view.py that fails, and removes its files when view.py ends on its own;
+  - `sigil frames draw` (the mod's Python half): what it draws is what the viewer
+    draws (every cell one column, the styles as hex colours, never theme role
+    names), a run's frames and status, the tree legend, the flow view and a run
+    in it, errors as {"error"} for a missing file and an unknown scenario;
+  - `sigil frames follow`: runs `sigil view` as its control file says, keeps
+    waiting past a view that fails, and removes its files when the view ends on
+    its own;
   - build.py: the claude tree carries the mod (manifest fields, hooks module,
-    pane.py and frames.py beside the tools, no mod tests), --check catches a
-    missing module and a wrong `display` option, a renamed mod fails the build;
+    the package's bin/sigil and frames in the skill's scripts, no mod tests), a
+    packaged bin/sigil draws from its own folder, --check catches a missing
+    module and a wrong `display` option, a renamed mod fails the build;
   - with `claude` on PATH: `claude plugin validate` on the built plugin and
     `claude plugin test` on the mod's own TypeScript tests.
 
@@ -25,14 +26,18 @@ import subprocess
 import sys
 import tempfile
 import time
-import types
 import unicodedata
 import unittest
 from pathlib import Path
 
+from sigil.core.parse import parse_document
+from sigil.model import sim as simulator
+from sigil.present import app
+from sigil.present import frames as pane
+
 ROOT = Path(__file__).resolve().parents[1]
 MOD = ROOT / "plugin" / "claude"
-PANE = MOD / "scripts" / "pane.py"
+SIGIL = ROOT / "bin" / "sigil"
 SHOP = ROOT / "site" / "examples" / "02-shop.sigil"
 
 
@@ -44,13 +49,12 @@ def _load(name: str, path: Path):
     return mod
 
 
-pane = _load("sigil_pane_t", PANE)
 build = _load("sigil_build_mod_t", ROOT / "build.py")
-view = _load("sigil_view", ROOT / "view.py")
 
 
-def run_pane(*args: str, script: Path = PANE) -> dict:
-    r = subprocess.run([sys.executable, str(script), *args], capture_output=True, text=True,
+def run_pane(*args: str, script: Path = SIGIL) -> dict:
+    """`sigil frames ARGS` through `script` (a bin/sigil), its JSON."""
+    r = subprocess.run([sys.executable, str(script), "frames", *args], capture_output=True, text=True,
                        encoding="utf-8", timeout=60)
     assert r.returncode == 0, r.stderr
     return json.loads(r.stdout)
@@ -63,10 +67,10 @@ def text_of(rows) -> list[str]:
 class DrawTest(unittest.TestCase):
     def test_draws_what_view_draws(self):
         out = run_pane("draw", str(SHOP), "--view", "tree", "--width", "90")
-        g = view.render.parse_document(SHOP.read_text(encoding="utf-8"))
-        rows, _w = view.compose_view(g, True, depth=1, payloads=False, notes="off",
-                                     triggers=True, spaced=True, width=90, access=False,
-                                     mods=False, events="land")
+        g = parse_document(SHOP.read_text(encoding="utf-8"))
+        rows, _w = app.compose_view(g, "tree", depth=1, payloads=False, notes="off",
+                                    triggers=True, spaced=True, width=90, access=False,
+                                    mods=False, events="land")
         want = [ln.rstrip() for ln in text_of(rows)]
         while want and not want[-1]:
             want.pop()
@@ -97,21 +101,20 @@ class DrawTest(unittest.TestCase):
         self.assertLessEqual(widest(wrapped), 30)
         self.assertGreater(widest(panned), 30)                  # the natural layout
         self.assertEqual(run_pane(*wide)["layout"], "wrap")     # auto without a height
-        g = view.render.parse_document(SHOP.read_text(encoding="utf-8"))
-        rows, w = view.compose_view(g, "graph", depth=1, payloads=False, notes="off",
-                                    triggers=True, spaced=True, width=None, access=False,
-                                    mods=False, events="nodes")
+        g = parse_document(SHOP.read_text(encoding="utf-8"))
+        rows, w = app.compose_view(g, "graph", depth=1, payloads=False, notes="off",
+                                   triggers=True, spaced=True, width=None, access=False,
+                                   mods=False, events="nodes")
         for height in (5, 400):
             self.assertEqual(run_pane(*wide, "--height", str(height))["layout"],
-                             view.pick_layout(w, len(rows), 30, height))
+                             app.pick_layout(w, len(rows), 30, height))
 
     def test_wide_and_zero_width_characters_become_one_cell(self):
         self.assertEqual(pane.cells("a界́─"), "a界\0─")   # a wide one itself, then its second cell
 
     def test_a_run_has_a_frame_and_a_status_per_step(self):
         out = run_pane("draw", str(SHOP), "--scenario", "happy")
-        player = view.SimPlayer(view.render.parse_document(SHOP.read_text(encoding="utf-8")),
-                                "happy")
+        player = app.SimPlayer(parse_document(SHOP.read_text(encoding="utf-8")), "happy")
         self.assertEqual(len(out["frames"]), player.last + 1)
         self.assertEqual(len(out["status"]), len(out["frames"]))
         self.assertEqual(len(out["log"]), len(out["frames"]))
@@ -119,7 +122,7 @@ class DrawTest(unittest.TestCase):
         self.assertTrue(out["status"][-1].startswith("sim happy · "))
         self.assertNotIn("/s ·", out["status"][0])         # the live view's speed is not ours
         # the viewer's narration line and path, a frame at a time: the text, and
-        # the row as view.py draws it (packed, the hop now bold)
+        # the row as the viewer draws it (packed, the hop now bold)
         self.assertEqual(len(out["say"]), len(out["frames"]))
         self.assertEqual(len(out["trail"]), len(out["frames"]))
         self.assertEqual(len(out["path"]), len(out["frames"]))
@@ -128,7 +131,7 @@ class DrawTest(unittest.TestCase):
         self.assertEqual(out["say"][-1], player.narration())
         self.assertEqual(out["trail"][-1], player.path())
         self.assertTrue(out["trail"][-1].startswith("① (Shopper) -> [Edge] -> [Shop]   ② "))
-        self.assertLessEqual(len(out["path"][-1]), view.PATH_ROWS)
+        self.assertLessEqual(len(out["path"][-1]), app.PATH_ROWS)
         self.assertEqual(out["trail"][1], "① (Shopper) ▸-> [Edge]")    # a token on its first hop
         self.assertEqual("".join(t for t, _s in out["path"][1][0]), "path   ① (Shopper) -> [Edge]")
         bold = [t for t, sid in out["path"][1][0] if out["styles"][sid][2]]
@@ -162,10 +165,10 @@ class DrawTest(unittest.TestCase):
 
     def test_draws_the_flow_view_and_runs_in_it(self):
         out = run_pane("draw", str(SHOP), "--view", "flow")
-        g = view.render.parse_document(SHOP.read_text(encoding="utf-8"))
-        rows, _w = view.compose_view(g, "flow", depth=1, payloads=False, notes="off",
-                                     triggers=True, spaced=True, width=None, access=False,
-                                     mods=False, events=view.DEFAULT_EVENTS["flow"])
+        g = parse_document(SHOP.read_text(encoding="utf-8"))
+        rows, _w = app.compose_view(g, "flow", depth=1, payloads=False, notes="off",
+                                    triggers=True, spaced=True, width=None, access=False,
+                                    mods=False, events=app.DEFAULT_EVENTS["flow"])
         want = [ln.rstrip() for ln in text_of(rows)]
         while want and not want[-1]:
             want.pop()
@@ -179,10 +182,10 @@ class DrawTest(unittest.TestCase):
 
     def test_draws_the_run_view_and_runs_in_it(self):
         out = run_pane("draw", str(SHOP), "--view", "run", "--width", "120")
-        g = view.render.parse_document(SHOP.read_text(encoding="utf-8"))
-        rows, _w = view.compose_view(g, "run", depth=1, payloads=False, notes="off",
-                                     triggers=True, spaced=True, width=120, access=False,
-                                     mods=False, events=view.DEFAULT_EVENTS["run"])
+        g = parse_document(SHOP.read_text(encoding="utf-8"))
+        rows, _w = app.compose_view(g, "run", depth=1, payloads=False, notes="off",
+                                    triggers=True, spaced=True, width=120, access=False,
+                                    mods=False, events=app.DEFAULT_EVENTS["run"])
         want = [ln.rstrip() for ln in text_of(rows)]
         while want and not want[-1]:
             want.pop()
@@ -197,16 +200,16 @@ class DrawTest(unittest.TestCase):
 
     def test_overlap_scenarios_are_listed_and_play_like_any_other(self):
         """The listed overlaps (`Entry@t`) come after the failure scenarios, and one
-        plays every frame: the narration view.py gives, both episodes' marks while
+        plays every frame: the narration the viewer gives, both episodes' marks while
         they overlap; a start no list names is taken by name too."""
         orders = ROOT / "site" / "examples" / "04-orders.sigil"
-        g = view.render.parse_document(orders.read_text(encoding="utf-8"))
-        listed = [s.name for s in view.simulator.overlaps(view.simulator.canonical(g))]
+        g = parse_document(orders.read_text(encoding="utf-8"))
+        listed = [s.name for s in simulator.overlaps(simulator.canonical(g))]
         self.assertTrue(listed)
         out = run_pane("draw", str(orders))
         self.assertEqual(out["scenarios"][-len(listed):], listed)
         name = listed[-1]
-        player = view.SimPlayer(g, name)
+        player = app.SimPlayer(g, name)
         both = next(i for i, f in enumerate(player.trace.frames) if len(f.episodes) > 1)
         run = run_pane("draw", str(orders), "--view", "run", "--width", "100", "--scenario", name)
         self.assertEqual((run["scenario"], len(run["frames"])), (name, player.last + 1))
@@ -221,17 +224,12 @@ class DrawTest(unittest.TestCase):
         self.assertNotIn("error", named)
         self.assertEqual(named["scenario"], "Payments@3")
 
-    def test_a_view_py_without_the_flow_view_is_named(self):
-        old = types.SimpleNamespace(VIEWS=("graph", "tree"))
-        with self.assertRaisesRegex(LookupError, "no flow view"):
-            pane.compose(old, None, "flow")
-
 
 class FollowTest(unittest.TestCase):
     def start(self, d: Path, argv: list[str]):
         control = d / "c.json"
         control.write_text(json.dumps({"argv": argv}))
-        proc = subprocess.Popen([sys.executable, str(PANE), "follow", str(control)],
+        proc = subprocess.Popen([sys.executable, str(SIGIL), "frames", "follow", str(control)],
                                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True)
         self.addCleanup(proc.stdout.close)
@@ -240,7 +238,7 @@ class FollowTest(unittest.TestCase):
 
     def test_runs_view_and_cleans_up_when_it_ends(self):
         with tempfile.TemporaryDirectory() as d:
-            # stdout is a pipe, so view.py prints once and exits 0: as a `q`
+            # stdout is a pipe, so `sigil view` prints once and exits 0: as a `q`
             control, proc = self.start(Path(d), [str(SHOP), "--tree", "--color", "never"])
             self.assertEqual(proc.wait(timeout=30), 0)
             self.assertIn("[Shop]", proc.stdout.read())
@@ -254,7 +252,7 @@ class FollowTest(unittest.TestCase):
             while not Path(str(control) + ".alive").exists() and time.monotonic() < deadline:
                 time.sleep(0.1)
             time.sleep(1.5)
-            self.assertIsNone(proc.poll())                 # still up after view.py failed
+            self.assertIsNone(proc.poll())                 # still up after the view failed
             time.sleep(0.05)
             control.write_text(json.dumps({"argv": [str(SHOP), "--color", "never"]}))
             self.assertEqual(proc.wait(timeout=30), 0)
@@ -286,19 +284,19 @@ class PackagingTest(unittest.TestCase):
         for m in hooks["modules"]:
             self.assertTrue((self.root / "hooks" / m).is_file(), m)
         scripts = self.root / "skills" / "sigil" / "scripts"
-        for name in ("pane.py", "frames.py"):
-            self.assertTrue((scripts / name).stat().st_mode & 0o111, name)
-        self.assertEqual((scripts / "frames.py").read_bytes(),
-                         (ROOT / "site" / "frames.py").read_bytes())
+        self.assertTrue((scripts / "bin" / "sigil").stat().st_mode & 0o111)
+        self.assertEqual((scripts / "sigil" / "present" / "frames.py").read_bytes(),
+                         (ROOT / "sigil" / "present" / "frames.py").read_bytes())
+        self.assertFalse((scripts / "pane.py").exists())
         shipped = {p.name for p in self.root.rglob("*")}
         self.assertFalse({n for n in shipped if n.endswith(".test.ts")})
         self.assertNotIn("tsconfig.json", shipped)
         self.assertTrue((self.out / "claude-marketplace" / "plugins" / "sigil" / "hooks"
                          / "hooks.json").is_file())
 
-    def test_the_packaged_pane_draws_from_its_own_folder(self):
+    def test_the_packaged_frames_draw_from_its_own_folder(self):
         out = run_pane("draw", str(SHOP), "--view", "tree",
-                       script=self.root / "skills" / "sigil" / "scripts" / "pane.py")
+                       script=self.root / "skills" / "sigil" / "scripts" / "bin" / "sigil")
         self.assertIn("[Shop]", "\n".join(text_of(out["frames"][0])))
 
     def test_check_catches_a_broken_mod(self):

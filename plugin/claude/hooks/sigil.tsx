@@ -1,7 +1,7 @@
 // The Sigil viewer inside Claude Code: a tool the agent calls and a
 // /sigil-pane command (/sigil is the skill's), drawing a document in a pane
-// (theme-coloured cells from pane.py, redrawn on every save, a simulated run
-// stepped or played) or, in a multiplexer, in a split running view.py live.
+// (theme-coloured cells from `sigil frames`, redrawn on every save, a simulated run
+// stepped or played) or, in a multiplexer, in a split running `sigil view` live.
 // The repository's plugin/claude/README.md has the layout.
 
 import { atom, read, update } from 'claude-code'
@@ -10,7 +10,7 @@ import type { EngineInterface, Register, UiOpenResult } from 'claude-code'
 import type { Drawing, Playback, Split, ViewRequest } from '../types'
 import {
   COMMAND, DEFAULT_WIDTH, PANE, VIEWS, RASTER_COLUMNS, START_SPEED, SUPERSEDED, TOOL, UNASKED_COLUMNS,
-  aheadFrom, askedFrame, cropRows, detectMux, glyphs, heldBy, holdsWide, displayReport, drawArgv, drawnFrame, frameIndex, frameMs, herdrPaneOf, herdrReadyArgv,
+  aheadFrom, askedFrame, cropRows, detectMux, glyphs, heldBy, holdsWide, displayReport, drawArgv, drawnFrame, followArgv, frameIndex, frameMs, herdrPaneOf, herdrReadyArgv,
   isDisplayChoice, lastFrame, layoutOf, layoutReport, nextDepth, nextSpeed, nextView, panTo, parseCommandArgs,
   parseDisplayArgs, parseDrawing, parseLayoutArgs, parseRequest, playbackFor, playTick, rasterCells, replyText,
   resolveDisplay, rowsWidth, runLines, shellQuote, slices, slot, splitArgv, splitStart, statusLine, viewArgv,
@@ -37,11 +37,11 @@ const TOOL_DESCRIPTION = [
   'the graph, tree or flow view (the design), or the run view (one simulated',
   'run as a timeline: a lane per participant, time left to right; the happy',
   'run when no scenario is given), redrawn on every save of the file. With',
-  'scenario, the simulated run of that pathway (view.py --sim names: happy, or',
+  'scenario, the simulated run of that pathway (sigil view --sim names: happy, or',
   'one from the scenarios list the reply gives), shown at frame (0-based, or',
   '"last") or played (play: true). Fields left out keep their last value.',
   'The reply says where it is shown, the summary, lint, and the run at that',
-  'frame; it does not return the drawing (view.py --once prints that as text).',
+  'frame; it does not return the drawing (sigil view --once prints that as text).',
   'Pick the view that fits: flow for request paths and failure routes;',
   'tree for composition, ownership and state machines, or a narrow pane;',
   'graph for the overall topology and fan-in of a small design; run to',
@@ -81,9 +81,11 @@ let isWindowing = false // a run window is being drawn (fetchWindow asks for one
 let ahead: Ahead | null = null // the window after the shown one, drawn while a run plays (aheadFrom)
 let isDrawingAhead = false // that window is being drawn
 
+/** The skill's `bin/sigil`: in the built plugin, else the repo's (plugin/claude
+ * loaded as it is, two directories below it). */
 async function scriptPath($: $): Promise<string> {
-  const built = `${$.plugin.root}/skills/sigil/scripts/pane.py`
-  return (await $.fs.exists(built)) ? built : `${$.plugin.root}/scripts/pane.py`
+  const built = `${$.plugin.root}/skills/sigil/scripts/bin/sigil`
+  return (await $.fs.exists(built)) ? built : `${$.plugin.root}/../../bin/sigil`
 }
 
 async function muxEnv($: $) {
@@ -105,15 +107,15 @@ function drawKey(req: ViewRequest, width: number): string {
   return JSON.stringify([req, width, layout === 'auto' ? paneRows : 0])
 }
 
-/** pane.py's drawing of the request at `width`; a run's window from `from` (windowStart). */
+/** `sigil frames`' drawing of the request at `width`; a run's window from `from` (windowStart). */
 async function runPane($: $, req: ViewRequest, width: number, from: number): Promise<Drawing | { error: string }> {
   const pane = { layout, from, ...(layout === 'auto' && paneRows > 0 ? { height: paneRows } : {}) }
   const ran = await $.process.run(drawArgv(await scriptPath($), req, width, pane), { timeoutMs: 60000 })
     .catch((err: unknown) => ({ exitCode: 1, stdout: '', stderr: String(err) }))
-  return ran.exitCode === 0 ? parseDrawing(ran.stdout) : { error: ran.stderr.trim().split('\n').pop() ?? 'pane.py failed' }
+  return ran.exitCode === 0 ? parseDrawing(ran.stdout) : { error: ran.stderr.trim().split('\n').pop() ?? 'sigil frames failed' }
 }
 
-/** Runs pane.py for the request at `width` and stores what it drew, unless a
+/** Runs `sigil frames` for the request at `width` and stores what it drew, unless a
  * later redraw started meanwhile (an older run finishing last never wins). A
  * run is drawn a window at a time: the one starting at `from` (windowStart),
  * else the one holding the frame shown. A failure keeps `drawingFor`, so the
@@ -262,12 +264,12 @@ async function showInSplit($: $, asked: Asked): Promise<string> {
   const held = await read($, split)
   if (held !== null && held.mux === mux && (await isAlive($, held))) {
     await $.fs.write(held.control, control)
-    return about($, req, asked, `Shown in the ${mux} split running view.py live: ${shellQuote(live)}.`)
+    return about($, req, asked, `Shown in the ${mux} split running sigil view live: ${shellQuote(live)}.`)
   }
   const tmp = (await $.env.get('TMPDIR')) ?? '/tmp'
   const opened: Split = { mux, control: `${tmp.replace(/\/$/, '')}/sigil-view-${crypto.randomUUID()}.json` }
   await $.fs.write(opened.control, control)
-  const follow = ['python3', await scriptPath($), 'follow', opened.control]
+  const follow = followArgv(await scriptPath($), opened.control)
   const ran = await $.process.run(splitArgv(mux, follow, mux === 'herdr' ? await $.env.get('HERDR_PANE_ID') : undefined))
   if (ran.exitCode !== 0) return `sigil: could not open a ${mux} split: ${ran.stderr.trim()}`
   if (mux === 'herdr') {
@@ -280,12 +282,12 @@ async function showInSplit($: $, asked: Asked): Promise<string> {
     opened.pane = ran.stdout.trim()
   }
   await update($, split, () => opened)
-  return about($, req, asked, `Opened a ${mux} split running view.py live (it redraws on every save; `
+  return about($, req, asked, `Opened a ${mux} split running sigil view live (it redraws on every save; `
     + `q closes it): ${shellQuote(live)}.`)
 }
 
 /** A split's reply: where, then the summary and the run where the split
- * starts it (splitStart) as pane.py reads them. */
+ * starts it (splitStart) as `sigil frames` reads them. */
 async function about($: $, req: ViewRequest, asked: Asked, where: string): Promise<string> {
   const start = splitStart(asked)
   const ran = await $.process.run(drawArgv(await scriptPath($), req, DEFAULT_WIDTH, { from: windowStart(start.frame) }),
@@ -381,7 +383,7 @@ export const register: Register = (on, options) => {
     const display = resolveDisplay(options.display, await muxEnv($))
     const { tool: _tool, tool_use_id: _id, ...input } = e as Record<string, unknown>
     return { result: await show($, input, display, false) }
-  }).catch(($, e, next) => ({ result: `sigil: the viewer failed (${next.error.kind}); view.py --once still prints the drawing.` }))
+  }).catch(($, e, next) => ({ result: `sigil: the viewer failed (${next.error.kind}); sigil view --once still prints the drawing.` }))
 
   on('command.run', { command: 'sigil-pane' }, async ($, e) => {
     const asked = parseDisplayArgs(e.args)

@@ -4,7 +4,7 @@ Covers:
   - build_site.py output: pages with every {{placeholder}} filled, themes and
     their menu, theme.css, frames.json (a frame per view plane for every typed
     line, the run section's runs, nothing a plane does not play);
-  - the view strip: a section per view, in view.py's order;
+  - the view strip: a section per view, in the viewer's order;
   - every example lints clean once fully typed, and a half-typed block still draws;
   - the page's colours all come from the theme: every var(--…) the CSS and the
     frames use is defined by theme.css or by site.css itself;
@@ -13,10 +13,10 @@ Covers:
     site.js parseYaml; both parse every shipped theme identically;
   - with node available: site.js highlights Sigil into the theme's syntax roles;
   - the playground: py/ holds the repo's tools byte for byte (the browser runs
-    them, never a port) including check.py and every rule module, the manifest
+    them, never a port) including check and every rule module, the manifest
     is complete (playground.py runs from py/ alone, in a fresh interpreter), what
-    it draws is what view.py draws, and its findings on every bundled example
-    are what check.py finds at k = 1;
+    it draws is what the viewer draws, and its findings on every bundled example
+    are what `sigil check` finds at k = 1;
   - with node available: the findings panel's list items (findingsHtml), the
     run section's narration (runSayHtml) and the playground's throttled live
     narration (liveSayer).
@@ -38,6 +38,13 @@ import unittest
 import urllib.parse
 from pathlib import Path
 
+from sigil.analyse import check as checker
+from sigil.core.parse import parse_document
+from sigil.model import scene
+from sigil.model import sim as simulator
+from sigil.present import app, themes
+from sigil.present import kit as viewkit
+
 _DIR = Path(__file__).resolve().parents[1]
 SITE = _DIR / "site"
 
@@ -51,8 +58,6 @@ def _load(name: str, path: Path):
 
 
 site = _load("sigil_build_site_t", SITE / "build_site.py")
-themes = _load("sigil_themes_site_t", _DIR / "themes.py")
-viewkit = _load("sigil_viewkit_site_t", _DIR / "viewkit.py")
 YAML_CASES = json.loads((_DIR / "tests" / "fixtures" / "yaml_cases.json").read_text(encoding="utf-8"))
 VAR_RE = re.compile(r"var\(--([\w-]+)")
 
@@ -109,7 +114,7 @@ class TestBuild(unittest.TestCase):
                 for name in site.PLANE_VIEWS:
                     with self.subTest(ex=ex["id"], line=step["line"], view=name):
                         self.assertIn(step[name], range(len(frames)))
-        self.assertEqual(list(site.PLANE_VIEWS), list(site.view.VIEWS))
+        self.assertEqual(list(site.PLANE_VIEWS), list(app.VIEWS))
 
     def test_frames_fit_the_plane(self):
         # every view wraps, so each draws within PLANE_COLS and a plane brought
@@ -130,12 +135,12 @@ class TestBuild(unittest.TestCase):
         runs = self.frames["runs"]
         self.assertEqual([(r["scenario"], r["label"]) for r in runs], list(site.RUNS))
         self.assertEqual([r["outcome"] for r in runs], ["ok", "failed"])
-        g = site.view.render.parse_document((SITE / "examples" / "00-shortener.sigil").read_text())
+        g = parse_document((SITE / "examples" / "00-shortener.sigil").read_text())
         for run in runs:
-            player = site.view.SimPlayer(g, run["scenario"])
+            player = app.SimPlayer(g, run["scenario"])
             self.assertEqual(len(run["frames"]), player.last + 1)
             player.at = player.last
-            self.assertEqual(run["frames"][-1]["say"], player.narration())   # view.py's words
+            self.assertEqual(run["frames"][-1]["say"], player.narration())   # the viewer's words
             last = self.frames["frames"][run["frames"][-1]["run"]]
             self.assertIn(f"run · {run['scenario']}", "".join(t for t, _s in last[0]))
 
@@ -150,7 +155,7 @@ class TestBuild(unittest.TestCase):
     def test_half_typed_block_still_draws(self):
         text = site.autoclose(["[Shop] := {", "  [Cart] -> [Pay]"])
         self.assertTrue(text.rstrip().endswith("}"))
-        g = site.view.render.parse_document(text)
+        g = parse_document(text)
         self.assertIn("Shop_service", g.expansions)
 
     def _defined(self) -> set:
@@ -181,32 +186,53 @@ class TestBuild(unittest.TestCase):
     def test_playground_ships_the_tools_verbatim(self):
         man = json.loads((self.out / "py" / "manifest.json").read_text())
         self.assertEqual(man["files"], site.PY_TOOLS + site.PY_SITE)
-        for name in site.PY_TOOLS:
-            self.assertEqual((self.out / "py" / name).read_bytes(), (_DIR / name).read_bytes(), name)
+        for rel in site.PY_TOOLS:
+            self.assertTrue(rel.startswith("sigil/"), rel)
+            self.assertEqual((self.out / "py" / rel).read_bytes(), (_DIR / rel).read_bytes(), rel)
         for name in site.PY_SITE:
             self.assertEqual((self.out / "py" / name).read_bytes(), (SITE / name).read_bytes(), name)
         for t in man["themes"]:
             self.assertTrue((self.out / "themes" / t).is_file(), t)
 
     def test_playground_ships_every_check_module(self):
-        check = _load("sigil_check_site_t", _DIR / "check.py")
-        for name in ("check.py", "dialects.py") + check.RULE_MODULES:
-            self.assertIn(name, site.PY_TOOLS, name)
+        for rel in ("sigil/analyse/check.py", "sigil/core/dialects.py",
+                    "sigil/analyse/rules/__init__.py"):
+            self.assertIn(rel, site.PY_TOOLS, rel)
+        for name in checker.RULE_MODULES:
+            self.assertIn(f"sigil/analyse/rules/{name}.py", site.PY_TOOLS, name)
 
     def test_playground_ships_no_export_tools(self):
-        """The playground never exports: the export tools stay out of py/, and
-        everything else the plugin ships is in it."""
-        for name in site.NOT_IN_PLAYGROUND:
-            self.assertNotIn(name, site.PY_TOOLS, name)
-            self.assertFalse((self.out / "py" / name).exists(), name)
-        build_tools = _load("sigil_build_site_t", _DIR / "build.py").TOOLS
-        self.assertEqual(set(site.PY_TOOLS) | site.NOT_IN_PLAYGROUND, set(build_tools))
+        """The playground never exports: the export layer (sigil/publish/, the
+        export model and check's export rules) stays out of py/, and everything
+        else the plugin ships is in it."""
+        build = _load("sigil_build_site_t2", _DIR / "build.py")
+        shipped = build.package_files()
+        left_out = [rel for rel in shipped if rel not in site.PY_TOOLS]
+        self.assertEqual(sorted(site.PY_TOOLS + left_out), shipped)
+        self.assertTrue(left_out)
+        for rel in left_out:
+            self.assertFalse(site.in_playground(rel), rel)
+            self.assertFalse((self.out / "py" / rel).exists(), rel)
+        for out in site.NOT_IN_PLAYGROUND:      # each names something that ships
+            self.assertTrue(any(rel == out or rel.startswith(out) for rel in shipped), out)
+        self.assertIn("sigil/publish/exporter.py", left_out)
+        self.assertIn("sigil/model/systems.py", left_out)
+        self.assertIn("sigil/analyse/rules/export.py", left_out)
+        self.assertIn("sigil/present/frames.py", site.PY_TOOLS)
+
+    def test_in_playground(self):
+        self.assertFalse(site.in_playground("sigil/publish/mermaid.py"))
+        self.assertFalse(site.in_playground("sigil/analyse/rules/export.py"))
+        self.assertTrue(site.in_playground("sigil/analyse/rules/flow.py"))
+        self.assertTrue(site.in_playground("sigil/publisher.py"))      # a prefix is a folder
 
     def _manifest_dir(self, tmp: str) -> Path:
-        """The browser's file system: py/* and themes/* in one directory, nothing else."""
+        """The browser's file system: py/* (the package with its folders) and
+        themes/* in one directory, nothing else."""
         man = json.loads((self.out / "py" / "manifest.json").read_text())
         (Path(tmp) / "themes").mkdir()
         for f in man["files"]:
+            (Path(tmp) / f).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(self.out / "py" / f, Path(tmp) / f)
         for f in man["themes"]:
             shutil.copyfile(self.out / "themes" / f, Path(tmp) / "themes" / f)
@@ -226,14 +252,13 @@ class TestBuild(unittest.TestCase):
                                  text=True, timeout=300)
         self.assertEqual(run.returncode, 0, run.stderr)
         got = json.loads(run.stdout)
-        check = _load("sigil_check_site_t2", _DIR / "check.py")
         asked = 0
         for path, text, per_mode in zip(examples, texts, got):
             for mode, r in zip(modes, per_mode):
                 with self.subTest(example=path.name, mode=mode):
                     self.assertNotIn("error", r)
                     self.assertEqual(r["k"], 1)
-                    want = check.check(text, mode=mode, k=1)
+                    want = checker.check(text, mode=mode, k=1)
                     self.assertEqual(r["mode"], want.mode)
                     self.assertEqual([(f["line"], f["rule"], f["severity"], f["message"])
                                       for f in r["findings"]],
@@ -245,14 +270,13 @@ class TestBuild(unittest.TestCase):
 
     def test_playground_check_runs_at_its_own_budget(self):
         # Overlap runs fill the budget a many-entry document is given, so the page
-        # asks for fewer runs than check.py's default (the examples above still find
+        # asks for fewer runs than the check's default (the examples above still find
         # what the default finds); what that leaves unrun is SGC090's count.
         pg = _load("sigil_playground_t2", SITE / "playground.py")
-        check = _load("sigil_check_site_t2", _DIR / "check.py")
-        self.assertLess(pg.CHECK_RUNS, check.default_budget())
+        self.assertLess(pg.CHECK_RUNS, checker.default_budget())
         text = (_DIR / "tests" / "fixtures" / "coverage.sigil").read_text(encoding="utf-8")
         r = json.loads(pg.check(json.dumps({"text": text, "mode": "craft"})))
-        want = check.check(text, mode="craft", k=1, budget=pg.CHECK_RUNS)
+        want = checker.check(text, mode="craft", k=1, budget=pg.CHECK_RUNS)
         self.assertEqual([(f["line"], f["rule"], f["message"]) for f in r["findings"]],
                          [(f.line, f.rule.id, f.message) for f in want.shown])
         self.assertTrue(any(f["rule"] == "SGC090" for f in r["findings"]))
@@ -284,17 +308,16 @@ class TestBuild(unittest.TestCase):
 
     def test_playground_draws_what_view_draws(self):
         pg = _load("sigil_playground_t", SITE / "playground.py")
-        view = pg.view
         text = (SITE / "examples" / "04-orders.sigil").read_text()
-        g = view.render.parse_document(text)
-        for name in view.VIEWS:
+        g = parse_document(text)
+        for name in app.VIEWS:
             with self.subTest(view=name):
                 got = json.loads(pg.draw(json.dumps({"text": text, "view": name})))
-                rows, _w = view.compose_view(
+                rows, _w = app.compose_view(
                     g, name, depth=pg.MAX_DEPTH, payloads=True,
                     notes={"tree": "callouts", "run": "off"}.get(name, "markers"), triggers=True,
                     spaced=True, width=None, access=False, mods=False,
-                    events=view.DEFAULT_EVENTS[name])
+                    events=app.DEFAULT_EVENTS[name])
                 want = ["".join(t for t, _s in r).rstrip() for r in rows]
                 drawn = ["".join(t for t, _s in r).rstrip() for r in got["rows"]]
                 while want and not want[-1]:
@@ -304,19 +327,18 @@ class TestBuild(unittest.TestCase):
     def test_playground_groups_overlaps_and_plays_them(self):
         """draw() marks the scenarios that start an entry at a tick (the listed
         overlaps) as group "overlaps", the rest group ""; sim() plays one as
-        view.py does."""
+        the viewer does."""
         pg = _load("sigil_playground_t6", SITE / "playground.py")
-        view = pg.view
         text = (SITE / "examples" / "04-orders.sigil").read_text()
-        g = view.render.parse_document(text)
+        g = parse_document(text)
         got = json.loads(pg.draw(json.dumps({"text": text})))["scenarios"]
-        overlaps = [s.name for s in view.simulator.overlaps(view.simulator.canonical(g))]
+        overlaps = [s.name for s in simulator.overlaps(simulator.canonical(g))]
         self.assertTrue(overlaps)
         self.assertEqual([s["name"] for s in got if s["group"] == "overlaps"], overlaps)
         self.assertEqual([s["group"] for s in got if s["name"] in ("happy", "Payments:fails")],
                          ["", ""])
         name = overlaps[-1]
-        player = view.SimPlayer(g, name)
+        player = app.SimPlayer(g, name)
         player.at = player.last
         run = json.loads(pg.sim(json.dumps({"text": text, "view": "run", "scenario": name,
                                             "frame": 10**6})))
@@ -350,19 +372,18 @@ class TestBuild(unittest.TestCase):
         self.assertIn("back to an earlier column", legend)
         run = json.loads(pg.sim(json.dumps({"text": text, "view": "flow",
                                             "scenario": "Redirect.lookup:fails", "frame": 0})))
-        player = pg.view.SimPlayer(pg.view.render.parse_document(text), "Redirect.lookup:fails")
+        player = app.SimPlayer(parse_document(text), "Redirect.lookup:fails")
         self.assertEqual(run["say"], player.narration())
         self.assertTrue(run["say"])
         self.assertIn("●", "".join(t for r in run["legend"] for t, _s in r))
 
     def test_playground_run_frames_with_its_memo_are_drawn_from_scratch(self):
         """sim() keeps a kit.FrameMemo while one run steps; every frame (forward,
-        back, in each view) is the drawing view.py makes without one."""
+        back, in each view) is the drawing the viewer makes without one."""
         pg = _load("sigil_playground_t5", SITE / "playground.py")
-        view = pg.view
         text = (SITE / "examples" / "01-checkout.sigil").read_text()
         name = "API.charge:fails"
-        last = view.SimPlayer(view.render.parse_document(text), name).last
+        last = app.SimPlayer(parse_document(text), name).last
         for vname in ("graph", "tree", "flow"):
             req = {"text": text, "view": vname, "scenario": name}
             o = pg._opts(req)
@@ -370,7 +391,7 @@ class TestBuild(unittest.TestCase):
                 with self.subTest(view=vname, frame=frame):
                     got = json.loads(pg.sim(json.dumps({**req, "frame": frame})))
                     player, g = pg._player["player"], pg._player["graph"]
-                    shown = player.shown(view.scene.SceneOptions(o["events"], o["triggers"],
+                    shown = player.shown(scene.SceneOptions(o["events"], o["triggers"],
                                                                  o["access"], o["depth"]))
                     self.assertEqual(got["rows"], pg._rows(g, o, shown, player.at))
             self.assertIsNotNone(pg._player["memo"])
@@ -379,20 +400,19 @@ class TestBuild(unittest.TestCase):
         """sim() carries the viewer's wording: "say" (the narration line), "story"
         (the beats so far), "beats" (where stepping by event stops), "trail" / "path"."""
         pg = _load("sigil_playground_t3", SITE / "playground.py")
-        view = pg.view
         text = (SITE / "examples" / "01-checkout.sigil").read_text()
-        player = view.SimPlayer(view.render.parse_document(text), "API.charge:fails")
+        player = app.SimPlayer(parse_document(text), "API.charge:fails")
         player.at = 12
         got = json.loads(pg.sim(json.dumps({"text": text, "view": "graph",
                                             "scenario": "API.charge:fails", "frame": 12})))
         self.assertEqual(got["say"], player.narration())
         self.assertIn("attempt 2 of 4", got["say"])
-        self.assertEqual(got["story"], [view.beat_line(b) for b in player.told()])
+        self.assertEqual(got["story"], [app.beat_line(b) for b in player.told()])
         self.assertEqual(got["beats"], [b.frame for b in player.beats])
         self.assertEqual(got["trail"], "① (Shopper) -> [API] ▸-> [Payments] ×2")
-        # "path": view.py's path row as it draws it, packed — the hop now bold
+        # "path": the viewer's path row as it draws it, packed — the hop now bold
         rows = got["path"]
-        self.assertLessEqual(len(rows), view.PATH_ROWS)    # packing drops a blank row
+        self.assertLessEqual(len(rows), app.PATH_ROWS)    # packing drops a blank row
         self.assertEqual("".join(t for t, _s in rows[0]),
                          "path   ① (Shopper) -> [API] -> [Payments] ×2")
         bold = [t for t, sid in rows[0] if got["styles"][sid][2]]
@@ -491,10 +511,9 @@ class TestPageMarkup(unittest.TestCase):
 
     def test_view_strip_has_a_section_per_view(self):
         page = (SITE / "index.html").read_text(encoding="utf-8")
-        view = _load("sigil_view_strip", _DIR / "view.py")
         strip = re.search(r'<div class="vsecs" id="views".*?\n</div>', page, re.S).group(0)
         self.assertEqual(re.findall(r'<section class="vsec" id="view-(\w+)" data-view="(\w+)"', strip),
-                         [(v, v) for v in view.VIEWS])
+                         [(v, v) for v in app.VIEWS])
         self.assertIn('<p class="say">', strip)                 # the run's narration
         self.assertIn('<a href="#views">views</a>', page)
 
@@ -696,12 +715,11 @@ setTimeout(() => { say("three"); process.stdout.write(JSON.stringify({ now, said
 
     def test_playground_view_picker_offers_every_view(self):
         page = (SITE / "index.html").read_text(encoding="utf-8")
-        view = _load("sigil_view_names", _DIR / "view.py")
         picker = re.search(r'<div class="seg" id="pg-views".*?</div>', page, re.S).group(0)
-        self.assertEqual(re.findall(r'data-view="(\w+)"', picker), list(view.VIEWS))
+        self.assertEqual(re.findall(r'data-view="(\w+)"', picker), list(app.VIEWS))
         js = (SITE / "site.js").read_text()
         self.assertIn('const VIEW_KEYS = "1 2 3 4 t"', js)
-        self.assertEqual(view.view_keys(), "1 2 3 4")
+        self.assertEqual(app.view_keys(), "1 2 3 4")
 
     def test_playground_speed_steps(self):
         # the terminal viewer's - / + steps, a readable start, a remembered choice
@@ -710,8 +728,7 @@ setTimeout(() => { say("three"); process.stdout.write(JSON.stringify({ now, said
                                    " speeds: SIM_SPEEDS, start: SIM_SPEEDS[SIM_SPEED],"
                                    " labels: SIM_SPEEDS.map(speedLabel),"
                                    " picks: [null, '0', '7', '8', '-1', '2.5', 'fast', ''].map(speedIndex) }));"))
-        view = _load("sigil_view_speeds", _DIR / "view.py")
-        self.assertLessEqual(set(view.SIM_SPEEDS), set(out["speeds"]))
+        self.assertLessEqual(set(app.SIM_SPEEDS), set(out["speeds"]))
         self.assertEqual(out["speeds"], sorted(out["speeds"]))
         self.assertEqual(out["start"], 2)
         self.assertEqual(out["labels"], ["¼/s", "½/s", "1/s", "2/s", "4/s", "8/s", "16/s", "32/s"])

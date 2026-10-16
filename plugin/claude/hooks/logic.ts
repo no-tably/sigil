@@ -8,7 +8,7 @@ export const PANE = 'sigil'
 export const TOOL = 'view'
 export const COMMAND = 'sigil-pane' // /sigil is the skill's own
 export const VIEWS: readonly ViewName[] = ['graph', 'tree', 'flow', 'run']
-export const DEFAULT_VIEW: ViewName = 'flow' // view.py's DEFAULT_VIEW: the view it starts in
+export const DEFAULT_VIEW: ViewName = 'flow' // the viewer's DEFAULT_VIEW: the view it starts in
 export const ALL_DEPTH = 99
 export const UNASKED_COLUMNS = 144 // the engine's floor for a pane opened unasked
 export const DEFAULT_WIDTH = 100 // the width drawn for before the pane has measured
@@ -16,10 +16,10 @@ export const SUPERSEDED = 'a later view request replaced this one before it drew
 export const RASTER_ROWS = 256 // a Raster's tallest; a taller drawing is several
 export const RASTER_COLUMNS = 512
 export const DEFAULT_COLOUR = 0x01000000 // the terminal's own colour
-export const SPEEDS: readonly number[] = [0.25, 0.5, 1, 2, 4, 8, 16, 32] // frames a second: view.py's SIM_SPEEDS
-export const START_SPEED = 3 // 2 frames a second, view.py's start (an index into SPEEDS)
-// A run is drawn a window at a time (pane.py's --from / --count), every frame of it.
-export const WINDOW = 120 // run frames one draw holds: pane.py's WINDOW
+export const SPEEDS: readonly number[] = [0.25, 0.5, 1, 2, 4, 8, 16, 32] // frames a second: the viewer's SIM_SPEEDS
+export const START_SPEED = 3 // 2 frames a second, the viewer's start (an index into SPEEDS)
+// A run is drawn a window at a time (`sigil frames`' --from / --count), every frame of it.
+export const WINDOW = 120 // run frames one draw holds: `sigil frames`' WINDOW
 export const WINDOW_BACK = 8 // frames a window keeps before the one it is drawn for (a step back stays in it)
 // A playing run draws the window after its own as soon as it plays (`ahead`),
 // so the run goes on from it without waiting at the window's end.
@@ -87,9 +87,9 @@ export function parseDisplayArgs(args: string): { choice?: DisplayChoice } | { e
   return { choice: value }
 }
 
-/** The `layout` values a person sets (view.py's --layout): wrap fits the
+/** The `layout` values a person sets (the viewer's --layout): wrap fits the
  * drawing to the pane and lets it grow down, pan keeps its natural layout and
- * pans across, auto picks whichever overflows less (view.py's pick_layout). */
+ * pans across, auto picks whichever overflows less (the viewer's pick_layout). */
 export const LAYOUTS = ['auto', 'wrap', 'pan'] as const
 export type LayoutChoice = (typeof LAYOUTS)[number]
 
@@ -132,7 +132,7 @@ export function parseLayoutArgs(args: string): { choice?: LayoutChoice } | { err
   return { choice: value }
 }
 
-/** frame: a frame of the run (view.py's numbering, -1: the last). */
+/** frame: a frame of the run (the viewer's numbering, -1: the last). */
 export type Asked = { request: ViewRequest; frame?: number; play?: boolean }
 
 function wholeOf(value: unknown): number | undefined {
@@ -200,12 +200,12 @@ export function parseCommandArgs(args: string): Record<string, unknown> {
   return out
 }
 
-/** `python3 pane.py draw …` for a request at a width; `layout` (auto when
+/** `python3 bin/sigil frames draw …` for a request at a width; `layout` (auto when
  * left out), the pane's `height`, which auto picks by, and for a run the
  * window's first frame `from` (windowStart; -1: the window that ends the run). */
 export function drawArgv(script: string, request: ViewRequest, width: number,
                          pane: { layout?: LayoutChoice; height?: number; from?: number } = {}): string[] {
-  const argv = ['python3', script, 'draw', request.file, '--view', request.view, '--depth', String(request.depth), '--width', String(width)]
+  const argv = ['python3', script, 'frames', 'draw', request.file, '--view', request.view, '--depth', String(request.depth), '--width', String(width)]
   if (pane.layout && pane.layout !== 'auto') argv.push('--layout', pane.layout)
   if (pane.height) argv.push('--height', String(pane.height))
   if (request.scenario) argv.push('--scenario', request.scenario)
@@ -216,15 +216,21 @@ export function drawArgv(script: string, request: ViewRequest, width: number,
   return argv
 }
 
-/** Where the split's view.py starts a request's run, as the pane shows a new
+/** The split's loop, `python3 bin/sigil frames follow CONTROL`: it runs
+ * `sigil view` live with the argv CONTROL holds, restarting it as CONTROL changes. */
+export function followArgv(script: string, control: string): string[] {
+  return ['python3', script, 'frames', 'follow', control]
+}
+
+/** Where the split's `sigil view` starts a request's run, as the pane shows a new
  * run: `frame` (-1: the last), else the last frame, or the first when it plays. */
 export function splitStart(asked: Asked): { frame: number; play: boolean } {
   const play = asked.play === true
   return { frame: asked.frame ?? (play ? 0 : -1), play }
 }
 
-/** view.py's own flags for the live view the split runs (`layout`: its
- * --layout, left out for auto, view.py's own default; `start`: where its run
+/** `sigil view`'s own flags for the live view the split runs (`layout`: its
+ * --layout, left out for auto, the viewer's own default; `start`: where its run
  * starts (--frame, --play), for a request with a scenario). */
 export function viewArgv(request: ViewRequest, layout: LayoutChoice = 'auto',
                          start?: { frame: number; play: boolean }): string[] {
@@ -292,7 +298,7 @@ export function herdrPaneOf(stdout: string): string | undefined {
   }
 }
 
-/** `pane.py draw`'s stdout as a Drawing, or the error it reported. */
+/** `sigil frames draw`'s stdout as a Drawing, or the error it reported. */
 export function parseDrawing(stdout: string): Drawing | { error: string } {
   try {
     const data = JSON.parse(stdout)
@@ -301,11 +307,11 @@ export function parseDrawing(stdout: string): Drawing | { error: string } {
   } catch {
     // fall through
   }
-  return { error: 'pane.py printed no drawing' }
+  return { error: 'sigil frames printed no drawing' }
 }
 
 /** The run's last frame (a still: 0). A playback's `at` is a frame of the
- * run, numbered as view.py numbers them; the drawing holds a window of them. */
+ * run, numbered as the viewer numbers them; the drawing holds a window of them. */
 export function lastFrame(drawing: Drawing): number {
   return drawing.last ?? drawing.frames.length - 1
 }
@@ -315,7 +321,7 @@ export function frameIndex(drawing: Drawing, playback: Playback): number {
   return Math.max(0, Math.min(playback.at, lastFrame(drawing)))
 }
 
-/** The frame of the run a request names (`frame`: view.py's numbering, as a
+/** The frame of the run a request names (`frame`: the viewer's numbering, as a
  * request and the split take it; -1 or past the end: the last). */
 export function drawnFrame(drawing: Drawing, frame: number): number {
   const last = lastFrame(drawing)
@@ -417,7 +423,7 @@ export function frameMs(speed: number): number {
   return 1000 / (SPEEDS[speed] ?? SPEEDS[START_SPEED]!)
 }
 
-/** A speed as view.py's status bar writes it: `2 frames/s`, `½ frame/s`. */
+/** A speed as the viewer's status bar writes it: `2 frames/s`, `½ frame/s`. */
 export function speedText(speed: number): string {
   const fps = SPEEDS[speed] ?? SPEEDS[START_SPEED]!
   const n = fps === 0.25 ? '¼' : fps === 0.5 ? '½' : String(fps)
@@ -437,10 +443,10 @@ export function colourOf(hex: string | null): number {
   return parseInt(h, 16)
 }
 
-// Drawn width, the rule of view.py's viewkit.char_cells: a wide character
+// Drawn width, the rule of the kit's char_cells (sigil/present/kit.py): a wide character
 // (East Asian Width W or F) takes two terminal columns, a combining mark or a
 // zero-width character none, any other one. Packed rows need none of this —
-// pane.py already makes every character in them one cell (a wide one itself
+// `sigil frames` already makes every character in them one cell (a wide one itself
 // then WIDE_TAIL) — but plain text (a status, narration, summary or lint line)
 // keeps its names as written and is measured by it.
 
@@ -510,7 +516,7 @@ export function cutCells(text: string, width: number): string {
   return out
 }
 
-/** A wide character's second cell in a packed row: pane.py writes a wide
+/** A wide character's second cell in a packed row: `sigil frames` writes a wide
  * character as itself then this, so every character of a packed row is one
  * cell and cutting, panning and measuring count characters. */
 export const WIDE_TAIL = '\u0000'
@@ -594,7 +600,7 @@ export function slices<T>(rows: readonly T[], size: number = RASTER_ROWS): T[][]
 }
 
 /** The pane's status line for a frame: file · view · depth, then the run:
- * played or paused at its speed (an index into SPEEDS), as view.py's bar. */
+ * played or paused at its speed (an index into SPEEDS), as the viewer's bar. */
 export function statusLine(drawing: Drawing, request: ViewRequest, at: number, isPlaying: boolean,
                            speed: number = START_SPEED): string {
   const depth = request.depth >= ALL_DEPTH ? 'all' : String(request.depth)
@@ -604,10 +610,10 @@ export function statusLine(drawing: Drawing, request: ViewRequest, at: number, i
   return `${head} · ${isPlaying ? '▶' : '❚❚'} ${speedText(speed)} · ${run} · ${frameText(drawing, at, '/')}`
 }
 
-/** A run's lines under the drawing at a frame, as view.py's rows under its
- * footer: `path` and the episode's hops so far — view.py's styled rows (the hop
- * now bold) when pane.py sent them, else the text (`trail`) — then `›` and the
- * narration line (the run's log line from a pane.py that has none). null for a
+/** A run's lines under the drawing at a frame, as the viewer's rows under its
+ * footer: `path` and the episode's hops so far — the viewer's styled rows (the hop
+ * now bold) when `sigil frames` sent them, else the text (`trail`) — then `›` and the
+ * narration line (the run's log line from an older pane that has none). null for a
  * still. */
 export function runLines(drawing: Drawing, at: number): { trail: string; path: PackedRow[] | null; now: string } | null {
   if (drawing.status === undefined) return null

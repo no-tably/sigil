@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import {
-  WIDE_TAIL, WINDOW, WINDOW_BACK, aheadFrom, askedFrame, cellWidth, charCells, colourOf, cropRows, cutCells, displayReport, drawArgv, drawnFrame, frameIndex,
+  WIDE_TAIL, WINDOW, WINDOW_BACK, aheadFrom, askedFrame, cellWidth, charCells, colourOf, cropRows, cutCells, displayReport, drawArgv, drawnFrame, followArgv, frameIndex,
   herdrPaneOf, herdrReadyArgv, holds, layoutOf, layoutReport, nextView, nextSpeed, panTo, parseCommandArgs, parseDisplayArgs,
   glyphs, heldBy, holdsWide, parseDrawing, parseLayoutArgs, parseRequest, pickDisplay, pickLayout, playbackFor, playTick, rasterCells, replyText,
   resolveDisplay, runLines, shellQuote, slices, slot, speedText, splitArgv, splitStart, statusLine, viewArgv, windowFor,
@@ -67,8 +67,9 @@ describe('the layout command', () => {
     expect(layoutReport('auto', 'X')).toBe('layout: auto · from X')
     expect(layoutReport('wrap', 'X', 'wrap')).toBe('layout: wrap · from X')
   })
-  test('pane.py and view.py are told the layout; auto is their own default', () => {
+  test('sigil frames and sigil view are told the layout; auto is their own default', () => {
     const req = { file: '/d/a.sigil', view: 'flow' as const, depth: 1 }
+    expect(drawArgv('/s/bin/sigil', req, 80)).toEqual(['python3', '/s/bin/sigil', 'frames', 'draw', '/d/a.sigil', '--view', 'flow', '--depth', '1', '--width', '80'])
     expect(drawArgv('p.py', req, 80, { layout: 'pan' }).slice(-2)).toEqual(['--layout', 'pan'])
     expect(drawArgv('p.py', req, 80, { layout: 'auto', height: 30 }).slice(-2)).toEqual(['--height', '30'])
     expect(drawArgv('p.py', req, 80)).not.toContain('--layout')
@@ -113,7 +114,7 @@ describe('requests', () => {
 })
 
 describe('commands', () => {
-  test("view.py's live flags, a view other than flow (the default) passed through", () => {
+  test("sigil view's live flags, a view other than flow (the default) passed through", () => {
     expect(viewArgv({ file: '/d/a.sigil', view: 'graph', depth: 99, scenario: 'happy' }))
       .toEqual(['/d/a.sigil', '--depth', 'all', '--graph', '--sim', 'happy'])
     expect(viewArgv({ file: '/d/a.sigil', view: 'flow', depth: 0 })).toEqual(['/d/a.sigil', '--depth', '0'])
@@ -128,7 +129,8 @@ describe('commands', () => {
     expect(viewArgv({ ...req, scenario: undefined }, 'auto', { frame: 3, play: true })).toEqual(['/d/a.sigil', '--depth', '1', '--graph'])
   })
   test('a split per multiplexer', () => {
-    const follow = ['python3', '/p/pane.py', 'follow', '/tmp/c.json']
+    const follow = followArgv('/s/bin/sigil', '/tmp/c.json')
+    expect(follow).toEqual(['python3', '/s/bin/sigil', 'frames', 'follow', '/tmp/c.json'])
     expect(splitArgv('tmux', follow)).toEqual(['tmux', 'split-window', '-h', '-d', '-P', '-F', '#{pane_id}', '--', ...follow])
     expect(splitArgv('zellij', follow).slice(0, 3)).toEqual(['zellij', 'run', '--direction'])
     expect(splitArgv('herdr', follow, 'w6:p1')).toEqual(['herdr', 'pane', 'split', 'w6:p1', '--direction', 'right', '--no-focus'])
@@ -175,9 +177,9 @@ describe('cells', () => {
     expect(nextView('flow')).toBe('run')
     expect(nextView('run')).toBe('graph')
     expect(parseDrawing('{"error":"x: no such file"}')).toEqual({ error: 'x: no such file' })
-    expect(parseDrawing('garbage')).toEqual({ error: 'pane.py printed no drawing' })
+    expect(parseDrawing('garbage')).toEqual({ error: 'sigil frames printed no drawing' })
   })
-  test("speeds: view.py's, clamped, written as its status bar writes them", () => {
+  test("speeds: the viewer's, clamped, written as its status bar writes them", () => {
     expect([0, 1, 2, 3, 7].map(speedText)).toEqual(['¼ frame/s', '½ frame/s', '1 frame/s', '2 frames/s', '32 frames/s'])
     expect(nextSpeed(3, 1)).toBe(4)
     expect(nextSpeed(7, 1)).toBe(7)
@@ -250,7 +252,7 @@ describe('cells', () => {
     expect(playbackFor({ request: req, play: true }, run, before, false)).toEqual({ at: 50, isPlaying: true })
     expect(playbackFor({ request: req, frame: 900 }, run, before, false)).toEqual({ at: 500, isPlaying: false })
   })
-  test("a run's path and narration line; the log line from an older pane.py", () => {
+  test("a run's path and narration line; the log line from an older pane", () => {
     const row = [['path   ', 0], ['① (A) -> [B]', 1]]
     const run = { frames: [[], []], status: ['a', 'b'], log: ['', 'l'], say: ['', 's'], trail: ['', '① (A) ▸-> [B]'], path: [[], [row]] } as unknown as Drawing
     expect(runLines(run, 1)).toEqual({ trail: 'path   ① (A) ▸-> [B]', path: [row], now: '› s' })

@@ -6,8 +6,8 @@ extension API: a `sigil_view` tool for the agent, a `/sigil-pane` command for th
 person, and a widget above the editor that redraws on every save. `build.py`
 copies `extensions/sigil/index.ts` into the package, puts the mod's
 `hooks/logic.ts` beside it (the requests, the `display` and `layout` rules and
-the split commands are shared), and puts `pane.py` and `site/frames.py` beside the skill's
-tools. The package's `package.json` names the extension under `pi.extensions`.
+the split commands are shared). It draws through the skill's `scripts/bin/sigil frames`
+and runs `sigil view` in a split, both from the package the skill ships. The package's `package.json` names the extension under `pi.extensions`.
 [`docs/tools.md`](../../docs/tools.md#the-pi-viewer) documents how it behaves.
 
 ```

@@ -1,7 +1,7 @@
 // The Sigil viewer inside pi: a `sigil_view` tool the agent calls and a
-// /sigil-pane command, drawing a document in a widget above the editor (pane.py's
+// /sigil-pane command, drawing a document in a widget above the editor (`sigil frames`'
 // theme-coloured rows as truecolour text, redrawn on every save, a simulated
-// run stepped or played) or, in a multiplexer, in a split running view.py
+// run stepped or played) or, in a multiplexer, in a split running `sigil view`
 // live. The display rule, the requests and the split commands are the Claude
 // Code mod's (logic.ts, copied beside this file by build.py). Nothing here
 // imports pi itself, so it loads in any pi that has extensions; the
@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url'
 
 import {
   DEFAULT_WIDTH, DISPLAYS, LAYOUTS, START_SPEED, SUPERSEDED, UNASKED_COLUMNS, VIEWS,
-  aheadFrom, askedFrame, cellWidth, cropRows, cutCells, glyphs, heldBy, detectMux, displayReport, drawArgv, drawnFrame, frameIndex, frameMs, herdrPaneOf, herdrReadyArgv,
+  aheadFrom, askedFrame, cellWidth, cropRows, cutCells, glyphs, heldBy, detectMux, displayReport, drawArgv, drawnFrame, followArgv, frameIndex, frameMs, herdrPaneOf, herdrReadyArgv,
   lastFrame, layoutReport, nextSpeed, panTo, parseCommandArgs, parseDisplayArgs, parseDrawing, parseLayoutArgs, parseRequest,
   pickDisplay, pickLayout, playbackFor, playTick, replyText, resolveDisplay, runLines, shellQuote, slot, splitArgv,
   splitStart, statusLine, viewArgv, windowFor, windowStart,
@@ -73,18 +73,18 @@ const HINT = `/${COMMAND} graph|tree|flow|run · depth N|all · sim NAME · play
 const PAN_HINT = `/${COMMAND} left · right: pan the drawing`   // while a panned one is wider than the widget
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const PANE_PY = join(HERE, '..', '..', 'skills', 'sigil', 'scripts', 'pane.py')
+const SIGIL = join(HERE, '..', '..', 'skills', 'sigil', 'scripts', 'bin', 'sigil')
 
 const TOOL_DESCRIPTION = [
   'Show a Sigil design to the person in a live viewer in their terminal:',
   'the graph, tree or flow view (the design), or the run view (one simulated',
   'run as a timeline: a lane per participant, time left to right; the happy',
   'run when no scenario is given), redrawn on every save of the file. With',
-  'scenario, the simulated run of that pathway (view.py --sim names: happy, or',
+  'scenario, the simulated run of that pathway (sigil view --sim names: happy, or',
   'one from the scenarios list the reply gives), shown at frame (0-based, or',
   '"last") or played (play: true). Fields left out keep their last value.',
   'The reply says where it is shown, the summary, lint, and the run at that',
-  'frame; it does not return the drawing (view.py --once prints that as text).',
+  'frame; it does not return the drawing (sigil view --once prints that as text).',
   'Pick the view that fits: flow for request paths and failure routes;',
   'tree for composition, ownership and state machines, or a narrow pane;',
   'graph for the overall topology and fan-in of a small design; run to',
@@ -162,7 +162,7 @@ export function sgrColour(hex: string | null, base: 38 | 48): string | null {
   return `${base};2;${(n >> 16) & 255};${(n >> 8) & 255};${n & 255}`
 }
 
-/** A packed row as one terminal line, at most `width` cells (pane.py makes
+/** A packed row as one terminal line, at most `width` cells (`sigil frames` makes
  * every character one cell, a wide one itself and its WIDE_TAIL: drawn as the
  * one glyph, glyphs), each run in its style's colours. */
 export function ansiRow(row: PackedRow, styles: readonly Style[], width: number): string {
@@ -218,7 +218,7 @@ export function widgetLines(drawing: Drawing, request: ViewRequest, playback: Pl
   const shown = rows.length > bodyRows ? rows.slice(0, Math.max(1, bodyRows - 1)) : rows
   for (const row of shown) lines.push(ansiRow(row, drawing.styles, width))
   if (shown.length < rows.length) {
-    lines.push(styled(`… ${rows.length - shown.length} more rows: view.py ${drawing.file} draws the whole of it`, width, '2'))
+    lines.push(styled(`… ${rows.length - shown.length} more rows: sigil view ${drawing.file} draws the whole of it`, width, '2'))
   }
   const told = runLines(drawing as never, at)
   if (told !== null) {
@@ -247,7 +247,7 @@ const ACTIONS: Record<string, Action> = {
 
 /** /sigil-pane's own words over the tool's: `close`, `pause`, `back`, `next`,
  * `left` / `right` (a panned drawing, half a widget across) and `-` / `+`
- * (the run's speed, as view.py's keys). */
+ * (the run's speed, as the viewer's keys). */
 export function commandWords(args: string): { action?: Action; input: Record<string, unknown> } {
   const words = args.trim().split(/\s+/).filter(w => w !== '')
   const own = words.map(w => ACTIONS[w]).find(a => a !== undefined)
@@ -359,17 +359,17 @@ export default function sigil(pi: Pi): void {
     ui.setWidget(WIDGET, lines)
   }
 
-  /** pane.py's drawing of the request at `width`; a run's window from `from` (windowStart). */
+  /** `sigil frames`' drawing of the request at `width`; a run's window from `from` (windowStart). */
   async function runPane(req: ViewRequest, width: number, from: number): Promise<Drawing | { error: string }> {
     const layout = layoutSetting().choice
-    const argv = drawArgv(PANE_PY, req, width, { layout, from, ...(layout === 'auto' ? { height: bodyRows() } : {}) })
+    const argv = drawArgv(SIGIL, req, width, { layout, from, ...(layout === 'auto' ? { height: bodyRows() } : {}) })
     const ran = await pi.exec(argv[0] ?? 'python3', argv.slice(1), { timeout: 60000 })
       .catch((err: unknown) => ({ code: 1, stdout: '', stderr: String(err) }))
-    if (ran.code !== 0) return { error: ran.stderr.trim().split('\n').pop() || 'pane.py failed' }
+    if (ran.code !== 0) return { error: ran.stderr.trim().split('\n').pop() || 'sigil frames failed' }
     return parseDrawing(ran.stdout) as Drawing | { error: string }
   }
 
-  /** Runs pane.py for the request at `width` and stores what it drew, unless a
+  /** Runs `sigil frames` for the request at `width` and stores what it drew, unless a
    * later redraw started meanwhile (an older run finishing last never wins). A
    * run is drawn a window at a time: the one starting at `from` (windowStart),
    * else the one holding the frame shown. A failure keeps `drawingFor`, so the
@@ -513,7 +513,7 @@ export default function sigil(pi: Pi): void {
   /** Shows `asked` in the widget; `isAsked`: the person's /sigil-pane (any width). */
   async function showInWidget(ctx: Ctx, asked: Asked, isAsked: boolean): Promise<string> {
     if (!ctx.hasUI) {
-      return 'sigil: this pi session has no terminal UI (print or json mode); view.py --once prints the drawing.'
+      return 'sigil: this pi session has no terminal UI (print or json mode); sigil view --once prints the drawing.'
     }
     const path = await located(ctx.cwd, asked.request.file)
     if (typeof path !== 'string') return `sigil: ${path.error}`
@@ -540,7 +540,7 @@ export default function sigil(pi: Pi): void {
   }
 
   /** A split's reply: where, then the summary and the run where the split
-   * starts it (splitStart) as pane.py reads them. */
+   * starts it (splitStart) as `sigil frames` reads them. */
   async function about(req: ViewRequest, asked: Asked, where: string): Promise<string> {
     const start = splitStart(asked)
     const got = await runPane(req, DEFAULT_WIDTH, windowStart(start.frame))
@@ -565,11 +565,11 @@ export default function sigil(pi: Pi): void {
     const control = JSON.stringify({ argv: live })
     if (split !== null && split.mux === mux && (await isAlive(split))) {
       await writeFile(split.control, control)
-      return about(req, asked, `Shown in the ${mux} split running view.py live: ${shellQuote(live)}.`)
+      return about(req, asked, `Shown in the ${mux} split running sigil view live: ${shellQuote(live)}.`)
     }
     const opened: Split = { mux, control: join(tmpdir(), `sigil-view-${randomUUID()}.json`) }
     await writeFile(opened.control, control)
-    const follow = ['python3', PANE_PY, 'follow', opened.control]
+    const follow = followArgv(SIGIL, opened.control)
     const argv = splitArgv(mux, follow, mux === 'herdr' ? process.env.HERDR_PANE_ID : undefined)
     const ran = await pi.exec(argv[0] ?? mux, argv.slice(1), { timeout: 30000 })
     if (ran.code !== 0) return `sigil: could not open a ${mux} split: ${ran.stderr.trim()}`
@@ -584,7 +584,7 @@ export default function sigil(pi: Pi): void {
       opened.pane = ran.stdout.trim()
     }
     split = opened
-    return about(req, asked, `Opened a ${mux} split running view.py live (it redraws on every save; `
+    return about(req, asked, `Opened a ${mux} split running sigil view live (it redraws on every save; `
       + `q closes it): ${shellQuote(live)}.`)
   }
 
@@ -600,7 +600,7 @@ export default function sigil(pi: Pi): void {
 
   pi.registerFlag(FLAG, {
     description: 'Where the sigil viewer draws: mod (a widget above the editor), multiplex '
-      + '(a herdr / tmux / zellij split running view.py live) or auto (multiplex inside a multiplexer, else mod). '
+      + '(a herdr / tmux / zellij split running sigil view live) or auto (multiplex inside a multiplexer, else mod). '
       + `Unset: SIGIL_DISPLAY, then ${settingsPath()} (/${COMMAND} display sets it), then auto.`,
     type: 'string',
   })
@@ -619,7 +619,7 @@ export default function sigil(pi: Pi): void {
     parameters: TOOL_SCHEMA,
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const text = await show(ctx, params, false)
-        .catch((err: unknown) => `sigil: the viewer failed (${String(err)}); view.py --once still prints the drawing.`)
+        .catch((err: unknown) => `sigil: the viewer failed (${String(err)}); sigil view --once still prints the drawing.`)
       return { content: [{ type: 'text', text }], details: {} }
     },
   })

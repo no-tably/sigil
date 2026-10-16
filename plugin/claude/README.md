@@ -2,9 +2,10 @@
 
 This folder holds the source of the viewer that the Claude Code plugin carries. It is
 a plugin of function hooks. `build.py` merges its manifest's `types` and
-`userConfig` into the claude `plugin.json` and copies `hooks/` and `types/`. It
-also puts `scripts/pane.py` and `site/frames.py` beside the skill's tools in
-`skills/sigil/scripts/`. `tests/` and `tsconfig.json` are not shipped.
+`userConfig` into the claude `plugin.json` and copies `hooks/` and `types/`. Its
+Python half is the package's `sigil frames` (`sigil/present/frames.py`), which the
+skill ships in `skills/sigil/scripts/` with `bin/sigil`. `tests/` and
+`tsconfig.json` are not shipped.
 [`docs/tools.md`](../../docs/tools.md#the-claude-code-viewer) documents how it
 behaves.
 
@@ -13,7 +14,6 @@ hooks/hooks.json     names the hooks module
 hooks/sigil.tsx      the tool, /sigil-pane, the pane, the file watch, playback, the split
 hooks/logic.ts       the pure half: requests, argv, the display and layout choices, cell packing
 types/index.d.ts     the session state the pane draws from (PluginState)
-scripts/pane.py      `draw`: a document as packed rows (JSON); `follow`: the split's loop
 tests/*.test.ts      run by `claude plugin test`
 ```
 
@@ -50,5 +50,5 @@ folder, the plugin-authoring skill writes the same file (`claude-code.d.ts`). Pu
 in a `tsconfig` that `extends` this one and `include` it with `hooks`, `types` and
 `tests`.
 
-`tests/test_claude_mod.py` covers `pane.py` and the packaging. When `claude` is on
+`tests/test_claude_mod.py` covers `sigil frames` and the packaging. When `claude` is on
 the PATH, it also runs the validate and test commands above.

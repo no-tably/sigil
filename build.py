@@ -13,23 +13,14 @@ Canonical sources (edit these, never dist/):
                                placeholder @SCRIPTS@ for the skill's scripts dir
     plugin/claude/             the Claude Code viewer mod: its manifest's types and
                                userConfig (merged into the claude plugin.json),
-                               hooks/ and types/ (copied), scripts/pane.py and
-                               site/frames.py (into the skill's scripts/); its
-                               tests/ and tsconfig.json stay here
+                               hooks/ and types/ (copied); its Python half is the
+                               package's `sigil frames`; its tests/ and
+                               tsconfig.json stay here
     plugin/pi/                 the pi viewer extension: extensions/sigil/index.ts,
-                               with the mod's hooks/logic.ts beside it and pane.py
-                               and frames.py in the skill's scripts/
-    lint.py render.py view.py  copied into skills/sigil/scripts/ (required)
-    viewkit.py view_graph.py   view.py's drawing modules, the scene layer and
-    view_tree.py view_flow.py  the simulation engine, copied alongside (required)
-    view_run.py scene.py
-    sim.py check.py            check.py: the composition checker, and its rule
-    check_state.py             modules beside it (required)
-    check_trace.py check_flow.py
-    check_inv.py
-    export.py export_model.py  export.py: a ready #!spec as a build skeleton, its
-    check_export.py            model and readiness rules (required)
-    dialects.py themes.py      copied alongside when present (optional)
+                               with the mod's hooks/logic.ts beside it; it too
+                               calls the skill's `bin/sigil frames`
+    sigil/ (the package)       copied whole into skills/sigil/scripts/sigil/, with
+    bin/sigil                  its command in skills/sigil/scripts/bin/sigil
     themes/*.yaml              copied into skills/sigil/scripts/themes/
     language.md examples.md    copied into skills/sigil/references/
 
@@ -73,17 +64,19 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent
 
-# Every shipped module, here only: the plugin bundles them and site/build_site.py
-# copies the same list into the playground, less the export tools
-# (tests/test_build.py: every top-level module but this one is listed).
-TOOLS = ["lint.py", "render.py", "view.py", "viewkit.py", "view_graph.py", "view_tree.py",
-         "view_flow.py", "view_run.py", "scene.py", "sim.py", "check.py", "check_state.py", "check_trace.py", "check_flow.py",
-         "check_inv.py", "export.py", "export_model.py", "check_export.py", "dialects.py",
-         "themes.py"]
-REQUIRED_TOOLS = {"lint.py", "render.py", "view.py", "viewkit.py", "view_graph.py",
-                  "view_tree.py", "view_flow.py", "view_run.py", "scene.py", "sim.py", "check.py", "check_state.py",
-                  "check_trace.py", "check_flow.py", "check_inv.py", "export.py",
-                  "export_model.py", "check_export.py"}
+# What the skill's scripts/ holds: the whole package (every file under sigil/,
+# less build junk; site/build_site.py copies the same files into the playground,
+# less the export layer) and the one command beside it, bin/sigil, which puts
+# the folder holding both on the path.
+PACKAGE = "sigil"
+COMMAND = "bin/sigil"
+# What --check asks of a built skill's scripts/: the command and the package's
+# spine (each layer, the CLI, and the frames the hosts draw from).
+REQUIRED_FILES = (COMMAND, "sigil/__init__.py", "sigil/__main__.py", "sigil/cli.py",
+                  "sigil/core/__init__.py", "sigil/model/__init__.py",
+                  "sigil/analyse/__init__.py", "sigil/analyse/rules/__init__.py",
+                  "sigil/publish/__init__.py", "sigil/present/__init__.py",
+                  "sigil/present/frames.py")
 REFERENCES = ["language.md", "examples.md"]
 TARGETS = ["claude", "codex", "pi", "opencode"]
 SKILL = "sigil"
@@ -100,12 +93,11 @@ CODEX_KEYS = {"$schema", "name", "version", "description", "author", "homepage",
 MANIFEST_ORDER = ("name", "version", "description", "author", "homepage", "repository",
                   "license", "keywords")
 CLAUDE_KEYS = set(MANIFEST_ORDER)
-# The Claude Code viewer mod (plugin/claude): the manifest fields it adds, the
-# folders copied whole, and its Python, which goes beside the skill's tools.
+# The Claude Code viewer mod (plugin/claude): the manifest fields it adds and the
+# folders copied whole (its Python half is the package's `sigil frames`).
 MOD = ROOT / "plugin" / "claude"
 MOD_KEYS = ("types", "userConfig")
 MOD_DIRS = ("hooks", "types")
-MOD_SCRIPTS = {"pane.py": MOD / "scripts" / "pane.py", "frames.py": ROOT / "site" / "frames.py"}
 # The pi viewer extension (plugin/pi): its published files and their sources. It
 # shares the Claude Code mod's pure half, and imports nothing but node: builtins
 # and these files, so it loads in any pi with extensions.
@@ -219,6 +211,19 @@ def base_manifest(meta: dict[str, Any], keys: set[str]) -> dict[str, Any]:
     return out
 
 
+def is_junk(rel: Path) -> bool:
+    """Build junk that never ships: byte code and its cache folders."""
+    return "__pycache__" in rel.parts or rel.suffix == ".pyc"
+
+
+def package_files(root: Path = ROOT) -> list[str]:
+    """Every file of the package under `root`, as sorted posix paths relative to
+    `root` (e.g. "sigil/core/lex.py"), less build junk."""
+    pkg = root / PACKAGE
+    return sorted(p.relative_to(root).as_posix() for p in pkg.rglob("*")
+                  if p.is_file() and not is_junk(p.relative_to(root)))
+
+
 def load_commands() -> list[tuple[str, dict[str, Any], str]]:
     cmds = []
     for p in sorted((ROOT / "plugin" / "commands").glob("*.md")):
@@ -242,15 +247,13 @@ def stage_skill(dest: Path, claude: bool = False) -> None:
     for p in sorted(src.rglob("*")):
         rel = p.relative_to(src)
         generated = rel.parts[0] in ("scripts", "references")
-        if p.is_dir() or rel.name == "SKILL.md" or generated or "__pycache__" in rel.parts:
+        if p.is_dir() or rel.name == "SKILL.md" or generated or is_junk(rel):
             continue
         write(dest / rel, p.read_text(encoding="utf-8"), _is_exec(p))
-    for name in TOOLS:
-        p = ROOT / name
-        if p.exists():
-            write(dest / "scripts" / name, p.read_text(encoding="utf-8"), executable=True)
-        elif name in REQUIRED_TOOLS:
-            raise FileNotFoundError(f"required tool missing: {p}")
+    scripts = dest / "scripts"
+    for rel in package_files():
+        write(scripts / rel, (ROOT / rel).read_text(encoding="utf-8"))
+    write(scripts / COMMAND, (ROOT / COMMAND).read_text(encoding="utf-8"), executable=True)
     for p in sorted((ROOT / "themes").glob("*.yaml")):
         write(dest / "scripts" / "themes" / p.name, p.read_text(encoding="utf-8"))
     for name in REFERENCES:
@@ -297,11 +300,8 @@ def stage_mod(root: Path, meta: dict) -> dict[str, Any]:
         raise ValueError(f"plugin/claude: name {mod.get('name')!r} != {meta['name']!r}")
     for d in MOD_DIRS:
         for p in sorted((MOD / d).rglob("*")):
-            if p.is_file() and "__pycache__" not in p.parts:
+            if p.is_file() and not is_junk(p.relative_to(MOD)):
                 write(root / p.relative_to(MOD), p.read_text(encoding="utf-8"))
-    for name, src in MOD_SCRIPTS.items():
-        write(root / "skills" / SKILL / "scripts" / name, src.read_text(encoding="utf-8"),
-              executable=True)
     return {k: mod[k] for k in MOD_KEYS if k in mod}
 
 
@@ -387,9 +387,6 @@ def build_pi(out: Path, meta: dict) -> list[Path]:
     stage_skill(root / "skills" / SKILL)
     for rel, src in PI_FILES.items():
         write(root / rel, src.read_text(encoding="utf-8"))
-    for name, src in MOD_SCRIPTS.items():
-        write(root / "skills" / SKILL / "scripts" / name, src.read_text(encoding="utf-8"),
-              executable=True)
     write_commands(root / "prompts", PORTABLE_SCRIPTS, note=True)
     prompts = ", ".join(f"`/{name}`" for name, _, _ in load_commands())
     write(root / "README.md", f"# {meta['name']} (pi package)\n\n{meta['description']}\n\n"
@@ -433,7 +430,7 @@ esac
 mkdir -p "$dest/skills" "$dest/commands"
 rm -rf "$dest/skills/sigil"
 cp -R "$here/skills/sigil" "$dest/skills/sigil"
-chmod 755 "$dest/skills/sigil/scripts/"*.py
+chmod 755 "$dest/skills/sigil/scripts/bin/sigil"
 skill_dir="$dest/skills/sigil"
 # Escape \ | & for the sed replacement below.
 skill_sed=$(printf '%s\n' "$skill_dir" | sed -e 's/[\\|&]/\\&/g')
@@ -586,9 +583,12 @@ def check_skill(skill_dir: Path, errs: list[str]) -> None:
 
 def check_sigil_skill(skill_dir: Path, errs: list[str]) -> None:
     check_skill(skill_dir, errs)
-    for name in REQUIRED_TOOLS:
-        if not (skill_dir / "scripts" / name).is_file():
-            errs.append(f"{skill_dir}/scripts/{name}: missing")
+    for rel in REQUIRED_FILES:
+        if not (skill_dir / "scripts" / rel).is_file():
+            errs.append(f"{skill_dir}/scripts/{rel}: missing")
+    command = skill_dir / "scripts" / COMMAND
+    if command.is_file() and not _is_exec(command):
+        errs.append(f"{command}: not executable")
     if not (skill_dir / "scripts" / "themes" / "sigil.yaml").is_file():
         errs.append(f"{skill_dir}/scripts/themes/sigil.yaml: missing")
     for name in REFERENCES:
@@ -609,7 +609,7 @@ def check_tree_text(tree: Path, errs: list[str]) -> None:
             m = ABS_LEAK_RE.search(text)
             if m:
                 errs.append(f"{p}: absolute path leaked: {m.group(0)}")
-        if "__pycache__" in p.parts or p.suffix == ".pyc":
+        if is_junk(p.relative_to(tree)):
             errs.append(f"{p}: build junk")
 
 
@@ -668,8 +668,9 @@ def check_claude(out: Path, errs: list[str]) -> None:
 
 def check_mod(root: Path, man: dict[str, Any], errs: list[str]) -> None:
     """The viewer mod: hooks.json names modules that are there, the types file the
-    manifest names is there, `display` and `layout` offer their three values, and pane.py and
-    frames.py sit beside the skill's tools."""
+    manifest names is there, `display` and `layout` offer their three values, and
+    no mod test shipped (the skill's bin/sigil, which the mod runs, is
+    check_sigil_skill's)."""
     hooks = root / "hooks" / "hooks.json"
     mods = _load_obj(hooks, errs).get("modules")
     if not (isinstance(mods, list) and mods):
@@ -685,10 +686,6 @@ def check_mod(root: Path, man: dict[str, Any], errs: list[str]) -> None:
         got = (man.get("userConfig") or {}).get(option)
         if not (isinstance(got, dict) and got.get("options") == values and got.get("default") == "auto"):
             errs.append(f"{root}: plugin.json userConfig.{option} must offer {' / '.join(values)}")
-    for name in MOD_SCRIPTS:
-        p = root / "skills" / SKILL / "scripts" / name
-        if not p.is_file():
-            errs.append(f"{p}: missing")
     for p in _entries(root):
         if p.name.endswith((".test.ts", ".test.tsx")):
             errs.append(f"{p}: a mod test shipped")
@@ -758,8 +755,8 @@ def check_pi(out: Path, errs: list[str]) -> None:
 
 def check_pi_extension(root: Path, pi: dict[str, Any], errs: list[str]) -> None:
     """The viewer extension: the manifest names it, it and logic.ts are there, they
-    import only node: builtins and each other, pane.py and frames.py sit beside the
-    skill's tools, and no test shipped."""
+    import only node: builtins and each other, and no test shipped (the skill's
+    bin/sigil, which it runs, is check_sigil_skill's)."""
     if pi.get("extensions") != [f"./{PI_EXT}"]:
         errs.append(f"{root}/package.json: pi.extensions must be ['./{PI_EXT}']")
     for rel in PI_FILES:
@@ -771,10 +768,6 @@ def check_pi_extension(root: Path, pi: dict[str, Any], errs: list[str]) -> None:
             local = spec.startswith("./") and (p.parent / spec).is_file()
             if not (spec.startswith("node:") or local or spec == "../types"):
                 errs.append(f"{p}: imports {spec!r} (only node: builtins and its own files)")
-    for name in MOD_SCRIPTS:
-        p = root / "skills" / SKILL / "scripts" / name
-        if not p.is_file():
-            errs.append(f"{p}: missing")
     for p in _entries(root / "extensions") if (root / "extensions").is_dir() else []:
         if p.name.endswith((".test.ts", ".test.mjs")):
             errs.append(f"{p}: an extension test shipped")

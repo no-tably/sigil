@@ -2,8 +2,8 @@
 
 Covers:
   - build.py: the pi tree carries the extension (the manifest names it, the
-    Claude Code mod's logic.ts beside it, pane.py and frames.py beside the
-    tools, no test shipped); --check catches a missing logic.ts, a foreign
+    Claude Code mod's logic.ts beside it, the skill's bin/sigil and the
+    package's frames, which it runs, no test shipped); --check catches a missing logic.ts, a foreign
     import and a manifest that does not name the extension;
   - the extension's widget helpers (truecolour rows cut to the width, /sigil-pane's
     own words), through node's type stripping;
@@ -97,8 +97,9 @@ class PackagingTest(unittest.TestCase):
         self.assertEqual((ext / "logic.ts").read_bytes(),
                          (ROOT / "plugin" / "claude" / "hooks" / "logic.ts").read_bytes())
         scripts = self.root / "skills" / "sigil" / "scripts"
-        for name in ("pane.py", "frames.py"):
-            self.assertTrue((scripts / name).stat().st_mode & 0o111, name)
+        self.assertTrue((scripts / "bin" / "sigil").stat().st_mode & 0o111)
+        self.assertTrue((scripts / "sigil" / "present" / "frames.py").is_file())
+        self.assertFalse((scripts / "pane.py").exists())
         shipped = {p.name for p in self.root.rglob("*")}
         self.assertNotIn("drive.mjs", shipped)
         self.assertIn("sigil_view", (self.root / "README.md").read_text())
@@ -141,7 +142,7 @@ class HelpersTest(unittest.TestCase):
         self.assertEqual(got, ["\x1b[1;38;2;255;128;0mabc\x1b[0md", "48;2;10;11;12", None])
 
     def test_a_wide_character_is_drawn_as_itself_over_its_two_cells(self):
-        # pane.py's `(利用)`: each wide character then its WIDE_TAIL, one character a cell
+        # `sigil frames`' `(利用)`: each wide character then its WIDE_TAIL, one character a cell
         got = self.node("const t = '\\u0000';"
                         "const st = [[null, null, false]];"
                         "console.log(JSON.stringify(["
@@ -290,7 +291,8 @@ class DriveMixin:
         argv = self.tmux_log.read_text().split("\n")
         self.assertEqual(argv[:3], ["split-window", "-h", "-d"])
         self.assertIn("follow", argv)
-        self.assertTrue(argv[argv.index("follow") - 1].endswith("skills/sigil/scripts/pane.py"))
+        self.assertEqual(argv[argv.index("follow") - 1], "frames")
+        self.assertTrue(argv[argv.index("follow") - 2].endswith("skills/sigil/scripts/bin/sigil"))
 
     def test_the_split_starts_a_run_where_asked(self):
         s = self.steps["multiplex run"]

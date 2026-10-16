@@ -18,26 +18,19 @@ from __future__ import annotations
 import argparse
 import base64
 import html
-import importlib.util
 import sys
 from pathlib import Path
 
 SITE = Path(__file__).resolve().parent
 ROOT = SITE.parent
+if str(ROOT) not in sys.path:          # the sigil package
+    sys.path.insert(0, str(ROOT))
+
+from sigil.present import themes  # noqa: E402  (after the path is set)
+
 FONT = SITE / "fonts" / "DepartureMono-Regular.woff2"
 ADVANCE = 0.636                       # Departure Mono: advance width / em
 LINE = 1.15                           # line height / em (as on the page)
-
-
-def _load(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-themes = _load("sigil_themes_banner", ROOT / "themes.py")
 
 
 def mix(a: str, b: str, p: float) -> str:

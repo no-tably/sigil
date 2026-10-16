@@ -1,39 +1,28 @@
-"""Wide (CJK) characters in the plugins: pane.py makes every character of a
-packed row one cell by viewkit.char_cells's rule (the bundled viewkit's, not a
-copy) — a wide one itself then WIDE_TAIL, its continuation cell, and a
-combining mark nothing — so a packed row is as many characters as view.py's row
-is columns; logic.ts measures plain text by the same rule (a wide character 2,
-a combining mark 0)."""
+"""Wide (CJK) characters in the plugins: `sigil frames` (sigil.present.frames)
+makes every character of a packed row one cell by kit.char_cells's rule (the
+package's kit, not a copy) — a wide one itself then WIDE_TAIL, its continuation
+cell, and a combining mark nothing — so a packed row is as many characters as
+the viewer's row is columns; logic.ts measures plain text by the same rule (a
+wide character 2, a combining mark 0)."""
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import shutil
 import subprocess
-import sys
 import unicodedata
 import unittest
 from pathlib import Path
 
+from sigil.core.parse import parse_document
+from sigil.present import app, kit
+from sigil.present import frames as pane
+
 ROOT = Path(__file__).resolve().parent.parent
-PANE = ROOT / "plugin" / "claude" / "scripts" / "pane.py"
+FRAMES = ROOT / "sigil" / "present" / "frames.py"
 LOGIC = ROOT / "plugin" / "claude" / "hooks" / "logic.ts"
 CJK = ROOT / "tests" / "fixtures" / "cjk.sigil"
 NODE = shutil.which("node")
-
-
-def _load(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-pane = _load("sigil_pane_cells_t", PANE)
-view = _load("sigil_view_cells_t", ROOT / "view.py")
-kit = view.kit
 
 
 def _strips_types() -> bool:
@@ -86,17 +75,17 @@ class PaneCells(unittest.TestCase):
         self.assertEqual(pane.WIDE_TAIL, "\0")    # logic.ts's WIDE_TAIL
         self.assertIn("export const WIDE_TAIL = '\\u0000'", LOGIC.read_text(encoding="utf-8"))
 
-    def test_the_width_rule_is_the_bundled_viewkits(self):
-        self.assertIs(pane._kit(), kit)
-        source = PANE.read_text(encoding="utf-8")
+    def test_the_width_rule_is_the_kits(self):
+        self.assertIs(pane.kit, kit)
+        source = FRAMES.read_text(encoding="utf-8")
         self.assertNotIn("east_asian_width", source)
         self.assertNotIn("_ZERO_WIDTH", source)
 
-    def test_a_cjk_design_keeps_view_pys_columns_in_every_view(self):
-        g = view.render.parse_document(CJK.read_text(encoding="utf-8"))
-        for name in view.VIEWS:
+    def test_a_cjk_design_keeps_the_viewers_columns_in_every_view(self):
+        g = parse_document(CJK.read_text(encoding="utf-8"))
+        for name in app.VIEWS:
             with self.subTest(view=name):
-                rows, _ = view.compose_view(
+                rows, _ = app.compose_view(
                     g, name, depth=1, payloads=False, notes="off", triggers=True,
                     spaced=True, width=None, access=False, mods=False, events="nodes")
                 for row in rows:

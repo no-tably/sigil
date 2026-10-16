@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { MockClock } from 'claude-code/testing'
 
-// The world beneath the mod: one file, pane.py answering with a two-frame run
+// The world beneath the mod: one file, `sigil frames` answering with a two-frame run
 // (or a still drawing), and a pane the test seats or leaves waiting.
 
 const FILE = '/w/shop.sigil'
@@ -21,8 +21,8 @@ function drawingOf(argv: readonly string[]): string {
   })
 }
 
-/** pane.py over a run of `frames` frames, answering with the window --from /
- * --count ask for (pane.py's own defaults: 0 and 120). */
+/** `sigil frames` over a run of `frames` frames, answering with the window --from /
+ * --count ask for (its own defaults: 0 and 120). */
 function longRunOf(frames: number) {
   return (argv: readonly string[]): string => {
     if (!argv.includes('draw')) return ''
@@ -83,7 +83,7 @@ describe('mod display', () => {
     expect(String(result)).toContain('Shown in the sigil pane')
     expect(String(result)).toContain('lint: OK')
     const draw = seen.runs.find(argv => argv.includes('draw'))
-    expect(draw?.slice(2, 6)).toEqual(['draw', FILE, '--view', 'tree'])
+    expect(draw?.slice(2, 7)).toEqual(['frames', 'draw', FILE, '--view', 'tree'])
     expect(seen.opens).toBe(1)
   })
 
@@ -125,7 +125,7 @@ describe('mod display', () => {
     const run = { origin: { kind: 'composer' as const }, presentation: { isFullscreen: true, columns: 90 } }
     const shown = await $.command.run({ command: 'sigil-pane', args: 'shop.sigil tree depth all', ...run })
     expect(shown.text).toContain('Shown in the sigil pane')
-    expect(seen.runs.at(-1)?.slice(4, 8)).toEqual(['--view', 'tree', '--depth', '99'])
+    expect(seen.runs.at(-1)?.slice(5, 9)).toEqual(['--view', 'tree', '--depth', '99'])
     const again = await $.command.run({ command: 'sigil-pane', args: '', ...run })
     expect(again.text).toBe('Sigil pane opened.')
     expect(seen.opens).toBe(2)
@@ -207,7 +207,7 @@ describe('mod display', () => {
     expect(await desk.find({ type: 'Text', text: '✖ boom' })).toBeDefined()
   })
 
-  test("a run's speed steps as view.py's (- / + there, s / f here) and shows in the status", { options: { display: 'mod' } }, async ($, on) => {
+  test("a run's speed steps as the viewer's (- / + there, s / f here) and shows in the status", { options: { display: 'mod' } }, async ($, on) => {
     world(on, { isPlaced: true })
     await $.session.start(START)
     await $.tool.call({ tool: 'mcp__sigil__view', file: 'shop.sigil', scenario: 'happy' })
@@ -273,7 +273,7 @@ describe('a long run', () => {
 })
 
 describe('multiplex display', () => {
-  test('unset inside tmux: a split runs view.py live, nothing opens in Claude Code', async ($, on) => {
+  test('unset inside tmux: a split runs sigil view live, nothing opens in Claude Code', async ($, on) => {
     const seen = world(on, { isPlaced: true, env: { TMUX: '/tmp/tmux-1/default,1,0', TMPDIR: '/t' } })
     await $.session.start(START)
     const { result } = await $.tool.call({ tool: 'mcp__sigil__view', file: 'shop.sigil', view: 'tree', depth: 'all' })
@@ -282,7 +282,7 @@ describe('multiplex display', () => {
     expect(seen.opens).toBe(0)
     const split = seen.runs.find(argv => argv[0] === 'tmux')
     expect(split?.slice(0, 8)).toEqual(['tmux', 'split-window', '-h', '-d', '-P', '-F', '#{pane_id}', '--'])
-    expect(split?.slice(10, 11)).toEqual(['follow'])
+    expect(split?.slice(10, 12)).toEqual(['frames', 'follow'])
     expect(JSON.parse(seen.writes[0]?.text ?? '{}')).toEqual({ argv: [FILE, '--depth', 'all', '--tree'] })
     expect(seen.writes[0]?.path.startsWith('/t/sigil-view-')).toBe(true)
   })
@@ -332,7 +332,7 @@ describe('/sigil-pane layout', () => {
     expect(bad.text).toBe('sigil: layout must be one of auto, wrap, pan (got "side")')
   })
 
-  test('pane.py is told the layout; a panned drawing wider than the pane pans with h and l', { options: { display: 'mod', layout: 'pan' } }, async ($, on) => {
+  test('sigil frames is told the layout; a panned drawing wider than the pane pans with h and l', { options: { display: 'mod', layout: 'pan' } }, async ($, on) => {
     const wide = (argv: readonly string[]) => (argv.includes('draw')
       ? JSON.stringify({ ...JSON.parse(drawingOf(argv)), layout: 'pan', frames: [[[['[API]' + '─'.repeat(40) + '[DB]', 0]]]] })
       : '')

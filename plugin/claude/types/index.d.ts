@@ -11,20 +11,20 @@ export type ViewRequest = {
 
 export type ViewName = 'graph' | 'tree' | 'flow' | 'run'
 
-/** One packed row: [text, style id] runs (site/frames.py's packing), each
- * character one terminal cell (pane.py writes a wide one as itself then
+/** One packed row: [text, style id] runs (`sigil frames`' packing), each
+ * character one terminal cell (`sigil frames` writes a wide one as itself then
  * WIDE_TAIL, its second cell). */
 export type PackedRow = [string, number][]
 
 /** A style: [foreground hex | null, background hex | null, bold]. */
 export type Style = [string | null, string | null, boolean]
 
-/** What `pane.py draw` printed, plus the width it was drawn for. */
+/** What `sigil frames draw` printed, plus the width it was drawn for. */
 export type Drawing = {
   file: string
   view: ViewName
   width: number | null
-  layout?: 'wrap' | 'pan' // what pane.py drew: fitted to the width, or the natural layout
+  layout?: 'wrap' | 'pan' // what `sigil frames` drew: fitted to the width, or the natural layout
   height?: number // the pane rows auto picked the layout by (0: not auto)
   styles: Style[]
   frames: PackedRow[][]
@@ -44,7 +44,7 @@ export type Drawing = {
   last?: number // the run's last frame
 }
 
-/** The run's playback: the frame of the run shown (view.py's numbering) and whether it plays. */
+/** The run's playback: the frame of the run shown (the viewer's numbering) and whether it plays. */
 export type Playback = { at: number; isPlaying: boolean }
 
 /** The multiplexer split the mod drives, by the control file it writes. */

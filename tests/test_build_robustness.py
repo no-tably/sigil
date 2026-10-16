@@ -71,7 +71,8 @@ class InstallScriptTest(ReviewTestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             dest = cwd / "proj" / ".opencode"
             text = (dest / "commands" / "sigil-lint.md").read_text()
-            self.assertIn(f"python3 {dest}/skills/sigil/scripts/lint.py", text)
+            self.assertIn(f"python3 {dest}/skills/sigil/scripts/bin/sigil lint", text)
+            self.assertTrue(os.access(dest / "skills/sigil/scripts/bin/sigil", os.X_OK))
             self.assertNotIn("<sigil-skill-dir>", text)
             self.assertNotIn(build.SIGIL_DIR_NOTE_PREFIX, text)
             self.assertFalse(sandbox.exists())
@@ -111,7 +112,7 @@ class InstallScriptTest(ReviewTestCase):
             r, _ = self.run_install(["--project", str(proj)], Path(d))
             self.assertEqual(r.returncode, 0, r.stderr)
             text = (proj / ".opencode" / "commands" / "sigil-lint.md").read_text()
-            self.assertIn(f"{proj}/.opencode/skills/sigil/scripts/lint.py", text)
+            self.assertIn(f"{proj}/.opencode/skills/sigil/scripts/bin/sigil lint", text)
 
 
 class CheckRobustnessTest(ReviewTestCase):
@@ -190,7 +191,7 @@ class CodexPathsTest(ReviewTestCase):
     def test_commands_use_skill_dir_placeholder(self):                   # 6
         for cmd in ("sigil-view", "sigil-lint"):
             body = (self.out / "codex" / "skills" / cmd / "SKILL.md").read_text()
-            self.assertIn("<sigil-skill-dir>/scripts/", body)
+            self.assertIn("<sigil-skill-dir>/scripts/bin/sigil ", body)
             self.assertIn(build.SIGIL_DIR_NOTE, body)
             self.assertNotIn("python3 ../", body)
 
