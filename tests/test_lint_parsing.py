@@ -14,6 +14,7 @@ sys.path.insert(0, str(_DIR))
 from sigil.analyse import lint  # noqa: E402
 from sigil.analyse.lint import graph as lint_graph, hardening, payloads  # noqa: E402
 from sigil.core import parse, vocab  # noqa: E402
+from sigil.core.statements import read_document  # noqa: E402
 
 SIGIL = _DIR / "bin" / "sigil"
 
@@ -90,10 +91,33 @@ class Payloads(unittest.TestCase):
         self.assertEqual(payloads._classify_payload("[API]")[0], "entity")
         self.assertEqual(payloads._classify_payload("[?]")[0], "entity")
 
+    def segments(self, line):
+        """The payload segments lint reads on the one statement of `line`."""
+        stmts = [st for st in read_document(line).statements if not st.alias]
+        return payloads.payload_segments(stmts[0])
+
     def test_stream_bound_dropped(self):
-        self.assertEqual(payloads._split_payload_and_tags("x ^8@drop"), ("x", []))
-        self.assertEqual(payloads._split_payload_and_tags("x ^10k"), ("x", []))
-        self.assertEqual(payloads._split_payload_and_tags("x @inv"), ("x", ["@inv"]))
+        self.assertEqual(self.segments("[A] -> [B] : x ^8@drop"), [("x", [])])
+        self.assertEqual(self.segments("[A] -> [B] : x ^10k"), [("x", [])])
+        self.assertEqual(self.segments("[A] -> [B] : x @inv"), [("x", ["@inv"])])
+
+    def test_segments_read_the_payload_token(self):
+        # The model's payload: every modifier, the tail and alias references out.
+        self.assertEqual(self.segments("[A] -> [B] : charge ×3 Retry"), [("charge", [])])
+        self.assertEqual(self.segments("[A] -> [E] : {a b: c} @inv x"),
+                         [("{a b: c}", ["@inv"])])
+        self.assertEqual(self.segments('[A] -> [B] : call() @k => {R} : "a -> b" @t'),
+                         [("call()", ["@k"]), ('"a -> b"', ["@t"])])
+
+    def test_ambiguous_map_after_a_modifier_or_alias(self):
+        self.assertIn("SGL100", rules("#!spec\n[A] -> [E] : {a b: c} @inv x\n"))
+        self.assertIn("SGL100", rules("#!spec\nRetry := @retry(3)\n[A] -> [E] : {a b: c} ×3 Retry\n"))
+
+    def test_bad_op_quoted_without_its_modifier(self):
+        msgs = [d.message for d in lint.lint("#!spec\n[A] -> [B] : op 9x.y() @inv x\n").diagnostics
+                if d.rule == "SGL102"]
+        self.assertEqual(len(msgs), 1)
+        self.assertIn("'op 9x.y()'", msgs[0])
 
 
 class Modifiers(unittest.TestCase):

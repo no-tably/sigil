@@ -7,21 +7,12 @@ PayloadSite is what a dialect's payload check is handed.
 import re
 from sigil.core.vocab import ARROW_RE, LintResult, VALID_MODIFIERS
 
-from sigil.core.lex import EXT_OP_RE, INT_OP_RE, MOD_TOKEN_RE
+from sigil.core.lex import EXT_OP_RE, INT_OP_RE, MOD_TOKEN_RE, mask_strings
 
 
 # ---------------------------------------------------------------------------
 # Payloads & values (map-literal disambiguation, external ops)
 # ---------------------------------------------------------------------------
-
-# A trailing edge modifier that is NOT part of the payload value: any
-# @-modifier, cardinality (×N / xN), a stream bound (`^N` / `^N@policy`, N may
-# carry a k/m/g scale suffix).
-_TRAILING_MOD_RE = re.compile(
-    r"\s*(?:@[a-z][a-z0-9_-]*(?:\([^)]*\))?|×\s*\d+|\bx\d+\b"
-    r"|\^\d+[kKmMgG]?(?:@[a-z][a-z0-9_-]*)?)\s*$"
-)
-
 
 # Scalar value literals that are unambiguously value-bearing.
 _BOOL_NULL_RE = re.compile(r"^(?:true|false|null)$")
@@ -39,28 +30,6 @@ _REF_RE = re.compile(r"^\$\{[^}]*\}$")
 # A value-operator expression keys off a leading literal/ref/list/map followed
 # by one of the closed top-level operators.
 _VALUE_OP_RE = re.compile(r"(?:\+\+|\|\||[+\-*/])")
-
-
-def _split_payload_and_tags(seg: str):
-    """Given a payload segment (text after `:`, before the next arrow), peel
-    trailing edge modifiers off the end and return (value_text, [tags_seen]).
-
-    Tags are returned in source order (left-to-right). Only `@`-modifiers are
-    collected as tags; cardinality / stream bounds are dropped."""
-    tags = []
-    s = seg.strip()
-    while True:
-        m = _TRAILING_MOD_RE.search(s)
-        if not m:
-            break
-        chunk = s[m.start():].strip()
-        if chunk.startswith("@"):
-            # Take just the @name (strip any (...) args for tag identity).
-            name = MOD_TOKEN_RE.match(chunk)
-            if name:
-                tags.insert(0, name.group(0))
-        s = s[: m.start()].rstrip()
-    return s, tags
 
 
 def _brace_body_is_map_literal(body: str):
@@ -224,8 +193,7 @@ def lint_payloads(statements: tuple, result: LintResult, checks=(), known=None):
                     and t.text.startswith("op") \
                     and _classify_payload(t.text)[0] == "ext-op-bad":
                 result.add("error", st.line, "SGL102", _BAD_OP.format(text=t.text))
-        for seg in payload_segments(st):
-            value_text, tags = _split_payload_and_tags(seg)
+        for value_text, tags in payload_segments(st):
             kind = _classify_payload(value_text)[0]
 
             if kind == "map-ambig":
@@ -245,24 +213,54 @@ def lint_payloads(statements: tuple, result: LintResult, checks=(), known=None):
                     check(site, result)
 
 
+# Tokens that sit in a payload's span but are not its text: its modifiers, and
+# the tail the model peels off it (count, bound, `!`, modifier-alias references).
+_NOT_PAYLOAD = ("mod", "card", "bound", "mark", "aref")
+
+
 def payload_segments(st) -> list:
-    """The `: payload` segments of a statement, as written (strings, modifiers and
-    trailing counts in): its payload token's text from the `:` to the next
-    top-level arrow, then the `: …` of each later link (`: call() => {R} : note`).
-    Blank segments are left out."""
+    """The `: payload` segments of a statement as the model reads them:
+    [(value, tags)] — its payload token's text (modifiers and tail already out)
+    split at each top-level arrow, the first part whole and each later link's
+    `: …` (`: call() => {R} : note`), each with the `@name` of every modifier
+    written in that segment's span. Blank segments are left out."""
     tok = next((t for t in st.toks if t.kind == "payload" and t.flag != "kv"), None)
-    if tok is None:
+    if tok is None or not tok.text:
         return []
-    text, raw = st.code.text, st.code.raw
+    values = {n: tok.text[s:e].strip() for n, s, e in _segments(mask_strings(tok.text), 0)}
+    tags = _segment_tags(st, tok)
+    return [(v, tags.get(n, [])) for n, v in values.items() if v]
+
+
+def _segment_tags(st, tok) -> dict:
+    """{link number: [`@name`, …]} the modifiers written in each payload segment's
+    span of the statement, in written order. The spans are found in the
+    statement's text with every non-payload token blanked, so they split where
+    the payload token's text does."""
+    others = [t for t in st.toks if t.kind in _NOT_PAYLOAD and t.col > tok.col]
+    text = st.code.text
+    for t in others:
+        text = text[:t.col] + " " * len(t.text) + text[t.col + len(t.text):]
+    out = {}
+    for n, s, e in _segments(text, tok.col + 1):
+        names = (MOD_TOKEN_RE.match(t.text) for t in others
+                 if t.kind == "mod" and s <= t.col < e)
+        out[n] = [m.group(0) for m in names if m]
+    return out
+
+
+def _segments(text: str, start: int) -> list:
+    """[(link number, start, end)] the payload segments of `text` (strings
+    blanked) from `start`: the first link whole, each later one from its
+    top-level `:` (a link with none holds no payload and is left out)."""
     out = []
-    for n, (start, end) in enumerate(_links(text, tok.col + 1)):
+    for n, (s, e) in enumerate(_links(text, start)):
         if n:
-            colon = _top_level_colon(text, start, end)
+            colon = _top_level_colon(text, s, e)
             if colon is None:
                 continue
-            start = colon + 1
-        if raw[start:end].strip():
-            out.append(raw[start:end])
+            s = colon + 1
+        out.append((n, s, e))
     return out
 
 
