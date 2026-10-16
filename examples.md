@@ -46,7 +46,7 @@ async flow.
 
 A line that starts with an arrow continues from the subject above.
 
-`view.py shortener.sigil --sim all` runs both paths: `happy`, and
+`sigil view shortener.sigil --sim all` runs both paths: `happy`, and
 `Redirect.lookup:fails` — the lookup fails, the run ends on the `!>` route to the
 visitor, and no redirect or click follows.
 
@@ -646,7 +646,7 @@ loop @while node {
 [Spawner]  => [Shard]
 ```
 
-**Tree view** (`view.py FILE --tree` — the outline is the composition, each lane a
+**Tree view** (`sigil view FILE --tree` — the outline is the composition, each lane a
 flow; `●` a lane's source, `◀` each target):
 
 ```text
@@ -721,7 +721,7 @@ state [Checkout] {
 }
 ```
 
-**Tree view** (`view.py FILE --tree` — an event is drawn where it lands: trigger lanes
+**Tree view** (`sigil view FILE --tree` — an event is drawn where it lands: trigger lanes
 (`╍`) run from each emitter (`›`) into the states its events drive; each state lists
 the triggers that enter it):
 
@@ -755,7 +755,7 @@ the triggers that enter it):
 - **The error path is an event too.** `[Payments] !> <Declined>` keeps the failure
   on the error arrow, and the state blocks still react to it by name.
 
-**Simulated** (`view.py FILE --once --sim NAME`; `x` live): the document has two
+**Simulated** (`sigil view FILE --once --sim NAME`; `x` live): the document has two
 scenarios. `happy` places the order (`{Order} + -<Placed>-> Open`, `[Checkout] Idle
 -<Placed>-> Busy`), then `<Paid>` settles it and frees the checkout. `Payments:fails`
 takes the `!>` route instead: `[Payments] failed → <Declined>`, and both machines end
@@ -806,7 +806,7 @@ where the prose says — `{Order}` in `Cancelled`, `[Checkout]` back in `Idle`.
 [Payments]   -> [StandbyPsp] : {Charge}
 ```
 
-**Tree view** (`view.py FILE --tree`):
+**Tree view** (`sigil view FILE --tree`):
 
 ```text
 ── wiring ─────────────────────────────
@@ -967,7 +967,7 @@ the graph and lowers it; sigil only records the edges.
 [Booking] ~> <Booked>
 ```
 
-It lints clean: every line is well formed. `check.py` (or `lint.py --deep`) asks
+It lints clean: every line is well formed. `sigil check` (or `sigil lint --deep`) asks
 what the wiring leaves unsaid. Under `#!spec`:
 
 | Line | Rule | Severity | The question it asks |
@@ -981,7 +981,7 @@ what the wiring leaves unsaid. Under `#!spec`:
 | `[Booking] ~> <Booked>` | `orphan-event` | info | who receives `<Booked>`? |
 
 In `#!craft` the same findings come back as questions (warn and info); in
-`#!sketch` the binding and advisory ones are hidden (`check.py --all`
+`#!sketch` the binding and advisory ones are hidden (`sigil check --all`
 shows them) and the hints are not emitted.
 
 **Sigil, with its risks declared:**
@@ -1003,7 +1003,7 @@ shows them) and the hints are not emitted.
 <Booked> -> (User)
 ```
 
-`check.py` gives no findings, in any mode.
+`sigil check` gives no findings, in any mode.
 
 **Key decisions:**
 - **The shape did not change.** Every component, call, retry and write of the first

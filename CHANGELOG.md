@@ -2,6 +2,83 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
+## 0.6.0 — unreleased
+
+One command instead of five scripts, Mermaid as an export with a new chart grouped
+by system, and the tools rebuilt as one package along the drawing of sigil in
+sigil (`design/sigil.sigil`). What the tools print is unchanged, apart from the
+fixes listed below.
+
+### One command
+
+- **`sigil <lint|check|view|export|frames>`** replaces `lint.py`, `check.py`,
+  `view.py`, `export.py` and `render.py`. Run it as `bin/sigil` (Python 3 standard
+  library only) or `python3 -m sigil`; the skill runs `scripts/bin/sigil`, and the
+  plugin commands, the Claude Code mod and the pi extension call it too. Flags are
+  the same as before:
+
+  | 0.5 | 0.6 |
+  | --- | --- |
+  | `lint.py FILE [--deep]` | `sigil lint FILE [--deep]` |
+  | `check.py FILE …` | `sigil check FILE …` |
+  | `view.py FILE …` | `sigil view FILE …` |
+  | `export.py SPEC --out DIR` | `sigil export SPEC --out DIR` |
+  | `render.py FILE [--depth N] [--composition …]` | `sigil export FILE --mermaid [--depth N] [--composition …]` |
+  | `plugin/claude/scripts/pane.py draw` / `follow` | `sigil frames draw` / `follow` |
+  | `themes.py [NAME] [--list]` | `python3 -m sigil.present.themes [NAME] [--list]` |
+
+  Each subcommand loads only what it needs: `sigil lint` loads neither the checker,
+  the simulator nor the views. Error messages still begin with the old script's
+  name (`lint.py: …`), so every output stays as it was.
+- **Mermaid is an export.** `sigil export FILE --mermaid` prints the chart
+  `render.py` printed, byte for byte, in any mode (no readiness gate: a sketch draws
+  too, for review).
+- **New: `--mermaid --spine`** groups the chart by the systems an export would make:
+  a subgraph per expansion or composition tree, nested as the export nests them,
+  each component in its home. It is the shape to look at before exporting a spec.
+
+### Fixes
+
+- **No false cycle through the top system.** A flow into an expansion's owner (or a
+  tree's root) is now a dependency on that system alone, not also on the system the
+  owner is written in, so a design drawn as layers no longer exports every layer as
+  depending on the top one.
+- **SGC204's hint says where `@inv serialised(|S|)` goes**: on the store's own line
+  (written on the write, it did nothing).
+- **Lint's path and trigger rules (SGL112, SGL091) report the flow's own line**, read
+  from the parsed document; a path also written earlier (in a comment, say) used to
+  report that earlier line.
+- A plain check leaves out an unused acknowledgement of an export readiness rule by
+  the rule's id, no longer by the shape of the finding's scope.
+
+### The package
+
+The tools are one package, `sigil/`, with a subpackage per layer, each an expansion
+of `design/sigil.sigil`: `core` (lex, tokens, statements, parse, graph, comments,
+dialects, vocab), `model` (scene, the simulator `sim/` as program, engine,
+scenarios and narration, the export model), `analyse` (lint by rule group, check
+and its rule modules), `publish` (mermaid, spine, the exporter and its delta) and
+`present` (the viewer app, the four views, kit, themes, frames), plus `cli`. A layer
+imports only the layers above it (`core ← model ← analyse ← publish / present ←
+cli`), and `tests/test_spine.py` checks every import. The lexical tables the
+parser and the linter each kept a copy of live once, in `sigil/core/lex.py`; the
+export model reads statement lines from the parser instead of searching the text.
+`docs/tools.md` describes the layout.
+
+The page's playground loads the same package into the browser (less the export
+layer), and the plugin archives ship `sigil/` and `bin/sigil` in the skill's
+`scripts/`.
+
+### For dialect authors
+
+A dialect imports the core's vocabulary from one public place, `sigil.core.vocab`
+(`from sigil.core.vocab import strip_comment, ARROW_RE, GLYPH_PATTERNS,
+ANY_GLYPH_RE, LintResult, VALID_MODIFIERS, CALL_RESILIENCE_MODIFIERS,
+PERMISSION_MODIFIERS, VALID_LOOP_MODS`), not by loading `lint.py` by path. A
+dialect's wrapper command calls `sigil.cli.main(argv, dialect=NAME)`; dialects are
+still found by name next to the repository (`../sigil-<name>/dialect.py`) or on
+`SIGIL_DIALECT_PATH`.
+
 ## 0.5.0 — 2026-10-15
 
 Runs whose entries happen at the same time, and checks that look for races between

@@ -1,5 +1,10 @@
 # Viewer coverage audit — `coverage.sigil`
 
+> History (2026-10-02). Tool names are as of 0.4: `view.py` is now `sigil view`,
+> `lint.py` `sigil lint`, `render.py` `sigil export --mermaid` (its parser is
+> `sigil/core/parse.py`), `scene.py` / `view_*.py` `sigil/model/scene.py` /
+> `sigil/present/views/*`.
+
 Fixture: `tests/fixtures/coverage.sigil` (one `#!sketch` doc, 3 layer sections + 2 topic
 sections). `./lint.py` → clean apart from one **info** (`SGL070`, line 83): the spec's own
 recursion example `[Tree.walk] -> [Tree.walk] : child` puts the same glyph twice on a line.

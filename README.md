@@ -36,7 +36,7 @@ Line by line:
 
 A line that starts with an arrow continues from the subject above.
 
-`view.py` draws it in the terminal, as a call graph read left to right (the flow
+`sigil view` draws it in the terminal, as a call graph read left to right (the flow
 view, its default):
 
 ```
@@ -82,7 +82,7 @@ the graph, tree, flow and run views live):
 `--sim all` runs both of its paths — the happy one, and a lookup that fails:
 
 ```sh
-view.py shortener.sigil --once --sim all
+sigil view shortener.sigil --once --sim all
 ```
 
 ```
@@ -108,18 +108,19 @@ the browser — write a design, switch views, step through a simulation.
 
 ## Tools
 
-All tools are Python 3 standard library only; each takes a file or `-` for stdin.
-Every flag and key is in [`docs/tools.md`](./docs/tools.md).
+One command, `sigil`, Python 3 standard library only: run `bin/sigil` (or
+`python3 -m sigil` from the repository). Each subcommand takes a file or `-` for
+stdin. Every flag and key is in [`docs/tools.md`](./docs/tools.md).
 
-| Tool | Does |
+| Command | Does |
 | --- | --- |
-| `view.py FILE` | Live terminal view, redrawn on every save: a flow view (a call graph left to right, the default), a graph view (`--graph`), a tree view (`--tree`) and a run view (one simulated run as a timeline, `--run`) — `1` `2` `3` `4` pick one, `t` steps to the next — a simulation mode (`x`) and a checks overlay (`c`). `--once` prints one drawing for agents and CI. |
-| `lint.py FILE` | Validates a document: one `severity:line:rule: message` per issue; exit 0 clean, 1 warnings, 2 errors. `--deep` adds the composition checks. |
-| `check.py FILE` | Composition checks ([RFC 0003](./rfcs/0003-composition-checks.md)): does the design say how its risks are handled — time bounds, idempotency, writers, failure routes, stuck state machines? A finding never forbids a shape: declare the handling, or accept the risk with a reason. |
-| `export.py SPEC --out DIR` | Exports a ready `#!spec` document as a build skeleton: a folder per system, a file per component, `manifest.json` as the contract. A re-export says which systems changed (see [Export a spec](#export-a-spec)). |
-| `render.py FILE` | Emits a Mermaid `flowchart TD` for docs (GitHub, Obsidian, mermaid.live). |
-| `themes.py` | Colour themes from `themes/*.yaml`, shared by the viewer and the web page. |
-| `dialects.py` | Loads a dialect (`--dialect NAME`) that extends the linter, renderer and checker. |
+| `sigil view FILE` | Live terminal view, redrawn on every save: a flow view (a call graph left to right, the default), a graph view (`--graph`), a tree view (`--tree`) and a run view (one simulated run as a timeline, `--run`) — `1` `2` `3` `4` pick one, `t` steps to the next — a simulation mode (`x`) and a checks overlay (`c`). `--once` prints one drawing for agents and CI. |
+| `sigil lint FILE` | Validates a document: one `severity:line:rule: message` per issue; exit 0 clean, 1 warnings, 2 errors. `--deep` adds the composition checks. |
+| `sigil check FILE` | Composition checks ([RFC 0003](./rfcs/0003-composition-checks.md)): does the design say how its risks are handled — time bounds, idempotency, writers, failure routes, stuck state machines? A finding never forbids a shape: declare the handling, or accept the risk with a reason. |
+| `sigil export SPEC --out DIR` | Exports a ready `#!spec` document as a build skeleton: a folder per system, a file per component, `manifest.json` as the contract. A re-export says which systems changed (see [Export a spec](#export-a-spec)). |
+| `sigil export FILE --mermaid` | Emits a Mermaid `flowchart TD` for docs or review (GitHub, Obsidian, mermaid.live), in any mode. `--spine` groups it by the export's systems, a subgraph each. |
+| `themes/` | Colour themes from `themes/*.yaml`, shared by the viewer and the web page. |
+| `--dialect NAME` | Every subcommand loads a dialect that extends the linter, Mermaid and checker. |
 | `highlight/` | Syntax highlighting for bat, nvim, VS Code, Sublime/TextMate. |
 
 ## Install as an agent skill
@@ -151,7 +152,7 @@ is the plugin's `display` option:
   you didn't ask for needs a terminal at least 144 columns wide. When it's
   narrower, the agent's reply says the pane is waiting. `/sigil-pane [FILE]` opens
   it at any width.
-- `multiplex` opens a herdr, tmux or zellij split that runs `view.py` live, and
+- `multiplex` opens a herdr, tmux or zellij split that runs `sigil view` live, and
   the agent's later calls update it. Nothing draws in Claude Code.
 - `auto` (the default) picks `multiplex` when `HERDR_ENV`, `TMUX` or `ZELLIJ` is
   set, and `mod` otherwise.
@@ -202,13 +203,13 @@ unzip sigil-opencode-<version>.zip
 Provides the `sigil` skill and the `/sigil-view` and `/sigil-lint` commands.
 (OpenCode also discovers skills in `~/.claude/skills` and `.agents/skills`.)
 
-OpenCode gets no viewer plugin. To watch a design live, run `view.py FILE` in a
-herdr, tmux or zellij split; the agent reads `view.py --once`.
+OpenCode gets no viewer plugin. To watch a design live, run `sigil view FILE` in a
+herdr, tmux or zellij split; the agent reads `sigil view FILE --once`.
 [`docs/tools.md`](./docs/tools.md#opencode) says why.
 
 ## Simulation
 
-Sigil does not execute, but the viewer can *walk* a design: `sim.py` reads it as
+Sigil does not execute, but the viewer can *walk* a design: its simulator reads it as
 tokens moving along its flows, so you can watch the happy path, each failure
 route, each branch arm, race and alternative play out over the same drawing — in
 the graph view and the tree view alike. No values are computed and nothing is
@@ -255,7 +256,7 @@ and the run in words (here
 with its card charge failing; legend and lint summary left out):
 
 ```sh
-view.py checkout.sigil --once --tree --sim 'API.charge:fails'
+sigil view checkout.sigil --once --tree --sim 'API.charge:fails'
 ```
 
 ```
@@ -292,7 +293,7 @@ retry a repeated segment, and a note per lane in plain words. Without `--sim` it
 draws the happy run.
 
 ```sh
-view.py checkout.sigil --once --run --sim 'API.charge:fails'
+sigil view checkout.sigil --once --run --sim 'API.charge:fails'
 ```
 
 ```
@@ -313,7 +314,7 @@ behaviour; `--sim list` lists the scenarios and `--json` prints either as JSON
 (`--sim NAME --json`: one run's facts, its steps in words and its raw log).
 
 ```sh
-view.py orders.sigil --once --sim all
+sigil view orders.sigil --once --sim all
 ```
 
 ```
@@ -356,7 +357,7 @@ an author exports while a builder is mid-build, and the stale notice lands betwe
 two of the builder's steps (the log from t020):
 
 ```sh
-view.py overlap.sigil --once --sim Author@25
+sigil view overlap.sigil --once --sim Author@25
 ```
 
 ```
@@ -368,7 +369,7 @@ t045 ep1: [Status] calls |Ledger| with read({Hash}); ep2: [Exporter] emits <Stal
 t050 ep2: <Stale> calls [Builder] with recheck({Delta}); ep1: [Status] returns {Verdict} to [Builder]
 ```
 
-`check.py` looks further than the list when it checks a `#!spec` document (or is
+`sigil check` looks further than the list when it checks a `#!spec` document (or is
 given `--overlaps all`): its behavioural rules start each later
 entry at *every* tick of an earlier entry's episode (within `--budget`), so a race
 between two entries — two writers from two episodes, an event landing in a state
@@ -380,19 +381,19 @@ listed runs, and `--overlaps N` caps the sweep at N runs.
 
 ## Export a spec
 
-Once a design is final, `export.py` hands it to whoever builds it: a folder per
+Once a design is final, `sigil export` hands it to whoever builds it: a folder per
 system, a Markdown file per component (kind, description, interface, requirements,
 lifecycle), and `manifest.json`, the contract. Systems come from the design itself,
 no new syntax: each `X := { … }` expansion, each composition-tree root, and the top
 level (named after the file). Only a ready spec exports: its mode line is `#!spec`,
-lint finds no error, and `check.py --export` leaves no error or warning
-unacknowledged. Otherwise `export.py` prints what blocks it, exits 2 and writes
+lint finds no error, and `sigil check --export` leaves no error or warning
+unacknowledged. Otherwise `sigil export` prints what blocks it, exits 2 and writes
 nothing. Here the shop in
 [`examples/export.sigil`](https://no-tably.github.io/sigil/examples/export.sigil),
 saved as `shop.sigil`:
 
 ```sh
-export.py shop.sigil --out build
+sigil export shop.sigil --out build
 ```
 
 ```
@@ -409,7 +410,7 @@ build/
 Each system has two hashes: the **interface** (the flows that cross its boundary,
 with their payloads and returns) and the **body** (everything in it). Reformatting
 or reordering the spec moves neither. Export again into the same folder after an
-edit, and `export.py` compares with the manifest already there, rewrites only what
+edit, and `sigil export` compares with the manifest already there, rewrites only what
 changed and writes `delta.json`. Here `[Stock]`'s reprice call now returns a
 `{Price}`:
 
@@ -424,7 +425,7 @@ since spec 8c05e20fdfd8e0f2: 2 rebuild, 1 recheck, 2 unchanged
 `rebuild` systems changed inside; a `recheck` system is unchanged but depends on one
 whose boundary moved. `--dry-run` prints the delta and writes nothing; `--json`
 prints it as JSON. Building against the export happens outside sigil. Every flag and
-field is in [`docs/tools.md`](./docs/tools.md#exportpy-spec---out-dir).
+field is in [`docs/tools.md`](./docs/tools.md#sigil-export-spec---out-dir).
 
 ## Themes
 
@@ -436,21 +437,21 @@ chrome), `run` (a colour per episode, for runs that overlap) and `site`. A value
 `$name` refers to `palette.name`, so a role follows its palette colour; a new theme can start with `extends: sigil` and override
 only what it changes. Drop it in `themes/` or a directory on `SIGIL_THEME_PATH`.
 The format is a small YAML subset (nested maps, scalars, `#` comments) that
-`themes.py` and the page both parse without a YAML library.
+the viewer's theme loader and the page both parse without a YAML library.
 
 ## Web page
 
 `site/` is a static page: an explainer, a live editor that types the examples in
-`site/examples/` line by line while `view.py`'s four views redraw on planes in a 3D
+`site/examples/` line by line while the viewer's four views redraw on planes in a 3D
 background, a strip of short sections that brings each plane forward in turn (the
 run view playing the URL shortener's happy and failing runs), the skill, and install
 commands. `site/build_site.py` renders every typing step and those runs through
-`view.py` into `frames.json` and turns the theme YAML into CSS variables;
+the viewer into `frames.json` and turns the theme YAML into CSS variables;
 `.github/workflows/pages.yml` publishes it with GitHub Pages.
 
 The **playground** runs the tools themselves in the browser: the build copies
-`view.py`, `lint.py`, `sim.py` and the modules they load into `py/` byte for byte, and
-[Pyodide](https://pyodide.org) runs them when a visitor presses *start*
+the `sigil/` package (less the export layer) into `py/` byte for byte, and
+[Pyodide](https://pyodide.org) runs it when a visitor presses *start*
 (`site/playground.py` is the thin JSON layer the page calls). Write a design, switch
 views (graph, tree, flow, run — `1` `2` `3` `4` or `t` on the drawing, as in the viewer), read
 the lint, pick a scenario (the overlap runs grouped under "overlaps") and step
@@ -458,7 +459,7 @@ through its run, a frame or an event at a time, with the viewer's path and
 narration line under the drawing; *share* puts the
 document in the link. Nothing about the notation is re-implemented in JavaScript, so
 the page cannot drift from the CLI (`tests/test_site.py` checks the copies and that
-the playground draws what `view.py` draws).
+the playground draws what `sigil view` draws).
 
 ```sh
 python3 site/build_site.py --out _site && python3 -m http.server -d _site 8000
@@ -470,11 +471,13 @@ python3 site/build_site.py --out _site && python3 -m http.server -d _site 8000
 
 Plain Sigil is domain-neutral. A **dialect** layers extra vocabulary on top —
 additional modifiers, lint passes and render rules — without changing the core
-language. Dialects are Python modules loaded by `dialects.py` from a path or
+language. Dialects are Python modules loaded by the core (`sigil/core/dialects.py`) from a path or
 from directories on `SIGIL_DIALECT_PATH`; select one with `--dialect NAME` or
 `SIGIL_DIALECT=NAME`. For example, `sigil-merlang` (maintained separately) adds a
-component type system and UI-layout vocabulary for one agent runtime. See
-"Dialects" in [`language.md`](./language.md) for the extension API.
+component type system and UI-layout vocabulary for one agent runtime. A dialect
+imports the core's vocabulary from `sigil.core.vocab` (the dialect API), and a
+dialect's own command calls `sigil.cli.main(argv, dialect=NAME)`. See "Dialects" in
+[`language.md`](./language.md) for the extension API.
 
 ## Development
 
@@ -488,32 +491,39 @@ cd plugin/pi && bun install --frozen-lockfile && bun run typecheck   # type-chec
 
 ### Layout
 
-The modules sit flat at the top level so each runs as a script, ships into the
-skill's `scripts/` unchanged and runs byte for byte in the playground (all but the
-export tools):
+The tools are one package, `sigil/`, run through one command, `bin/sigil` (or
+`python3 -m sigil`). Its layers are the expansions of
+[`design/sigil.sigil`](./design/sigil.sigil), the toolchain drawn in Sigil, and a
+layer imports only the layers above it (`tests/test_spine.py` checks every import):
 
 ```text
-render.py    parse a design into a graph; render it as Mermaid        ┐
-lint.py      the linter (SGLnnn)                                     │ the core
-dialects.py  layer-1 hooks: extra vocabulary, rules, a rule pack     ┘
-scene.py     one shared scene: wires, roles, colours, notes, joins   ┐
-sim.py       the simulator: scenarios → runs of frames               │ the engine
-check.py     the checker (SGCnnn) and its rule modules:              │
-  check_flow.py · check_state.py · check_trace.py · check_inv.py     ┘
-export.py    the exporter: a ready spec as a build skeleton          ┐ the export
-export_model.py  systems, homes, hashes · check_export.py SGC401/402 ┘
-view.py      the terminal viewer app                                 ┐
-viewkit.py   its drawing kit                                         │ the viewer
-view_graph.py · view_flow.py · view_tree.py · view_run.py  the views │
-themes.py    YAML themes (themes/), shared with the page             ┘
-build.py     packaging (maintainers only)
-site/  the page and playground · tools/  golden drawings, doc regeneration
+bin/sigil        the command (puts the package on the path, calls sigil.cli)
+sigil/cli.py     one entry point: lint · check · view · export · frames; each
+                 subcommand imports its layers only when it runs
+sigil/core/      the notation read: lex (the lexical tables, kept once),     ┐
+                 tokens · statements · parse (a document → the graph model), │ core
+                 graph, comments, dialects, vocab (the dialect API)          ┘
+sigil/model/     scene (wires, roles, colours, notes, joins),                ┐ model
+                 sim/ (program · engine · scenarios · narration), systems    ┘
+sigil/analyse/   lint/ (SGLnnn, by rule group), check (SGCnnn: registry,     ┐ analyse
+                 findings, acks, budget), rules/ (flow · state · trace ·     │
+                 inv · export)                                               ┘
+sigil/publish/   mermaid, spine (--mermaid --spine), systems, exporter,      ┐ publish
+                 delta: what leaves sigil                                    ┘
+sigil/present/   app (the terminal viewer), views/ (graph · tree · flow ·    ┐ present
+                 run), kit, themes, frames (packed rows for the hosts)       ┘
+themes/          YAML themes, shared with the page
+build.py         packaging (maintainers only)
+site/  the page and playground · tools/  goldens, doc regeneration, snapshot
 docs/  the tools reference, viewer coverage audit · rfcs/  design records
-tests/  unit tests, fixtures and golden drawings · highlight/  editor grammars
+design/  sigil drawn in sigil · tests/  unit tests, fixtures and goldens
+highlight/  editor grammars
 ```
 
-`build.py`'s `TOOLS` is the one list of shipped modules; the page's playground copies
-the same list (less the export tools), and a test fails if a new top-level module is missing from it.
+`core ← model ← analyse ← publish / present ← cli`: publish and present never
+import each other, and `sigil lint` loads neither the checker, the model nor the
+drawings. `build.py` ships the whole package; the page's playground loads the
+same files (less the export layer).
 
 Canonical packaging sources — edit these, never `dist/`:
 
@@ -523,16 +533,14 @@ Canonical packaging sources — edit these, never `dist/`:
 - `plugin/commands/*.md` — commands, using `$1` / `$ARGUMENTS` and the
   `@SCRIPTS@` placeholder for the skill's scripts directory.
 - `plugin/claude/` — the Claude Code viewer mod: `hooks/` (the TypeScript hooks
-  module), `types/`, `scripts/pane.py` (its Python half) and its own `tests/`
+  module), `types/` and its own `tests/`; its Python half is the package's
+  `sigil frames`
   (`claude plugin test plugin/claude`). See [`plugin/claude/README.md`](plugin/claude/README.md).
 - `plugin/pi/` — the pi viewer extension: `extensions/sigil/index.ts`, which shares
   the mod's `hooks/logic.ts`. See [`plugin/pi/README.md`](plugin/pi/README.md).
 
-`build.py` copies `lint.py`, `render.py`, the viewer (`view.py` with `viewkit.py`,
-`view_graph.py`, `view_tree.py`, `view_flow.py`, `view_run.py`, `scene.py` and `sim.py`), the checker (`check.py` with `check_flow.py`,
-`check_state.py`, `check_trace.py` and `check_inv.py`), the exporter (`export.py` with
-`export_model.py` and `check_export.py`), `dialects.py` and `themes.py`
-(with `themes/*.yaml`) into `skills/sigil/scripts/` and `language.md` / `examples.md` into
+`build.py` copies the `sigil/` package, `bin/sigil` and `themes/*.yaml` into
+`skills/sigil/scripts/` (the skill runs `scripts/bin/sigil`) and `language.md` / `examples.md` into
 `skills/sigil/references/`, then writes each agent's manifests. Archives are
 deterministic. CI (`.github/workflows/ci.yml`) tests, type-checks the pi extension
 and the logic it shares with the Claude Code mod (through bun), builds and validates

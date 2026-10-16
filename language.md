@@ -501,12 +501,12 @@ state [Checkout] {
 ```
 
 Here `<Paid>` settles the order *and* frees the checkout. Viewers draw the link:
-`view.py` draws a dashed edge from `<Paid>` to each owner it drives (and lists the
-transitions under "triggers"), `view.py --tree` draws `<Paid>` where it lands — a lane
+`sigil view` draws a dashed edge from `<Paid>` to each owner it drives (and lists the
+transitions under "triggers"), `sigil view --tree` draws `<Paid>` where it lands — a lane
 from whoever emits it (`›`) into each state it enters (`e` toggles both; `v` /
 `--events land|nodes` switches either view between an event drawn where it lands and
 an event drawn as a node of its own) — and Mermaid gets a dotted `triggers` edge.
-`view.py --sim` runs the machines: each event moves its owners' current state (`◉`). A trigger with no matching event is still valid — it
+`sigil view --sim` runs the machines: each event moves its owners' current state (`◉`). A trigger with no matching event is still valid — it
 names a cause outside the document.
 
 **Narrowing: aim an event at one owner.** By default an event drives every machine
@@ -597,7 +597,7 @@ without one is still valid.
 ```
 
 A stated bound does not change how a design is run: a consumer that runs it bounds
-the depth itself (`view.py --sim` stops at depth 3 and logs a base case).
+the depth itself (`sigil view --sim` stops at depth 3 and logs a base case).
 
 ---
 
@@ -777,7 +777,7 @@ Lint `SGL112` (warning): a path that matches no occurrence in the document.
 
 ### Rendering composition
 
-**Terminal.** `view.py FILE --tree` draws the tree as an outline and each flow as a
+**Terminal.** `sigil view FILE --tree` draws the tree as an outline and each flow as a
 lane beside it (`●` marks a lane's source, `◀` each target; a lane crossing another
 row hops over it). A flow to a bare name taps every occurrence; a path flow taps only
 the occurrences it matches. An opened `X := { … }` expansion's members hang off dotted
@@ -785,7 +785,7 @@ rails (`├┄┄ [Router]`), apart from a branch's solid `├──`; a run of 
 siblings is joined by a brace (`⎫ … ⎭`) after their labels. The default graph view
 and the flow view (`--flow`, a call graph read left to right) show the flows alone.
 
-**Mermaid.** `render.py` draws composition by default:
+**Mermaid.** `sigil export FILE --mermaid` draws composition by default:
 
 - **Subgraphs** (the default). A parent with branches becomes a `subgraph`, and every
   occurrence is its own node, so the ship's `{Transform}` and the bullet's
@@ -949,7 +949,7 @@ Mode declaration goes on the first non-empty line of the document. `#!craft` doc
 ## Checks
 
 Lint asks whether a document is well formed; the **composition checks**
-(`check.py`, rules `SGCnnn`, [RFC 0003](./rfcs/0003-composition-checks.md)) ask
+(`sigil check`, rules `SGCnnn`, [RFC 0003](./rfcs/0003-composition-checks.md)) ask
 whether it says how its risks are handled — an external call with no `@timeout`, a
 retry on a write with no idempotency, two writers on one store, a failure with no
 route, an event nothing handles, a state machine that can get stuck. A finding never
@@ -972,21 +972,21 @@ as a write, a name-based pairing) drops one tier and says what it guessed; a fin
 whose every witness needs two or more simultaneous failures caps at warn. A fragment
 with no mode line is checked as `#!sketch`.
 
-**Running them.** `check.py FILE` prints the findings in lint's format
+**Running them.** `sigil check FILE` prints the findings in lint's format
 (`severity:line:SGCnnn: rule-name: message`), exit 0 / 1 / 2 like lint.
 `--mode sketch|craft|spec` checks as another mode; `--all` also prints the hidden
 findings; `--k N` sets how many failures one simulated run combines (default 1 in
 sketch and craft, 2 in spec); `--json` prints one object with each rule's tier, why
 it matters, how to satisfy it, and the witness scenario; `--rules` lists every rule
-with its tier. `lint.py FILE --deep` runs lint and the checks together and merges the
+with its tier. `sigil lint FILE --deep` runs lint and the checks together and merges the
 two reports into one list sorted by line, with the acknowledged findings last as
 `accepted:` lines; its exit code is the worse of the two. Fix lint errors first: a
-malformed line can explain a finding. `view.py FILE --checks` (live key `c`) marks
+malformed line can explain a finding. `sigil view FILE --checks` (live key `c`) marks
 the findings on the drawing in every view (graph, tree, flow).
 
 **Three sources of rules.** *Structural* rules read the wiring (call policy, store
 access, failure routes, state machines, cycles, bounds). *Behavioural* rules read the
-simulator's runs of the design (`view.py --sim`), exploring single and combined
+simulator's runs of the design (`sigil view --sim`), exploring single and combined
 failures, and runs where a later entry starts while an earlier one's episode is
 still running (each start tick of that episode, within `--budget`; the witness is
 named `Entry@t`): races on a store, joins that stall, events a machine drops, orders
@@ -1040,7 +1040,7 @@ catalog, with a flagged and a declared example for every rule, is
 ## Ready to export
 
 A `#!spec` document that is final can be exported as a build skeleton
-(`export.py SPEC --out DIR`, see [`docs/tools.md`](./docs/tools.md)): a folder per
+(`sigil export SPEC --out DIR`, see [`docs/tools.md`](./docs/tools.md)): a folder per
 **system**, a file per component, and a manifest whose hashes are the contract. The
 systems are read off the document; there is no syntax for them:
 
@@ -1067,7 +1067,7 @@ payloads and returns. System A depends on B when a flow leaves A for B.
 ```
 
 Two **readiness rules** (binding tier: errors in `#!spec`) run only when a check is
-asked for export (`check.py --export`, which `export.py` runs as its gate), so no
+asked for export (`sigil check --export`, which `sigil export` runs as its gate), so no
 other check output changes:
 
 - **SGC401 `no-home`**: a component written in two systems, neither of which
@@ -1136,7 +1136,7 @@ A dialect **adds**; it never changes the meaning of core syntax:
   example, "every value payload in this dialect must carry a concern tag").
 - **Renderer hooks.** Pre-processing so that dialect-only lines render sensibly
   (or are stripped) in diagrams.
-- **Rule packs.** Extra composition checks for `check.py` (see "Checks"), extra
+- **Rule packs.** Extra composition checks for `sigil check` (see "Checks"), extra
   recognised `@inv` heads, and extra read verbs. A pack's rules use the dialect's
   own id prefix and never reuse a core rule's id or name, its heads never redefine
   a core head, and a dialect may not claim a comment marker the core reserves
@@ -1147,13 +1147,21 @@ sections it extends. A dialect's grammar is an **addendum** to the core formal
 grammar below — it extends `stmt`, `entity`, `mod`, and `payload`, and adds its
 own productions.
 
-**Selecting a dialect.** The reference tools (`lint.py`, `render.py`, `check.py`
-and the viewer) take `--dialect NAME`, defaulting to the environment variable
-`SIGIL_DIALECT`. A dialect is found by name next to the core package
+**Selecting a dialect.** Every `sigil` subcommand (lint, check, view, export and
+its Mermaid) takes `--dialect NAME`, defaulting to the environment variable
+`SIGIL_DIALECT`. A dialect is found by name next to the repository
 (`../sigil-<name>/dialect.py`), in any directory on `SIGIL_DIALECT_PATH`
 (`os.pathsep`-separated; a `sigil-<name>/dialect.py` or `<name>/dialect.py` inside
 it), or by passing a path to the dialect module directly. An unknown name is an
 error, not a silent fallback.
+
+**The dialect API.** A dialect module imports the core's vocabulary from one
+place, `sigil.core.vocab`: the modes, arrows (`ARROW_RE`), modifier sets
+(`VALID_MODIFIERS`, `CALL_RESILIENCE_MODIFIERS`, `PERMISSION_MODIFIERS`,
+`VALID_LOOP_MODS`, …), glyph patterns (`GLYPH_PATTERNS`, `ANY_GLYPH_RE`), the
+lint records (`Diagnostic`, `LintResult`) and `strip_comment`. These names are
+stable; nothing else in the package is. A dialect's own command (a wrapper that
+always selects it) calls `sigil.cli.main(argv, dialect=NAME)`.
 
 **Without a dialect** the tools lint and render pure core Sigil. Dialect
 vocabulary that appears in a core-only run gets no special treatment — it is
@@ -1415,7 +1423,7 @@ GLYPH ∈ `{ [ ( { < | }`, matched by its closing counterpart.
 ## What Sigil deliberately doesn't do
 
 - **No algorithm or data-structure notation.** Sigil describes wiring between components, not what happens *inside* one. A component `[QuickSort]` is a valid glyph; its recursion depth, partition strategy, or complexity bound is not Sigil's concern. If the user asks to encode an algorithm, direct them to prose or code — Sigil stays language-agnostic by keeping implementation internals opaque.
-- **No execution semantics** (no runtime, no types beyond declaration). `view.py --sim`
+- **No execution semantics** (no runtime, no types beyond declaration). `sigil view --sim`
   walks a design's pathways for a reader — tokens along the flows, one scenario at a
   time (happy path, each failure route, branch arm, race, two entries overlapping) —
   but its choices (written order, entries one after another unless a scenario starts

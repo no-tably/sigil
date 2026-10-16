@@ -1,11 +1,49 @@
 # Tools reference
 
-Every tool is a Python 3 script with no dependencies beyond the standard library.
-Each one takes a file, or `-` for stdin. The [README](../README.md) has the overview.
+Every tool is a subcommand of one command, `sigil`, with no dependencies beyond
+the Python 3 standard library: run `bin/sigil` (or `python3 -m sigil` from the
+repository). Each subcommand takes a file, or `-` for stdin. The
+[README](../README.md) has the overview.
+
+## The command
+
+```
+sigil lint FILE|- [--deep]
+sigil check FILE|- [--mode M] [--k N] [--budget N] [--overlaps …] [--json] [--export]
+sigil view FILE [--once] [--graph|--tree|--flow|--run] [--sim S] …
+sigil export SPEC --out DIR [--json] [--dry-run]
+sigil export FILE --mermaid [--depth N|all] [--composition …] [--spine]
+sigil frames draw FILE … | sigil frames follow CONTROL
+```
+
+`sigil` with no subcommand prints that list. Each subcommand loads only the parts of
+the package it needs, so `sigil lint` never loads the simulator or the views. Every
+subcommand takes `--dialect NAME` (see [Dialects](#dialects)).
+
+**The package.** `bin/sigil` puts the package on the path and calls `sigil.cli`.
+The package is `sigil/`, one subpackage per layer, as drawn in
+[`design/sigil.sigil`](../design/sigil.sigil) (each expansion there is a layer):
+
+| Layer | Holds |
+| --- | --- |
+| `sigil/core` | the notation read: `lex` (the lexical tables, kept once), `tokens`, `statements`, `parse` (a document → the graph model in `graph`), `comments`, `dialects`, `vocab` (the dialect API) |
+| `sigil/model` | what a design does: `scene`, the simulator `sim/` (`program`, `engine`, `scenarios`, `narration`), `systems` (the export model) |
+| `sigil/analyse` | is it sound: `lint/` (SGLnnn, a module per rule group), `check` (SGCnnn: registry, findings, acknowledgements, budget), `rules/` |
+| `sigil/publish` | what leaves sigil: `mermaid`, `spine`, `systems`, `exporter`, `delta` |
+| `sigil/present` | the drawings: `app` (the live viewer), `views/` (graph, tree, flow, run), `kit`, `themes`, `frames` |
+| `sigil/cli.py` | the command: argument parsing, `lint --deep` (lint and check joined here, not in a layer) |
+
+**The layer rule.** A layer imports only the layers above it:
+`core ← model ← analyse ← publish / present ← cli`, and publish and present never
+import each other. No module loads another by path; the one exception is
+`core/dialects.py`, since a dialect is a file beside the package.
+`tests/test_spine.py` checks every import, lazy ones too.
 
 ## Exit codes
 
-Every tool shares one table, and prints its errors to stderr as `tool.py: message`.
+Every subcommand shares one table, and prints its errors to stderr after a name:
+for now the 0.5 script's (`lint.py: message`, `render.py: …` for `--mermaid`), so
+their output is unchanged.
 
 | Code | Means |
 | --- | --- |
@@ -13,21 +51,21 @@ Every tool shares one table, and prints its errors to stderr as `tool.py: messag
 | 1 | warnings or findings only |
 | 2 | errors: an error-severity diagnostic or finding, bad usage, or input the tool cannot read |
 
-Two exceptions: `view.py --once` exits 1 on a lint error, since the drawing is its
-output, and `export.py` exits 1 when it cannot write the folder and 2 when the spec
+Two exceptions: `sigil view --once` exits 1 on a lint error, since the drawing is its
+output, and `sigil export` exits 1 when it cannot write the folder and 2 when the spec
 is not ready to export.
 
-## `lint.py FILE|-`
+## `sigil lint FILE|-`
 
 Validates a document and prints one `severity:line:rule: message` line per issue.
 Its exit code follows the [table](#exit-codes): 0 clean, 1 warnings, 2 errors.
 
-- `--deep` also runs the composition checks (`check.py`) and merges both reports into
+- `--deep` also runs the composition checks (`sigil check`) and merges both reports into
   one list by line. Acknowledged findings come last, as `accepted:` lines. The exit
   code is the worse of the two.
-- `--dialect NAME` lints with a dialect's extra vocabulary (see [Dialects](#dialectspy)).
+- `--dialect NAME` lints with a dialect's extra vocabulary (see [Dialects](#dialects)).
 
-## `check.py FILE|-`
+## `sigil check FILE|-`
 
 Composition checks: rules `SGCnnn`, from
 [RFC 0003](../rfcs/0003-composition-checks.md). It asks whether the design says how
@@ -59,23 +97,23 @@ binding rules errors. The line format and [exit codes](#exit-codes) match lint.
 - `--json` prints one object per run: rule, tier, why, how to satisfy, witness (and
   `at`, the tick in the witness run where a behavioural finding shows).
 - `--export` also runs the export readiness rules, SGC401 `no-home` and SGC402
-  `untyped-boundary` (see [`export.py`](#exportpy-spec---out-dir)). Without it they never
+  `untyped-boundary` (see [`sigil export`](#sigil-export-spec---out-dir)). Without it they never
   run, so no other output changes.
 - `--rules` lists the rules and exits.
 - `--dialect NAME` adds a dialect's rule pack.
 
 See "Checks" in [`language.md`](../language.md).
 
-## `export.py SPEC --out DIR`
+## `sigil export SPEC --out DIR`
 
 Exports a ready `#!spec` document as a build skeleton: a folder per system, a file
 per component, and `manifest.json` as the contract. Whoever builds against it reads
 the manifest first. Building itself happens outside sigil.
 
-**The gate.** Only a ready document exports: its mode line is `#!spec`, `lint.py`
-reports no error, and `check.py --export` (spec mode, so the overlap runs too) leaves
+**The gate.** Only a ready document exports: its mode line is `#!spec`, `sigil lint`
+reports no error, and `sigil check --export` (spec mode, so the overlap runs too) leaves
 no error and no warning unacknowledged; info findings are fine. Otherwise
-`export.py` prints the lines that block it, exits 2 and touches nothing.
+`sigil export` prints the lines that block it, exits 2 and touches nothing.
 
 **Systems** are read off the design, with no syntax of their own (see "Ready to
 export" in [`language.md`](../language.md)): every `X := { … }` expansion is a
@@ -84,15 +122,15 @@ every composition-tree root is a system holding its tree, and every other node i
 the top system, named after the spec file's stem. Each component has one **home**.
 
 - `--out DIR` the export folder, made when missing. It must be empty or hold an
-  earlier export (a `manifest.json`); `export.py` never writes over a folder it did
+  earlier export (a `manifest.json`); `sigil export` never writes over a folder it did
   not make.
 - `--dry-run` prints the delta and writes nothing.
 - `--json` prints the delta as JSON instead of the summary in words.
-- `--dialect NAME` loads a dialect, as `lint.py` and `check.py` do.
+- `--dialect NAME` loads a dialect, as every subcommand does.
 
 Exit codes: 0 exported (or a dry run), 1 the folder could not be written, 2 not
 ready to export or bad input (an unreadable spec, an unknown dialect, a folder
-`export.py` did not make, a `manifest.json` it cannot read).
+`sigil export` did not make, a `manifest.json` it cannot read).
 
 **The folder.**
 
@@ -124,7 +162,7 @@ form, first 16 hex digits: reformatting or reordering the spec changes neither;
 changing a payload, a modifier, a description or a state does. The manifest's
 hashes are the truth; written last, it is what marks a finished export.
 
-**Re-export and the delta.** Before writing, `export.py` reads the manifest already
+**Re-export and the delta.** Before writing, `sigil export` reads the manifest already
 in DIR and sorts every system into one list:
 
 | Class | Means |
@@ -141,12 +179,12 @@ spec_hash>, "added", "removed", "rebuild", "recheck", "unchanged", "systems": {n
 "body"}` (or null) and `because` lists, for a recheck, the systems whose interface
 changed. Only files whose content changed are written, so an unchanged system's
 files are left alone. A system folder may also hold a builder's own files:
-`export.py` deletes or compares only the files an earlier export wrote (the names
+`sigil export` deletes or compares only the files an earlier export wrote (the names
 in its manifest), and a removed system's folder stays while it holds others. A first
 export writes no `delta.json`; `--json` and `--dry-run` then list every system as
 `added`. The delta is a hint; the manifest's hashes stay the truth.
 
-## `view.py FILE`
+## `sigil view FILE`
 
 A live terminal view of the design that redraws on every save. It has four views:
 the flow view (a call graph read left to right: bare glyph labels in columns by
@@ -401,7 +439,7 @@ The tool's input:
 - `scenario` — a scenario to simulate, as `--sim` names it: a listed name, or
   `Entry@t` to start that entry at tick t while earlier episodes still run,
   combined with `+` (`Api.charge:fails+Author@40`). `""` ends the run.
-- `frame` — the frame of the run to show: a 0-based number, as view.py's
+- `frame` — the frame of the run to show: a 0-based number, as the viewer's
   `--frame` counts them, or `"last"`. A new run starts on its last frame. The
   pane and widget play every frame of a run, however long, drawing it a window
   of frames at a time.
@@ -410,10 +448,10 @@ The tool's input:
 
 A field you leave out keeps its last value. The reply says where the document is
 shown, then gives the summary line, lint, the run's step at that frame, its
-narration line (`now: …`, in view.py's words) and path (`path: …`, the hop now
+narration line (`now: …`, in the viewer's words) and path (`path: …`, the hop now
 marked `▸`), the run's
 outcome, and the scenario names. It never returns the drawing:
-`view.py --once` prints that.
+`sigil view --once` prints that.
 
 `/sigil-pane` takes the same fields as words, in any order: `FILE`, a view name,
 `depth N|all`, `sim SCENARIO`, `frame N|last`, `play` and `payloads`. With no
@@ -421,7 +459,7 @@ words it reopens the pane. `/sigil-pane display [mod|multiplex|auto]` says or se
 where it draws, and `/sigil-pane layout [auto|wrap|pan]` how a drawing wider than
 the pane fits (see [the viewer plugin contract](#the-viewer-plugin-contract)).
 `layout` is the plugin option of that name, a `/config` row as `display` is; in a
-split it is view.py's `--layout`. Panned, a drawing wider than the pane shows its
+split it is `sigil view`'s `--layout`. Panned, a drawing wider than the pane shows its
 `h` and `l` keys (`◀` `▶`), which move it half a pane across.
 
 The plugin option `display` picks where the viewer draws. `/sigil-pane display
@@ -435,21 +473,21 @@ the new value and the next view draws there.
   (ctrl+x then Tab, or a click, gives it the keys; Esc hands them back, and the
   footer says which). `1` `2` `3` `4` pick graph, tree, flow and run (the current
   one in brackets), `t` cycles them, `d` the depth; with a run, `p` plays or pauses it,
-  `b` and `n` step it, and `s` and `f` play it slower and faster: view.py's speeds,
+  `b` and `n` step it, and `s` and `f` play it slower and faster: the viewer's speeds,
   ¼ to 32 frames a second from 2, shown in the status line (a pane's hotkey is a
-  letter or a digit, so not view.py's `-` and `+`). Under the drawing the pane shows the run's path
-  (in view.py's styles) and, after `›`, its narration line, as the live view's rows under its footer.
+  letter or a digit, so not the viewer's `-` and `+`). Under the drawing the pane shows the run's path
+  (in the viewer's styles) and, after `›`, its narration line, as the live view's rows under its footer.
   Docked, the drawing fills the pane and the legend,
   summary and keys sit at its bottom. The flow and run views draw with their own
-  legends. The pane draws the cells that `pane.py
-  draw` packs (frames.py's packing, with hex colours), not ANSI. A pane opened
+  legends. The pane draws the cells that `sigil frames
+  draw` packs (with hex colours), not ANSI. A pane opened
   without being asked needs 144 columns. Below that, the reply says it's waiting
   and names `/sigil-pane`, which opens it at any width.
 - `multiplex` opens a split to the right in herdr, tmux or zellij, running
-  `pane.py follow CONTROL`. That loop runs `view.py` live with the flags in the
+  `sigil frames follow CONTROL`. That loop runs `sigil view` live with the flags in the
   control file and restarts it each time the agent's next call rewrites the file.
   Pressing `q` in the split closes it. A run starts where the agent asked: the
-  file's flags carry `frame` and `play` as view.py's `--frame` and `--play` (a run
+  file's flags carry `frame` and `play` as `sigil view`'s `--frame` and `--play` (a run
   with neither starts on its last frame, as in the pane), and the reply reads the
   run at that frame. From there the split's own keys drive it.
 - `auto`, the default, picks `multiplex` when `HERDR_ENV`, `TMUX` or `ZELLIJ` is
@@ -472,17 +510,17 @@ Claude Code, with these differences:
 - The widget takes no keys, since it never has focus. `/sigil-pane` takes the tool's
   words (`FILE`, a view name, `depth N|all`, `sim SCENARIO`, `frame N|last`,
   `play`, `payloads`) plus `pause`, `back`, `next`, `-` and `+` (the run's speed,
-  as view.py's keys, shown in the status line), `left` and `right`, which pan a
+  as the viewer's keys, shown in the status line), `left` and `right`, which pan a
   panned drawing half a widget across, and `close`. With no words it
   reopens the widget.
-- `multiplex` opens the same split, running `pane.py follow`.
+- `multiplex` opens the same split, running `sigil frames follow`.
 - pi has no plugin settings, so `/sigil-pane display VALUE` and `/sigil-pane layout
   VALUE` save to the shared settings file (`~/.config/sigil/viewer.json`). For one
   session, `pi --sigil-display auto|mod|multiplex` or the `SIGIL_DISPLAY`
   environment variable wins over the file (`--sigil-layout`, `SIGIL_LAYOUT` for the
   layout); with none of them set it's `auto`.
 - In print and json modes (`-p`, `--mode json`) there's no UI. The `mod` reply
-  says so and points to `view.py --once`. In RPC mode (stdout is pi's JSON
+  says so and points to `sigil view --once`. In RPC mode (stdout is pi's JSON
   channel, not a terminal) pi sends clients only plain-text widgets, so the widget
   goes as text lines: the whole drawing at 100 columns, no colours, sent again
   whenever its lines change (a run's frame, a save, the speed).
@@ -502,13 +540,13 @@ finds the same command and the same words.
 - **`/sigil-pane layout`** and **`/sigil-pane layout VALUE`** do the same for the
   layout: `wrap` fits a drawing wider than the viewer to its width and lets it
   grow down, `pan` keeps the natural layout and pans across (the viewer's own keys
-  or words), `auto` picks whichever overflows less (view.py's `pick_layout`, given
+  or words), `auto` picks whichever overflows less (the viewer's `pick_layout`, given
   the viewer's columns and rows). The reply says what the drawing shown was laid
   out as under `auto`. `layout` is never read as a file name either. A split
-  passes it to view.py as `--layout`.
+  passes it to `sigil view` as `--layout`.
 - **The values**: `mod` draws inside the agent's own UI (a pane, a widget),
-  `multiplex` opens a split to the right running `view.py` live (through
-  `pane.py follow`), and `auto` picks `multiplex` when `HERDR_ENV`, `TMUX` or
+  `multiplex` opens a split to the right running `sigil view` live (through
+  `sigil frames follow`), and `auto` picks `multiplex` when `HERDR_ENV`, `TMUX` or
   `ZELLIJ` is set, and `mod` otherwise. `resolveDisplay` in
   `plugin/claude/hooks/logic.ts` is the rule; a plugin in TypeScript imports it.
 - **Where it's kept**: in the host's own settings when it has them (Claude
@@ -538,8 +576,8 @@ finds the same command and the same words.
 ## OpenCode
 
 OpenCode gets the skill and commands but no viewer plugin. To show a design live
-there, run `view.py FILE` in a herdr, tmux or zellij split; the agent reads
-`view.py --once`. Checked on 2026-10-07:
+there, run `sigil view FILE` in a herdr, tmux or zellij split; the agent reads
+`sigil view FILE --once`. Checked on 2026-10-07:
 
 - OpenCode's published plugin docs (opencode.ai/docs/plugins) cover server
   plugins only: hooks, events and custom tools. Nothing there draws in the TUI.
@@ -552,26 +590,52 @@ there, run `view.py FILE` in a herdr, tmux or zellij split; the agent reads
   one module to be both. The two would talk through files, and none of that can
   be checked without OpenCode installed.
 
-## `render.py FILE|-`
+## `sigil export FILE|- --mermaid`
 
-Emits a Mermaid `flowchart TD` for docs (GitHub, Obsidian, mermaid.live, …).
+Emits a Mermaid `flowchart TD` for docs or review (GitHub, Obsidian,
+mermaid.live, …). It has no gate: any mode exports, a sketch as well as a spec, and
+it writes nothing but the chart on stdout.
 
 - `--depth N|all` opens expansions.
-- `--dialect NAME` renders with a dialect.
 - `--composition subgraphs|edges|none` draws composition trees as nested subgraphs
   (the default), as labelled dotted edges, or not at all.
+- `--spine` groups the chart by the systems an export would make (see
+  [`sigil export`](#sigil-export-spec---out-dir)): the top system is the chart, and
+  every other system is a subgraph inside the one it is nested in, holding the
+  components homed there; flows are drawn as `--mermaid` draws them. Every system is
+  drawn (`--depth` does not apply). It is the shape to review before a spec is
+  exported.
+- `--dialect NAME` draws with a dialect.
 
-## `themes.py [NAME|PATH]`
+## `sigil frames`
 
-Loads a colour theme from `themes/<name>.yaml` and prints it resolved. `--list` lists
-the themes. `view.py --theme NAME` or `SIGIL_THEME=NAME` picks one, and the web page
-reads the same files. The format is in the README under
-[Themes](../README.md#themes).
+What the Claude Code pane and the pi widget run; not meant to be typed.
 
-## `dialects.py`
+- `sigil frames draw FILE [--view graph|tree|flow|run] [--depth N|all] [--width N]
+  [--height N] [--layout auto|wrap|pan] [--scenario NAME [--from N|last] [--count N]]
+  [--payloads] [--theme NAME]` prints the drawing as one JSON object of packed rows
+  (text and a style id per run, a style table with hex colours), with the legend,
+  summary, lint and scenarios, and for a run its frames a window at a time. The
+  shape is in the docstring of `sigil/present/frames.py`; the page's `frames.json`
+  and the playground use the same packing.
+- `sigil frames follow CONTROL` runs `sigil view` live with the flags in the
+  control file, restarting it each time the file is rewritten (the `multiplex`
+  split).
 
-Loads a dialect (`--dialect NAME` or `SIGIL_DIALECT`) that extends the linter, the
-renderer and the checker. See "Dialects" in [`language.md`](../language.md).
+## Themes
+
+The viewer loads a colour theme from `themes/<name>.yaml`: `sigil view --theme NAME`
+or `SIGIL_THEME=NAME` picks one, and the web page reads the same files.
+`python3 -m sigil.present.themes [NAME|PATH]` prints a theme resolved, and `--list`
+lists them. The format is in the README under [Themes](../README.md#themes).
+
+## Dialects
+
+Every subcommand loads a dialect (`--dialect NAME` or `SIGIL_DIALECT`) that extends
+the linter, Mermaid and the checker. A dialect module imports the core's vocabulary
+from `sigil.core.vocab`, the dialect API, and a dialect's own command calls
+`sigil.cli.main(argv, dialect=NAME)`. See "Dialects" in
+[`language.md`](../language.md).
 
 ## `highlight/`
 
