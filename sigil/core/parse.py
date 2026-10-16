@@ -16,8 +16,8 @@ import re
 from typing import NamedTuple, Optional
 
 from sigil.core.lex import (  # noqa: F401  (also read as parse.<name> by the model's readers)
-    ALIAS_REF, BLOCK_SENTINEL, BRANCH_RE, GLYPH_RE, OP_TARGET_RE, OPEN_TO_KIND,
-    strip_comment)
+    ALIAS_REF, BLOCK_SENTINEL, BRANCH_RE, GLYPH_BRACKETS, GLYPH_RE, OP_TARGET_RE,
+    OPEN_TO_KIND, strip_comment)
 from sigil.core.graph import (  # noqa: F401  (also read as parse.<name>)
     Access, Block, Dropped, Edge, Graph, Join, Node, Note, Section, TreeEntry, Trigger,
     mk_id, walk_depth)
@@ -464,8 +464,8 @@ def _access(graph: Graph, owner: Node, pair: tuple, line_no: int, layer: str):
 TRANSITION_RE = re.compile(r"^(\S+)\s+(?:-<([^<>]*)>->|->)\s+(\S+)\s*(.*)$")
 PSEUDO_STATES = {"+": "start", "$": "end", "_": "any"}
 
-# Core glyph kinds (OPEN_TO_KIND); any other kind is a dialect's.
-_CORE_KINDS = set(OPEN_TO_KIND.values())
+# Core glyph kinds (lex.GLYPH_BRACKETS); any other kind is a dialect's.
+_CORE_KINDS = set(GLYPH_BRACKETS)
 
 
 def _layer_num(layer) -> int:

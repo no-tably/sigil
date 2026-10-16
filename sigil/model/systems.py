@@ -75,14 +75,13 @@ from dataclasses import dataclass, field, replace
 from typing import Iterable, NamedTuple, Optional
 
 from sigil.core.graph import walk_depth
-from sigil.core.lex import BLOCK_SENTINEL, comment_start
+from sigil.core.lex import BLOCK_SENTINEL, GLYPH_BRACKETS, comment_start
 
 
 # ---------------------------------------------------------------------------
 # Records
 # ---------------------------------------------------------------------------
 
-GLYPH_BRACKETS = {"service": "[]", "data": "{}", "event": "<>", "actor": "()", "store": "||"}
 NOT_COMPONENTS = frozenset({"state", "alias"})
 TYPED_KINDS = frozenset({"data", "event"})          # a glyph that is its own payload
 ARROW_MODE = {"->": "sync", "→": "sync", "<->": "sync", "~>": "async", "*>": "async",

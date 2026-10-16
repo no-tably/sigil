@@ -13,8 +13,9 @@ one reading each:
                   flow's op-call target), EXT_OP_RE / INT_OP_RE (an op-call
                   payload), OP_HEAD_RE (an op-call's head `verb(`)
     arrows        ARROWS, ARROW_RE
-    glyphs        NAME_CHARS, GENERIC, GLYPH_RE, OPEN_TO_KIND, CLOSER, GENERIC_RE,
-                  GLYPH_PATTERNS, ANY_GLYPH_RE, HOLE_RE, DIALECT_COL
+    glyphs        GLYPH_BRACKETS (the core kinds' brackets: OPEN_TO_KIND,
+                  CLOSER, GLYPH_PATTERNS read off it), NAME_CHARS, GENERIC,
+                  GLYPH_RE, GENERIC_RE, ANY_GLYPH_RE, HOLE_RE, DIALECT_COL
     modifiers     PAREN_ARG, FREE_ARG_MODS, ARG_MODIFIERS, MODIFIER_RE,
                   MOD_TOKEN_RE, MOD_NAME_RE, TAIL_ONLY_RE, PRINCIPAL_SET_RE,
                   STREAM_BOUND_RE, GLUED_MOD_RE, TAIL_MOD_RE, CARD_RE, BOUND_RE,
@@ -28,7 +29,7 @@ one reading each:
     scanning      balanced_end (a bracket group's end), apply_masks (a list of
                   length-preserving `fn(line) -> line` masks)
 
-A dialect's hooks are read by sigil.core.dialects.hook; its vocabulary (the
+A dialect's hooks are read by sigil.core.dialects._hook; its vocabulary (the
 names a dialect builds on) is re-exported by sigil.core.vocab.
 
 Standard library only; imports nothing of sigil.
@@ -289,25 +290,29 @@ GLYPH_RE = re.compile(
     r"(?P<close>[\]\}>\)\|])"
 )
 
-OPEN_TO_KIND = {
-    "[": "service",
-    "{": "data",
-    "<": "event",
-    "(": "actor",
-    "|": "store",
+# The core glyph kinds and their brackets — the one table; the views below and
+# core.graph.GLYPH_KINDS (a node's label brackets) are read off it.
+GLYPH_BRACKETS = {
+    "service": ("[", "]"),
+    "data":    ("{", "}"),
+    "event":   ("<", ">"),
+    "actor":   ("(", ")"),
+    "store":   ("|", "|"),
 }
 
-# Each glyph's opening bracket → its closing one.
-CLOSER = {"[": "]", "{": "}", "<": ">", "(": ")", "|": "|"}
+# Each glyph's opening bracket → its kind, and → its closing bracket.
+OPEN_TO_KIND = {open_: kind for kind, (open_, _close) in GLYPH_BRACKETS.items()}
+CLOSER = dict(GLYPH_BRACKETS.values())
+
+
+def _name_pattern(open_: str, close: str) -> "re.Pattern":
+    """A glyph of these brackets, group 1 its name (no bracket of its own inside)."""
+    inside = "".join(map(re.escape, dict.fromkeys(open_ + close)))
+    return re.compile(f"{re.escape(open_)}([^{inside}]+){re.escape(close)}")
+
 
 # One pattern per core glyph kind, group 1 the name (no generics: lint's reading).
-GLYPH_PATTERNS = {
-    "service": re.compile(r"\[([^\[\]]+)\]"),
-    "data":    re.compile(r"\{([^\{\}]+)\}"),
-    "event":   re.compile(r"<([^<>]+)>"),
-    "actor":   re.compile(r"\(([^()]+)\)"),
-    "store":   re.compile(r"\|([^|]+)\|"),
-}
+GLYPH_PATTERNS = {kind: _name_pattern(*pair) for kind, pair in GLYPH_BRACKETS.items()}
 
 # Any glyph at all (for flow-line analysis). The `<->` bidirectional arrow is
 # never an event glyph `<-…>`.

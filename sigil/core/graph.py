@@ -16,8 +16,8 @@ of it every layer above shares. No drawing here.
     joins, access   drawn_join, access_kind, writer_badges; base_kind of an
                     edge kind (`access:w` → `access`)
 
-ALL_DEPTH is `--depth all` (sigil.cli's depth_arg reads `N|all`). This module imports none
-of sigil.
+ALL_DEPTH is `--depth all` (sigil.cli's depth_arg reads `N|all`). Of sigil this
+module imports only the glyph bracket table (sigil.core.lex.GLYPH_BRACKETS).
 """
 
 from __future__ import annotations
@@ -26,6 +26,8 @@ import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import NamedTuple, Optional
+
+from sigil.core.lex import GLYPH_BRACKETS
 
 
 # ---------------------------------------------------------------------------
@@ -385,16 +387,12 @@ def mk_id(name: str) -> str:
 # Glyph text
 # ---------------------------------------------------------------------------
 
-# Each core node kind's brackets. A dialect adds kinds through its NODE_KINDS
-# mapping ({kind: {"open", "close", optional "label": fn(node) -> str, …}});
-# use_dialect_kinds() makes them the ones node_label reads (the viewer's kit
-# sets them with the kinds it draws).
+# Each core node kind's brackets (a glyph kind's from lex.GLYPH_BRACKETS). A
+# dialect adds kinds through its NODE_KINDS mapping ({kind: {"open", "close",
+# optional "label": fn(node) -> str, …}}); use_dialect_kinds() makes them the
+# ones node_label reads (the viewer's kit sets them with the kinds it draws).
 GLYPH_KINDS = {
-    "service": {"open": "[", "close": "]"},
-    "data":    {"open": "{", "close": "}"},
-    "event":   {"open": "<", "close": ">"},
-    "actor":   {"open": "(", "close": ")"},
-    "store":   {"open": "|", "close": "|"},
+    **{kind: {"open": o, "close": c} for kind, (o, c) in GLYPH_BRACKETS.items()},
     "state":   {"open": "",  "close": ""},
     "alias":   {"open": "[[", "close": "]]"},   # `name := …`
 }
