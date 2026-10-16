@@ -36,6 +36,7 @@ from functools import cached_property
 from typing import NamedTuple, Optional
 
 from sigil.core import graph as core_graph
+from sigil.core.lex import strip_comment
 
 
 SYNC_KINDS = ("->", "→", "<->", "*>", "?>")       # the caller waits (as check_flow)
@@ -206,9 +207,8 @@ class Facts:
     @cached_property
     def code(self) -> list:
         """Every line with its comment cut (block-string bodies blanked)."""
-        strip = self.doc.render.strip_comment
         quoted = self.doc.layout.quoted
-        return ["" if n in quoted else strip(line)
+        return ["" if n in quoted else strip_comment(line)
                 for n, line in enumerate(self.doc.lines, start=1)]
 
     @cached_property

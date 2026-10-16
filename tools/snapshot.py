@@ -360,8 +360,17 @@ def git_head(repo: Path) -> str:
     return p.stdout.strip()
 
 
+def precompile(repo: Path) -> None:
+    """Byte-compile the package once: the cases run with PYTHONDONTWRITEBYTECODE,
+    so without a __pycache__ each would compile it again and time slower."""
+    if (repo / "sigil").is_dir():
+        subprocess.run([sys.executable, "-m", "compileall", "-q", str(repo / "sigil")],
+                       check=False, capture_output=True)
+
+
 def snapshot(runner_name: str, only: list, jobs: int, timed: bool) -> tuple:
     """Run the corpus: (outputs by case id, meta)."""
+    precompile(REPO)
     with tempfile.TemporaryDirectory(prefix="sigil-snapshot-") as tmp:
         tmp = Path(tmp)
         items = repo_items(REPO) + block_items(REPO, tmp / "blocks")

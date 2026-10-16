@@ -93,6 +93,7 @@ from typing import Callable, Iterable, Optional
 # their names here).
 from sigil.core.comments import (  # noqa: F401  (re-exported)
     Ack, Layout, RULE_ID_RE, ack_span, layout_of, parse_ack, read_acks)
+from sigil.core.lex import strip_comment
 
 
 _RULES = Path(__file__).resolve().parent / "rules"      # the rule modules
@@ -258,6 +259,7 @@ class Hit:
     trace: bool = False              # evidence comes from a simulator trace
     scopes: tuple = ()
     acknowledgeable: Optional[bool] = None   # None: the rule's
+    about: str = ""                  # the id of a rule this hit is about (SGC003's)
 
 
 @dataclass
@@ -387,6 +389,10 @@ class Doc:
         self._limits = limits
         self._overlaps = overlaps    # None: the mode's (DEFAULT_OVERLAPS)
 
+    def id_of(self, name: str) -> str:
+        """The id of the rule named `name` ("" when no rule has it)."""
+        return next((i for i, n in self.names_by_id.items() if n == name), "")
+
     @cached_property
     def budget(self) -> Optional[int]:
         """Runs one exploration may make (--budget; default: the trace module's)."""
@@ -469,7 +475,7 @@ class Doc:
 
     @cached_property
     def layout(self) -> Layout:
-        return layout_of(self.lines, self.render.strip_comment)
+        return layout_of(self.lines, strip_comment)
 
     @cached_property
     def acks(self) -> list:
@@ -971,15 +977,16 @@ def run_rules(doc: Doc, rules: list) -> list:
     return sorted(out, key=lambda f: f.sort_key)
 
 
-def idle_names(registry: dict) -> frozenset:
-    """The readiness rule names (EXPORT_NAMES) this registry does not run."""
-    return frozenset(EXPORT_NAMES.values()) - {r.name for r in registry.values()}
+def idle_ids(registry: dict) -> frozenset:
+    """The readiness rule ids (EXPORT_NAMES) this registry does not run."""
+    return frozenset(EXPORT_NAMES) - {r.id for r in registry.values()}
 
 
 def about_idle_rule(f: Finding, idle: frozenset) -> bool:
-    """An ack-unused finding about a rule that did not run: an acknowledgement of a
-    readiness rule is for the export check, and no plain check judges it stale."""
-    return f.rule.name == "ack-unused" and dict(f.hit.scopes).get("rule") in idle
+    """An SGC003 (ack-unused) finding about a rule that did not run (`idle`: rule
+    ids): an acknowledgement of a readiness rule is for the export check, and no
+    plain check judges it stale."""
+    return f.rule.id == "SGC003" and f.hit.about in idle
 
 
 def is_acknowledged(f: Finding) -> bool:
@@ -1039,7 +1046,7 @@ def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
     fold(findings)
     doc.findings = list(findings)
     doc.ack_used = frozenset(acknowledge(findings, doc.acks))
-    idle = idle_names(registry)
+    idle = idle_ids(registry)
     later = [f for f in run_rules(doc, [r for r in registry.values() if r.after_acks])
              if not about_idle_rule(f, idle)]
     findings = sorted(findings + later, key=lambda f: f.sort_key)

@@ -3,6 +3,7 @@ mermaid — a Sigil document as a Mermaid flowchart (TD): the `--mermaid` export
 
 Usage:
     sigil export FILE --mermaid [--depth N|all] [--composition MODE] [--dialect NAME]
+    sigil export FILE --mermaid --spine [--dialect NAME]
 
 Options:
     --depth N          Draw `X := { … }` expansions (and `state` machines) as
@@ -12,6 +13,10 @@ Options:
                        `subgraphs` (default — nested subgraphs, one node per
                        occurrence), `edges` (one node per name, dotted relation
                        edges) or `none`. A dialect may change the default.
+    --spine            Group the chart by the export's systems: a subgraph per
+                       expansion and composition tree, nested as the export
+                       nests them (sigil/publish/spine.py). --depth and
+                       --composition do not apply.
     --dialect NAME     Load a dialect (name or path to a dialect.py) that extends
                        the glyph syntax / strips. Default: env SIGIL_DIALECT; unset
                        = core Sigil. See sigil/core/dialects.py.
@@ -54,6 +59,7 @@ from __future__ import annotations
 import re
 import sys
 from dataclasses import replace
+from pathlib import PurePath
 from typing import Optional
 
 from sigil.core.graph import (Edge, Graph, Node, depth_arg, matching_occurrences, occurrences,
@@ -108,7 +114,8 @@ def _node_kinds(dialect=None) -> dict:
     return _hook(dialect, "NODE_KINDS", {}) or {}
 
 
-def _class_def(dialect=None) -> str:
+def class_defs(dialect=None) -> str:
+    """The chart's classDef footer: the core kinds, a dialect's, the styles."""
     extra = [f"classDef {k['mermaid_class']} {k['classdef']}"
              for k in _node_kinds(dialect).values()
              if k.get("mermaid_class") and k.get("classdef")]
@@ -444,7 +451,7 @@ def render(text: str, depth: int = 1, dialect=None, composition: Optional[str] =
                 else [t.event])
         wires += [f'\n    {src} -. "triggers" .-> {dst}' for src in srcs]
     body += "".join(wires)
-    classes = _class_def(dialect)
+    classes = class_defs(dialect)
     if any(n.kind == "alias" for g, _o, _l in walk_depth(graph) for n in g.nodes.values()):
         classes += "\n    " + _ALIAS_CLASSDEF
     return f"flowchart TD\n{body}\n\n{classes}"
@@ -460,6 +467,8 @@ def main(argv=None, default_dialect=None) -> int:
     ap.add_argument("--composition", choices=("subgraphs", "edges", "none"), default=None,
                     help="composition trees as nested subgraphs (default), dotted "
                          "relation edges, or not at all")
+    ap.add_argument("--spine", action="store_true",
+                    help="group the chart by the export's systems (a subgraph per system)")
     ap.add_argument("--dialect", default=default_dialect,
                     help="dialect name or path (default: $SIGIL_DIALECT)")
     a = ap.parse_args(argv)
@@ -480,5 +489,15 @@ def main(argv=None, default_dialect=None) -> int:
         print(f"render.py: cannot read {a.file}: {exc.strerror or exc}", file=sys.stderr)
         return 2
 
-    print(render(text, depth=a.depth, dialect=dialect, composition=a.composition))
+    if a.spine:
+        from sigil.publish.spine import spine
+        print(spine(text, stem_of(a.file), dialect=dialect))
+    else:
+        print(render(text, depth=a.depth, dialect=dialect, composition=a.composition))
     return 0
+
+
+def stem_of(path: str) -> str:
+    """The top system's name for a file (as `sigil export` names it); stdin's
+    is `document`."""
+    return "document" if path == "-" else PurePath(path).stem

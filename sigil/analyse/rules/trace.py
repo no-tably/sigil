@@ -730,8 +730,8 @@ def race_text(f, tf: TraceFacts, run: Run, c: Clash) -> tuple:
         return (f"`{f.g(me)}` holds `@owns {f.g(sid)}` while {other} holds it too "
                 f"{in_run(run)}, and nothing orders them",
                 f"Two tasks hold `{f.g(sid)}` at once {in_run(run)}. Which write wins?",
-                f"`@inv serialised({f.g(sid)})` (one holder at a time), `@inv cas(version)` "
-                "or `@inv atomic(…)`")
+                f"`@inv serialised({f.g(sid)})` on the store's own line (one holder at "
+                "a time), `@inv cas(version)` or `@inv atomic(…)`")
     if c.writer is c.other:
         who = f"`{f.g(me)}` writes {s} and its entry has concurrent callers"
     elif me == them:

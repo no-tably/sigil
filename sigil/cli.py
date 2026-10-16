@@ -5,6 +5,7 @@
     sigil view FILE [--once] [--graph|--tree|--flow|--run] [--sim S] …
     sigil export SPEC --out DIR [--json] [--dry-run]
     sigil export FILE --mermaid [--depth N|all] [--composition subgraphs|edges|none]
+    sigil export FILE --mermaid --spine
     sigil frames draw FILE [--view V] [--depth N|all] [--width N] [--scenario S] …
     sigil frames follow CONTROL
 

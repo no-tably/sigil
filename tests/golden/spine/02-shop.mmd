@@ -1,0 +1,66 @@
+flowchart TD
+    Shopper_actor(("Shopper"))
+    Edge_service["Edge"]
+    Shop_service["Shop"]
+    Catalog_store[("Catalog")]
+    OrderPlaced_event>"OrderPlaced"]
+    Fulfilment_service["Fulfilment"]
+    Ledger_store[("Ledger")]
+    subgraph system__shop["Shop"]
+        direction TB
+        Cart_service["Cart"]
+        Checkout_service["Checkout"]
+        Payments_service["Payments"]
+        subgraph system__payments["Payments"]
+            direction TB
+            Gateway_service["Gateway"]
+            Risk_service["Risk"]
+            Review_service["Review"]
+            subgraph system__gateway["Gateway"]
+                direction TB
+                StripePSP_service["StripePSP"]
+                AdyenPSP_service["AdyenPSP"]
+            end
+            subgraph system__risk["Risk"]
+                direction TB
+                Model_service["Model"]
+                Features_store[("Features")]
+                Verdict_data{{"Verdict"}}
+            end
+        end
+    end
+    subgraph system__fulfilment["Fulfilment"]
+        direction TB
+        Picker_service["Picker"]
+        Packer_service["Packer"]
+        Courier_actor(("Courier"))
+    end
+    Shopper_actor --> Edge_service
+    Edge_service --> Shop_service
+    Shop_service --> Catalog_store
+    Shop_service -.-> OrderPlaced_event
+    OrderPlaced_event --> Fulfilment_service
+    OrderPlaced_event --> Ledger_store
+    Cart_service --> Checkout_service
+    Checkout_service --> Payments_service
+    Checkout_service -.-> OrderPlaced_event
+    Gateway_service --> Risk_service
+    Risk_service -. "?" .-> Review_service
+    Model_service --> Features_store
+    Model_service ==> Verdict_data
+    Picker_service --> Packer_service
+    Packer_service --> Courier_actor
+    class Edge_service,Shop_service,Fulfilment_service,Cart_service,Checkout_service,Payments_service,Gateway_service,StripePSP_service,AdyenPSP_service,Risk_service,Review_service,Model_service,Picker_service,Packer_service service
+    class Verdict_data data
+    class OrderPlaced_event event
+    class Shopper_actor,Courier_actor actor
+    class Catalog_store,Ledger_store,Features_store store
+
+    classDef service fill:#E3F2FD,stroke:#1976D2,color:#0D47A1
+    classDef data    fill:#F3E5F5,stroke:#7B1FA2,color:#4A148C
+    classDef event   fill:#FFF3E0,stroke:#F57C00,color:#E65100
+    classDef actor   fill:#E8F5E9,stroke:#388E3C,color:#1B5E20
+    classDef store   fill:#FFF9C4,stroke:#F9A825,color:#F57F17
+    classDef state   fill:#E0F2F1,stroke:#00897B,color:#004D40
+    classDef hole    stroke-dasharray:5 5,opacity:0.7
+    classDef mutable stroke-width:3px

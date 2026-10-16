@@ -94,20 +94,21 @@ def ack_scope(ack) -> str:
     return "anywhere: it sits above no statement"
 
 
-def stale_hit(ck, ack, name: str):
+def stale_hit(ck, ack, name: str, rule_id: str):
+    """SGC003's hit: `ack` covers no finding of rule `name` (id `rule_id`)."""
     where = ack_scope(ack)
     return ck.Hit(ack.line, f"the acknowledgement covers no `{name}` finding {where}",
                   f"This acknowledgement covers no `{name}` finding {where}. Is it stale?",
                   anchor=("comment", ack.line), scopes=(("rule", name),),
                   fix=f"delete `{name}` from the acknowledgement, or move it to the "
-                      "line it is about")
+                      "line it is about", about=rule_id)
 
 
 def ack_unused_rule(ck):
     def match(doc):
         for ack in doc.acks:
             for name in stale_names(ack, doc.findings, doc.known, ck.NOT_ACKNOWLEDGEABLE):
-                yield stale_hit(ck, ack, name)
+                yield stale_hit(ck, ack, name, doc.id_of(name))
 
     return ck.Rule(
         "SGC003", "ack-unused", "advisory",
@@ -1957,9 +1958,9 @@ SPECS = (
     Spec("SGC204", "race", "binding", find_race_static,
          "Two tasks touch one store and nothing orders them. Which write wins?",
          "Unordered accesses, one a write: a data race or write skew (Lamport 1978).",
-         "a single owner, the `*|S|` / `~|S|` kind, `@inv serialised(|S|)`, "
-         "`@inv cas(version)`, `@inv atomic(…)`, or `@inv ordered(key)` on a "
-         "`(User)×N` actor",
+         "a single owner, the `*|S|` / `~|S|` kind, `@inv serialised(|S|)` on the "
+         "store's own line, `@inv cas(version)`, `@inv atomic(…)`, or "
+         "`@inv ordered(key)` on a `(User)×N` actor",
          satisfiers=(("owner", "@owns"), ("owner", "ordered"), ("store", "@write"), ("store", "serialised"),
                      ("store", "cas"), ("store", "atomic"), ("store", "immutable"),
                      ("store", "~|"), ("store", "*|")),

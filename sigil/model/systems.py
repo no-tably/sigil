@@ -652,10 +652,18 @@ def dependencies(lay: Layout, flows: list, inside: dict) -> dict:
         pairs = [(f.src, f.dst)] + ([(f.dst, f.src)] if f.arrow == "<->" else [])
         for a, b in pairs:
             for sa in inside[a]:
-                for sb in inside[b]:
+                for sb in reached(b, lay, inside):
                     if sa != sb:
                         _add(deps, sa, sb)
     return deps
+
+
+def reached(nid: str, lay: Layout, inside: dict) -> frozenset:
+    """The systems a flow into node `nid` depends on: a face stands for its own
+    system alone (the system it is written in holds it, but a flow into the face
+    is no dependency on that one); any other node, every system it is in."""
+    key = lay.by_face.get(nid)
+    return frozenset({key}) if key is not None else inside[nid]
 
 
 def system_description(graph, lay: Layout, key: str, face: Optional[str]) -> tuple:
