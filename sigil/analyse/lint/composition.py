@@ -19,9 +19,10 @@ MALFORMED = ("malformed composition branch: a branch is "
              "@ attached · ! alerts when · = gathers · _ one of), or a bare "
              "spawn `\\-*`.")
 
-NO_PARENT = ("composition branch has no parent: put the parent glyph on a "
-             "line above, at a shallower indent (e.g. `[Ship]` then "
-             "`    \\-& {Transform}`).")
+NO_PARENT = ("composition branch has no parent: its parent is the nearest glyph "
+             "line above at a shallower indent, and a plain glyph line at the "
+             "branch's own indent or deeper in between ends the tree (e.g. `[Ship]` "
+             "then `    \\-& {Transform}`).")
 
 
 def branch_markers(walk: Walk, relations: Optional[str] = CORE_RELATIONS) -> dict:

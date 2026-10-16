@@ -130,6 +130,10 @@ class Readings(unittest.TestCase):
         self.assertNotIn("n2_actor", g.nodes)
         self.assertEqual([b.refs for b in g.blocks], [[], ["Req_data"]])
 
+    def test_d11_an_enum_s_values_name_no_data_glyph(self):
+        g = parse.parse_document("@enum Mode { fast, slow }\n[A] -> [B]\n")
+        self.assertEqual(list(g.nodes), ["A_service", "B_service"])
+
     def test_d18_a_ref_outside_a_payload_names_no_data_glyph(self):
         g = parse.parse_document("[X] -> |tree| ${out.subtree}\n"
                                  "loop @each kid of ${out.kids} {\n  [A] -> [B]\n}\n")
@@ -271,8 +275,34 @@ class OneHookSet(unittest.TestCase):
         self.assertEqual([e.key for e in g.edges], [("S_store", "V_service", "->")])
         self.assertEqual(g.heads, [(1, "S_store")])
         bad = _toy(strips=lambda: [lambda line: line.replace("on ", "")])
-        with self.assertRaises(ValueError):
+        with self.assertRaises(dialects.DialectError) as err:
             parse.parse_document("on <go> |S| -> [V]\n", dialect=bad)
+        self.assertIn("must keep the line's length", str(err.exception))
+
+    def test_a_prepass_that_drops_a_line_is_refused(self):
+        d = _toy(prepasses=lambda: [lambda lines, result: lines[1:]])
+        with self.assertRaises(dialects.DialectError) as err:
+            parse.parse_document("[A] -> [B]\n[C] -> [D]\n", dialect=d)
+        self.assertIn("must keep the line count (2 lines in, 1 out)", str(err.exception))
+
+    def test_a_broken_hook_is_a_command_message_not_a_traceback(self):
+        import contextlib
+        import io
+        import tempfile
+        from sigil import cli
+        with tempfile.TemporaryDirectory() as tmp:
+            dialect = Path(tmp) / "short.py"
+            dialect.write_text("NAME = 'short'\n"
+                               "def strips():\n    return [lambda s: s.replace('[B]', 'B')]\n")
+            doc = Path(tmp) / "a.sigil"
+            doc.write_text("#!craft\n[A] -> [B]\n")
+            for cmd in (["lint"], ["export", "--mermaid"], ["check"]):
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+                    code = cli.main(cmd + ["--dialect", str(dialect), str(doc)])
+                self.assertEqual(code, 2, cmd)
+                self.assertTrue(err.getvalue().startswith(f"sigil {cmd[0]}: a dialect strip"),
+                                err.getvalue())
 
 
 class Nesting(unittest.TestCase):

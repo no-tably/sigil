@@ -109,6 +109,11 @@ class TestLint(unittest.TestCase):
     def test_orphan_branch(self):
         self.assertIn("SGL111", rules("#!sketch\n    \\-& {Orphan}\n"))
 
+    def test_a_plain_line_at_the_branch_s_indent_ends_the_tree(self):
+        # the model drops [H] (no parent); lint says so (one-walk D4, crafted input)
+        self.assertIn("SGL111", rules("#!sketch\n[Root]\n  [Bad]\n  \\-> [H]\n"))
+        self.assertNotIn("SGL111", rules("#!sketch\n[Root]\n[Top]\n  \\-> [H]\n"))
+
     def test_branch_lines_not_misread(self):
         # `\\->` must not trip the reverse-arrow / prose rules once masked.
         self.assertEqual(rules("#!sketch\n[A]\n    \\-> [B]\n    \\-$ |Items|\n"), [])

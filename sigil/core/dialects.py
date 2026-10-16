@@ -47,7 +47,7 @@ load() refuses (DialectError) a module that still defines a retired hook
 (RETIRED_HOOKS: the `lint_*` / `render_*` pairs the one hook set replaced),
 naming the hook that replaces it.
 
-Run directly (`dialects.py [SPEC]`) it prints the resolved dialect's NAME, or
+Run directly (`python3 -m sigil.core.dialects [SPEC]`) it prints the resolved dialect's NAME, or
 reports an unknown dialect on stderr and exits 2.
 
 The Dialect object is the loaded module itself. Every hook is OPTIONAL — a
@@ -403,7 +403,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         d = load(argv[0] if argv else None)
     except ValueError as exc:
-        print(f"dialects.py: {exc}", file=sys.stderr)
+        print(f"sigil dialects: {exc}", file=sys.stderr)
         return 2
     print(getattr(d, "NAME", None) if d else "(core sigil — no dialect)")
     return 0

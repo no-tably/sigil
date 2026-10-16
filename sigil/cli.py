@@ -34,7 +34,8 @@ ROOT = Path(__file__).resolve().parents[1]   # the folder holding the package an
 # The name each command's messages and its usage line begin with (the Mermaid
 # chart is `sigil export --mermaid`, so it speaks as `sigil export`).
 SAID = {"lint": "sigil lint", "check": "sigil check", "view": "sigil view",
-        "export": "sigil export", "mermaid": "sigil export", "frames": "sigil frames"}
+        "export": "sigil export", "mermaid": "sigil export", "frames": "sigil frames",
+        "themes": "sigil themes"}
 
 
 def read_text(path: str) -> str:
@@ -643,4 +644,9 @@ def main(argv=None, dialect=None) -> int:
         named = f"unknown command {argv[0]!r}\n" if argv else ""
         print(f"sigil: {named}usage:\n{USAGE}", file=sys.stderr)
         return 2
-    return run(argv[1:], dialect)
+    from sigil.core.dialects import DialectError
+    try:
+        return run(argv[1:], dialect)
+    except DialectError as exc:            # a dialect hook broke its contract mid-read
+        say(argv[0], str(exc))
+        return 2

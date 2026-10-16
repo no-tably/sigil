@@ -86,7 +86,7 @@ Options:
                      (the simulator's own lines). With --run: the run's timeline as
                      data — lanes (key, label, parent, born, owner, spawned, folds),
                      spans (enter, leave, how, waits), moves, marks.
-    --checks         The composition checks overlay (check.py, the document's mode):
+    --checks         The composition checks overlay (sigil check, the document's mode):
                      with --once, the findings marked on the drawing, the checks
                      legend, then the findings list (each finding's question) after
                      lint. Live: start with the overlay on (key c).
@@ -216,7 +216,7 @@ lanes working. Without a run chosen it draws the happy run's final frame and
 says so (x plays it). Narrow: notes shrink, then move below, then the timeline
 wraps into bands, each with its own ruler and the lanes active in it.
 
-Checks (c, --checks): check.py's findings, as the document's mode shows them,
+Checks (c, --checks): sigil check's findings, as the document's mode shows them,
 marked on the drawing in the theme's ui.error / ui.warn colours — a box's
 border, a wire's stroke (graph) or lane (tree) in its worst finding's colour,
 and each finding's number after the label (◆ error, ▲ warning, △ info; a
@@ -1164,14 +1164,14 @@ CHECK_ROWS = 10                                 # live panel rows (with its summ
 
 
 class ChecksUnavailable(RuntimeError):
-    """The checker can't run here (no check.py beside view.py)."""
+    """The checker can't run here (sigil.analyse.check is missing)."""
 
 
 def run_checks(text: str, dialect=None):
     """check.py's Report on `text` in its document mode. Raises ChecksUnavailable
     without check.py; the checker's own errors pass through."""
     if importlib.util.find_spec("sigil.analyse.check") is None:
-        raise ChecksUnavailable("checks need check.py next to view.py")
+        raise ChecksUnavailable("sigil view: checks need sigil.analyse.check")
     from sigil.analyse import check
     return check.check(text, dialect=dialect)
 

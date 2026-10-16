@@ -238,12 +238,12 @@ def apply_theme(theme: dict) -> None:
 
 def use_theme(spec: str | None = None) -> None:
     """Load a theme by name or path (default: $SIGIL_THEME, else sigil) and apply it.
-    Without themes.py beside view.py the built-in sigil colours stay. Raises
+    Without sigil.present.themes the built-in sigil colours stay. Raises
     ValueError for a theme that can't be found or read."""
     if themes is not None:
         apply_theme(themes.load(spec))
     elif spec:
-        raise ValueError("--theme needs themes.py next to view.py")
+        raise ValueError("--theme needs sigil.present.themes")
 
 
 def use_dialect(dialect) -> None:

@@ -27,7 +27,7 @@ from bisect import bisect_left
 from dataclasses import dataclass
 from typing import NamedTuple, Optional
 
-from sigil.core.dialects import _hook
+from sigil.core.dialects import DialectError, _hook
 from sigil.core.lex import (
     ALIAS_RE, ANY_GLYPH_RE, ARM_RE, ARROW_RE, BARE_BRANCH_RE, BLOCK_OPEN_RE,
     BRANCH_ANY_RE, BRANCH_PARENT_RE, BRANCH_RE, DEFINE_RE, DIALECT_COL, EXPANSION_OPEN_RE,
@@ -341,7 +341,12 @@ def read_lines(lines: list, dialect=None, result=None) -> Walk:
         from sigil.core.vocab import LintResult
         report = result if result is not None else LintResult()
         for prepass in prepasses:
+            before = len(lines)
             lines = prepass(lines, report)
+            if len(lines) != before:
+                raise DialectError(f"sigil dialect {getattr(dialect, 'NAME', '?')!r}: "
+                                   f"prepass {_name(prepass)} must keep the line count "
+                                   f"({before} lines in, {len(lines)} out)")
         inner = {k: c for k, line in enumerate(lines) if (c := comment_of(line, lx.marker))}
     else:
         inner = comments
@@ -613,13 +618,17 @@ class _Walker:
         after = before
         for strip in self.lx.strips:
             after = strip(after)
+            if len(after) != len(before):
+                raise DialectError(f"a dialect strip ({_name(strip)}) must keep the "
+                                   "line's length (blank, never delete)")
         if after == before:
             return code
-        if len(after) != len(before):
-            raise ValueError("a dialect strip must keep the line's length (blank, "
-                             "never delete)")
         return code.blank([(start + i, start + i + 1)
                            for i, (a, b) in enumerate(zip(before, after)) if a != b])
+
+
+def _name(fn) -> str:
+    return getattr(fn, "__qualname__", None) or repr(fn)
 
 
 def _shift(toks: list, by: int) -> list:
