@@ -473,9 +473,6 @@ def _access(graph: Graph, owner: Node, pair: tuple, line_no: int, layer: str):
                                    gm.group(0) if gm else rest.strip()))
 
 
-# A transition inside a `state` block: `Src -<trigger>-> Dst` or `Src -> Dst`,
-# optionally followed by per-transition modifiers (`×3`, `@timeout(…)`, …).
-TRANSITION_RE = re.compile(r"^(\S+)\s+(?:-<([^<>]*)>->|->)\s+(\S+)\s*(.*)$")
 PSEUDO_STATES = {"+": "start", "$": "end", "_": "any"}
 
 # Core glyph kinds (lex.GLYPH_BRACKETS); any other kind is a dialect's.
@@ -851,8 +848,7 @@ class _Builder:
             return
         if it.line == it.head and not it.lines:
             return                          # `state {X} { }`: nothing
-        machine = self._adopt(parse_state_block([(t, self.ln(k)) for t, k in it.lines],
-                                                owner.name))
+        machine = self._adopt(parse_state_block(it.lines, owner.name))
         # Modifiers after the `}` (`} @inv ordered(id)`) are the owner's.
         self.pending_states.append((owner, machine, scan_mods(it.tail)))
 
@@ -1167,10 +1163,12 @@ def find_triggers(graph: Graph) -> tuple:
     return live, narrowed
 
 
-def parse_state_block(lines: list, entity: str = "") -> Graph:
-    """The body of a `state {X} { … }` block as a graph of `state` nodes whose
-    edges carry the trigger as their label. `+` / `$` / `_` become start / end /
-    any pseudo-state nodes (attrs["pseudo"])."""
+def parse_state_block(lines, entity: str = "") -> Graph:
+    """The body of a `state {X} { … }` block (its lines as the walk read them:
+    statements.Transition records) as a graph of `state` nodes whose edges carry
+    the trigger as their label. `+` / `$` / `_` become start / end / any
+    pseudo-state nodes (attrs["pseudo"]); a line that is no transition is
+    dropped ("not-a-transition")."""
     g = Graph(role="state")
 
     def node(name):
@@ -1181,17 +1179,13 @@ def parse_state_block(lines: list, entity: str = "") -> Graph:
                                 attrs={"pseudo": pseudo} if pseudo else {})
         return g.nodes[nid]
 
-    for line in lines:
-        line, line_no = line if isinstance(line, tuple) else (line, 0)
-        m = TRANSITION_RE.match(line.strip())
-        if not m:
-            if strip_comment(line).strip():
-                g.dropped.append(Dropped(line_no, "not-a-transition", line.strip()))
+    for t in lines:
+        if t.src is None:
+            if t.raw:
+                g.dropped.append(Dropped(t.line, "not-a-transition", t.raw))
             continue
-        src, trigger, dst, rest = m.groups()
-        a, b = node(src), node(dst)
-        label = f"<{trigger}>" if trigger else None
-        rest = rest.strip()
+        a, b = node(t.src), node(t.dst)
+        label = f"<{t.trigger}>" if t.trigger else None
         g.edges.append(Edge(src=a.id, dst=b.id, kind="->", label=label,
-                            payload=rest or None, mods=scan_mods(rest), line=line_no))
+                            payload=t.rest or None, mods=scan_mods(t.rest), line=t.line))
     return g

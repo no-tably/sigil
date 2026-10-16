@@ -5,7 +5,7 @@ reversed arrows, a glyph twice in one flow, a `state` block's syntax — and the
 edit-distance index the near-name suggestions use (here and in lint.graph).
 
 The mode-line rules read the document's lines; the others read each line's code
-as the walk found it (lint.reading.LineView) or the walk's `state` block lines.
+as the walk found it (lint.reading.LineView) or the walk's `state` block lines (Transition).
 """
 
 import re
@@ -254,16 +254,14 @@ def lint_mode_not_first(lines: list, result: LintResult):
 
 
 def lint_state_block_syntax(transitions: tuple, result: LintResult):
-    """Check that transitions inside state blocks use the `-<trigger>->` form
-    (`transitions`: the walk's (line, text) of each `state` block line)."""
-    for i, line in transitions:
-        # Inside state block: expect `name -<trigger>-> name`
-        if "-<" in line or ">->" in line:
-            if not re.search(r"\S+\s*-<[^>]+>->\s*\S+", line):
-                result.add(
-                    "warn", i, "SGL090",
-                    "malformed state transition. Expected: `source -<trigger>-> target`"
-                )
+    """SGL090: a `state` block line that writes a `-<trigger>->` the model does not
+    read as a trigger (`transitions`: the walk's Transition of each line)."""
+    for t in transitions:
+        if t.writes_trigger and t.kind != "triggered":
+            result.add(
+                "warn", t.line, "SGL090",
+                "malformed state transition. Expected: `source -<trigger>-> target`"
+            )
 
 
 def _edit_distance(a: str, b: str, most: Optional[int] = None) -> int:

@@ -98,6 +98,51 @@ class Continuation(NamedTuple):
     after_blank: bool
 
 
+# A line of a `state` block: `Src -<trigger>-> Dst` or `Src -> Dst`, optionally
+# followed by per-transition modifiers (`×3`, `@timeout(…)`, …).
+TRANSITION_RE = re.compile(r"^(\S+)\s+(?:-<([^<>]*)>->|->)\s+(\S+)\s*(.*)$")
+
+
+class Transition(NamedTuple):
+    """A line of a `state` block, read once: the model builds its edge from it
+    and lint judges it. `line` 1-based; `text` its code (strings blanked) and
+    `raw` as written, both stripped, the comment cut. `src` / `trigger` / `dst`
+    / `rest` the model's reading of `raw` (TRANSITION_RE): `src` None when the
+    line is no transition (the model drops it), `trigger` None for `Src -> Dst`
+    and "" for an empty `-<>->`, `rest` the modifiers after `Dst`."""
+    line: int
+    text: str
+    raw: str
+    src: Optional[str] = None
+    trigger: Optional[str] = None
+    dst: Optional[str] = None
+    rest: str = ""
+
+    @property
+    def kind(self) -> str:
+        """"triggered" (`Src -<t>-> Dst`), "untriggered" (an edge with no cause:
+        `Src -> Dst`, `Src -<>-> Dst`), "malformed" (no transition, with a `-<`
+        in its code: a trigger the model cannot read) or "unread" (no transition)."""
+        if self.src is not None:
+            return "triggered" if self.trigger else "untriggered"
+        return "malformed" if "-<" in self.text else "unread"
+
+    @property
+    def writes_trigger(self) -> bool:
+        """Its code (not a string in it) writes part of a `-<trigger>->`."""
+        return "-<" in self.text or ">->" in self.text
+
+
+def read_transition(line: int, text: str, raw: str) -> Transition:
+    """The Transition of a `state` block line: `text` its code, `raw` as written."""
+    text, raw = text.strip(), raw.strip()
+    m = TRANSITION_RE.match(raw)
+    if m is None:
+        return Transition(line, text, raw)
+    src, trigger, dst, rest = m.groups()
+    return Transition(line, text, raw, src, trigger, dst, rest.strip())
+
+
 # ---------------------------------------------------------------------------
 # What the parser builds from: a document's items, in reading order
 # ---------------------------------------------------------------------------
@@ -150,8 +195,8 @@ class StateHead(NamedTuple):
 
 
 class StateEnd(NamedTuple):
-    """A `state` block's end: its body lines as (text, line), the text after its
-    `}`, and the line of its head."""
+    """A `state` block's end: its body lines (Transition records), the text after
+    its `}`, and the line of its head."""
     line: int
     lines: tuple
     tail: str
@@ -161,13 +206,15 @@ class StateEnd(NamedTuple):
 class BlockOpen(NamedTuple):
     """A control block's header (loop parallel branch scope owns keyword): `head`
     its text before the `{`, `toks` the tokens of that text, `header` an owns
-    header read as a statement, `rest` the text after the `{`."""
+    header read as a statement, `rest` the text after the `{`, `code` the span
+    before the `{` (`toks`' columns index it)."""
     line: int
     kind: str
     head: str
     toks: tuple
     header: Optional[Statement]
     rest: str = ""
+    code: Optional[Code] = None
 
 
 class BlockClose(NamedTuple):
@@ -207,9 +254,10 @@ class Walk(NamedTuple):
     of the top level, read before the prepasses), `bodies` ({line index: a
     block string's text}), `lexicon`. For lint, each in reading order:
     `statements`; `blocks` (the closed ones as they close, then those left
-    open); `headers`; `sections`, `transitions` and `bare_branches` as (line,
-    text): a `--…` line, a line of a `state` block, a branch body written
-    without its `\\-`; `continuations`; `definitions` (every name defined with
+    open); `headers`; `sections` and `bare_branches` as (line, text): a `--…`
+    line, a branch body written without its `\\-`; `transitions`: the
+    Transition of each line of a `state` block that has an owner (the model's
+    one reading of it); `continuations`; `definitions` (every name defined with
     `:=`); `codes` (every line's Code); `unterminated` (the index of an opening
     `\"\"\"` never closed, or None). `inner`: the comments of a definition's
     body lines, read after the prepasses (a body is read as written then).
@@ -830,18 +878,15 @@ class _DocReader:
         cut = close_at(body, 1)
         if cut is not None:                     # one line: `state {X} { A -> B }`
             text = body[:cut].strip()
-            if text:
-                self._transition(k, code, body[:cut])
+            lines = (self._transition(k, code, body[:cut], owner),) if text else ()
             self.w.blocks.append(Block("state", k + 1, bool(text), True))
             self.w.spans.append((k + 1, k + 1))
-            self.items.append(StateEnd(k, ((text, k),) if text else (),
-                                       body[cut + 1:], k))
+            self.items.append(StateEnd(k, lines, body[cut + 1:], k))
             return True
-        self.state = _State(owner, [(body.strip(), k)] if body.strip() else [],
-                            1 + net_braces(body), k)
+        self.state = _State(owner, [], 1 + net_braces(body), k)
         if body.strip():
             self.state.content = True
-            self._transition(k, code, body)
+            self.state.lines.append(self._transition(k, code, body, owner))
         return True
 
     def _state_line(self, k: int, line: str, code: Code):
@@ -849,26 +894,30 @@ class _DocReader:
         before = st.depth
         st.depth += net_braces(line)
         if st.depth > 0:
-            st.lines.append((line, k))
+            st.lines.append(self._transition(k, code, line, st.owner))
             st.content = True
-            self._transition(k, code, line)
             return
         cut = close_at(line, before)
         if cut is not None and line[:cut].strip():
-            st.lines.append((line[:cut].strip(), k))
+            st.lines.append(self._transition(k, code, line[:cut], st.owner))
             st.content = True
-            self._transition(k, code, line[:cut])
         tail = line[cut + 1:] if cut is not None else ""
         self.state = None
         self.w.blocks.append(Block("state", st.head + 1, st.content, True))
         self.w.spans.append((st.head + 1, k + 1))
         self.items.append(StateEnd(k, tuple(st.lines), tail, st.head))
 
-    def _transition(self, k: int, code: Code, text: str):
-        """Record a `state` block line for lint, its strings masked."""
-        at = code.raw.find(text.strip())
-        masked = code.text[at:at + len(text.strip())] if at >= 0 else mask_strings(text)
-        self.w.transitions.append((k + 1, masked.strip()))
+    def _transition(self, k: int, code: Code, text: str, owner: Optional[str]) -> Transition:
+        """A `state` block line (`text`: a piece of `code.raw`) read once; lint's
+        record keeps it unless its machine has no owner (the model drops the
+        whole block, lint reports it at the head)."""
+        raw = text.strip()
+        at = code.raw.find(raw)
+        masked = code.text[at:at + len(raw)] if at >= 0 else mask_strings(raw)
+        t = read_transition(k + 1, masked, raw)
+        if owner is not None:
+            self.w.transitions.append(t)
+        return t
 
     # -- control blocks ------------------------------------------------------------
 
@@ -906,7 +955,7 @@ class _DocReader:
             self._mark_content()
         toks = tuple(tokenize_statement(head, self.w.lx)) if kind != "owns" else header.toks
         body = code.cut(om.end())
-        self.items.append(BlockOpen(k, kind, head.raw.strip(), toks, header, body.raw))
+        self.items.append(BlockOpen(k, kind, head.raw.strip(), toks, header, body.raw, head))
         glyphs = kind in ("branch", "owns") and bool(ANY_GLYPH_RE.search(head_text))
         self._push(kind, k, glyphs)
         if body.raw.strip():                    # statements after the header's `{`

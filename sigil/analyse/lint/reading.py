@@ -11,6 +11,7 @@ from typing import NamedTuple
 
 from sigil.core.lex import DIALECT_COL, PRINCIPAL_SET_RE, fold_block_strings
 from sigil.core.statements import BlockOpen, Definition, Doc, StateEnd, StateHead, Walk
+from sigil.core.tokens import Code
 from sigil.core.vocab import LintResult
 
 
@@ -94,12 +95,21 @@ def state_lines(doc: Doc) -> frozenset:
     return frozenset(out)
 
 
+class HeaderTokens(NamedTuple):
+    """A control-block header's tokens: its line number, its tokens and the Code
+    span their columns index."""
+    line: int
+    toks: tuple
+    code: Code
+
+
 def header_tokens(doc: Doc) -> list:
-    """(line number, tokens) of each control-block header that is no statement of
-    its own (an owns header is one), in document order."""
-    return sorted(((item.line + 1, item.toks) for d in _documents(doc) for item in d.items
+    """The HeaderTokens of each control-block header that is no statement of its
+    own (an owns header is one), in document order."""
+    return sorted((HeaderTokens(item.line + 1, item.toks, item.code)
+                   for d in _documents(doc) for item in d.items
                    if isinstance(item, BlockOpen) and item.header is None),
-                  key=lambda pair: pair[0])
+                  key=lambda h: h.line)
 
 
 # ---------------------------------------------------------------------------

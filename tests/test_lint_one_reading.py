@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sigil.analyse import lint  # noqa: E402
 from sigil.analyse.lint import reading  # noqa: E402
-from sigil.core import statements  # noqa: E402
+from sigil.core import parse, statements  # noqa: E402
 
 DOC = """#!spec
 --- Shop ---
@@ -106,6 +106,44 @@ class ReadAsTheWalkReads(unittest.TestCase):
         doc = ("#!sketch\n[A] -> |S|\n|S| @read(A, A) @borrow(x)\n"
                "loop @times(2) @read(Ghost) {\n  [A] -> |S|\n}\n")
         self.assertEqual(rules(doc), [(3, "SGL141"), (3, "SGL144"), (4, "SGL143")])
+
+    def test_an_access_list_member_is_quoted_as_written(self):
+        # A comma inside a string splits no member; the message quotes the string.
+        def said(doc):
+            return [(d.rule, d.message) for d in lint.lint(doc).diagnostics]
+        found = said('#!sketch\n[A] -> |S|\n|S| @read(A, "B, C")\n')
+        self.assertEqual([rule for rule, _ in found], ["SGL142"])
+        self.assertIn("""list member '"B, C"'""", found[0][1])
+        found = said('#!sketch\n[A] -> |S|\nloop @times(2) @write("A", A) {\n'
+                     '  [A] -> |S|\n}\n')
+        self.assertEqual([rule for rule, _ in found], ["SGL142"])
+        self.assertIn("""list member '"A"'""", found[0][1])
+
+    def test_a_borrow_argument_is_quoted_as_written(self):
+        found = [(d.rule, d.message) for d in
+                 lint.lint('#!sketch\n[A] -> |S|\n|S| @borrow("rw x")\n').diagnostics]
+        self.assertEqual([rule for rule, _ in found], ["SGL144"])
+        self.assertIn('`@borrow("rw x")`', found[0][1])
+
+    def test_a_state_line_has_one_reading(self):
+        # The walk's Transition is what the model builds and what SGL161 / SGL090 judge.
+        doc = ("#!sketch\nstate {X} {\n  + -<go>-> A\n  A -> B\n  A -<>-> C\n"
+               "  A-<x>->B\n  hello\n  \"a\" -> B\n}\n")
+        w = statements.read_document(doc)
+        self.assertEqual([t.kind for t in w.transitions],
+                         ["triggered", "untriggered", "untriggered", "malformed", "unread",
+                          "untriggered"])
+        self.assertEqual(sorted(rules(doc)), [(4, "SGL161"), (5, "SGL090"), (5, "SGL161"),
+                                      (6, "SGL090"), (7, "SGL161"), (8, "SGL161")])
+        said = {d.line: d.message for d in lint.lint(doc).diagnostics if d.rule == "SGL161"}
+        self.assertIn('`"a" -> B`', said[8])
+        g = parse.parse_document(doc)
+        self.assertEqual(sorted(d.line for d in g.dropped), [6, 7])
+
+    def test_an_owner_less_machine_is_reported_once(self):
+        doc = "#!sketch\nstate {\n  a -> b\n  c -<x d\n}\n"
+        self.assertEqual(statements.read_document(doc).transitions, ())
+        self.assertEqual(rules(doc), [(2, "SGL161")])
 
     def test_a_marker_is_judged_where_a_branch_stands(self):
         # D4: a malformed `\-` at a statement's start is SGL110; in prose or a

@@ -5,6 +5,7 @@ modifier tokens (a flow's, an owns header's, a control-block header's).
 """
 
 import re
+from typing import NamedTuple
 
 from sigil.core.lex import PRINCIPAL_SET_RE
 from sigil.core.tokens import dialect_glyph_nodes
@@ -60,13 +61,40 @@ def declared_principals(views: tuple, statements: tuple, lx) -> set:
     return declared
 
 
+class AccessMod(NamedTuple):
+    """A modifier token, where access lists are written: `text` its code (string
+    contents blanked, so a `,` or `)` in a string is inert), `raw` the same
+    columns as written (what a message quotes)."""
+    line: int
+    text: str
+    raw: str
+
+
+def _access_mod(line: int, tok, code) -> AccessMod:
+    """The AccessMod of a modifier token `tok` of the Code span `code`."""
+    return AccessMod(line, tok.text, code.raw[tok.col:tok.col + len(tok.text)])
+
+
 def access_modifiers(statements: tuple, headers: list) -> list:
-    """(line, token) of every modifier token of the control-block headers
-    (`headers`: (line, tokens) pairs) and the statements, in reading order: by
-    line, a header before the statements after its `{`."""
-    found = [(line, 0, t) for line, toks in headers for t in toks if t.kind == "mod"]
-    found += [(st.line, 1, t) for st in statements for t in st.toks if t.kind == "mod"]
-    return [(line, t) for line, _order, t in sorted(found, key=lambda f: f[:2])]
+    """The AccessMod of every modifier token of the control-block headers
+    (`headers`: lint.reading.HeaderTokens) and the statements, in reading order:
+    by line, a header before the statements after its `{`."""
+    found = [(h.line, 0, _access_mod(h.line, t, h.code))
+             for h in headers for t in h.toks if t.kind == "mod"]
+    found += [(st.line, 1, _access_mod(st.line, t, st.code))
+              for st in statements for t in st.toks if t.kind == "mod"]
+    return [mod for _line, _order, mod in sorted(found, key=lambda f: f[:2])]
+
+
+def list_members(mod: AccessMod, start: int, end: int) -> list:
+    """The members of the comma-list at mod.text[start:end], each as written
+    (stripped): split where the code has a comma, so a comma in a string
+    separates nothing."""
+    out, at = [], start
+    for piece in mod.text[start:end].split(","):
+        out.append(mod.raw[at:at + len(piece)].strip())
+        at += len(piece) + 1
+    return out
 
 
 def lint_permission_graph(statements: tuple, headers: list, declared: set,
@@ -84,23 +112,25 @@ def lint_permission_graph(statements: tuple, headers: list, declared: set,
         (SGL143; `declared`: declared_principals);
       - a `@borrow(...)` narrowing arg is `read`/`write` (SGL144).
     Within a line the lists come first, then the borrows."""
-    mods = access_modifiers(statements, headers)
     by_line: dict = {}
-    for line, tok in mods:
-        by_line.setdefault(line, []).append(tok)
-    for line, toks in by_line.items():
-        for tok in toks:
-            m = PRINCIPAL_SET_RE.fullmatch(tok.text)
+    for mod in access_modifiers(statements, headers):
+        by_line.setdefault(mod.line, []).append(mod)
+    for line, mods in by_line.items():
+        for mod in mods:
+            m = PRINCIPAL_SET_RE.fullmatch(mod.text)
             if m:
-                _check_list(line, m.group("mod"), m.group("set").strip(), declared, result)
-        for tok in toks:
-            m = BORROW_ACCESS_RE.match(tok.text)
+                _check_list(line, m.group("mod"), mod.raw[m.start("set"):m.end("set")].strip(),
+                            list_members(mod, *m.span("set")), declared, result)
+        for mod in mods:
+            m = BORROW_ACCESS_RE.match(mod.text)
             if m:
-                _check_borrow(line, m.group("arg").strip(), result)
+                _check_borrow(line, mod.raw[m.start("arg"):m.end("arg")].strip(), result)
 
 
-def _check_list(i: int, mod: str, body: str, declared: set, result: LintResult):
-    """SGL140–143 for one `@read(…)` / `@write(…)` list (`body`: its members)."""
+def _check_list(i: int, mod: str, body: str, members: list, declared: set,
+                result: LintResult):
+    """SGL140–143 for one `@read(…)` / `@write(…)` list: `body` its text and
+    `members` its members (list_members), as written."""
     if body == "":
         result.add(
             "error", i, "SGL140",
@@ -109,7 +139,7 @@ def _check_list(i: int, mod: str, body: str, declared: set, result: LintResult):
         )
         return
     seen: set = set()
-    for member in (p.strip() for p in body.split(",")):
+    for member in members:
         if member == "":
             result.add(
                 "error", i, "SGL142",

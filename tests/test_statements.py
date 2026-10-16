@@ -61,7 +61,8 @@ class StatementWalk(unittest.TestCase):
         self.assertEqual([(h.kind, h.line, h.head.strip()) for h in w.headers],
                          [("loop", 1, "loop")])
         self.assertEqual(w.sections, ((4, "--- L2: [X] ---"),))
-        self.assertEqual(w.transitions, ((6, "a -> b"),))
+        self.assertEqual([(t.line, t.raw, t.kind) for t in w.transitions],
+                         [(6, "a -> b", "untriggered")])
         self.assertEqual(w.bare_branches, ((9, "*-> [Q]"),))
 
     def test_continuations_say_whether_a_flow_is_above(self):

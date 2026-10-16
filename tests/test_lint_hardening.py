@@ -24,6 +24,7 @@ from sigil.analyse import lint  # noqa: E402
 from sigil.analyse.lint import hardening as hl  # noqa: E402
 from sigil.core import parse as render  # noqa: E402
 from sigil.core import tokens  # noqa: E402
+from sigil.core.statements import read_document  # noqa: E402
 
 CODES = set(hl.HARDENING_SEVERITY)
 # The parser reads this line since B8; its positive is stubbed below.
@@ -102,8 +103,8 @@ class ParserFacts(unittest.TestCase):
     """The rules that ask the parsed model (Graph.dropped, edges by line)."""
 
     @staticmethod
-    def facts(alias_refs=None, untriggered=(), dropped=()):
-        return hl.ParsedFacts(alias_refs or {}, frozenset(untriggered), tuple(dropped))
+    def facts(alias_refs=None, dropped=()):
+        return hl.ParsedFacts(alias_refs or {}, tuple(dropped))
 
     def test_an_event_argument_chain_is_read_and_sgl153_is_retired(self):
         # The parser reads `<H>({C})` from the walk's tokens, so the chain cannot
@@ -123,12 +124,14 @@ class ParserFacts(unittest.TestCase):
                                   "[A] -> [B] : charge ×3 Retry\n[A] -> [C] : pay ×2 Nope\n")
         self.assertEqual(hl.parsed_facts(g).alias_refs, {4: {"Nope"}})
 
-    def test_a_transition_without_trigger_is_read_from_the_model(self):
-        g = render.parse_document("#!spec\nstate {X} {\n  + -<a>-> S\n  S -> T\n}\n")
-        facts = hl.parsed_facts(g)
-        self.assertEqual(facts.untriggered, frozenset({4}))
-        found = hl.parser_gap_findings(facts)
-        self.assertEqual([(f.line, f.rule) for f in found], [(4, "SGL161")])
+    def test_a_transition_without_trigger_is_the_walk_s_one_reading(self):
+        # SGL161 for a machine's lines comes from the walk's Transitions (the
+        # model's own reading), never from the parsed facts as well.
+        text = "#!spec\nstate {X} {\n  + -<a>-> S\n  S -> T\n}\n"
+        g = render.parse_document(text)
+        self.assertEqual(hl.parser_gap_findings(hl.parsed_facts(g)), [])
+        self.assertEqual([(f.line, f.rule) for f in hl.walk_findings(read_document(text))],
+                         [(4, "SGL161")])
 
     def test_dropped_lines_map_to_findings(self):
         # #!spec / state { / + -<a>-> S / } / state {X} { / hello / a -<go b / }
@@ -136,8 +139,9 @@ class ParserFacts(unittest.TestCase):
                    (4, "no-owner", "}"), (6, "not-a-transition", "hello"),
                    (7, "not-a-transition", "a -<go b")]
         found = hl.parser_gap_findings(self.facts(dropped=dropped))
-        # One finding for the owner-less machine; a malformed `-<` line is SGL090's.
-        self.assertEqual([(f.line, f.rule) for f in found], [(2, "SGL161"), (6, "SGL161")])
+        # One finding for the owner-less machine; a line that is no transition is
+        # the walk's (its Transition), not the parsed facts'.
+        self.assertEqual([(f.line, f.rule) for f in found], [(2, "SGL161")])
 
     def test_the_parser_reports_what_it_dropped(self):
         g = render.parse_document("#!spec\n[A] := {\n  [B] -> [C]\n")
