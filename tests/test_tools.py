@@ -8,7 +8,8 @@ Covers:
      writes, and a file without its table is an error, not a rewrite;
   2. tools/regen_docs.py: `--help` prints usage and draws nothing; `--check`
      never writes, even when a drawing is stale; without it a stale doc is
-     rewritten.
+     rewritten; every README drawing it redraws is found (by `sigil view` or the
+     older `view.py` wording), so a reworded command can't skip one silently.
 
 Run:  python3 -m unittest discover tests
 """
@@ -126,6 +127,20 @@ class TestRegenDocs(unittest.TestCase):
             self.assertEqual(doc.read_text(encoding="utf-8"), "old\n")
             self.assertEqual(quiet(regen.main, [], root=Path(d), docs=stale), 0)
             self.assertEqual(doc.read_text(encoding="utf-8"), "new\n")
+
+    def test_readme_anchors_found(self):
+        text = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertEqual(regen.missing_anchors(text), [])
+
+    def test_both_command_names(self):
+        for cmd in ("view.py", "sigil view"):
+            doc = (f"```sh\n{cmd} orders.sigil --once --sim all\n```\n\n```\nx\n```\n"
+                   f"```sh\n{cmd} checkout.sigil --once --run --sim 'A'\n```\n\n```\nx\n```\n")
+            missing = regen.missing_anchors(doc)
+            self.assertNotIn("sim all orders.sigil", missing, cmd)
+            self.assertNotIn("run", missing, cmd)
+            self.assertIn("flow", missing, cmd)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -8,7 +8,7 @@ regen_docs.py — regenerate the drawings embedded in the docs from `sigil view`
 - examples.md: each ```text block (a `--tree` drawing) is redrawn from the Sigil
   block just above it (`sigil view --once --tree --no-lint --width 200`, the drawing
   part only — no legend or summary);
-- README.md: the drawing after "`view.py` draws it in the terminal" is redrawn
+- README.md: the drawing after "`sigil view` draws it in the terminal" is redrawn
   from the README's first ```sigil block (`sigil view --once`: the flow view, summary
   included; the file is named shortener.sigil, the example it shows);
 - README.md: the drawing after "`--graph` draws the same design" is redrawn from
@@ -17,12 +17,14 @@ regen_docs.py — regenerate the drawings embedded in the docs from `sigil view`
 - README.md: the block after the `--sim` command in "Simulation" is the real run of
   that command on site/examples/01-checkout.sigil (published as checkout.sigil):
   the drawing, then the `sim …` summary and log (legend and lint summary left out);
-- README.md: the block after `view.py checkout.sigil --once --run --sim '…'` is
+- README.md: the block after `sigil view checkout.sigil --once --run --sim '…'` is
   that command's drawing on site/examples/01-checkout.sigil (`--no-lint --width
   100`; the timeline, its notes beside it — no legend, summary or log);
-- README.md: the block after `view.py NAME.sigil --once --sim all` is that
+- README.md: the block after `sigil view NAME.sigil --once --sim all` is that
   command's output on the site example published as NAME.sigil
   (site/examples/NN-NAME.sigil: 00-shortener, 04-orders).
+
+The README's commands are matched as `sigil view` or the older `view.py`.
 
 Standard library only.
 """
@@ -42,6 +44,30 @@ ROOT = Path(__file__).resolve().parents[1]
 SIM_EXAMPLE = ROOT / "site" / "examples" / "01-checkout.sigil"
 SIM_ALL_EXAMPLES = {"shortener.sigil": ROOT / "site" / "examples" / "00-shortener.sigil",
                     "orders.sigil": ROOT / "site" / "examples" / "04-orders.sigil"}
+
+
+# The README names the viewer by its command; both names are read, so the
+# drawings stay checked while the docs move from `view.py` to `sigil view`.
+VIEW = r"(?:view\.py|sigil view)"
+FLOW_RE = re.compile(r"`" + VIEW + r"` draws it in the terminal.*?:\n\n```\n(.*?)```", re.S)
+GRAPH_RE = re.compile(r"`--graph` draws the same design.*?:\n\n```\n(.*?)```", re.S)
+SIM_RE = re.compile(r"```sh\n" + VIEW + r" checkout.sigil (--once --tree --sim '([^']+)')\n```"
+                    r"\n\n```\n(.*?)```", re.S)
+RUN_RE = re.compile(r"```sh\n" + VIEW + r" checkout.sigil --once --run --sim '([^']+)'\n```"
+                    r"\n\n```\n(.*?)```", re.S)
+
+
+def sim_all_re(name: str) -> re.Pattern:
+    return re.compile(r"```sh\n" + VIEW + " " + re.escape(name) + r" --once --sim all\n```"
+                      r"\n\n```\n(.*?)```", re.S)
+
+
+def missing_anchors(text: str) -> list[str]:
+    """The README drawings regen_docs redraws whose anchor text isn't found (each
+    would otherwise be skipped silently)."""
+    anchors = {"flow": FLOW_RE, "graph": GRAPH_RE, "sim": SIM_RE, "run": RUN_RE}
+    anchors.update({f"sim all {n}": sim_all_re(n) for n in SIM_ALL_EXAMPLES})
+    return [k for k, rx in anchors.items() if not rx.search(text)]
 
 
 def run(src: str, *args: str, name: str = "checkout.sigil") -> str:
@@ -81,7 +107,7 @@ def examples(text: str) -> tuple[str, int]:
 
 def readme(text: str) -> tuple[str, int]:
     src = re.search(r"```sigil\n(.*?)```", text, re.S)
-    old = re.search(r"`view.py` draws it in the terminal.*?:\n\n```\n(.*?)```", text, re.S)
+    old = FLOW_RE.search(text)
     if not src or not old:
         return text, 0
     new = tidy(run(src.group(1), name="shortener.sigil"))
@@ -92,7 +118,7 @@ def readme(text: str) -> tuple[str, int]:
 
 def readme_graph(text: str) -> tuple[str, int]:
     src = re.search(r"```sigil\n(.*?)```", text, re.S)
-    old = re.search(r"`--graph` draws the same design.*?:\n\n```\n(.*?)```", text, re.S)
+    old = GRAPH_RE.search(text)
     if not src or not old:
         return text, 0
     lines = run(src.group(1), "--graph", "--no-lint", name="shortener.sigil").split("\n")
@@ -113,8 +139,7 @@ def sim_excerpt(out: str) -> str:
 
 
 def readme_sim(text: str) -> tuple[str, int]:
-    old = re.search(r"```sh\nview.py checkout.sigil (--once --tree --sim '([^']+)')\n```"
-                    r"\n\n```\n(.*?)```", text, re.S)
+    old = SIM_RE.search(text)
     if not old:
         return text, 0
     src = SIM_EXAMPLE.read_text(encoding="utf-8")
@@ -125,8 +150,7 @@ def readme_sim(text: str) -> tuple[str, int]:
 
 
 def readme_run(text: str) -> tuple[str, int]:
-    old = re.search(r"```sh\nview.py checkout.sigil --once --run --sim '([^']+)'\n```"
-                    r"\n\n```\n(.*?)```", text, re.S)
+    old = RUN_RE.search(text)
     if not old:
         return text, 0
     src = SIM_EXAMPLE.read_text(encoding="utf-8")
@@ -141,8 +165,7 @@ def readme_run(text: str) -> tuple[str, int]:
 def readme_sim_all(text: str) -> tuple[str, int]:
     changed = 0
     for name, path in SIM_ALL_EXAMPLES.items():
-        old = re.search(r"```sh\nview.py " + re.escape(name) + r" --once --sim all\n```"
-                        r"\n\n```\n(.*?)```", text, re.S)
+        old = sim_all_re(name).search(text)
         if not old:
             continue
         new = tidy(run(path.read_text(encoding="utf-8"), "--sim", "all", name=name))
