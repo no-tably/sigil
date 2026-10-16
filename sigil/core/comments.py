@@ -7,8 +7,10 @@
                     block_note_key, DOC_NOTE / BLOCK_NOTE keys; a block-string
                     payload is an inline note of its flow (block_lines,
                     block_string_of)
-    layout          layout_of(lines, strip_comment): statement lines and block
-                    spans (Layout)
+    layout          walk_layout(walk): statement lines and block spans (Layout)
+                    of the one reading; layout_of(lines, strip_comment) the
+                    same from a text walk of its own, until its callers read
+                    the walk
     acknowledgements  `# accepts: rule-name — reason` comments: parse_ack,
                     ack_span, read_acks → [Ack] (catalog §10.1); check reads
                     them, and so does the export model
@@ -178,6 +180,29 @@ def layout_of(lines: list, strip_comment: Callable) -> Layout:
         if bare.endswith("{"):
             stack.append(n)
     return Layout(frozenset(statements), blocks, frozenset(quoted))
+
+
+def walk_layout(walk) -> Layout:
+    """The Layout of a document's reading (a sigil.core.statements Walk): a line
+    holds a statement when it has code (or is a `#&` marker line; an opening
+    `\"\"\"` never closed counts too), the blocks are the walk's `}`-closed
+    spans, the quoted lines its block-string bodies."""
+    statements = {k + 1 for k, code in enumerate(walk.codes)
+                  if _holds_code(walk.lines[k], code.raw)}
+    if walk.unterminated is not None:
+        statements.add(walk.unterminated + 1)
+    blocks = {}
+    for head, close in walk.spans:
+        if close > head:                # a block on one line spans just that line
+            blocks[head] = blocks[close] = (head, close)
+    return Layout(frozenset(statements), blocks, frozenset(k + 1 for k in walk.quoted))
+
+
+def _holds_code(line: str, code: str) -> bool:
+    stripped = line.strip()
+    if stripped.startswith("#!"):
+        return False
+    return stripped.startswith("#&") or bool(code.strip())
 
 
 # Any case, so a rule id (`SGC111`) or a mixed-case name still reads as an

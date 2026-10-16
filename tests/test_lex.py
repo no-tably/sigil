@@ -164,7 +164,11 @@ class BlockStrings(unittest.TestCase):
 
     def test_an_unterminated_block_blanks_to_the_end(self):
         folded = lex.fold_block_strings(["a", '[A] -> [B] : """', "x"])
-        self.assertEqual(folded, lex.Folded(["a", "", ""], 1))
+        self.assertEqual(folded, lex.Folded(["a", "", ""], 1, frozenset({2})))
+
+    def test_the_lines_a_body_consumed_are_quoted(self):
+        # D16: the Layout's quoted lines come from the fold.
+        self.assertEqual(lex.fold_block_strings(self.DOC).quoted, frozenset({3, 4}))
 
     def test_a_delimiter_after_a_hash_in_a_string(self):
         # D1: the `#` is string text, so the `"""` opens a block (never closed).

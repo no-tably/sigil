@@ -153,6 +153,36 @@ def _ref_tokenizer(s, i, prev, layer, Node):
                            layer=layer))], m.end(), True
 
 
+class LayoutFromTheWalk(unittest.TestCase):
+    """D16: statement lines, block spans and quoted lines from the one reading."""
+
+    def test_the_walk_s_layout_is_the_text_reading_s_over_the_corpus(self):
+        from sigil.core.comments import layout_of, walk_layout
+        from sigil.core.lex import strip_comment
+        sys.path.insert(0, str(ROOT / "tools"))
+        from snapshot import DOC_FILES, doc_blocks
+        docs = list(_corpus())
+        for doc, fragments in DOC_FILES.items():
+            text = (ROOT / doc).read_text(encoding="utf-8")
+            docs += [(f"{doc}#{i}", b) for i, b in enumerate(doc_blocks(text, fragments), 1)]
+        for name, text in docs:
+            lines = text.splitlines()
+            self.assertEqual(walk_layout(statements.read_lines(lines)),
+                             layout_of(lines, strip_comment), name)
+
+    def test_a_block_closed_at_a_statement_s_end_or_opened_mid_line(self):
+        # What the text reading missed: a `}` that ends a statement, a `{` that is
+        # not the line's last character.
+        from sigil.core.comments import walk_layout
+        doc = ["loop @times(2) {", "  [A] -> [B] }", "loop { [C] -> [D]", "}",
+               '[E] -> [F] : """', "body", '"""']
+        lay = walk_layout(statements.read_lines(doc))
+        self.assertEqual(lay.span(1), frozenset({1, 2}))
+        self.assertEqual(lay.span(4), frozenset({3, 4}))
+        self.assertEqual(lay.quoted, frozenset({6, 7}))
+        self.assertEqual(lay.statements, frozenset({1, 2, 3, 4, 5}))
+
+
 class OneHookSet(unittest.TestCase):
     def test_a_retired_hook_is_refused_by_name(self):
         d = _toy(render_tokenizers=lambda: [])

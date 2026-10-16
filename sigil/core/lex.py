@@ -21,7 +21,7 @@ one reading each:
                   FIELD_RE, ALIAS_REF_RE, ALIAS_REF
     payloads      PAYLOAD_RE, PAYLOAD_TAIL_RE, PAYLOAD_TAIL_LOOSE_RE
     heads         SECTION_RE, ALIAS_RE, EXPANSION_OPEN_RE, BLOCK_OPEN_RE,
-                  STATE_HEAD_RE, STATE_OPEN_RE, STATE_HEAD_FLAT_RE, LOOP_HEAD_RE,
+                  STATE_HEAD_RE, STATE_OPEN_RE, LOOP_HEAD_RE,
                   SCOPE_HEAD_RE, ARM_RE, BRANCH_RE, BRANCH_PARENT_RE,
                   CORE_RELATIONS, BRANCH_ANY_RE, branch_re, BARE_BRANCH_RE,
                   close_at, net_braces (braces in a string are string text)
@@ -136,9 +136,12 @@ BLOCK_SENTINEL = '"block-string"'
 class Folded(NamedTuple):
     """fold_block_strings' result: the folded lines (same count as given) and the
     index of an opening `\"\"\"` that is never closed (None when every block
-    closes); from that line on every line is blanked."""
+    closes); from that line on every line is blanked. `quoted`: the indices of
+    the lines a block's body consumed (after each opening line, its closing
+    line included; an unterminated block's every later line)."""
     lines: list
     unterminated: Optional[int]
+    quoted: frozenset = frozenset()
 
 
 def _block_open_pos(raw: str) -> Optional[int]:
@@ -166,6 +169,7 @@ def fold_block_strings(lines: list, bodies: Optional[dict] = None) -> Folded:
     from its opener."""
     out = list(lines)
     n = len(out)
+    quoted = set()
     i = 0
     while i < n:
         open_pos = _block_open_pos(out[i])
@@ -186,14 +190,15 @@ def fold_block_strings(lines: list, bodies: Optional[dict] = None) -> Folded:
         if j >= n:
             for k in range(i, n):
                 out[k] = ""
-            return Folded(out, i)
+            return Folded(out, i, frozenset(quoted | set(range(i + 1, n))))
         close = out[j].find(BLOCK_DELIM)
         if bodies is not None:
             bodies.setdefault(i, "\n".join([after_open] + out[i + 1:j] + [out[j][:close]]))
         out[i] = prefix + BLOCK_SENTINEL + out[j][close + len(BLOCK_DELIM):]
         for k in range(i + 1, j + 1):
             out[k] = ""
-    return Folded(out, None)
+            quoted.add(k)
+    return Folded(out, None, frozenset(quoted))
 
 
 # ---------------------------------------------------------------------------
@@ -440,11 +445,6 @@ BLOCK_OPEN_RE = re.compile(r"\{(?=\s|$)")
 STATE_HEAD_RE = re.compile(r"^state\s*([~*]*[\[{<(|]" + NAME_CHARS + r"+(?:" + GENERIC
                            + r")?[\]}>)|])\s*\{")
 STATE_OPEN_RE = re.compile(r"^state(?:\s[^{]*)?\{")
-# Lint's: the owner carries at most one level of generics, unnested
-# (`state {Job<T>} {`), nothing captured.
-STATE_HEAD_FLAT_RE = re.compile(
-    r"^state\s*[~*]*[\[{<(|][^\[\]{}<>()|]+(?:<[^\[\]{}<>()|]+>)?[\]}>)|]\s*\{"
-)
 
 # A control block header: its statements are ordinary flows.
 LOOP_HEAD_RE = re.compile(r"^(loop|parallel|branch)\b")

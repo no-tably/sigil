@@ -212,7 +212,10 @@ class Walk(NamedTuple):
     without its `\\-`; `continuations`; `definitions` (every name defined with
     `:=`); `codes` (every line's Code); `unterminated` (the index of an opening
     `\"\"\"` never closed, or None). `inner`: the comments of a definition's
-    body lines, read after the prepasses (a body is read as written then)."""
+    body lines, read after the prepasses (a body is read as written then).
+    `spans`: (header line, closing line) of every block a `}` closed — control
+    blocks, `state` blocks, definition bodies, dialect declarations — as they
+    close; `quoted`: the indices of the lines a block string's body consumed."""
     statements: tuple
     blocks: tuple
     headers: tuple
@@ -229,6 +232,8 @@ class Walk(NamedTuple):
     unterminated: Optional[int] = None
     lexicon: Lexicon = NO_DIALECT
     inner: dict = {}
+    spans: tuple = ()
+    quoted: frozenset = frozenset()
 
 
 # ---------------------------------------------------------------------------
@@ -294,7 +299,7 @@ def read_lines(lines: list, dialect=None, result=None) -> Walk:
     w = _Walker(lines, codes, comments, inner, lx,
                 keywords=set(_hook(dialect, "BLOCK_KEYWORDS", set())),
                 decl_blocks=list(_hook(dialect, "DECLARATION_BLOCKS")))
-    return w.finish(w.read(), tuple(lines), comments, bodies, folded.unterminated)
+    return w.finish(w.read(), tuple(lines), comments, bodies, folded)
 
 
 def walk_statements(lines: list, dialect=None) -> Walk:
@@ -352,13 +357,15 @@ class _Walker:
         self.transitions: list = []
         self.bare: list = []
         self.continuations: list = []
+        self.spans: list = []       # (header line, closing line), 1-based, as they close
         self.defined = frozenset(filter(None, (self.definition_name(c) for c in codes)))
 
-    def finish(self, doc, lines, comments, bodies, unterminated) -> Walk:
+    def finish(self, doc, lines, comments, bodies, folded) -> Walk:
         return Walk(tuple(self.stmts), tuple(self.blocks + self.open_blocks),
                     tuple(self.headers), tuple(self.sections), tuple(self.transitions),
                     tuple(self.bare), tuple(self.continuations), self.defined, self.codes,
-                    doc, lines, comments, bodies, unterminated, self.lx, self.inner)
+                    doc, lines, comments, bodies, folded.unterminated, self.lx, self.inner,
+                    tuple(self.spans), folded.quoted)
 
     # -- the document, line by line ----------------------------------------------
 
@@ -414,7 +421,7 @@ class _Walker:
                 home = stack[-1]
                 if len(stack) - 1 in closed:
                     doc = child.finish(self._body_end(child, t, len(stack) in fed))
-                    home.body_read(doc, True, closed[len(stack) - 1])
+                    home.body_read(doc, True, closed[len(stack) - 1], t)
                 else:
                     home.body_read(child.finish(t), False, "")
             acc += delta
@@ -623,8 +630,9 @@ class _DocReader:
         self.frames = []
         return Doc(tuple(self.items), end, unclosed, self.top, self.texts)
 
-    def body_read(self, doc: Doc, closed: bool, tail: str):
-        """The body this reader's last definition opened is read: `doc`."""
+    def body_read(self, doc: Doc, closed: bool, tail: str, end: Optional[int] = None):
+        """The body this reader's last definition opened is read: `doc` (`closed`
+        by a `}` on line index `end`)."""
         item, line = self.open_body if self.open_body else (len(self.items) - 1, doc.end)
         self.open_body = None if closed else (item, self.items[item].line)
         content = any(isinstance(i, (Flow, Definition, BlockOpen, StateHead))
@@ -632,6 +640,7 @@ class _DocReader:
         block = Block("alias", self.items[item].line + 1, content, closed)
         if closed:
             self.w.blocks.append(block)
+            self.w.spans.append((block.line, end + 1))
         else:
             self.w.open_blocks.insert(0, block)
         self.items[item] = self.items[item]._replace(body=doc, closed=closed, tail=tail)
@@ -678,6 +687,7 @@ class _DocReader:
             self.decl[1] += net_braces(txt)
             if self.decl[1] <= 0:
                 self.decl = None
+                self.w.spans.append((self.decl_line + 1, k + 1))
             return True
         for opener, on_raw in self.w.decl_blocks:
             txt = raw_lead if on_raw else line
@@ -742,6 +752,7 @@ class _DocReader:
     def _close(self, k: int):
         fr = self.frames.pop()
         self.w.blocks.append(Block(fr.kind, fr.line, fr.content, True))
+        self.w.spans.append((fr.line, k + 1))
         self.items.append(BlockClose(k))
         self.subject = fr.glyphs
         if self.frames:
@@ -775,7 +786,7 @@ class _DocReader:
             if cut is not None:                 # `[X] := { … }`: its body is right here
                 doc = _DocReader(self.w, top=False).read([(k, piece[:cut], pcol)])
                 self.open_body = (item, k)
-                self.body_read(doc, True, piece[cut + 1:])
+                self.body_read(doc, True, piece[cut + 1:], k)
             else:
                 self.open_body = (item, k)
                 self.opening = _Body(item, k, 1 + net_braces(piece), piece, pcol)
@@ -813,6 +824,7 @@ class _DocReader:
             if text:
                 self._transition(k, code, body[:cut])
             self.w.blocks.append(Block("state", k + 1, bool(text), True))
+            self.w.spans.append((k + 1, k + 1))
             self.items.append(StateEnd(k, ((text, k),) if text else (),
                                        body[cut + 1:], k))
             return True
@@ -840,6 +852,7 @@ class _DocReader:
         tail = line[cut + 1:] if cut is not None else ""
         self.state = None
         self.w.blocks.append(Block("state", st.head + 1, st.content, True))
+        self.w.spans.append((st.head + 1, k + 1))
         self.items.append(StateEnd(k, tuple(st.lines), tail, st.head))
 
     def _transition(self, k: int, code: Code, text: str):
