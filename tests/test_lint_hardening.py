@@ -23,6 +23,7 @@ sys.path.insert(0, str(_DIR))
 from sigil.analyse import lint  # noqa: E402
 from sigil.analyse.lint import hardening as hl  # noqa: E402
 from sigil.core import parse as render  # noqa: E402
+from sigil.core import tokens  # noqa: E402
 
 CODES = set(hl.HARDENING_SEVERITY)
 # The parser reads this line since B8; its positive is stubbed below.
@@ -107,7 +108,7 @@ class ParserFacts(unittest.TestCase):
 
     @staticmethod
     def codes(lines):
-        return [hl.code_line(ln) for ln in lines]
+        return [tokens.code_line(ln) for ln in lines]
 
     def test_event_argument_flagged_while_the_parser_loses_the_chain(self):
         lines = ["#!spec", "|P| ~> <H>({C}) -> [R]"]
@@ -170,7 +171,7 @@ class ParserFacts(unittest.TestCase):
 
 class Tokens(unittest.TestCase):
     def kinds(self, line):
-        return [(t.kind, t.problem) for t in hl.tokenize_statement(hl.code_line(line))]
+        return [(t.kind, t.problem) for t in tokens.tokenize_statement(tokens.code_line(line))]
 
     def test_a_flow_with_payload_and_modifiers(self):
         self.assertEqual(
@@ -185,8 +186,8 @@ class Tokens(unittest.TestCase):
                                                         ("bad", "closer"), ("mod", "no-arg")])
 
     def test_tokenizing_is_pure(self):
-        code = hl.code_line("[A] -> [B] : {X} [C]")
-        self.assertEqual(hl.tokenize_statement(code), hl.tokenize_statement(code))
+        code = tokens.code_line("[A] -> [B] : {X} [C]")
+        self.assertEqual(tokens.tokenize_statement(code), tokens.tokenize_statement(code))
 
     def test_one_finding_per_rule_per_line_in_line_order(self):
         found = hl.hardening_findings(["#!spec", "[A] -> -> -> [B]", "[] -> []"])
