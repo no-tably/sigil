@@ -12,7 +12,6 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
-import importlib.util
 import os
 import re
 import subprocess
@@ -21,20 +20,13 @@ import textwrap
 import unittest
 from pathlib import Path
 
-_DIR = Path(__file__).resolve().parents[1]
-_FIXTURES = _DIR / "tests" / "fixtures" / "checks"
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+_FIXTURES = ROOT / "tests" / "fixtures" / "checks"
 
 
-def _load(key: str, fname: str):
-    spec = importlib.util.spec_from_file_location(key, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[key] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-ck = _load("sigil_check_flow_suite_check", "check.py")
-cf = _load("sigil_check_flow_suite_flow", "check_flow.py")
+from sigil.analyse import check as ck  # noqa: E402
+from sigil.analyse.rules import flow as cf  # noqa: E402
 
 FLOW_IDS = ("SGC101", "SGC102", "SGC103", "SGC104", "SGC111", "SGC112", "SGC113",
             "SGC114", "SGC121", "SGC122", "SGC123", "SGC161", "SGC162", "SGC163",
@@ -180,7 +172,7 @@ class Fixtures(unittest.TestCase):
                 self.assertNotIn(rid, ids(fixture(stem)[1]))
 
     def test_the_fixtures_lint_clean(self):
-        lint = _load("sigil_check_flow_suite_lint", "lint.py")
+        from sigil.analyse import lint
         for path in self.paths():
             with self.subTest(fixture=path.name):
                 res = lint.lint(path.read_text(encoding="utf-8"))
@@ -262,7 +254,7 @@ class Tiers(unittest.TestCase):
         message carries an empty code span."""
         texts = {p.name: p.read_text(encoding="utf-8")
                  for p in sorted(_FIXTURES.glob("*.sigil"))}
-        texts["examples.md:964"] = block_at(_DIR / "examples.md", 964)
+        texts["examples.md:964"] = block_at(ROOT / "examples.md", 964)
         for name, text in texts.items():
             for mode in ("sketch", "spec", "craft"):
                 with self.subTest(source=name, mode=mode):
@@ -332,7 +324,7 @@ class Suppression(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 def corpus(path: str) -> str:
-    return (_DIR / path).read_text(encoding="utf-8")
+    return (ROOT / path).read_text(encoding="utf-8")
 
 
 def on(report, rid: str) -> list:
@@ -343,7 +335,7 @@ class Corpus(unittest.TestCase):
     def test_examples_md_external_reaches_are_bounded(self):
         """examples.md:545-546 now state `@timeout` and `@fallback` (the catalog's
         former corpus hits for SGC101 and SGC201)."""
-        block = block_at(_DIR / "examples.md", 545)
+        block = block_at(ROOT / "examples.md", 545)
         rep = ck.check(block, mode="spec", registry=registry())
         self.assertIn("op db.insert(${out.score})  @timeout(2s)", block)
         self.assertEqual(on(rep, "SGC101"), [])
@@ -385,7 +377,7 @@ class Corpus(unittest.TestCase):
         for line, expected in ((102, {"SGC111", "SGC121", "SGC122", "SGC163", "SGC165"}),
                                (161, {"SGC161", "SGC165"})):
             with self.subTest(example_at=line):
-                rep = ck.check(block_at(_DIR / "examples.md", line), mode="spec",
+                rep = ck.check(block_at(ROOT / "examples.md", line), mode="spec",
                                registry=registry())
                 self.assertEqual([f for f in rep.findings if f.severity == "error"], [])
                 self.assertEqual({f.rule.id for f in rep.findings} & set(FLOW_IDS),
@@ -586,8 +578,8 @@ class Determinism(unittest.TestCase):
         for seed in ("0", "1", "4242"):
             env = dict(os.environ, PYTHONHASHSEED=seed)
             env.pop("SIGIL_DIALECT", None)
-            p = subprocess.run([sys.executable, str(_DIR / "check.py"),
-                                str(_DIR / "tests" / "fixtures" / "coverage.sigil"),
+            p = subprocess.run([sys.executable, str(ROOT / "bin" / "sigil"), "check",
+                                str(ROOT / "tests" / "fixtures" / "coverage.sigil"),
                                 "--mode", "spec", "--json"],
                                capture_output=True, text=True, env=env)
             outs.add(p.stdout)

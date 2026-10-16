@@ -6,31 +6,28 @@ every-tick runs a checker tries.
 
 from __future__ import annotations
 
-import importlib.util
 import re
 import sys
 import unittest
 from pathlib import Path
 
-_DIR = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 
-def _load(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+sys.path.insert(0, str(ROOT / "tools"))
+from sigil.model import sim  # noqa: E402
+from sigil.model.sim.engine import _Entry, _due  # noqa: E402
+from sigil.model.sim.narration import _prefixed, _subject_episodes  # noqa: E402
+from sigil.model.sim.program import _program_of  # noqa: E402
+from sigil.model.sim.scenarios import _spread  # noqa: E402
+from sigil.model import scene  # noqa: E402
+from sigil.core import parse as render  # noqa: E402
+import golden  # noqa: E402
 
-
-sim = _load("sigil_sim_overlap_test", _DIR / "sim.py")
-golden = _load("sigil_golden_sim_overlap_test", _DIR / "tools" / "golden.py")
-scene = sim.scene_mod
-render = sim.kit.render
-
-EXAMPLES = sorted((_DIR / "site" / "examples").glob("*.sigil"))
-FIXTURES = [_DIR / "tests" / "fixtures" / "executions.sigil",
-            _DIR / "tests" / "fixtures" / "coverage.sigil"]
+EXAMPLES = sorted((ROOT / "site" / "examples").glob("*.sigil"))
+FIXTURES = [ROOT / "tests" / "fixtures" / "executions.sigil",
+            ROOT / "tests" / "fixtures" / "coverage.sigil"]
 
 
 def build(text: str):
@@ -115,17 +112,17 @@ class TestStartNames(unittest.TestCase):
                          [("B_service", 0), ("A_service", 3)])
 
     def test_due_at_the_opening(self):
-        E = sim._Entry
+        E = _Entry
         entries = [E(0, "a", 0), E(0, "b", None), E(0, "c", 5)]
-        self.assertEqual(sim._due(entries, 0, True, opening=True), [0])
-        self.assertEqual(sim._due(entries[1:], 0, True, opening=True), [0])
-        self.assertEqual(sim._due([E(0, "b", None), E(0, "a", 0)], 0, True, opening=True),
+        self.assertEqual(_due(entries, 0, True, opening=True), [0])
+        self.assertEqual(_due(entries[1:], 0, True, opening=True), [0])
+        self.assertEqual(_due([E(0, "b", None), E(0, "a", 0)], 0, True, opening=True),
                          [0, 1])
-        self.assertEqual(sim._due(entries, 0, True, opening=False), [0, 1])
-        self.assertEqual(sim._due(entries[1:], 5, True, opening=True), [0, 1])
+        self.assertEqual(_due(entries, 0, True, opening=False), [0, 1])
+        self.assertEqual(_due(entries[1:], 5, True, opening=True), [0, 1])
 
     def test_the_overlap_example_entry_at_zero_runs_as_happy(self):
-        sc = build((_DIR / "tests" / "fixtures" / "overlap.sigil").read_text())
+        sc = build((ROOT / "tests" / "fixtures" / "overlap.sigil").read_text())
         happy = sim.simulate(sc, sim.scenarios(sc)[0])
         tr = sim.simulate(sc, sim.scenario(sc, "Operator@0"))
         self.assertEqual(tr.frames, happy.frames)
@@ -158,8 +155,8 @@ class TestListedOverlaps(unittest.TestCase):
     def test_the_example_labels_each_listed_overlap_on_its_name_line(self):
         """`--sim list` keeps a label beside its name when it fits the list's
         width: the example's overlap labels are short enough, and none is empty."""
-        view = _load("sigil_view_sim_overlap_test", _DIR / "view.py")
-        sc = build((_DIR / "tests" / "fixtures" / "overlap.sigil").read_text(encoding="utf-8"))
+        from sigil.present import app as view
+        sc = build((ROOT / "tests" / "fixtures" / "overlap.sigil").read_text(encoding="utf-8"))
         listed = sim.scenarios(sc)
         self.assertTrue(all(s.label for s in listed if s.starts))
         self.assertEqual(len(view.sim_list(listed)), len(listed))
@@ -211,7 +208,7 @@ class TestListedOverlaps(unittest.TestCase):
         before them are the deviations, as before."""
         for path in EXAMPLES + FIXTURES:
             sc = build(path.read_text())
-            prog = sim._program_of(sc.graph)
+            prog = _program_of(sc.graph)
             with self.subTest(doc=path.name):
                 listed = sim.scenarios(sc, limits=sim.Limits(scenarios=10 ** 6))
                 plain = [s.name for s in listed if not s.starts]
@@ -225,8 +222,8 @@ class TestListedOverlaps(unittest.TestCase):
         """The overlap side of the deviation test in test_sim: over every golden
         input and language.md block, a listed `B@t` starts no choice and runs
         differently from the happy run (B begins before the earlier one is quiet)."""
-        spec = golden.examples_inputs((_DIR / "language.md").read_text(encoding="utf-8"))
-        corpus = ([(i.name, i.text) for i in golden.collect_inputs(_DIR)]
+        spec = golden.examples_inputs((ROOT / "language.md").read_text(encoding="utf-8"))
+        corpus = ([(i.name, i.text) for i in golden.collect_inputs(ROOT)]
                   + [("language-" + i.name, i.text) for i in spec])
         for name, text in corpus:
             sc = build(text)
@@ -269,9 +266,9 @@ class TestWindows(unittest.TestCase):
         self.assertEqual(len(names), len(set(names)))
 
     def test_spread(self):
-        self.assertEqual(sim._spread(0, 3, 10), [0, 1, 2, 3])
-        self.assertEqual(sim._spread(0, 9, 3), [0, 4, 9])
-        self.assertEqual(sim._spread(5, 9, 1), [5])
+        self.assertEqual(_spread(0, 3, 10), [0, 1, 2, 3])
+        self.assertEqual(_spread(0, 9, 3), [0, 4, 9])
+        self.assertEqual(_spread(5, 9, 1), [5])
 
 
 class TestNarration(unittest.TestCase):
@@ -310,13 +307,13 @@ class TestNarration(unittest.TestCase):
         events = [{"task": 1, "episode": 1, "node": "S"},
                   {"task": 2, "episode": 2, "store": "Db", "node": "S"},
                   {"task": None, "episode": 2, "node": "T"}]
-        self.assertEqual(sim._subject_episodes(events, {"T": 1}),
+        self.assertEqual(_subject_episodes(events, {"T": 1}),
                          {"S": 2, "Db": 2, "T": 1})
 
     def test_prefixed(self):
         pairs = [(1, "a"), (None, "the run ends: ok"), (2, "b")]
-        self.assertEqual(sim._prefixed(pairs, False), ["a", "the run ends: ok", "b"])
-        self.assertEqual(sim._prefixed(pairs, True), ["ep1: a", "the run ends: ok", "ep2: b"])
+        self.assertEqual(_prefixed(pairs, False), ["a", "the run ends: ok", "b"])
+        self.assertEqual(_prefixed(pairs, True), ["ep1: a", "the run ends: ok", "ep2: b"])
 
 
 if __name__ == "__main__":

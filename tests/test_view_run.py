@@ -23,7 +23,6 @@ Run:  python3 -m unittest discover tests
 from __future__ import annotations
 
 import contextlib
-import importlib.util
 import io
 import json
 import sys
@@ -31,24 +30,20 @@ import tempfile
 import unittest
 from pathlib import Path
 
-_DIR = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 
-def _load(name: str, fname: str):
-    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+from sigil.present import app as view, kit  # noqa: E402
+from sigil.present.views import run as vrun  # noqa: E402
+from sigil.model import sim  # noqa: E402
+from sigil.core.parse import parse_document  # noqa: E402
+from sigil import cli  # noqa: E402
 
-
-view = _load("sigil_view_run_tests", "view.py")
-vrun, kit, sim = view.vrun, view.kit, view.simulator
-
-CHECKOUT = _DIR / "site" / "examples" / "01-checkout.sigil"
-ARENA = _DIR / "site" / "examples" / "03-arena.sigil"
-SHORTENER = _DIR / "site" / "examples" / "00-shortener.sigil"
-EXECUTIONS = _DIR / "tests" / "fixtures" / "executions.sigil"
+CHECKOUT = ROOT / "site" / "examples" / "01-checkout.sigil"
+ARENA = ROOT / "site" / "examples" / "03-arena.sigil"
+SHORTENER = ROOT / "site" / "examples" / "00-shortener.sigil"
+EXECUTIONS = ROOT / "tests" / "fixtures" / "executions.sigil"
 RACE = """(User) -> [Api]
 parallel @all {
   [Api] -> [Inventory] : reserve => {Hold}
@@ -80,7 +75,7 @@ loop @times 3 {
 
 def parse(path_or_text):
     text = path_or_text.read_text() if isinstance(path_or_text, Path) else path_or_text
-    return view.render.parse_document(text)
+    return parse_document(text)
 
 
 def trace_of(g, name: str = "happy", limits=None):
@@ -409,20 +404,20 @@ class TestApp(unittest.TestCase):
     def test_cli_once_json_and_unroll(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            view.main([str(CHECKOUT), "--run", "--once", "--no-lint", "--color", "never",
+            cli.main(["view", str(CHECKOUT), "--run", "--once", "--no-lint", "--color", "never",
                        "--width", "120", "--sim", "API.charge:fails"])
         self.assertIn("╰───✖╰───✖╰───✖╰───✖", out.getvalue())
         self.assertIn("sim API.charge:fails", out.getvalue())
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            view.main([str(CHECKOUT), "--run", "--json"])
+            cli.main(["view", str(CHECKOUT), "--run", "--json"])
         data = json.loads(out.getvalue())
         self.assertEqual(data["scenario"], "happy")
         self.assertEqual([ln["label"] for ln in data["lanes"]][:2], ["(Shopper)", "[API]"])
         self.assertTrue(data["moves"])
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            view.main([str(ARENA), "--run", "--once", "--no-lint", "--color", "never",
+            cli.main(["view", str(ARENA), "--run", "--once", "--no-lint", "--color", "never",
                        "--limit", "spawn=6", "--unroll", "all"])
         self.assertNotIn("more}", out.getvalue())
 
@@ -442,10 +437,10 @@ class TestApp(unittest.TestCase):
         self.assertIn("↺k iteration k", "".join(t for t, _ in vrun.run_legend()))
 
     def test_a_finding_this_run_witnesses_is_on_the_ruler(self):
-        path = _DIR / "tests" / "fixtures" / "checks" / "trace-204-fanout.sigil"
+        path = ROOT / "tests" / "fixtures" / "checks" / "trace-204-fanout.sigil"
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            view.main([str(path), "--run", "--once", "--checks", "--no-lint", "--color",
+            cli.main(["view", str(path), "--run", "--once", "--checks", "--no-lint", "--color",
                        "never", "--width", "120"])
         lines = out.getvalue().splitlines()
         ruler = marks_row(lines)
@@ -457,7 +452,7 @@ class TestApp(unittest.TestCase):
         for flag in ("--run", "--tree", "--flow"):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
-                view.main([str(CHECKOUT), flag, "--once", "--no-lint", "--color", "never",
+                cli.main(["view", str(CHECKOUT), flag, "--once", "--no-lint", "--color", "never",
                            "--width", "90"])
             for ln in out.getvalue().splitlines():
                 self.assertEqual(ln, ln.rstrip(), f"{flag}: {ln!r}")

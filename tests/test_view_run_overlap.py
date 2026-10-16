@@ -16,24 +16,18 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
-import importlib.util
 import sys
 import unittest
 from pathlib import Path
 
-_DIR = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 
-def _load(name: str, fname: str):
-    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-view = _load("sigil_view_run_overlap_tests", "view.py")
-vrun, kit, sim = view.vrun, view.kit, view.simulator
+from sigil.present import app as view, kit  # noqa: E402
+from sigil.present.views import run as vrun  # noqa: E402
+from sigil.model import sim  # noqa: E402
+from sigil.core.parse import parse_document  # noqa: E402
 
 SHARED = """#!spec
 (Builder) -> [Api] : build
@@ -45,7 +39,7 @@ AUTHOR = "Author_actor"
 
 
 def _graph(src: str = SHARED):
-    return kit._call(kit.render.parse_document, src, None)
+    return kit._call(parse_document, src, None)
 
 
 def _run(g, starts: tuple):

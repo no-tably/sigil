@@ -24,30 +24,24 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
-import importlib.util
 import sys
 import unittest
 from pathlib import Path
 
-_DIR = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 
-def _load(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+sys.path.insert(0, str(ROOT / "tools"))
+from sigil.model import sim  # noqa: E402
+from sigil.model.sim.engine import _Entry, _due  # noqa: E402
+from sigil.model import scene  # noqa: E402
+from sigil.core import parse as render  # noqa: E402
+import golden  # noqa: E402
 
-
-sim = _load("sigil_sim_test", _DIR / "sim.py")
-golden = _load("sigil_golden_sim_test", _DIR / "tools" / "golden.py")
-scene = sim.scene_mod
-render = sim.kit.render
-
-EXAMPLES = sorted((_DIR / "site" / "examples").glob("*.sigil"))
-FIXTURES = [_DIR / "tests" / "fixtures" / "executions.sigil",
-            _DIR / "tests" / "fixtures" / "coverage.sigil"]
+EXAMPLES = sorted((ROOT / "site" / "examples").glob("*.sigil"))
+FIXTURES = [ROOT / "tests" / "fixtures" / "executions.sigil",
+            ROOT / "tests" / "fixtures" / "coverage.sigil"]
 
 
 def build(text: str, **options):
@@ -665,7 +659,7 @@ class TestJoinsAndBlocks(unittest.TestCase):
         self.assertEqual(len(logs(tr, "[B] -> [C]")), 1)
 
     def test_self_call_return_runs_once_per_iteration(self):
-        text = (_DIR / "language.md").read_text()
+        text = (ROOT / "language.md").read_text()
         body = text[text.index("### Example 5"):].split("```")[1]
         sc = build(body)
         prog = sim.program(sim.canonical(sc.graph))
@@ -900,7 +894,7 @@ class TestTermination(unittest.TestCase):
         self.assertTrue(tr.frames[-1].log[-1].endswith("done: ok"))
 
     def test_any_scene_of_the_document_gives_one_trace(self):
-        text = (_DIR / "site" / "examples" / "04-orders.sigil").read_text()
+        text = (ROOT / "site" / "examples" / "04-orders.sigil").read_text()
         a = run(build(text))
         b = run(build(text, events="land", depth=0))
         self.assertEqual(a.frames, b.frames)
@@ -912,7 +906,7 @@ class TestTermination(unittest.TestCase):
 
 class TestProject(unittest.TestCase):
     def setUp(self):
-        self.text = (_DIR / "site" / "examples" / "04-orders.sigil").read_text()
+        self.text = (ROOT / "site" / "examples" / "04-orders.sigil").read_text()
         self.trace = run(build(self.text))
 
     def test_identity_on_the_canonical_scene(self):
@@ -944,7 +938,7 @@ class TestProject(unittest.TestCase):
         self.assertEqual(p.frames[-1].machines, self.trace.frames[-1].machines)
 
     def test_undrawn_unit_folds_into_its_owner(self):
-        text = (_DIR / "site" / "examples" / "02-shop.sigil").read_text()
+        text = (ROOT / "site" / "examples" / "02-shop.sigil").read_text()
         tr = run(build(text))
         p = sim.project(tr, build(text, depth=0))
         busy = [f for f in p.frames if f.nodes.get("Shop_service") == "active"]
@@ -957,7 +951,7 @@ class TestProject(unittest.TestCase):
         # at --depth 0 `[Checkout] ~> <OrderPlaced>` is not drawn: its token rides
         # `[Shop] ~> <OrderPlaced>`, the summary standing for it; drawn (depth 1),
         # it rides the detail and the summary is only lit
-        text = (_DIR / "site" / "examples" / "02-shop.sigil").read_text()
+        text = (ROOT / "site" / "examples" / "02-shop.sigil").read_text()
         tr = run(build(text))
         summary = ("Shop_service", "OrderPlaced_event", "~>", 0)
         detail = ("Checkout_service", "OrderPlaced_event", "~>", 0)
@@ -976,7 +970,7 @@ class TestProject(unittest.TestCase):
         self.assertTrue(any(t.wire == detail for f in d1.frames for t in f.tokens))
 
     def test_a_folded_detail_rides_the_summary_land_mode_draws(self):
-        text = (_DIR / "site" / "examples" / "02-shop.sigil").read_text()
+        text = (ROOT / "site" / "examples" / "02-shop.sigil").read_text()
         tr = run(build(text))
         land = build(text, depth=0, events="land")
         p = sim.project(tr, land)
@@ -1009,15 +1003,15 @@ ALL = sim.Limits(scenarios=10 ** 6)
 
 def corpus() -> list:
     """Every golden input plus every language.md block: (name, text)."""
-    spec = golden.examples_inputs((_DIR / "language.md").read_text(encoding="utf-8"))
-    return ([(i.name, i.text) for i in golden.collect_inputs(_DIR)]
+    spec = golden.examples_inputs((ROOT / "language.md").read_text(encoding="utf-8"))
+    return ([(i.name, i.text) for i in golden.collect_inputs(ROOT)]
             + [("language-" + i.name, i.text) for i in spec])
 
 
 def worked_example(title: str) -> str:
     """The corpus name of the first Sigil block under language.md's `### {title}`
     heading, so spec edits that renumber the blocks do not shift a key."""
-    text = (_DIR / "language.md").read_text(encoding="utf-8")
+    text = (ROOT / "language.md").read_text(encoding="utf-8")
     at = text.index(f"### {title}")
     fences = [m for m in golden._FENCE.finditer(text) if m.group(1) != "text"]
     k = next(k for k, m in enumerate(fences) if m.start() > at)
@@ -1189,7 +1183,7 @@ JOIN_206 = "[S] -> [A] : a()\n[S] ?> [B] : b()\n[A] & [B] -> [C] : go() @timeout
 # members are choice points (Q3), and every checks fixture.
 B3_PROBES = ([("wildcard-only", WILDCARD_ONLY), ("join-206", JOIN_206)]
              + [(p.stem, p.read_text()) for p in
-                sorted((_DIR / "tests" / "fixtures" / "checks").glob("*.sigil"))])
+                sorted((ROOT / "tests" / "fixtures" / "checks").glob("*.sigil"))])
 
 
 def _changes_with_another(sc, s, listed) -> bool:
@@ -1804,13 +1798,13 @@ class TestOverlappingEpisodes(unittest.TestCase):
                 started(self.sc, (("B_service", bad),))
 
     def test_due_entries(self):
-        E = sim._Entry
+        E = _Entry
         entries = [E(0, "a", None), E(0, "b", 4), E(0, "c", None)]
-        self.assertEqual(sim._due(entries, 0, True), [0])
-        self.assertEqual(sim._due(entries, 3, False), [])
-        self.assertEqual(sim._due(entries, 4, False), [1])
-        self.assertEqual(sim._due(entries, 4, True), [0, 1])
-        self.assertEqual(sim._due(entries[1:], 9, True), [0, 1])
+        self.assertEqual(_due(entries, 0, True), [0])
+        self.assertEqual(_due(entries, 3, False), [])
+        self.assertEqual(_due(entries, 4, False), [1])
+        self.assertEqual(_due(entries, 4, True), [0, 1])
+        self.assertEqual(_due(entries[1:], 9, True), [0, 1])
 
     def test_no_corpus_run_overlaps_without_starts(self):
         # every existing scenario keeps one episode at a time: views draw as before

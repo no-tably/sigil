@@ -21,27 +21,27 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
-import importlib.util
+import importlib
 import random
 import sys
 import unittest
 from pathlib import Path
 
-_DIR = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 
-def _load(name: str, fname: str):
-    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+from sigil.core import parse  # noqa: E402
+from sigil.present import app as view, kit  # noqa: E402
+from sigil.present.views import flow as vflow, graph as vgraph, run as vrun  # noqa: E402
+from sigil.present.views import tree as vtree  # noqa: E402
+from sigil.model import sim  # noqa: E402
+from sigil.analyse import check as ck  # noqa: E402
+from sigil.analyse.rules import state as cs  # noqa: E402
 
-
-view = _load("sigil_view_perf", "view.py")
-kit, vgraph, sim, vrun = view.kit, view.vgraph, view.simulator, view.vrun
-ck = _load("sigil_check_perf", "check.py")
-cs = _load("sigil_check_state_perf", "check_state.py")
+# the module sim.failure_analysis looks _activation up in (the package name
+# `sigil.model.sim.scenarios` is also bound to the function `scenarios`)
+sim_scenarios = importlib.import_module("sigil.model.sim.scenarios")
 
 KINDS = ["->", "=>", "*>", "~>", "?>", "trigger", "access:r"]
 STYLES = [None, (1, None, False), (2, None, True), kit.Probe((1, None, False))]
@@ -135,7 +135,7 @@ class RowsMatchCellByCell(unittest.TestCase):
             self.assertEqual(list(cv.rows()), list(plain_rows(cv)))
 
     def test_corners_a_subclass_draws_instead(self):
-        cv = view.vflow._Canvas()           # the flow view's rounded light corners
+        cv = vflow._Canvas()           # the flow view's rounded light corners
         cv.path([(0, 4), (0, 0), (6, 0), (6, 3)], "->", None)
         cv.path([(2, 4), (2, 2), (8, 2)], "=>", STYLES[1])
         cv.put(6, 3, "┌", None)             # text is never rounded
@@ -201,21 +201,21 @@ class OwnersMatchSetRule(unittest.TestCase):
 
 class FailureAnalysisWorklist(unittest.TestCase):
     def prog(self, text):
-        return sim.program(sim.canonical(view.render.parse_document(text)))
+        return sim.program(sim.canonical(parse.parse_document(text)))
 
     def test_a_long_chain_runs_each_activation_a_few_times(self):
         n = 300
         prog = self.prog("--- chain ---\n" + "\n".join(
             f"[N{i}] -> [N{i + 1}] : go ×2" for i in range(n)) + "\n")
-        runs, real = [], sim._activation
+        runs, real = [], sim_scenarios._activation
         def counted(fl, fails, ctx):
             runs.append(ctx)
             return real(fl, fails, ctx)
-        sim._activation = counted
+        sim_scenarios._activation = counted
         try:
             flow = sim.failure_analysis(prog)
         finally:
-            sim._activation = real
+            sim_scenarios._activation = real
         self.assertGreater(len(set(runs)), n)
         self.assertLessEqual(len(runs), 3 * len(set(runs)))
         self.assertTrue(flow.arriving)
@@ -259,15 +259,15 @@ class FramesAlike(unittest.TestCase):
                 self.assertEqual(rows.get(r, {}).get(c, vrun._BLANK), grid.glyph(r, c))
 
     def test_badge_widths_once_per_trace(self):
-        text = (_DIR / "site" / "examples" / "02-shop.sigil").read_text(encoding="utf-8")
-        player = view.SimPlayer(view.render.parse_document(text), "happy")
+        text = (ROOT / "site" / "examples" / "02-shop.sigil").read_text(encoding="utf-8")
+        player = view.SimPlayer(parse.parse_document(text), "happy")
         trace = player.trace
         nodes = {nid: n for cur in kit._walk(player.graph) for nid, n in cur.nodes.items()}
         names = {nid: kit.node_label(n) for nid, n in nodes.items()}
-        first = view.vtree._trace_badge_widths(trace, nodes, set(), names)
-        self.assertIs(view.vtree._trace_badge_widths(trace, nodes, set(), names), first)
-        self.assertEqual(first, view.vtree._badge_widths(trace, nodes, set(), names))
-        other = view.vtree._trace_badge_widths(trace, nodes, {"nobody"}, names)
+        first = vtree._trace_badge_widths(trace, nodes, set(), names)
+        self.assertIs(vtree._trace_badge_widths(trace, nodes, set(), names), first)
+        self.assertEqual(first, vtree._badge_widths(trace, nodes, set(), names))
+        other = vtree._trace_badge_widths(trace, nodes, {"nobody"}, names)
         self.assertIsNot(other, first)
 
 

@@ -9,28 +9,20 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
-import importlib.util
 import re
 import sys
 import textwrap
 import unittest
 from pathlib import Path
 
-_DIR = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 
-def _load(key: str, fname: str):
-    spec = importlib.util.spec_from_file_location(key, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[key] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-ck = _load("sigil_check_inv_suite_check", "check.py")
-cs = _load("sigil_check_inv_suite_state", "check_state.py")
-ci = _load("sigil_check_inv_suite_inv", "check_inv.py")
-dialects = _load("sigil_check_inv_suite_dialects", "dialects.py")
+from sigil.analyse import check as ck  # noqa: E402
+from sigil.analyse.rules import state as cs  # noqa: E402
+from sigil.analyse.rules import inv as ci  # noqa: E402
+from sigil.core import dialects  # noqa: E402
 
 INV_RULES = ("SGC301", "SGC302", "SGC303", "SGC304", "SGC306")
 
@@ -141,7 +133,7 @@ class InvUnchecked(unittest.TestCase):
     def test_corpus_invariants_listed_never_failed(self):
         """examples.md's `@inv` lines (catalog SGC301 evidence) are listed, as
         hints only, by this module."""
-        text = (_DIR / "examples.md").read_text(encoding="utf-8")
+        text = (ROOT / "examples.md").read_text(encoding="utf-8")
         blocks = [m.group(2) for m in re.finditer(r"^```([a-z]*)\n(.*?)^```", text, re.S | re.M)
                   if m.group(1) != "text" and "@inv" in m.group(2)]
         self.assertTrue(blocks)
@@ -163,7 +155,7 @@ class InvUnchecked(unittest.TestCase):
         self.assertEqual([f.rule.id for f in rep.acknowledged], ["SGC301"])
 
     def test_a_dialect_head_is_recognised(self):
-        pack = dialects.load(str(_DIR / "tests" / "fixtures" / "dialect_pack_resilience.py"))
+        pack = dialects.load(str(ROOT / "tests" / "fixtures" / "dialect_pack_resilience.py"))
         text = """
             #!spec
             [Api] @inv breaker(payments)

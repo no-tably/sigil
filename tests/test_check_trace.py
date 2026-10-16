@@ -18,7 +18,6 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
-import importlib.util
 import os
 import re
 import subprocess
@@ -28,21 +27,15 @@ import time
 import unittest
 from pathlib import Path
 
-_DIR = Path(__file__).resolve().parents[1]
-_FIXTURES = _DIR / "tests" / "fixtures" / "checks"
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+_FIXTURES = ROOT / "tests" / "fixtures" / "checks"
 
 
-def _load(key: str, fname: str):
-    spec = importlib.util.spec_from_file_location(key, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[key] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-ck = _load("sigil_check_for_trace", "check.py")
-ct = ck._rule_module(ck._HERE / "check_trace.py")        # the instance check.py loads
-sim = ck._sim()
+from sigil.analyse import check as ck  # noqa: E402
+from sigil.analyse.rules import state as cs  # noqa: E402
+from sigil.analyse.rules import trace as ct  # noqa: E402
+from sigil.model import sim  # noqa: E402
 
 # The default registry with this module's extensions applied (extend_rules is
 # idempotent, so this holds whether or not check.py applies it too).
@@ -258,7 +251,7 @@ IGNORED = """
 
 class Machines(unittest.TestCase):
     def view(self, text):
-        f = ct.state_module(ck).facts_of(make_doc(text))
+        f = cs.facts_of(make_doc(text))
         return f.machines[0]
 
     def test_step_prefers_the_specific_transition(self):
@@ -314,7 +307,7 @@ class Machines(unittest.TestCase):
         self.assertEqual(of(rep, "SGC203"), [])
 
     def test_coverage_paid_before_placed_is_an_ordering_question(self):
-        text = (_DIR / "tests" / "fixtures" / "coverage.sigil").read_text(encoding="utf-8")
+        text = (ROOT / "tests" / "fixtures" / "coverage.sigil").read_text(encoding="utf-8")
         (f,) = of(ck.check(text, mode="spec", k=1, registry=REGISTRY), "SGC205")
         self.assertTrue(f.hit.trace)
         self.assertIn("`<Paid>`", f.hit.statement)
@@ -353,7 +346,7 @@ class Races(unittest.TestCase):
 
     def test_the_static_half_does_not_see_it(self):
         text = fixture("trace-204-fanout.sigil")
-        static = ck.build_registry(ct.state_module(ck).rules(ck))     # unextended
+        static = ck.build_registry(cs.rules(ck))     # unextended
         self.assertEqual(of(ck.check(text, registry=static), "SGC204"), [])
 
     def test_concurrent_ownership_is_reported_never_passed(self):
@@ -388,7 +381,7 @@ class Races(unittest.TestCase):
         self.assertTrue(list(ct.race_hits(ck, d)))
 
     def test_examples_md_running_flag_is_quiet(self):
-        text = (_DIR / "examples.md").read_text(encoding="utf-8")
+        text = (ROOT / "examples.md").read_text(encoding="utf-8")
         start = text.index("[Loop]  -> ~|running| : true")
         block = text[text.rindex("```\n", 0, start) + 4:text.index("```", start)]
         rep = ck.check(block, mode="spec", registry=REGISTRY)
@@ -567,11 +560,11 @@ class Unreached(unittest.TestCase):
         self.assertIn("`[Ping]` and `[Pong]`", f.hit.statement)
 
     def test_the_corpus_evidence(self):
-        text = (_DIR / "tests" / "fixtures" / "coverage.sigil").read_text(encoding="utf-8")
+        text = (ROOT / "tests" / "fixtures" / "coverage.sigil").read_text(encoding="utf-8")
         got = [f.line for f in of(ck.check(text, mode="spec", k=1, registry=REGISTRY),
                                   "SGC175")]
         self.assertEqual(got, [82, 195, 196, 197])
-        text = (_DIR / "tests" / "fixtures" / "executions.sigil").read_text(encoding="utf-8")
+        text = (ROOT / "tests" / "fixtures" / "executions.sigil").read_text(encoding="utf-8")
         got = [f.line for f in of(ck.check(text, mode="spec", k=1, registry=REGISTRY),
                                   "SGC175")]
         self.assertEqual(got, [30])
@@ -594,7 +587,7 @@ class Unreached(unittest.TestCase):
 # 8. SGC090 exploration-incomplete: the run causes
 # ---------------------------------------------------------------------------
 
-COVERAGE = _DIR / "tests" / "fixtures" / "coverage.sigil"
+COVERAGE = ROOT / "tests" / "fixtures" / "coverage.sigil"
 
 
 def cause_of(report, words: str) -> list:
@@ -755,13 +748,13 @@ class Exploration(unittest.TestCase):
 
     def test_the_cli_passes_its_bounds_on(self):
         def cli(*args) -> str:
-            return subprocess.run([sys.executable, str(_DIR / "check.py"), *args, "--all"],
+            return subprocess.run([sys.executable, str(ROOT / "bin" / "sigil"), "check", *args, "--all"],
                                   capture_output=True, text=True).stdout
         out = cli(str(COVERAGE), "--mode", "spec", "--budget", "1")
         self.assertIn("budget=1 runs", out)
         self.assertNotIn("budget=256", out)
         self.assertIn("frames=10", cli(str(COVERAGE), "--mode", "spec", "--limit", "frames=10"))
-        bound = str(_DIR / "tests" / "fixtures" / "checks" / "trace-090-bound.sigil")
+        bound = str(ROOT / "tests" / "fixtures" / "checks" / "trace-090-bound.sigil")
         self.assertIn("SGC090", cli(bound))
         self.assertNotIn("SGC090", cli(bound, "--limit", "depth=40"))
 
@@ -846,11 +839,11 @@ class Extending(unittest.TestCase):
 
 class Determinism(unittest.TestCase):
     def test_byte_identical_across_hash_seeds(self):
-        path = str(_DIR / "tests" / "fixtures" / "coverage.sigil")
+        path = str(ROOT / "tests" / "fixtures" / "coverage.sigil")
         outs = []
         for seed in ("1", "2"):
             env = dict(os.environ, PYTHONHASHSEED=seed)
-            outs.append(subprocess.run([sys.executable, str(_DIR / "check.py"), path, "--json",
+            outs.append(subprocess.run([sys.executable, str(ROOT / "bin" / "sigil"), "check", path, "--json",
                                         "--mode", "spec"], capture_output=True, env=env).stdout)
         self.assertEqual(outs[0], outs[1])
         self.assertTrue(outs[0])

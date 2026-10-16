@@ -9,10 +9,12 @@ import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import view  # noqa: E402
-
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from sigil.present import app as view  # noqa: E402
+from sigil.model import sim  # noqa: E402
+from sigil.core.parse import parse_document  # noqa: E402
 CHECKOUT = ROOT / "site" / "examples" / "01-checkout.sigil"
 ORDERS = ROOT / "site" / "examples" / "04-orders.sigil"
 EXECUTIONS = ROOT / "tests" / "fixtures" / "executions.sigil"
@@ -21,7 +23,7 @@ DOCS = sorted((ROOT / "site" / "examples").glob("*.sigil")) + [
 
 
 def parse(path: Path):
-    return view.kit.render.parse_document(path.read_text())
+    return parse_document(path.read_text())
 
 
 def facts(path: Path) -> list:
@@ -114,20 +116,20 @@ class TestTable(unittest.TestCase):
                          "2 scenarios: 1 ok, 0 failed, 1 cut")
 
     def test_list_names_and_labels(self):
-        rows = view.sim_list(view.simulator.scenarios(view.simulator.canonical(parse(CHECKOUT))))
+        rows = view.sim_list(sim.scenarios(sim.canonical(parse(CHECKOUT))))
         self.assertEqual(rows, ["happy             every default: the happy path",
                                 "API.charge:fails  charge fails 4×, no fallback"])
 
     def test_no_scenario_is_named_list_or_all(self):
         for path in DOCS:
             names = {sc.name for sc in
-                     view.simulator.scenarios(view.simulator.canonical(parse(path)))}
+                     sim.scenarios(sim.canonical(parse(path)))}
             self.assertFalse(names & set(view.SIM_BATCH), path.name)
 
 
 class TestCommandLine(unittest.TestCase):
     def run_view(self, *args):
-        return subprocess.run([sys.executable, str(ROOT / "view.py"), *map(str, args)],
+        return subprocess.run([sys.executable, str(ROOT / "bin" / "sigil"), "view", *map(str, args)],
                               capture_output=True, text=True)
 
     def test_all_prints_the_table_and_no_drawing(self):

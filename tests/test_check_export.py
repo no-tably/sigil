@@ -10,7 +10,6 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
-import importlib.util
 import json
 import re
 import subprocess
@@ -19,20 +18,13 @@ import textwrap
 import unittest
 from pathlib import Path
 
-_DIR = Path(__file__).resolve().parents[1]
-_FIXTURES = _DIR / "tests" / "fixtures" / "checks"
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+_FIXTURES = ROOT / "tests" / "fixtures" / "checks"
 
 
-def _load(key: str, fname: str):
-    spec = importlib.util.spec_from_file_location(key, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[key] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-ck = _load("sigil_check_export_suite_check", "check.py")
-cx = _load("sigil_check_export_suite_rules", "check_export.py")
+from sigil.analyse import check as ck  # noqa: E402
+from sigil.analyse.rules import export as cx  # noqa: E402
 
 EXPORT_IDS = ("SGC401", "SGC402")
 FIXTURES = sorted(_FIXTURES.glob("export-*.sigil"))
@@ -249,7 +241,7 @@ class Acknowledgements(unittest.TestCase):
 
 class Cli(unittest.TestCase):
     def cli(self, *args, stdin=None):
-        return subprocess.run([sys.executable, str(_DIR / "check.py"), *args],
+        return subprocess.run([sys.executable, str(ROOT / "bin" / "sigil"), "check", *args],
                               input=stdin, capture_output=True, text=True,
                               encoding="utf-8")
 

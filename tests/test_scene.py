@@ -23,25 +23,17 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
-import importlib.util
 import sys
 import unittest
 from pathlib import Path
 
-_DIR = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 
-def _load(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-scene = _load("sigil_scene_test", _DIR / "scene.py")
-kit = scene.kit
-render = kit.render
+from sigil.model import scene  # noqa: E402
+from sigil.present import kit  # noqa: E402
+from sigil.core import parse as render  # noqa: E402
 
 
 def build(text: str, **options):
@@ -258,13 +250,13 @@ class Annotations(unittest.TestCase):
     def test_chip_lists(self):
         sc = build("[A] -> [B] : {Order} @timeout(2s)\n")
         key = ("A_service", "B_service", "->")
-        self.assertEqual(scene.chip_lists(sc, True, False), {key: ["{Order}"]})
-        self.assertEqual(scene.chip_lists(sc, True, True), {key: ["{Order} ┆ @timeout 2s"]})
-        self.assertEqual(scene.chip_lists(sc, False, False), {})
+        self.assertEqual(kit.chip_lists(sc, True, False), {key: ["{Order}"]})
+        self.assertEqual(kit.chip_lists(sc, True, True), {key: ["{Order} ┆ @timeout 2s"]})
+        self.assertEqual(kit.chip_lists(sc, False, False), {})
 
     def test_an_emit_carries_its_legs(self):
         sc = build(RELAY, events="land")
-        chips = scene.chip_lists(sc, True, False)
+        chips = kit.chip_lists(sc, True, False)
         self.assertEqual(chips[("Api_service", "Mailer_service", "->")], ["{Receipt} · {Mail}"])
         self.assertEqual(chips[("Api_service", "Ledger_service", "->")], ["{Receipt}"])
         notes = scene.wire_notes(sc)
@@ -311,29 +303,29 @@ class ColourPolicy(unittest.TestCase):
         for role in ("edges-fail", "edges-maybe", "edges-async", "edges-split", "edges-arm",
                      "edges-access", "edges-default", "kinds-service", "kinds-event"):
             with self.subTest(role):
-                self.assertEqual(scene.colour_of(role).role, role)
+                self.assertEqual(kit.colour_of(role).role, role)
 
     def test_theme_applied_later_reaches_a_built_scene(self):
         sc = build("[A] !> [B]\n")
         try:
             kit.apply_theme({"edges": {"fail": "#123456"}})
-            self.assertEqual(scene.wire_style(sc.wires[0]), ("#123456", None, False))
+            self.assertEqual(kit.wire_style(sc.wires[0]), ("#123456", None, False))
         finally:
             kit.use_theme(None)
 
     def test_overlays(self):
         w = build("[A] -> [B]\n").wires[0]
-        base = scene.colour_of("kinds-service")
-        self.assertEqual(scene.wire_style(w), (base, None, False))
-        self.assertEqual(scene.wire_style(w, "active"), (base, None, True))
+        base = kit.colour_of("kinds-service")
+        self.assertEqual(kit.wire_style(w), (base, None, False))
+        self.assertEqual(kit.wire_style(w, "active"), (base, None, True))
         # a run's ranks: bright (active) > trail (taken before) > faint (never taken)
-        self.assertEqual(scene.wire_style(w, "inactive"),
+        self.assertEqual(kit.wire_style(w, "inactive"),
                          (kit.faded(base, kit.SIM_FAINT, "faint"), None, False))
-        self.assertEqual(scene.wire_style(w, "trail"),
+        self.assertEqual(kit.wire_style(w, "trail"),
                          (kit.faded(base, kit.SIM_TRAIL, "trail"), None, False))
-        self.assertEqual(scene.wire_style(w, "failed"), (scene.colour_of("edges-fail"), None, True))
+        self.assertEqual(kit.wire_style(w, "failed"), (kit.colour_of("edges-fail"), None, True))
         with self.assertRaises(ValueError):
-            scene.wire_style(w, "lit")
+            kit.wire_style(w, "lit")
 
 
 class GraphWiring(unittest.TestCase):
@@ -417,7 +409,7 @@ class LandedDrivers(unittest.TestCase):
         self.assertFalse([w for w in build(RELAY, events="land").wires if w.machine])
 
 
-EXEC = (_DIR / "tests" / "fixtures" / "executions.sigil").read_text()
+EXEC = (ROOT / "tests" / "fixtures" / "executions.sigil").read_text()
 
 
 class Calls(unittest.TestCase):
@@ -463,12 +455,12 @@ class Calls(unittest.TestCase):
     def test_call_text_shows_what_a_call_carries(self):
         sc = build("[W] -> run() : {Job}\n[T.walk] -> [T.walk] : child\n[L] -> [L]\n")
         flows = [w for w in sc.wires if w.role == "flow"]
-        self.assertEqual([scene.chip_text(w, True, False) for w in flows],
+        self.assertEqual([kit.wire_chip_text(w, True, False) for w in flows],
                          ["↺ run() : {Job}", "↻ child", ""])
 
     def test_a_target_op_payload_reaches_both_views(self):
-        vtree = _load("sigil_view_tree_scene_test", _DIR / "view_tree.py")
-        vgraph = _load("sigil_view_graph_scene_test", _DIR / "view_graph.py")
+        from sigil.present.views import tree as vtree
+        from sigil.present.views import graph as vgraph
         g = render.parse_document("[W] -> run() : {Job}\n")
         for name, rows in (
                 ("tree", vtree.compose_tree(g, 1, payloads=True)[0]),
@@ -511,22 +503,22 @@ class Calls(unittest.TestCase):
         sc = build(EXEC)
         key = ("Indexer_service", "Index_store", "->")
         self.assertEqual([w.ident for w in sc.wires if w.key == key], [key + (0,), key + (1,)])
-        chips = scene.chip_lists(sc, True, False)
+        chips = kit.chip_lists(sc, True, False)
         self.assertEqual(chips[key], ["reserve(${shard}) ↩ {Lease}", "write({Doc}, {Lease})"])
         self.assertEqual(chips[("Indexer_service", "Index_store", "!>")], ["release({Lease})"])
 
     def test_chip_lists_of_one_unit(self):
         sc = build(EXEC, depth=kit.ALL_DEPTH)
         key = ("Crawler_service", "Crawler_service", "->")
-        self.assertEqual(scene.chip_lists(sc, True, False)[key],
+        self.assertEqual(kit.chip_lists(sc, True, False)[key],
                          ["↺ throttle(${host})", "↻ follow(.links)"])
-        self.assertEqual(scene.chip_lists(sc, True, False, unit=None)[key],
+        self.assertEqual(kit.chip_lists(sc, True, False, unit=None)[key],
                          ["↺ throttle(${host})"])
-        self.assertEqual(scene.chip_lists(sc, True, False, unit="follow_alias")[key],
+        self.assertEqual(kit.chip_lists(sc, True, False, unit="follow_alias")[key],
                          ["↻ follow(.links)"])
 
     def test_call_chips(self):
-        chips = scene.chip_lists(build(EXEC), True, True)
+        chips = kit.chip_lists(build(EXEC), True, True)
         self.assertEqual(chips[("Scheduler_service", "Scheduler_service", "->")],
                          ["↺ plan({Seed}) ↩ {Plan}"])
         self.assertEqual(chips[("Fetcher_service", "Web_actor", "->")],
@@ -646,8 +638,9 @@ class EveryInput(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        golden = _load("sigil_golden_scene", _DIR / "tools" / "golden.py")
-        cls.inputs = golden.collect_inputs(_DIR)
+        sys.path.insert(0, str(ROOT / "tools"))
+        import golden
+        cls.inputs = golden.collect_inputs(ROOT)
 
     def test_builds_and_is_well_formed(self):
         for inp in self.inputs:

@@ -23,36 +23,31 @@ Run:  python3 -m unittest discover tests
 from __future__ import annotations
 
 import contextlib
-import importlib.util
 import io
 import re
 import sys
 import unittest
 from pathlib import Path
 
-_DIR = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 
-def _load(name: str, fname: str):
-    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+from sigil.present import app as view, kit  # noqa: E402
+from sigil.present.views import run as vrun  # noqa: E402
+from sigil.model import sim  # noqa: E402
+from sigil.core.parse import parse_document  # noqa: E402
+from sigil import cli  # noqa: E402
 
-
-view = _load("sigil_view_run_depth_tests", "view.py")
-vrun, kit, sim = view.vrun, view.kit, view.simulator
-
-SHOP = _DIR / "site" / "examples" / "02-shop.sigil"
-EXAMPLES = sorted((_DIR / "site" / "examples").glob("*.sigil"))
-EXECUTIONS = _DIR / "tests" / "fixtures" / "executions.sigil"
+SHOP = ROOT / "site" / "examples" / "02-shop.sigil"
+EXAMPLES = sorted((ROOT / "site" / "examples").glob("*.sigil"))
+EXECUTIONS = ROOT / "tests" / "fixtures" / "executions.sigil"
 HIDDEN_AT_0 = ("[Cart]", "[Checkout]", "[Payments]", "[Gateway]", "[Risk]", "[Model]",
                "|Features|", "{Verdict}", "[Picker]", "[Packer]", "(Courier)")
 
 
 def parse(path: Path):
-    return view.render.parse_document(path.read_text())
+    return parse_document(path.read_text())
 
 
 def run_of(g, name: str = "happy"):
@@ -230,7 +225,7 @@ class OnceRunDepthTest(unittest.TestCase):
     def printed(self, *extra) -> str:
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            view.main([str(SHOP), "--once", "--run", "--sim", "Risk?>Review", "--no-lint",
+            cli.main(["view", str(SHOP), "--once", "--run", "--sim", "Risk?>Review", "--no-lint",
                        "--color", "never", "--width", "140", *extra])
         return out.getvalue()
 
@@ -295,7 +290,7 @@ class FoldedTaskTest(unittest.TestCase):
     """[Api] called once; its expansion's emit runs [Bg] on a task of its own."""
 
     def setUp(self):
-        self.g = view.render.parse_document(API)
+        self.g = parse_document(API)
         self.canon, self.tr = run_of(self.g)
         self.tl = sim.timeline(self.tr, hosts=sim.folded_hosts(self.canon, 0))
 
@@ -345,7 +340,7 @@ class RulerScaleGapTest(unittest.TestCase):
         self.assertEqual([m.text for m in placed], [vrun.QUIET])
 
     def test_tick_0_outranks_a_quiet_mark_crowding_it(self):
-        g = parse(_DIR / "site" / "examples" / "01-checkout.sigil")
+        g = parse(ROOT / "site" / "examples" / "01-checkout.sigil")
         limits = sim.limits_from(["hop=12"])
         canon = sim.canonical(g)
         tr = sim.simulate(canon, sim.scenario(canon, "API.charge:fails", limits=limits),

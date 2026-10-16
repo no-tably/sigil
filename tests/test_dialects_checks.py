@@ -4,7 +4,6 @@ check registry and can be acknowledged, a pack reusing a core name or the reserv
 
 from __future__ import annotations
 
-import importlib.util
 import sys
 import tempfile
 import textwrap
@@ -12,27 +11,18 @@ import types
 import unittest
 from pathlib import Path
 
-_DIR = Path(__file__).resolve().parents[1]
-_PACK = _DIR / "tests" / "fixtures" / "dialect_pack_resilience.py"
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+_PACK = ROOT / "tests" / "fixtures" / "dialect_pack_resilience.py"
 
 
-def _load(stem: str):
-    key = f"sigil_{stem}_dialect_checks_test"
-    if key not in sys.modules:
-        spec = importlib.util.spec_from_file_location(key, _DIR / f"{stem}.py")
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules[key] = mod
-        spec.loader.exec_module(mod)
-    return sys.modules[key]
-
-
-dialects = _load("dialects")
-ck = _load("check")
-lint = _load("lint")
+from sigil.core import dialects  # noqa: E402
+from sigil.analyse import check as ck  # noqa: E402
+from sigil.analyse.lint import hardening  # noqa: E402
 
 # check.py's own core names, plus lint's codes (check.py leaves those empty).
 CORE = dialects.CoreNames(*ck.core_names())._replace(
-    lint_codes=frozenset(lint.HARDENING_SEVERITY))
+    lint_codes=frozenset(hardening.HARDENING_SEVERITY))
 
 DOC = textwrap.dedent("""\
     #!craft

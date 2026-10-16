@@ -9,7 +9,7 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
-import importlib.util
+import contextlib
 import json
 import os
 import subprocess
@@ -19,24 +19,29 @@ import textwrap
 import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
-_DIR = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
-
-def _load_check():
-    key = "sigil_check_under_test"
-    spec = importlib.util.spec_from_file_location(key, _DIR / "check.py")
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[key] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-ck = _load_check()
+from sigil.analyse import check as ck  # noqa: E402
+from sigil.model import sim  # noqa: E402
 
 
 def doc(text: str) -> str:
     return textwrap.dedent(text).lstrip("\n")
+
+
+@contextlib.contextmanager
+def stand_in_rule_modules(sources: dict):
+    """check's rule modules replaced by modules built from `sources` (name ->
+    module text); every other rule module is empty."""
+    def stand_in(name):
+        mod = types.ModuleType(f"stand_in_{name}")
+        exec(textwrap.dedent(sources.get(name, "")), mod.__dict__)
+        return mod
+    with mock.patch.object(ck, "_rule_module", stand_in):
+        yield
 
 
 def probe_rule(rid="TST001", name="probe", tier="binding", lines=None, **hit_kw):
@@ -290,7 +295,7 @@ class MetaRules(unittest.TestCase):
 
     def test_rule_id_or_wrong_case_gives_sgc001_with_the_name(self):
         # tests/fixtures/checks/core-ack-rule-id.sigil: read as acks, not prose
-        text = (_DIR / "tests" / "fixtures" / "checks" / "core-ack-rule-id.sigil"
+        text = (ROOT / "tests" / "fixtures" / "checks" / "core-ack-rule-id.sigil"
                 ).read_text(encoding="utf-8")
         rep = ck.check(text)
         meta = [f for f in rep.findings if f.rule.id == "SGC001"]
@@ -633,7 +638,7 @@ class Bounds(unittest.TestCase):
     def test_defaults_are_reported(self):
         rep = ck.check(self.text, registry=with_rules())
         self.assertEqual(rep.limits["budget"], ck.default_budget())
-        self.assertEqual(rep.limits["depth"], ck._sim().Limits().depth)
+        self.assertEqual(rep.limits["depth"], sim.Limits().depth)
 
     def test_budget_and_limits_reach_the_rules(self):
         seen = {}
@@ -642,13 +647,13 @@ class Bounds(unittest.TestCase):
             seen["bounds"] = (d.budget, d.limits.depth)
             return []
         rule = ck.Rule("TST030", "bounds-probe", "hint", "?", "w", "f", match=match)
-        limits = ck._sim().Limits()._replace(depth=7)
+        limits = sim.Limits()._replace(depth=7)
         rep = ck.check(self.text, registry=with_rules(rule), budget=9, limits=limits)
         self.assertEqual(seen["bounds"], (9, 7))
         self.assertEqual((rep.limits["budget"], rep.limits["depth"]), (9, 7))
 
     def test_limits_from(self):
-        base = ck._sim().Limits()
+        base = sim.Limits()
         self.assertEqual(ck.limits_from(["depth=5", "spawn=3"], base),
                          base._replace(depth=5, spawn=3))
         for bad in ("depth", "depth=x", "nope=2", "depth=0"):
@@ -692,13 +697,12 @@ class Registry(unittest.TestCase):
         self.assertEqual(lines_of(rep.acknowledged), [2])
 
     def test_rule_modules_are_loaded_with_the_api(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            Path(tmp, "check_flow.py").write_text(textwrap.dedent("""
+        with stand_in_rule_modules({"flow": """
                 def rules(ck):
                     return [ck.Rule("SGC101", "unguarded-call", "binding", "?", "w", "f",
                                     match=lambda d: [ck.Hit(1, "s", "a?")])]
-                """))
-            rules = ck.module_rules(ck, here=Path(tmp))
+                """}):
+            rules = ck.module_rules(ck)
         self.assertEqual([r.id for r in rules], ["SGC101"])
         self.assertIsInstance(rules[0], ck.Rule)
 
@@ -728,7 +732,7 @@ class Cli(unittest.TestCase):
     def cli(self, *args, seed="0", stdin=SAMPLE):
         env = dict(os.environ, PYTHONHASHSEED=seed)
         env.pop("SIGIL_DIALECT", None)
-        return subprocess.run([sys.executable, str(_DIR / "check.py"), *args],
+        return subprocess.run([sys.executable, str(ROOT / "bin" / "sigil"), "check", *args],
                               input=stdin, capture_output=True, text=True, env=env)
 
     def test_byte_identical_across_hash_seeds(self):
@@ -745,7 +749,7 @@ class Cli(unittest.TestCase):
         plain = self.cli(*args)
         with tempfile.TemporaryDirectory() as tmp:
             prof = subprocess.run([sys.executable, "-m", "cProfile", "-o", str(Path(tmp) / "p"),
-                                   str(_DIR / "check.py"), *args], input=SAMPLE,
+                                   str(ROOT / "bin" / "sigil"), "check", *args], input=SAMPLE,
                                   capture_output=True, text=True,
                                   env=dict(os.environ, PYTHONHASHSEED="0"))
         self.assertEqual(prof.stdout, plain.stdout)          # (cProfile drops the exit code)
@@ -797,7 +801,7 @@ class Cli(unittest.TestCase):
         self.assertIn("SGC004  policy-in-prose", p.stdout)
 
     def test_bad_input(self):
-        p = self.cli(str(_DIR / "no-such-file.sigil"), stdin="")
+        p = self.cli(str(ROOT / "no-such-file.sigil"), stdin="")
         self.assertEqual(p.returncode, 2)
         self.assertIn("check.py:", p.stderr)
 
@@ -905,19 +909,17 @@ class Unacknowledgeable(unittest.TestCase):
 
 
 class Packaging(unittest.TestCase):
-    def test_every_rule_module_is_packaged_and_scanned(self):
-        # check.py loads the rule modules beside it, so a module missing from the
-        # archive would silently run fewer rules there than here
-        def load(name):
-            spec = importlib.util.spec_from_file_location(f"pkg_{name}", _DIR / f"{name}.py")
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            return mod
-        build, core = load("build"), load("tests/test_core")
-        present = {m for m in ck.RULE_MODULES if (_DIR / m).exists()}
-        self.assertLessEqual(present, build.REQUIRED_TOOLS)
-        self.assertLessEqual(present, set(build.TOOLS))
-        self.assertLessEqual(present, set(core._CORE_FILES))
+    def test_every_rule_module_is_listed_and_scanned(self):
+        # check loads only the rule modules it names, so a module missing from its
+        # lists would silently run fewer rules; each is also in the vocabulary scan
+        sys.path.insert(0, str(ROOT / "tests"))
+        import test_core as core
+        rules_dir = ROOT / "sigil" / "analyse" / "rules"
+        on_disk = {p.stem for p in rules_dir.glob("*.py") if p.stem != "__init__"}
+        self.assertEqual(on_disk, set(ck.RULE_MODULES) | set(ck.EXPORT_MODULES))
+        for name in sorted(on_disk):
+            with self.subTest(name):
+                self.assertIn(f"sigil/analyse/rules/{name}.py", core._CORE_FILES)
 
 
 class Exploration(unittest.TestCase):
@@ -950,21 +952,20 @@ class Exploration(unittest.TestCase):
         self.assertEqual(lines_of(rep.findings), [2])
 
     def test_module_causes_build_sgc090(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            for stem, cause in (("check_state", "loop"), ("check_trace", "budget")):
-                Path(tmp, f"{stem}.py").write_text(textwrap.dedent(f"""
+        sources = {name: f"""
                     def exploration_causes(ck):
                         return [lambda d: [ck.Hit(1, "{cause}", "{cause}?")]]
-                    """))
-            rules = ck.module_rules(ck, here=Path(tmp))
+                    """ for name, cause in (("state", "loop"), ("trace", "budget"))}
+        with stand_in_rule_modules(sources):
+            rules = ck.module_rules(ck)
         (rule,) = rules
         self.assertEqual((rule.id, rule.name), ck.EXPLORATION)
         self.assertEqual([h.statement for h in rule.match(None)], ["loop", "budget"])
         self.assertFalse(rule.acknowledgeable or rule.ack_document)
 
     def test_no_causes_no_rule(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            self.assertEqual(ck.module_rules(ck, here=Path(tmp)), [])
+        with stand_in_rule_modules({}):
+            self.assertEqual(ck.module_rules(ck), [])
 
 
 def quota_dialect():
@@ -1031,9 +1032,9 @@ class Corpus(unittest.TestCase):
 
     def test_fixtures_and_examples(self):
         texts = [p.read_text(encoding="utf-8")
-                 for p in sorted((_DIR / "tests" / "fixtures").glob("*.sigil"))]
+                 for p in sorted((ROOT / "tests" / "fixtures").glob("*.sigil"))]
         for md in ("examples.md", "language.md"):
-            src = (_DIR / md).read_text(encoding="utf-8")
+            src = (ROOT / md).read_text(encoding="utf-8")
             texts += [b for b in src.split("```")[1::2] if b.lstrip().startswith("#!")]
         reg = with_rules()
         for n, text in enumerate(texts):

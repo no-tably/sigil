@@ -19,28 +19,23 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
-import importlib.util
 import sys
 import unittest
 from pathlib import Path
 
-_DIR = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 
-def _load(name: str, fname: str):
-    spec = importlib.util.spec_from_file_location(name, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+from sigil.present import app as view, kit  # noqa: E402
+from sigil.present.views import run as vrun  # noqa: E402
+from sigil.model import sim  # noqa: E402
+from sigil.model.sim.narration import _hosted_iterations  # noqa: E402
+from sigil.core.parse import parse_document  # noqa: E402
 
-
-view = _load("sigil_view_run_hidden_tests", "view.py")
-vrun, kit, sim = view.vrun, view.kit, view.simulator
-
-SHOP = _DIR / "site" / "examples" / "02-shop.sigil"
-EXAMPLES = sorted((_DIR / "site" / "examples").glob("*.sigil")) + [
-    _DIR / "tests" / "fixtures" / "executions.sigil"]
+SHOP = ROOT / "site" / "examples" / "02-shop.sigil"
+EXAMPLES = sorted((ROOT / "site" / "examples").glob("*.sigil")) + [
+    ROOT / "tests" / "fixtures" / "executions.sigil"]
 
 LOOP = """#!sketch
 (Shopper) -> [Shop] : {Request}
@@ -74,7 +69,7 @@ def text_of(rows) -> str:
 
 class HiddenTicksTest(unittest.TestCase):
     def setUp(self):
-        self.canon, self.trace = run_of(view.render.parse_document(SHOP.read_text()))
+        self.canon, self.trace = run_of(parse_document(SHOP.read_text()))
 
     def test_every_level_drawn_hides_nothing(self):
         self.assertEqual(sim.timeline(self.trace).hidden, frozenset())
@@ -98,7 +93,7 @@ class HiddenTicksTest(unittest.TestCase):
 class QuietFoldTest(unittest.TestCase):
     def test_folding_keeps_the_ticks_every_level_keeps(self):
         for path in EXAMPLES:
-            canon, _tr = run_of(view.render.parse_document(path.read_text()))
+            canon, _tr = run_of(parse_document(path.read_text()))
             for sc in sim.scenarios(canon):
                 tr = sim.simulate(canon, sc)
                 full = vrun._busy_ticks(sim.timeline(tr))
@@ -108,12 +103,12 @@ class QuietFoldTest(unittest.TestCase):
                         self.assertEqual(vrun._busy_ticks(tl), full)
 
     def test_shop_at_depth_0_has_no_quiet_stretch_while_its_internals_run(self):
-        g = view.render.parse_document(SHOP.read_text())
+        g = parse_document(SHOP.read_text())
         rows, _w = vrun.compose_run(g, None, None, 200, depth=0)
         self.assertNotIn(vrun.QUIET, text_of(rows))
 
     def test_a_folded_loop_is_drawn_tick_by_tick(self):
-        g = view.render.parse_document(LOOP)
+        g = parse_document(LOOP)
         rows, _w = vrun.compose_run(g, None, None, 140, depth=0)
         text = text_of(rows)
         self.assertNotIn(vrun.QUIET, text)
@@ -122,7 +117,7 @@ class QuietFoldTest(unittest.TestCase):
 
 class FoldedLoopNarrationTest(unittest.TestCase):
     def beats(self, src: str, depth: int) -> str:
-        canon, tr = run_of(view.render.parse_document(src))
+        canon, tr = run_of(parse_document(src))
         return " ".join(b.text for b in sim.narrate(tr, sim.folded_hosts(canon, depth)))
 
     def test_depth_0_says_the_host_loops_inside(self):
@@ -144,10 +139,10 @@ class FoldedLoopNarrationTest(unittest.TestCase):
 
 class FoldedLoopNotesTest(unittest.TestCase):
     def setUp(self):
-        self.canon, self.trace = run_of(view.render.parse_document(LOOP))
+        self.canon, self.trace = run_of(parse_document(LOOP))
 
     def note_of(self, depth: int, label: str) -> str:
-        rows, _w = vrun.compose_run(view.render.parse_document(LOOP), None, None, 200,
+        rows, _w = vrun.compose_run(parse_document(LOOP), None, None, 200,
                                     depth=depth)
         return next(ln for ln in text_of(rows).splitlines() if ln.strip().startswith(label))
 
@@ -171,9 +166,9 @@ class FoldedLoopNotesTest(unittest.TestCase):
                sim.Iteration(2, 2, 3, ("Checkout_service", 0), 8),
                sim.Iteration(3, 2, 3, (None, 0), 9)]
         hosts = {"Checkout_service": "Shop_service"}
-        out = sim._hosted_iterations(its, {7: 1}, {8}, hosts)
+        out = _hosted_iterations(its, {7: 1}, {8}, hosts)
         self.assertEqual([(it.act, it.inside) for it in out], [(1, True), (8, True), (9, False)])
-        self.assertEqual([it.inside for it in sim._hosted_iterations(its, {7: 1}, {8}, {})],
+        self.assertEqual([it.inside for it in _hosted_iterations(its, {7: 1}, {8}, {})],
                          [False, False, False])
 
     def test_notes(self):

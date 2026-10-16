@@ -12,14 +12,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import view  # noqa: E402
+from sigil.present import app as view  # noqa: E402
+from sigil.core.parse import parse_document  # noqa: E402
 
 CHECKOUT = ROOT / "site" / "examples" / "01-checkout.sigil"
 
 
 class TestStart(unittest.TestCase):
     def setUp(self):
-        self.p = view.SimPlayer(view.kit.render.parse_document(CHECKOUT.read_text()))
+        self.p = view.SimPlayer(parse_document(CHECKOUT.read_text()))
 
     def test_a_frame_paused_or_playing(self):
         self.p.start(2, False, now=5.0)
@@ -55,7 +56,7 @@ class TestStartingState(unittest.TestCase):
 
 class TestFlags(unittest.TestCase):
     def run_view(self, *args):
-        return subprocess.run([sys.executable, str(ROOT / "view.py"), str(CHECKOUT), *args],
+        return subprocess.run([sys.executable, str(ROOT / "bin" / "sigil"), "view", str(CHECKOUT), *args],
                               capture_output=True, text=True)
 
     def test_they_need_a_scenario(self):

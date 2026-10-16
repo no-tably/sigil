@@ -13,7 +13,6 @@ Run:  python3 -m unittest discover tests
 from __future__ import annotations
 
 import dataclasses
-import importlib.util
 import os
 import re
 import subprocess
@@ -22,21 +21,14 @@ import textwrap
 import unittest
 from pathlib import Path
 
-_DIR = Path(__file__).resolve().parents[1]
-_FIXTURES = _DIR / "tests" / "fixtures" / "checks"
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+_FIXTURES = ROOT / "tests" / "fixtures" / "checks"
 _CALIBRATION = _FIXTURES / "calibration.md"
 
 
-def _load(key: str, fname: str):
-    spec = importlib.util.spec_from_file_location(key, _DIR / fname)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[key] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-ck = _load("sigil_check_state_suite_check", "check.py")
-cs = _load("sigil_check_state_suite_state", "check_state.py")
+from sigil.analyse import check as ck  # noqa: E402
+from sigil.analyse.rules import state as cs  # noqa: E402
 
 
 def state_registry(*extra) -> dict:
@@ -299,7 +291,7 @@ class Fixtures(unittest.TestCase):
                 self.assertNotIn(rid, [r for _l, r in found(fixture(stem)[1])])
 
     def test_the_fixtures_lint_clean(self):
-        lint = ck._kit().lint
+        from sigil.analyse import lint
         for path in RULE_FIXTURES:
             with self.subTest(fixture=path.name):
                 errors = [d.format() for d in lint.lint(path.read_text(encoding="utf-8"))
@@ -309,7 +301,7 @@ class Fixtures(unittest.TestCase):
 
 def with_flow(text, mode=None):
     """This module's rules beside check_flow's, so cross-module folds run."""
-    cf = _load("sigil_check_state_suite_flow", "check_flow.py")
+    from sigil.analyse.rules import flow as cf
     registry = state_registry(*cf.rules(ck))
     return ck.check(textwrap.dedent(text).lstrip("\n"), mode=mode, registry=registry)
 
@@ -615,10 +607,10 @@ def md_blocks(path: Path):
 
 def worked_examples():
     """language.md's worked examples: the blocks of its "Worked examples" section."""
-    text = (_DIR / "language.md").read_text(encoding="utf-8")
+    text = (ROOT / "language.md").read_text(encoding="utf-8")
     lo = text[:text.index("## Worked examples")].count("\n")
     hi = text[:text.index("## Common pitfalls")].count("\n")
-    return [(n, b) for n, b in md_blocks(_DIR / "language.md") if lo < n < hi]
+    return [(n, b) for n, b in md_blocks(ROOT / "language.md") if lo < n < hi]
 
 
 def block_at(path: Path, line: int) -> str:
@@ -639,7 +631,7 @@ def corpus_findings(path: Path, line: int, registry=None) -> list:
 
 
 class Corpus(unittest.TestCase):
-    EX = _DIR / "examples.md"
+    EX = ROOT / "examples.md"
 
     def test_permission_examples_stay_clean_of_undeclared_access(self):
         for start, block in md_blocks(self.EX):
@@ -682,12 +674,12 @@ class Corpus(unittest.TestCase):
 
 class Determinism(unittest.TestCase):
     def test_byte_identical_across_hash_seeds(self):
-        path = _DIR / "tests" / "fixtures" / "coverage.sigil"
+        path = ROOT / "tests" / "fixtures" / "coverage.sigil"
         outs = set()
         for seed in ("0", "1", "4242"):
             env = dict(os.environ, PYTHONHASHSEED=seed)
             env.pop("SIGIL_DIALECT", None)
-            p = subprocess.run([sys.executable, str(_DIR / "check.py"), str(path),
+            p = subprocess.run([sys.executable, str(ROOT / "bin" / "sigil"), "check", str(path),
                                 "--mode", "spec", "--json"],
                                capture_output=True, text=True, env=env)
             outs.add(p.stdout)
@@ -722,7 +714,7 @@ def calibration_corpus():
     """(file name, block) of every block the gate runs."""
     for _n, block in worked_examples():
         yield "language.md", block
-    for _n, block in md_blocks(_DIR / "examples.md"):
+    for _n, block in md_blocks(ROOT / "examples.md"):
         yield "examples.md", block
 
 
@@ -747,7 +739,7 @@ class Calibration(unittest.TestCase):
     def test_examples_are_cited_by_name_not_line(self):
         text = _CALIBRATION.read_text(encoding="utf-8")
         self.assertEqual(re.findall(r"(?:examples|language)\.md(?::| lines? )\d+", text), [])
-        headings = set(re.findall(r"^## Example (\w+):", (_DIR / "examples.md").read_text(),
+        headings = set(re.findall(r"^## Example (\w+):", (ROOT / "examples.md").read_text(),
                                   re.M))
         for name in re.findall(r"examples\.md Example (\w+)", text):
             self.assertIn(name, headings)
@@ -792,7 +784,7 @@ def triples(findings) -> set:
 
 
 class ExampleQ(unittest.TestCase):
-    EX = _DIR / "examples.md"
+    EX = ROOT / "examples.md"
     RISKY = {(6, "capacity-mismatch", "info"), (7, "lost-update", "warn"),
              (8, "retry-without-idempotency", "error"), (8, "saga-uncompensated", "info"),
              (9, "unguarded-call", "error"), (9, "unhandled-failure", "error"),

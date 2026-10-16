@@ -13,28 +13,22 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
-import importlib.util
 import sys
 import unittest
 from pathlib import Path
 
-_DIR = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 
-def _load(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+from sigil.model import sim  # noqa: E402
+from sigil.model.sim.narration import _first_free_rows, _fold_lanes, _running_at  # noqa: E402
+from sigil.model.sim.program import _setup_instances  # noqa: E402
+from sigil.model import scene  # noqa: E402
+from sigil.core import parse as render  # noqa: E402
 
-
-sim = _load("sigil_sim_run_test", _DIR / "sim.py")
-scene = sim.scene_mod
-render = sim.kit.render
-
-ARENA = _DIR / "site" / "examples" / "03-arena.sigil"
-EXECUTIONS = _DIR / "tests" / "fixtures" / "executions.sigil"
+ARENA = ROOT / "site" / "examples" / "03-arena.sigil"
+EXECUTIONS = ROOT / "tests" / "fixtures" / "executions.sigil"
 
 
 def canon(path_or_text) -> object:
@@ -79,7 +73,7 @@ class TestInstances(unittest.TestCase):
         self.assertTrue(all(i.setup for i in insts if i.node != "Shard_service"))
 
     def test_counts_are_the_tallies(self):
-        self.assertEqual(sim._setup_instances(self.prog, sim.Limits()),
+        self.assertEqual(_setup_instances(self.prog, sim.Limits()),
                          [1, 1, 1, 2, 2, 2, 1, 1, 0])
 
     def test_spawns_caps_an_entry(self):
@@ -175,7 +169,7 @@ class TestRunFacts(unittest.TestCase):
         self.assertEqual(acts[hop["act"]]["node"], "Combat_service")
 
 
-CHECKOUT = _DIR / "site" / "examples" / "01-checkout.sigil"
+CHECKOUT = ROOT / "site" / "examples" / "01-checkout.sigil"
 
 
 class TestLandings(unittest.TestCase):
@@ -366,7 +360,7 @@ class TestTimelineFolds(unittest.TestCase):
         spans = list(tl.spans) + [sim.Span(sick.key, 999, 1, sick.node, 1, 2, "failed", (),
                                            None, None, 1)]
         folded = {"show": 3, "instances": 0, "levels": 0}
-        out, *_rest = sim._fold_lanes(lanes, spans, list(tl.moves), list(tl.marks),
+        out, *_rest = _fold_lanes(lanes, spans, list(tl.moves), list(tl.marks),
                                       {ln.key: (ln.born, 0) for ln in lanes}, prog, 3, folded)
         self.assertIn(sick.key, [ln.key for ln in out])
 
@@ -469,7 +463,7 @@ class TestParallelRows(unittest.TestCase):
         for seed in range(20):
             spans = _random_spans(seed, 60)
             with self.subTest(seed=seed):
-                self.assertEqual(sim._first_free_rows(spans, 80), self.scan_rows(spans, 80))
+                self.assertEqual(_first_free_rows(spans, 80), self.scan_rows(spans, 80))
 
     def test_running_at_matches_a_scan(self):
         for seed in range(20):
@@ -482,11 +476,11 @@ class TestParallelRows(unittest.TestCase):
                 if on:
                     want[t] = on[-1]
             with self.subTest(seed=seed):
-                self.assertEqual(sim._running_at(spans, ticks), want)
+                self.assertEqual(_running_at(spans, ticks), want)
 
     def test_a_freed_row_is_reused_lowest_first(self):
         spans = [_span(0, 0, 5), _span(1, 1, 3), _span(2, 2, 9), _span(3, 5, 6), _span(4, 6, 7)]
-        rows = [r for _s, r in sim._first_free_rows(spans, 10)]
+        rows = [r for _s, r in _first_free_rows(spans, 10)]
         self.assertEqual(rows, [0, 1, 2, 0, 0])
 
 

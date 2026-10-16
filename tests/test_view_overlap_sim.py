@@ -22,24 +22,18 @@ Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
-import importlib.util
 import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
 
-def _load(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-view = _load("sigil_view_overlap", ROOT / "view.py")
-kit, scene, sim, themes = view.kit, view.scene, view.simulator, view.kit.themes
+from sigil.present import app as view, kit, themes  # noqa: E402
+from sigil.present.views import graph as vgraph  # noqa: E402
+from sigil.model import scene, sim  # noqa: E402
+from sigil.core.parse import parse_document  # noqa: E402
 
 DOC = "[A] -> [S] : a()\n[S] -> [T] : t()\n[B] -> [S] : b()\n"
 VIEWS = ("graph", "tree", "flow")
@@ -123,7 +117,7 @@ class OverlapTokens(unittest.TestCase):
     """2, 3. the views number an overlap frame's tokens, and only those cells."""
 
     def setUp(self):
-        self.g = kit.render.parse_document(DOC)
+        self.g = parse_document(DOC)
 
     def overlap_frame(self, trace) -> int:
         return next(i for i, f in enumerate(trace.frames)
@@ -134,12 +128,12 @@ class OverlapTokens(unittest.TestCase):
         trace = overlap_run(self.g, kw)
         scn = trace.scene
         i = self.overlap_frame(trace)
-        look = view.vgraph.sim_look(scn, trace.frames[i])
+        look = vgraph.sim_look(scn, trace.frames[i])
         by_task = {t.task: t.episode for t in trace.frames[i].tokens}
         self.assertEqual(sorted(t.mark for t in look.tokens), sorted(str(e) for e in by_task.values()))
         for t in look.tokens:
             self.assertEqual(t.style[0].role, f"run-episode-{t.mark}")
-        one = view.vgraph.sim_look(scn, squashed(trace, i).frames[i])
+        one = vgraph.sim_look(scn, squashed(trace, i).frames[i])
         self.assertEqual({t.mark for t in one.tokens}, {"●"})
 
     def test_each_view_numbers_only_the_token_cells(self):
@@ -174,7 +168,7 @@ class OverlapMemo(unittest.TestCase):
     """4. FrameMemo: an overlap run drawn with a memo is the run drawn without."""
 
     def test_every_frame_with_and_without(self):
-        g = kit.render.parse_document(DOC)
+        g = parse_document(DOC)
         for v in VIEWS:
             for width in (None, 24):
                 kw = kwargs(v, width)
