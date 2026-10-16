@@ -110,7 +110,12 @@ from typing import NamedTuple, Optional
 #               `state X { … }` machines (role "state"). An expansion written in a
 #               section `--- Lk ---` (k >= 3) attaches to the node of that name in
 #               a level k-1 expansion (zoom nests), else to the top-level node.
-#   tree        [TreeEntry]: composition trees (`\\-<rel>` branches), document order.
+#   tree        [TreeEntry]: composition trees (`\\-<rel>` branches), document order,
+#               each with the line its node is written on.
+#   heads       [(line, node id)]: the statements a glyph heads — a flow or
+#               declaration whose first token is that glyph (`[Api] @sla(…)`,
+#               a tree root, a `\\-` branch's child, an owns header) and a
+#               definition (`[X] := …`) — in document order.
 #   triggers    [Trigger]: events wired to state-machine transitions (top level).
 #   narrowed    [Trigger]: the (event, transition) pairs trigger narrowing took
 #               away — the event flows explicitly into other machines' owners
@@ -228,6 +233,8 @@ class Graph:
     # order: TreeEntry per placed node. A node id may occur more than once (the same
     # component composed into several parents).
     tree: list = field(default_factory=list)
+    # (line, node id) of each statement a glyph heads (see "heads" above).
+    heads: list = field(default_factory=list)
     # Events wired to state-machine transitions by name (top-level graph only).
     triggers: list = field(default_factory=list)
     # Comments attached to nodes (see collect_comments / parse_document).
@@ -283,6 +290,7 @@ class TreeEntry:
     cond: Optional[str] = None  # `{cond}-` guard / source
     depth: int = 0
     weight: Optional[int] = None  # `(N)-` relative share among siblings
+    line: int = 0             # the source line its node is written on
 
 
 @dataclass

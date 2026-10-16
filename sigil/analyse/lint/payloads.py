@@ -7,8 +7,7 @@ PayloadSite is what a dialect's payload check is handed.
 import re
 from sigil.core.vocab import ARROW_RE, LintResult, VALID_MODIFIERS, strip_comment
 
-from sigil.core.lex import EXT_OP_RE, INT_OP_RE, MOD_TOKEN_RE, OP_HEAD_RE
-from sigil.analyse.lint.scan import _balanced_end
+from sigil.core.lex import EXT_OP_RE, INT_OP_RE, MOD_TOKEN_RE, OP_HEAD_RE, balanced_end
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +250,7 @@ def lint_payloads(lines: list, result: LintResult, checks=(),
             om = OP_HEAD_RE.match(line, j)
             if not om or not line.startswith("op", j):
                 continue
-            end = _balanced_end(line, om.end() - 1)
+            end = balanced_end(line, om.end() - 1)
             target = line[j:end] if end > 0 else ""
             if target and _classify_payload(target)[0] == "ext-op-bad":
                 result.add(

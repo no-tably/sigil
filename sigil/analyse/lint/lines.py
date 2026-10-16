@@ -12,8 +12,8 @@ from sigil.core.vocab import (
     ANY_GLYPH_RE, ARROW_RE, GLYPH_PATTERNS, LintResult, VALID_LOOP_MODS, VALID_MODES,
     VALID_MODIFIERS, VALID_PARALLEL_MODS, VALID_STREAM_POLICIES, strip_comment)
 
-from sigil.core.lex import HOLE_RE, MOD_TOKEN_RE, mask_strings
-from sigil.analyse.lint.scan import _apply_masks, _iter_state_block, _mask_principal_sets
+from sigil.core.lex import HOLE_RE, MOD_TOKEN_RE, apply_masks, mask_strings
+from sigil.analyse.lint.scan import _iter_state_block, _mask_principal_sets
 
 
 # Vocabulary that strongly suggests a lifecycle state (if used as an actor)
@@ -88,7 +88,7 @@ def lint_actor_as_state(lines: list, result: LintResult, masks=()):
         # Apply any dialect glyph masks first (so dialect syntax carrying `( )` is
         # not mis-read as an actor glyph), then mask the `( )` principal lists of
         # `@read`/`@write` so their members are not mis-read as actor glyphs.
-        scan = _mask_principal_sets(_apply_masks(line, masks))
+        scan = _mask_principal_sets(apply_masks(line, masks))
         for m in GLYPH_PATTERNS["actor"].finditer(scan):
             name = m.group(1).strip().lower()
             if name in STATE_VOCABULARY:
@@ -116,7 +116,7 @@ def lint_prose_verbs(lines: list, result: LintResult, masks=()):
         # don't flag prose inside them. This is intentionally loose; invariant
         # contents are allowed to be prose-like. Apply dialect glyph masks and mask
         # `@read`/`@write` principal lists first (they are not glyphs).
-        masked = _mask_principal_sets(_apply_masks(line, masks))
+        masked = _mask_principal_sets(apply_masks(line, masks))
         masked = re.sub(r"@[a-z][a-z0-9_-]*\([^)]*\)", lambda m: " " * len(m.group(0)), masked)
         # Also mask `@name ...rest-of-line` invariant-form (no parens)
         masked = re.sub(r"@inv\b[^\n]*", lambda m: " " * len(m.group(0)), masked)

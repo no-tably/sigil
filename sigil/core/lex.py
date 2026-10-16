@@ -25,6 +25,8 @@ named apart (the parser's first, lint's after it):
                   BLOCK_OPEN_RE, STATE_HEAD_RE, STATE_OPEN_RE, STATE_HEAD_FLAT_RE,
                   LOOP_HEAD_RE, SCOPE_HEAD_RE, ARM_RE, BRANCH_RE, CORE_RELATIONS,
                   BRANCH_ANY_RE, branch_re, BARE_BRANCH_RE, close_at, net_braces
+    scanning      balanced_end (a bracket group's end), apply_masks (a dialect's
+                  length-preserving glyph masks)
 
 A dialect's hooks are read by sigil.core.dialects._hook; its vocabulary (the
 names a dialect builds on) is re-exported by sigil.core.vocab.
@@ -496,3 +498,31 @@ def close_at(text: str, depth: int) -> Optional[int]:
         if ch == "}" and depth <= 0:
             return i
     return None
+
+
+# ---------------------------------------------------------------------------
+# Scanning helpers
+# ---------------------------------------------------------------------------
+
+def balanced_end(s: str, i: int) -> int:
+    """Index just past the `( [ {` group opening at s[i], or -1 if it never closes
+    (or closes with the wrong bracket)."""
+    pairs = {"(": ")", "[": "]", "{": "}"}
+    stack = []
+    for j in range(i, len(s)):
+        ch = s[j]
+        if ch in pairs:
+            stack.append(pairs[ch])
+        elif ch in ")]}":
+            if not stack or ch != stack.pop():
+                return -1
+            if not stack:
+                return j + 1
+    return -1
+
+
+def apply_masks(line: str, masks) -> str:
+    """Apply a dialect's glyph masks (length-preserving `fn(line) -> line`) in order."""
+    for mask in masks:
+        line = mask(line)
+    return line

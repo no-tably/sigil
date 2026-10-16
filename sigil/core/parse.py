@@ -185,16 +185,19 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
     `last_src` Subject), or `last_src` unchanged when the line draws nothing.
     `last_src` may also be a bare Node (taken as a one-node subject).
     If `first` is a list, the line's first glyph node is appended to it. If `out`
-    is a dict it receives "nodes" (ids placed) and "edges" (the new Edge objects)."""
+    is a dict it receives "nodes" (ids placed), "edges" (the new Edge objects) and
+    "head" (the id of the glyph the statement starts with, or None)."""
     if isinstance(last_src, Node):
         last_src = Subject((last_src.id,))
     stripped = line
     # Dialect line strips first (dialect-only syntax that must not leak as glyphs).
     for strip in _hook(dialect, "render_line_strips"):
         stripped = strip(stripped)
+    lead = len(stripped) - len(stripped.lstrip())
     stripped, mods = _capture_mods(stripped)        # mods: [(column, (name, arg))]
     stripped, payload, payload_span = _take_payload(stripped, mods)
     tokens, event_args, glued = _tokenize_flow(stripped, layer, dialect, mods)
+    head = _head(tokens, lead)
     tokens, paths = _fold_paths(tokens)
     if not any(t[0] == "glyph" for t in tokens):
         return last_src
@@ -223,15 +226,24 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
     if out is not None:
         out["nodes"] = list(dict.fromkeys(placed))
         out["edges"] = new_edges
-    head = groups[0]
-    if head.get("inherited"):
+        out["head"] = head.id if head is not None else None
+    subject = groups[0]
+    if subject.get("inherited"):
         for e in new_edges:
             e.cont = last_src.line
         if any(e.kind != "!>" for e in new_edges):
             return last_src._replace(line=line_no)
         return last_src
-    return Subject(tuple(n.id for n in head["nodes"]), head["join_idx"],
-                   tuple(head.get("paths") or ()), line_no)
+    return Subject(tuple(n.id for n in subject["nodes"]), subject["join_idx"],
+                   tuple(subject.get("paths") or ()), line_no)
+
+
+def _head(tokens: list, lead: int) -> Optional[Node]:
+    """The glyph a statement starts with: its first token, when that is a glyph
+    written at the statement's first column (`lead`); else None."""
+    if tokens and tokens[0][0] == "glyph" and tokens[0][2] == lead:
+        return tokens[0][1]
+    return None
 
 
 def _capture_mods(stripped: str) -> tuple:
@@ -777,7 +789,8 @@ class _DocParser:
         self.frames: list = []
         self.after_block = None
         # Composition tree state: open branches as (column, tree index), and the last
-        # plain glyph line a branch could hang under: [column, node id, tree index|None].
+        # plain glyph line a branch could hang under: [column, node id, tree index|None,
+        # line].
         self.tree_stack: list = []
         self.tree_root: Optional[list] = None
         # Notes: the node the current line is "about", the document's comments, and
@@ -1042,10 +1055,12 @@ class _DocParser:
             for pair in mods:
                 _add_mod(node.mods, pair)
             provisional = mk_id(name + "_" + (kind or "alias"))
-            if provisional != target_id:     # notes attached before resolution
+            if provisional != target_id:     # notes and heads recorded before resolution
                 for note in self.graph.notes:
                     if note.node == provisional and note.line == line:
                         note.node = target_id
+                self.graph.heads = [(ln, target_id if (ln, nid) == (line, provisional) else nid)
+                                    for ln, nid in self.graph.heads]
             if sub_graph is not None:
                 home.expansions[target_id] = sub_graph
                 by_level.setdefault(level, []).append(sub_graph)
@@ -1147,9 +1162,10 @@ class _DocParser:
         self.graph.dropped.extend(sub.dropped)
         return sub
 
-    def add_entry(self, node_id, parent, rel=None, spawn=False, cond=None, weight=None):
+    def add_entry(self, node_id, parent, line: int, rel=None, spawn=False, cond=None,
+                  weight=None):
         depth = self.graph.tree[parent].depth + 1 if parent is not None else 0
-        self.graph.tree.append(TreeEntry(node_id, parent, rel, spawn, cond, depth, weight))
+        self.graph.tree.append(TreeEntry(node_id, parent, rel, spawn, cond, depth, weight, line))
         return len(self.graph.tree) - 1
 
     # -- blocks ---------------------------------------------------------------
@@ -1219,7 +1235,9 @@ class _DocParser:
         kind = ("service" if am.group("svc") is not None
                 else "data" if am.group("data") is not None else None)
         rhs = am.group("rhs").strip()
-        self.attach(mk_id(name + "_" + (kind or "alias")), k)
+        nid = mk_id(name + "_" + (kind or "alias"))
+        self.attach(nid, k)
+        self.graph.heads.append((self.ln(k), nid))
         self.last_src = None
         self.after_block = None
         if EXPANSION_OPEN_RE.match(rhs):
@@ -1396,6 +1414,7 @@ class _DocParser:
         body = text.strip()
         fr = self.frames[-1] if self.frames else None
         block = self.graph.blocks[fr.idx] if fr else None
+        arm = False
         if block is not None and block.kind == "branch" and not in_header:
             am = ARM_RE.match(body)
             if am and not ARROW_RE.match(body):
@@ -1405,6 +1424,7 @@ class _DocParser:
                 fr.arm = len(block.arms) - 1
                 offset += text.find(am.group("body")) if am.group("body") else len(text)
                 text = body = am.group("body")
+                arm = True
                 self.last_src = None
                 if not body.strip():
                     self.attach(None, k)
@@ -1412,7 +1432,7 @@ class _DocParser:
         continuation = bool(ARROW_RE.match(body))
         col = offset + len(text) - len(text.lstrip())
         acc = {"nodes": [], "edges": []}
-        subject = self._flow(body, col, self.last_src, k, acc)
+        subject = self._flow(body, col, self.last_src, k, acc, heads=not arm)
         if not continuation:
             self.last_src = subject
         elif (isinstance(subject, Subject) and isinstance(self.last_src, Subject)
@@ -1441,8 +1461,10 @@ class _DocParser:
         drawn = tuple(dict.fromkeys(e.key for e in edges if e.src != e.dst))
         self.attach(self.anchor, k, drawn)
 
-    def _flow(self, text: str, col: int, last, k: int, acc: dict):
-        """One flow line; composition branches (`\\-<rel>`) become tree entries."""
+    def _flow(self, text: str, col: int, last, k: int, acc: dict, heads: bool = True):
+        """One flow line; composition branches (`\\-<rel>`) become tree entries.
+        `heads`: whether the glyph it starts with heads a statement (Graph.heads);
+        a branch arm's body (`x => [A]`) heads none, its line starts with the label."""
         graph, dialect = self.graph, self.dialect
 
         def flows(t, last, cap):
@@ -1451,6 +1473,8 @@ class _DocParser:
                                 line_no=self.ln(k), out=out)
             acc["nodes"].extend(n for n in out.get("nodes", ()) if n not in acc["nodes"])
             acc["edges"].extend(out.get("edges", ()))
+            if heads and out.get("head"):
+                graph.heads.append((self.ln(k), out["head"]))
             return res
 
         m = BRANCH_RE.search(text)
@@ -1461,7 +1485,7 @@ class _DocParser:
             last = flows(text, last, cap)
             if cap:
                 self.tree_stack = [t for t in self.tree_stack if t[0] < col]
-                self.tree_root = [col, cap[0].id, None]
+                self.tree_root = [col, cap[0].id, None, self.ln(k)]
                 self.anchor = cap[0].id
             return last
         left, rest = text[:m.start()], BRANCH_RE.sub(" ", text[m.end():])
@@ -1471,7 +1495,7 @@ class _DocParser:
             last = flows(left, last, cap)
             self.tree_stack = [t for t in self.tree_stack if t[0] < col]
             if cap:
-                self.tree_root = [col, cap[0].id, None]
+                self.tree_root = [col, cap[0].id, None, self.ln(k)]
         stack = self.tree_stack
         while stack and stack[-1][0] >= bcol:
             stack.pop()
@@ -1479,7 +1503,7 @@ class _DocParser:
         root = self.tree_root
         if parent is None and root is not None and root[0] < bcol:
             if root[2] is None:
-                root[2] = self.add_entry(root[1], None)
+                root[2] = self.add_entry(root[1], None, root[3])
             parent = root[2]
             stack.append((root[0], parent))
         cap = []
@@ -1488,7 +1512,8 @@ class _DocParser:
             spawn = bool(m.group("spawn") or m.group("bare_spawn"))
             rel = m.group("rel") or ("*" if m.group("bare_spawn") else None)
             weight = int(m.group("weight")) if m.group("weight") else None
-            idx = self.add_entry(cap[0].id, parent, rel, spawn, m.group("cond"), weight)
+            idx = self.add_entry(cap[0].id, parent, self.ln(k), rel, spawn, m.group("cond"),
+                                 weight)
             stack.append((bcol, idx))
             self.anchor = cap[0].id
             if rel == "!" and parent is not None:

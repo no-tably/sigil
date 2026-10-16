@@ -1,8 +1,9 @@
 """
 The text scanning lint's rules share on top of sigil.core.lex (which keeps the
-tables the parser reads too): the length-preserving masks (principal sets, a
-dialect's spans), the block-string pre-pass that reports SGL170
-(collapse_block_strings), a state block's lines and a balanced-group scan.
+tables the parser reads too): the principal-set mask, the block-string pre-pass
+that reports SGL170 (collapse_block_strings) and a state block's lines. The
+bracket-group scan and a dialect's masks are sigil.core.lex's (balanced_end,
+apply_masks).
 """
 
 import re
@@ -57,13 +58,6 @@ def collapse_block_strings(lines: list, result: LintResult) -> list:
     return folded.lines
 
 
-def _apply_masks(line: str, masks) -> str:
-    """Apply dialect glyph masks (length-preserving `fn(line) -> line`) in order."""
-    for mask in masks:
-        line = mask(line)
-    return line
-
-
 def _iter_state_block(lines: list):
     """Yield `(line_no, line, where)` for every line, `line` comment-stripped and
     trimmed. `where` is "header" for a `state … {` opener, "body" inside its block,
@@ -86,20 +80,3 @@ def _iter_state_block(lines: list):
                 yield i, line, "body"
             continue
         yield i, line, None
-
-
-def _balanced_end(s: str, i: int) -> int:
-    """Index just past the `( [ {` group opening at s[i], or -1 if it never closes
-    (or closes with the wrong bracket)."""
-    pairs = {"(": ")", "[": "]", "{": "}"}
-    stack = []
-    for j in range(i, len(s)):
-        ch = s[j]
-        if ch in pairs:
-            stack.append(pairs[ch])
-        elif ch in ")]}":
-            if not stack or ch != stack.pop():
-                return -1
-            if not stack:
-                return j + 1
-    return -1

@@ -75,7 +75,7 @@ from dataclasses import dataclass, field, replace
 from typing import Iterable, NamedTuple, Optional
 
 from sigil.core.graph import walk_depth
-from sigil.core.lex import BLOCK_SENTINEL, BRANCH_RE, comment_start, strip_comment
+from sigil.core.lex import BLOCK_SENTINEL, comment_start
 
 
 # ---------------------------------------------------------------------------
@@ -201,8 +201,7 @@ def model_of(graph, lines: list, stem: str, acks: Iterable = ()) -> Model:
     facts = Facts(graph, layout, homes, flows,
                   {nid: glyph([n]) for g in walk(graph) for nid, n in g.nodes.items()},
                   tuple((a, ack_text(lines, a.line)) for a in acks))
-    heads = head_lines(lines, {nid: glyph(insts[:1]).lstrip("~*") for nid, insts in nodes.items()})
-    appears = merged(graph_lines(graph, nodes), heads)
+    appears = merged(graph_lines(graph, nodes), head_lines(graph, nodes))
     components = {nid: make_component(nid, insts, appears[nid], facts)
                   for nid, insts in nodes.items()}
     inside = in_systems(components, layout)
@@ -491,7 +490,7 @@ def graph_lines(graph, nodes: dict) -> dict:
     edges, access lists, joins and block headers naming it and the statements a
     trailing comment of its sits on. (viewkit.node_lines also guesses a line for
     a node nothing names, from its neighbours; a guessed line would hand it their
-    acknowledgements, so head_lines finds those instead.)"""
+    acknowledgements, so head_lines adds the statements it heads instead.)"""
     out = {nid: set() for nid in nodes}
 
     def at(nid, line):
@@ -517,20 +516,19 @@ def graph_lines(graph, nodes: dict) -> dict:
     return out
 
 
-def head_lines(lines: list, marks: dict) -> dict:
-    """{node id: lines whose statement starts with its glyph}: a declaration
-    (`[Api] @sla(…)`), a tree root, or a `\\-` branch's child (tree entries
-    carry no line, and a bare declaration names no edge). `marks`: node id → its
-    glyph without `~`/`*`. Only a statement's head counts: a glyph inside a
-    payload or an op's arguments (`find(User)`) is no appearance."""
-    lead = rf"(?:^\s*|(?:{BRANCH_RE.pattern})\s*)[~*]*"
-    pats = {nid: re.compile(lead + re.escape(mark) + r"(?!\w)") for nid, mark in marks.items()}
-    out = {nid: set() for nid in marks}
-    for k, raw in enumerate(lines, start=1):
-        code = strip_comment(raw)
-        for nid, pat in pats.items():
-            if pat.search(code):
-                out[nid].add(k)
+def head_lines(graph, nodes: dict) -> dict:
+    """{node id: lines of the statements it heads}, as the parser recorded them
+    (Graph.heads, TreeEntry.line): a declaration (`[Api] @sla(…)`), a tree root,
+    a `\\-` branch's child, a definition. A glyph inside a payload or an op's
+    arguments (`find(User)`) heads nothing."""
+    out = {nid: set() for nid in nodes}
+    for g in walk(graph):
+        for line, nid in g.heads:
+            if nid in out:
+                out[nid].add(line)
+        for t in g.tree:
+            if t.node in out:
+                out[t.node].add(t.line)
     return out
 
 
