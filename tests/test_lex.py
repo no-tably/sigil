@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sigil.analyse import lint  # noqa: E402
 from sigil.analyse.lint import composition, hardening, lines, payloads, permissions, scan  # noqa: E402
-from sigil.core import comments, lex, parse, vocab  # noqa: E402
+from sigil.core import comments, lex, parse, statements, tokens, vocab  # noqa: E402
 
 # (verb as written, the verb an op-call reads, or None when it is no op-call)
 CORPUS = [
@@ -123,56 +123,69 @@ class EnclosingMarkVerbs(unittest.TestCase):
 
 
 class Comments(unittest.TestCase):
-    def test_the_parser_keeps_a_hash_inside_a_string(self):
+    """One comment reading (D1): a `#` inside a `"…"` string is string text, for
+    the parser, lint and the dialect API alike."""
+
+    def test_a_hash_inside_a_string_is_string_text(self):
         self.assertEqual(lex.strip_comment('[A] -> [B] : "issue #5" # n'),
                          '[A] -> [B] : "issue #5" ')
         self.assertEqual(lex.comment_col('[A] : "issue #5" # n'), 17)
 
-    def test_lint_and_the_dialect_api_read_any_hash_after_space(self):
-        self.assertEqual(lex.strip_comment_plain('[A] -> [B] : "issue #5"'),
-                         '[A] -> [B] : "issue ')
-        self.assertIs(vocab.strip_comment, lex.strip_comment_plain)
+    def test_the_dialect_api_reads_comments_the_same_way(self):
+        self.assertIs(vocab.strip_comment, lex.strip_comment)
+        self.assertEqual(vocab.strip_comment('[A] -> [B] : "issue #5"'),
+                         '[A] -> [B] : "issue #5"')
 
     def test_a_mode_line_is_no_comment(self):
-        for strip in (lex.strip_comment, lex.strip_comment_plain):
-            self.assertEqual(strip("#!spec # x"), "#!spec # x")
+        self.assertEqual(lex.strip_comment("#!spec # x"), "#!spec # x")
         self.assertIsNone(lex.comment_col("  #!spec # x"))
+
+    def test_a_dialect_marker_ends_the_code_outside_a_string(self):
+        marker = re.compile(r"(?:^|(?<=\s))(?:-//)")
+        self.assertEqual(lex.code_end("[A] -> [B] -// note", marker), 11)
+        self.assertEqual(lex.code_end('[A] : "a -// b" -// n', marker), 16)
+        self.assertEqual(lex.code_end("[A] # x -// y", marker), 4)
 
 
 class BlockStrings(unittest.TestCase):
     DOC = ['[A] -> [B] : """a""" -> [C] : """b"""', 'x', '[D] -> [E] : """', 'body',
            '""" @inv k']
 
-    def test_the_parser_reads_on_after_a_block_and_keeps_bodies(self):
+    def test_a_folded_line_is_read_again_and_its_first_body_kept(self):
+        # D3: what follows a closing `"""` may open another block; a payload is
+        # terminal, so the line's first body is its flow's.
         bodies = {}
-        folded = lex.fold_block_strings(self.DOC, lex.comment_col, rescan=False, bodies=bodies)
-        self.assertEqual(folded.lines[0], '[A] -> [B] : "block-string" -> [C] : """b"""')
+        folded = lex.fold_block_strings(self.DOC, bodies)
+        self.assertEqual(folded.lines[0],
+                         '[A] -> [B] : "block-string" -> [C] : "block-string"')
         self.assertEqual(folded.lines[2:], ['[D] -> [E] : "block-string" @inv k', "", ""])
         self.assertEqual(bodies, {0: "a", 2: "\nbody\n"})
         self.assertIsNone(folded.unterminated)
 
-    def test_lint_reads_a_folded_line_again(self):
-        folded = lex.fold_block_strings(self.DOC, lex.plain_comment_col, rescan=True)
-        self.assertEqual(folded.lines[0],
-                         '[A] -> [B] : "block-string" -> [C] : "block-string"')
-
     def test_an_unterminated_block_blanks_to_the_end(self):
-        folded = lex.fold_block_strings(["a", '[A] -> [B] : """', "x"], lex.comment_col,
-                                        rescan=False)
+        folded = lex.fold_block_strings(["a", '[A] -> [B] : """', "x"])
         self.assertEqual(folded, lex.Folded(["a", "", ""], 1))
 
     def test_a_delimiter_after_a_hash_in_a_string(self):
+        # D1: the `#` is string text, so the `"""` opens a block (never closed).
         doc = ['[A] : "x #y" """', "z"]
-        # The parser: the `#` is string text, so the `"""` opens a block (never closed).
-        self.assertEqual(lex.fold_block_strings(doc, lex.comment_col, rescan=False)
-                         .unterminated, 0)
-        # Lint: the `#` starts a comment, so the `"""` is comment text.
-        self.assertIsNone(lex.fold_block_strings(doc, lex.plain_comment_col, rescan=True)
-                          .unterminated)
+        self.assertEqual(lex.fold_block_strings(doc).unterminated, 0)
+
+    def test_a_delimiter_in_a_comment_is_comment_text(self):
+        self.assertIsNone(lex.fold_block_strings(['[A] # see """', "z"]).unterminated)
+
+
+class Braces(unittest.TestCase):
+    """D2: a brace inside a string is string text, never a block's."""
+
+    def test_net_braces_and_close_at_skip_strings(self):
+        self.assertEqual(lex.net_braces('[A] -> [B] : "a { b"'), 0)
+        self.assertEqual(lex.close_at('[A] : "}" }', 1), 10)
 
 
 # Modules that read Sigil text; none may compile a pattern lex already holds.
-READERS = (parse, comments, lint, composition, hardening, lines, payloads, permissions, scan)
+READERS = (parse, statements, tokens, comments, lint, composition, hardening, lines, payloads,
+           permissions, scan)
 
 
 class OneSourceOfTruth(unittest.TestCase):
@@ -195,9 +208,11 @@ class OneSourceOfTruth(unittest.TestCase):
                                  f"{mod.__name__}.{name}")
 
     def test_the_parser_s_names_are_lex_s(self):
-        for name in ("GLYPH_RE", "OP_TARGET_RE", "MODIFIER_RE", "BLOCK_SENTINEL", "BRANCH_RE",
-                     "ALIAS_REF", "strip_comment", "comment_start"):
+        for name in ("GLYPH_RE", "OP_TARGET_RE", "BLOCK_SENTINEL", "BRANCH_RE",
+                     "ALIAS_REF", "strip_comment"):
             self.assertIs(getattr(parse, name), getattr(lex, name), name)
+        for name in ("MODIFIER_RE", "PAYLOAD_RE", "GLUED_MOD_RE", "in_string"):
+            self.assertIs(getattr(tokens, name), getattr(lex, name), name)
 
     def test_the_dialect_api_is_lex_s(self):
         for name in ("ARROWS", "ARROW_RE", "GLYPH_PATTERNS", "ANY_GLYPH_RE", "COMMENT_START_RE"):

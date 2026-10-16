@@ -1,9 +1,9 @@
 """
 Lint hardening (SGL120–188): the lines the parser would misread or drop. The
-rules read what core reads: each statement's tokens (sigil.core.tokens) and the
-statement walk's record of blocks, headers, sections, transitions and
-continuation lines (sigil.core.statements); lint keeps no walk or scanner of its
-own. The lexical tables are sigil.core.lex's (the parser reads the same ones).
+rules read the document's one reading (sigil.core.statements.read_document):
+each statement's tokens (sigil.core.tokens) and the walk's record of blocks,
+headers, sections, transitions and continuation lines — the same reading the
+parser builds the model from; lint keeps no walk or scanner of its own.
 """
 
 import re
@@ -13,7 +13,7 @@ from sigil.core import parse as render
 from sigil.core.graph import walk_depth
 from sigil.core.dialects import _hook
 from sigil.core.lex import ARROW_RE, ARROWS, MOD_NAME_RE, SECTION_RE, balanced_end, comment_col
-from sigil.core.statements import Walk, walk_statements
+from sigil.core.statements import Statement, Walk, read_document
 from sigil.core.tokens import Code, Tok, code_line, tokenize_statement  # noqa: F401  (Code, code_line: read as hardening.<name> by tests)
 from sigil.core.vocab import LintResult
 from sigil.analyse.lint.payloads import _classify_payload
@@ -236,12 +236,14 @@ def _marker_findings(toks: list) -> list:
     return out
 
 
-def statement_findings(line: int, code: Code, is_alias: bool = False) -> list:
-    """Every hardening finding of one statement, as Findings."""
-    toks = tokenize_statement(code)
+def statement_findings(st: Statement, target=None) -> list:
+    """Every hardening finding of one statement, as Findings. `target(word)`: a
+    bare word the dialect reads as an arrow's destination (an endpoint here)."""
+    toks = _as_judged(st.toks, st.code, target)
     sig = [t for t in toks if t.kind in _STRUCTURAL]
     first_broken = next((t for t in toks if t.kind == "glyph"
                          and t.problem in ("unclosed", "mismatched")), None)
+    line, is_alias = st.line, st.alias
     if first_broken is not None:
         # A broken glyph throws the rest of the line out of step: report it alone.
         return [Finding(line, rule, msg) for rule, msg in _glyph_findings([first_broken])]
@@ -249,6 +251,22 @@ def statement_findings(line: int, code: Code, is_alias: bool = False) -> list:
              + _payload_findings(toks, sig, is_alias) + _argument_findings(toks)
              + _trailing_findings(toks, sig) + _marker_findings(toks))
     return [Finding(line, rule, msg) for rule, msg in pairs]
+
+
+def _as_judged(toks, code: Code, target) -> list:
+    """A statement's tokens as these rules judge them: a payload that is a
+    modifier's `key:value` is the word it is written as, and a dialect's bare
+    target word after an arrow (`<go> -> resume`) an endpoint."""
+    out = []
+    for t in toks:
+        if t.kind == "payload" and t.flag == "kv":
+            continue
+        if target is not None and t.kind == "word" and out and out[-1].kind == "arrow" \
+                and not code.text[out[-1].col + len(out[-1].text):t.col].strip() \
+                and not code.text.startswith("(", t.col + len(t.text)) and target(t.text):
+            t = t._replace(kind="glyph", text=t.text)
+        out.append(t)
+    return out
 
 
 
@@ -423,15 +441,17 @@ def parser_gap_findings(codes: list, facts: ParsedFacts) -> list:
     return out
 
 
-def hardening_findings(lines: list, masks=(), keywords=(), decl_blocks=(),
-                       facts: Optional[ParsedFacts] = None) -> list:
-    """Every hardening finding of a (pre-passed) document, in line order, at most
-    one per rule per line. `facts` (from the parsed document) adds the rules that
-    ask the parser; without it they are skipped."""
-    walk = walk_statements(lines, masks, keywords, decl_blocks)
-    found = walk_findings(walk) + reserved_marker_findings(lines)
+def hardening_findings(walk, facts: Optional[ParsedFacts] = None, target=None) -> list:
+    """Every hardening finding of a document's reading (a Walk; a list of lines is
+    read first), in line order, at most one per rule per line. `facts` (from the
+    parsed document) adds the rules that ask the parser; without it they are
+    skipped. `target`: see statement_findings."""
+    if not isinstance(walk, Walk):
+        walk = read_document("\n".join(walk))
+    found = walk_findings(walk) + reserved_marker_findings(walk.lines)
     for st in walk.statements:
-        found += statement_findings(st.line, st.code, st.alias)
+        if not st.quiet:
+            found += statement_findings(st, target)
     if facts is not None:
         found = _with_parser_gaps(found, parser_gap_findings(walk.codes, facts))
     return _one_per_rule_and_line(found)
@@ -458,32 +478,28 @@ def _one_per_rule_and_line(found: list) -> list:
 ANY_TARGET_WORD = r"(?!op\b)[A-Za-z_][\w.-]*"   # a bare word that is not an op call
 
 
-def target_word_mask(words):
-    """A glyph mask (length-preserving `fn(line) -> line`) that blanks each of a
-    dialect's bare-word arrow targets (`<go> -> context`) right after an arrow, so
-    the hardening scan reads it as a dialect endpoint; None when there are none.
-    `words` is a set of words, or ANY_TARGET_WORD for every bare word (not an op
-    call `run()` or the `op` keyword)."""
+def target_words(words):
+    """A test (`fn(word) -> bool`) for a dialect's bare-word arrow targets
+    (`<go> -> context`), which these rules read as endpoints; None when there are
+    none. `words` is a set of words, or ANY_TARGET_WORD for every bare word (not
+    an op call `run()` or the `op` keyword)."""
     if not words:
         return None
     alt = words if isinstance(words, str) else "|".join(map(re.escape, sorted(words)))
-    rx = re.compile(ARROW_RE.pattern + r"(\s*)(" + alt + r")(?![\w.(-])")
-    return lambda line: rx.sub(lambda m: m.group(1) + m.group(2) + " " * len(m.group(3)), line)
+    rx = re.compile(r"(?:" + alt + r")$")
+    return lambda word: rx.match(word) is not None
 
 
-def lint_hardening(lines: list, result: LintResult, dialect=None, graph=None):
-    """Report the hardening findings (SGL120–SGL188) on `result`. `graph` is the
-    parsed document (render.parse_document), or None when it could not be parsed."""
+def lint_hardening(walk: Walk, result: LintResult, dialect=None, graph=None):
+    """Report the hardening findings (SGL120–SGL188) on `result`. `walk` is the
+    document's reading; `graph` the parsed document (render.parse_document), or
+    None when it could not be parsed."""
     # A dialect owns its vocabulary: one that has not said which bare words it
     # reads as arrow targets keeps every bare word there (core cannot judge them).
     if dialect is not None and not hasattr(dialect, "ARROW_TARGET_WORDS"):
-        target_mask = target_word_mask(ANY_TARGET_WORD)
+        target = target_words(ANY_TARGET_WORD)
     else:
-        target_mask = target_word_mask(set(_hook(dialect, "ARROW_TARGET_WORDS", set())))
-    for f in hardening_findings(
-            lines,
-            masks=list(_hook(dialect, "lint_glyph_masks")) + ([target_mask] if target_mask else []),
-            keywords=set(_hook(dialect, "BLOCK_KEYWORDS", set())),
-            decl_blocks=list(_hook(dialect, "DECLARATION_BLOCKS")),
-            facts=parsed_facts(graph) if graph is not None else None):
+        target = target_words(set(_hook(dialect, "ARROW_TARGET_WORDS", set())))
+    for f in hardening_findings(walk, parsed_facts(graph) if graph is not None else None,
+                                target):
         result.add(HARDENING_SEVERITY[f.rule], f.line, f.rule, f.message)

@@ -1,20 +1,26 @@
 """
 dialects.py — load a Sigil DIALECT: an optional extension of the core notation.
 
-Core Sigil (lint.py / render.py with no dialect) knows only the standard
-vocabulary. A dialect is a single Python module (`dialect.py`) that layers extra
-vocabulary and rules on top — new modifiers, new glyph syntax, new lint rules,
-extra render strips — without the core tools ever importing it. A dialect is
+Core Sigil (`sigil lint` / `sigil check` / … with no dialect) knows only the
+standard vocabulary. A dialect is a single Python module (`dialect.py`) that
+layers extra vocabulary and rules on top — new modifiers, new glyph syntax, new
+lint rules, extra line strips — without the core ever importing it. A dialect is
 loaded at run time and handed to the tools:
 
-    import dialects, lint, render
+    from sigil.core import dialects, parse
+    from sigil.analyse import lint
     d = dialects.load("mydialect")          # or a path, or None → $SIGIL_DIALECT
     lint.lint(text, dialect=d)
-    render.parse_document(text, dialect=d)
-    render.render(text, depth=1, dialect=d)
+    parse.parse_document(text, dialect=d)
 
-Both CLIs accept `--dialect NAME` (default: the SIGIL_DIALECT environment
+Every command accepts `--dialect NAME` (default: the SIGIL_DIALECT environment
 variable; unset / empty = pure core Sigil).
+
+A document is read ONCE (sigil.core.statements): its lines (block strings
+folded, the dialect's `prepasses` run), the statement walk and each
+statement's tokens (sigil.core.tokens, the dialect's `strips` and `tokenizers`
+taking part) are what the parser builds the model from and what lint's rules
+judge. So a dialect hooks the one reading, not lint and the parser apart.
 
 Resolution (`load(spec)`):
     spec None       → read env SIGIL_DIALECT; unset or "" → None (core only).
@@ -32,11 +38,14 @@ Resolution (`load(spec)`):
 Caching: a loaded dialect is registered in sys.modules under a name derived from
 its resolved path ("sigil_dialect_<name>_<hash of path>"), and load() returns
 that registered module when the same file is loaded again. sys.modules is shared
-by the whole process, so this holds even across separate copies of this module —
-lint.py and render.py each exec their own copy of dialects.py, and both get the
-same dialect module object for the same file. (Registration also lets a dialect
+by the whole process, so the same file always gives the same dialect module
+object. (Registration also lets a dialect
 use dataclasses, typing.get_type_hints, pickle etc., which look the module up in
 sys.modules.) The file is read once per process: edits to it need a new process.
+
+load() refuses (DialectError) a module that still defines a retired hook
+(RETIRED_HOOKS: the `lint_*` / `render_*` pairs the one hook set replaced),
+naming the hook that replaces it.
 
 Run directly (`dialects.py [SPEC]`) it prints the resolved dialect's NAME, or
 reports an unknown dialect on stderr and exits 2.
@@ -48,6 +57,38 @@ upper-case attributes are data.
   NAME: str
       The dialect's name (defaults to the name it was loaded by).
 
+  -- the reading (one hook set: the statement walk, its tokenizer, the parser
+     and lint all read through these) ------------------------------------
+  prepasses() -> [fn(lines, result) -> lines]
+      Line-count-preserving rewrites, run once after the core block-string fold
+      and before the statement walk — e.g. stripping dialect comment forms.
+      Comments (notes) are collected before them. `result` is the LintResult a
+      pass may report on (the parser hands a scratch one).
+  strips() -> [fn(line) -> line]
+      LENGTH-PRESERVING blanks (replace with spaces, never delete) applied to
+      each flow statement's code after its composition branch marker is read —
+      dialect-only syntax that must not read as glyphs (a binding prefix, a
+      layout marker). Never applied to block headers, definition heads,
+      transitions or section headers.
+  tokenizers() -> [fn(s, i, prev_was_glyph, layer, Node)
+                   -> None | (tokens, end, prev_was_glyph)]
+      Glyph-tokenizer extensions, tried (in order) at each column of a
+      statement before the core arrow / join / glyph rules. Return None to
+      decline; otherwise the tokens to append (`("glyph", node)` built with the
+      passed `Node` class, or `("arrow", kind)`), the index to resume at, and
+      the new prev_was_glyph. A glyph they read is a glyph everywhere: a node
+      in the model, an endpoint for lint, a definition head (`[[x]] := {`),
+      and its name (generics and inputs dropped, the part before a `.`) a
+      principal an `@read` / `@write` list may name. Its columns show as
+      DIALECT_COL in a statement's Code, so text-reading rules never read its
+      brackets. Dialect-specific node metadata goes in `Node.attrs`.
+  COMMENT_MARKERS: list[str]
+      Extra comment markers (regex sources) besides core `#`, matched at line
+      start or after whitespace and never inside a `"…"` string. A marker ends
+      a statement's code as `#` does, and its comment becomes a note on the node
+      it describes. A marker may not claim a reserved core marker (`#=`, the
+      decorated acknowledgement — RFC 0003 Q7): load() refuses such a dialect.
+
   -- lint ------------------------------------------------------------------
   KNOWN_MODIFIERS: set[str]
       Modifiers added to the core allowlist. They are accepted silently and are
@@ -56,31 +97,22 @@ upper-case attributes are data.
   DEFERRED_MODIFIERS: set[str]
       Modifiers the dialect validates ITSELF (placement rules etc.): the core
       allowlist never reports them as unknown, and does not list them as known.
-  lint_prepasses() -> [fn(lines, result) -> lines]
-      Line-count-preserving rewrites run after the core pre-passes (block-string
-      folding) and before every core rule — e.g. stripping dialect comment forms
-      or masking dialect-only syntax down to plain glyphs.
   lint_passes() -> [fn(lines, result) -> None]
-      Extra rules, run after the core rules on the same (pre-passed) lines.
-  lint_glyph_masks() -> [fn(line) -> line]
-      Length-preserving masks applied before the core glyph scans (actor-as-state,
-      prose-verb) so dialect glyph syntax is not mis-read as core glyphs.
-  lint_principal_scanners() -> [fn(line) -> (names, masked_line)]
-      Contribute declared entity names from dialect glyph syntax to the
-      permission-graph closed-reference check (SGL143), returning the line with
-      that syntax masked so the core glyph scan does not also read it.
+      Extra rules, run after the core rules on the document's lines (block
+      strings folded, prepasses run).
   lint_payload_checks() -> [fn(site, result) -> None]
-      Called for every `: payload` segment the core payload rule inspects, after
-      the core checks for it. `site` has: line_no, value (the payload text with
-      trailing modifiers peeled), tags (the peeled @-modifiers, source order),
-      kind (the core classification: value / ext-op / ext-op-bad / map / entity /
-      int-op / opaque), known_modifiers (core ∪ dialect allowlist).
+      Called for every `: payload` the core payload rule inspects, after the core
+      checks for it. `site` has: line_no, value (the payload text with trailing
+      modifiers peeled), tags (the peeled @-modifiers, source order), kind (the
+      core classification: value / ext-op / ext-op-bad / map / entity / int-op /
+      opaque), known_modifiers (core ∪ dialect allowlist), branch (True on a
+      composition-branch statement).
   DECLARATION_BLOCKS: [(compiled_regex, on_raw: bool)]
       Openers of `name { … }` blocks whose bodies are DECLARATIONS, not flows.
-      The core payload rule skips their bodies and render draws nothing for them.
-      `on_raw=True` matches the raw stripped line (use it for markers that begin
-      with `#`, which comment stripping would erase); otherwise the
-      comment-stripped line. The body ends when its braces balance.
+      The walk consumes their bodies: no rule reads them and the model draws
+      nothing for them. `on_raw=True` matches the raw stripped line (use it for
+      markers that begin with `#`, which comment stripping would erase);
+      otherwise the line's code. The body ends when its braces balance.
   BLOCK_KEYWORDS: set[str]
       Extra statement-leading block keywords (alongside state/loop/parallel/
       branch) whose header line carries no flow payload.
@@ -89,22 +121,7 @@ upper-case attributes are data.
       Core lint's dangling-arrow rule (SGL130) accepts them after an arrow; any
       other bare word there is still an arrow with no destination.
 
-  -- render ----------------------------------------------------------------
-  render_prepasses() -> [fn(lines) -> lines]
-      Line-count-preserving rewrites run after the core block-string pre-pass.
-      An expansion body is read in one pass, so a body's line is not re-run
-      through them; only a line the body reads rewritten (a header's text after
-      `{`, a closing line's text before `}`) is, on its own: a pass must leave its
-      own output unchanged.
-  render_line_strips() -> [fn(line) -> line]
-      Applied first, to every flow line, inside render.extract_flows.
-  render_tokenizers() -> [fn(s, i, prev_was_glyph, layer, Node)
-                          -> None | (tokens, end, prev_was_glyph)]
-      Glyph-tokenizer extensions, tried (in order) at each position before the
-      core arrow / join / glyph rules. Return None to decline; otherwise the
-      tokens to append (`("glyph", node)` built with the passed `Node` class, or
-      `("arrow", kind)`), the index to resume at, and the new prev_was_glyph.
-      Dialect-specific node metadata goes in `Node.attrs` (a free-form dict).
+  -- the model and its drawing ---------------------------------------------
   NODE_KINDS: {kind: spec}
       Extra node kinds (`Node.kind` stays a plain string) a tokenizer may produce,
       and how viewers draw them. `spec` is a dict:
@@ -126,11 +143,6 @@ upper-case attributes are data.
       already places any of `>+#_^v$?!&@`. Only read when COMPOSITION_LINT is
       true. (Not a set of modifiers: a dialect's own modifier sets need other
       names.)
-  COMMENT_MARKERS: list[str]
-      Extra comment markers (regex sources) besides core `#`, matched at line start
-      or after whitespace. Comments become notes on the node they describe.
-      A marker may not claim a reserved core marker (`#=`, the decorated
-      acknowledgement — RFC 0003 Q7): load() refuses such a dialect.
   COMPOSITION_LINT: bool
       False when the dialect validates and masks branch markers itself; the core
       composition pre-pass (SGL110/SGL111) then stands down.
@@ -183,6 +195,17 @@ _HERE = Path(__file__).resolve().parents[2]     # the repo: dialects sit beside 
 # (RFC 0003 Q7). A dialect's COMMENT_MARKERS may not claim one.
 RESERVED_MARKERS = ("#=",)
 
+# Hooks the one hook set replaced (old name → the hook that took its place). A
+# dialect that still defines one is refused by load(), not half-loaded.
+RETIRED_HOOKS = {
+    "lint_prepasses": "prepasses",
+    "render_prepasses": "prepasses",
+    "render_line_strips": "strips",
+    "render_tokenizers": "tokenizers",
+    "lint_glyph_masks": "tokenizers",
+    "lint_principal_scanners": "tokenizers",
+}
+
 
 class DialectError(ValueError):
     """A dialect breaks a core reservation (a reserved marker, a core name)."""
@@ -223,7 +246,7 @@ def _load_file(path: Path, name: str) -> Dialect:
         raise
     if not getattr(mod, "NAME", None):
         mod.NAME = name
-    problems = marker_problems(_hook(mod, "COMMENT_MARKERS"))
+    problems = marker_problems(_hook(mod, "COMMENT_MARKERS")) + retired_hook_problems(mod)
     if problems:
         sys.modules.pop(modname, None)
         raise DialectError(f"sigil dialect {mod.NAME!r}: " + "; ".join(problems))
@@ -268,9 +291,8 @@ def load(spec: str | None) -> Dialect | None:
     )
 
 
-# lint.py and render.py each define their own `_hook(dialect, name, default)`
-# (callable hooks are called, data hooks returned as-is), since each loads this
-# module only on demand. The reader below serves this module's own checks.
+# Every reader of a dialect's hooks goes through _hook (callable hooks are
+# called, data hooks returned as-is).
 
 def _hook(dialect, name: str, default=(), *args):
     """A dialect hook's value: a callable hook is called with `args`, a data hook
@@ -304,6 +326,15 @@ def marker_problem(source: str, reserved: Iterable[str] = RESERVED_MARKERS) -> O
 def marker_problems(sources: Iterable[str]) -> list[str]:
     """marker_problem for every source, in order (None dropped)."""
     return [p for p in (marker_problem(s) for s in sources) if p]
+
+
+def retired_hook_problems(dialect) -> list[str]:
+    """One problem per retired hook the dialect still defines (RETIRED_HOOKS),
+    naming the hook that replaced it."""
+    return [f"hook `{old}` is retired: define `{new}` (the one hook set, see "
+            "sigil.core.dialects)"
+            for old, new in RETIRED_HOOKS.items()
+            if dialect is not None and getattr(dialect, old, None) is not None]
 
 
 class CoreNames(NamedTuple):

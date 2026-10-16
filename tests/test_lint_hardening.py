@@ -248,12 +248,18 @@ class Corpus(unittest.TestCase):
 
 
 def _toy_dialect():
-    """A dialect with `[[name]]` glyphs (masked for lint), a `meta { … }`
+    """A dialect with `[[name]]` glyphs (read by its tokenizer), a `meta { … }`
     declaration block and a `using` block keyword."""
     d = types.ModuleType("toy_hardening_dialect")
     d.NAME = "toy"
-    d.lint_glyph_masks = lambda: [lambda line: re.sub(r"\[\[[^\[\]]+\]\]",
-                                                      lambda m: " " * len(m.group(0)), line)]
+
+    def _ref(s, i, prev, layer, Node):
+        m = re.compile(r"\[\[([^\[\]]+)\]\]").match(s, i)
+        if not m:
+            return None
+        return [("glyph", Node(id=m.group(1) + "_ref", name=m.group(1), kind="ref",
+                               layer=layer))], m.end(), True
+    d.tokenizers = lambda: [_ref]
     d.DECLARATION_BLOCKS = [(re.compile(r"^meta\s*\{"), False)]
     d.BLOCK_KEYWORDS = {"using"}
     d.ARROW_TARGET_WORDS = {"resume"}

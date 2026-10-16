@@ -8,8 +8,8 @@ apply_masks).
 
 import re
 
-from sigil.core.lex import (
-    PRINCIPAL_SET_RE, STATE_HEAD_FLAT_RE, fold_block_strings, plain_comment_col)
+from sigil.core.lex import PRINCIPAL_SET_RE, STATE_HEAD_FLAT_RE, fold_block_strings
+from sigil.core.tokens import dialect_glyph_nodes
 from sigil.core.vocab import LintResult, strip_comment
 
 
@@ -39,23 +39,60 @@ PRINCIPAL_NAME_RE = re.compile(r"^[A-Za-z_][\w-]*$")
 # reads as an ordinary single-line `: "<…>"` value.
 # ---------------------------------------------------------------------------
 
-def collapse_block_strings(lines: list, result: LintResult) -> list:
-    """Pre-pass: fold every `\"\"\"…\"\"\"` multiline block-string into a masked
-    single-line STR on its opening line, blanking the consumed body lines (the
-    list length — and so every later diagnostic's line number — is preserved;
-    see sigil.core.lex.fold_block_strings). Lint reads comments plainly here and
-    reads each folded line again (the closing line's suffix may open another
-    block: `\"\"\" -> [C] : \"\"\"`). An unterminated block (opening `\"\"\"` with no
-    closing `\"\"\"`) is rejected (SGL170); every line from its opener is blanked,
-    so the dangling `\"\"\"` leaks no other diagnostic."""
-    folded = fold_block_strings(lines, plain_comment_col, rescan=True)
-    if folded.unterminated is not None:
+def unterminated_block(at, result: LintResult):
+    """SGL170 for an opening `\"\"\"` (line index `at`, or None) never closed."""
+    if at is not None:
         result.add(
-            "error", folded.unterminated + 1, "SGL170",
+            "error", at + 1, "SGL170",
             "unterminated block-string: an opening `\"\"\"` has no matching "
             "closing `\"\"\"`. A `\"\"\"…\"\"\"` multiline string must be closed.",
         )
+
+
+def collapse_block_strings(lines: list, result: LintResult) -> list:
+    """Fold every `\"\"\"…\"\"\"` multiline block-string into a masked single-line
+    STR on its opening line, blanking the consumed body lines (the list length —
+    and so every later diagnostic's line number — is preserved; see
+    sigil.core.lex.fold_block_strings). An unterminated block (opening `\"\"\"`
+    with no closing `\"\"\"`) is rejected (SGL170); every line from its opener is
+    blanked, so the dangling `\"\"\"` leaks no other diagnostic."""
+    folded = fold_block_strings(lines)
+    unterminated_block(folded.unterminated, result)
     return folded.lines
+
+
+def dialect_masks(lx) -> list:
+    """Length-preserving masks (`fn(line) -> line`) that blank each glyph a
+    dialect's tokenizers read, for the per-line rules that read text."""
+    if not lx.tokenizers:
+        return []
+
+    def mask(line: str) -> str:
+        chars = list(line)
+        for _node, (start, end) in dialect_glyph_nodes(line, lx):
+            for k in range(start, end):
+                chars[k] = " "
+        return "".join(chars)
+    return [mask]
+
+
+def principal_scanners(lx) -> list:
+    """Scanners (`fn(line) -> (names, masked line)`) of the principals a dialect's
+    glyphs declare: each glyph's name, generics and inputs dropped, the part
+    before a `.`."""
+    if not lx.tokenizers:
+        return []
+
+    def scan(line: str):
+        names, chars = set(), list(line)
+        for node, (start, end) in dialect_glyph_nodes(line, lx):
+            base = re.sub(r"<[^<>]*>|\([^()]*\)", "", node.name).strip().split(".")[0].strip()
+            if base and base != "?":
+                names.add(base)
+            for k in range(start, end):
+                chars[k] = " "
+        return names, "".join(chars)
+    return [scan]
 
 
 def _iter_state_block(lines: list):

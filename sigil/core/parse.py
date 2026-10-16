@@ -1,38 +1,42 @@
 """
 parse — a Sigil document read into the model (sigil.core.graph's records):
-parse_document(text, dialect=…) → Graph, parse_glyph, the flow tokenizer, the
-statement walk (_DocParser: sections, aliases, expansions, `state` machines,
-control blocks, composition trees, declarations), comments attached as notes
-and triggers wired to transitions. What the model means is described under
-THE MODEL in sigil.core.graph; the Mermaid export (sigil.publish.mermaid) and
-every other reader take the Graph from here.
+parse_document(text, dialect=…, walk=…) → Graph, parse_glyph. The document is
+read once, by the statement walk (sigil.core.statements: sections, definitions,
+`state` machines, control blocks, branch arms, each statement's tokens); this
+module builds the model from that reading — nodes, edges, joins and modifiers
+from each statement's tokens, composition trees from its branch marker,
+expansions, machines, blocks, comments attached as notes, triggers wired to
+transitions. What the model means is described under THE MODEL in
+sigil.core.graph; the Mermaid export (sigil.publish.mermaid) and every other
+reader take the Graph from here.
 """
 
+import dataclasses
 import re
-from bisect import bisect_left
 from typing import NamedTuple, Optional
 
-from sigil.core.dialects import _hook
 from sigil.core.lex import (  # noqa: F401  (also read as parse.<name> by the model's readers)
-    ALIAS_RE, ALIAS_REF, ALIAS_REF_RE, ARG_MODIFIERS, ARM_RE, ARROW_RE, BLOCK_DELIM,
-    BLOCK_OPEN_RE, BLOCK_SENTINEL, BRANCH_RE, EXPANSION_OPEN_RE, GLUED_MOD_RE, GLYPH_RE,
-    JOIN_RE, LOOP_HEAD_RE, MODIFIER_RE, OP_TARGET_RE, OPEN_TO_KIND, PAYLOAD_RE,
-    PAYLOAD_TAIL_RE, PRINCIPAL_SET_RE, SCOPE_HEAD_RE, SECTION_RE, STATE_HEAD_RE,
-    STATE_OPEN_RE, STREAM_BOUND_RE, TAIL_MOD_RE, TAIL_ONLY_RE, close_at, comment_col,
-    comment_start, fold_block_strings, in_string, strip_comment)
-from sigil.core.graph import (
+    ALIAS_REF, BLOCK_SENTINEL, BRANCH_RE, GLYPH_RE, OP_TARGET_RE, OPEN_TO_KIND,
+    strip_comment)
+from sigil.core.graph import (  # noqa: F401  (also read as parse.<name>)
     Access, Block, Dropped, Edge, Graph, Join, Node, Note, Section, TreeEntry, Trigger,
     mk_id, walk_depth)
+from sigil.core.statements import (  # noqa: F401  (collect_comments: read as parse.<name>)
+    BlockClose, BlockMods, BlockOpen, Blank, Declaration, Definition, Doc, Flow,
+    Note as NoteItem, SectionHead, StateEnd, StateHead, Walk, collect_comments,
+    read_document)
+from sigil.core.tokens import lexicon, mod_pair, scan_mods
 
 # ---------------------------------------------------------------------------
 # Glyph parsing (the lexical tables are sigil.core.lex's)
 # ---------------------------------------------------------------------------
 
 def parse_glyph(text: str, layer: str = "L1", dialect=None) -> Optional[Node]:
+    """The node a glyph's text names (a dialect's glyph first), or None."""
     text = text.strip()
 
     # Dialect glyph syntax first (its tokenizers see the glyph at position 0).
-    for tok in _hook(dialect, "render_tokenizers"):
+    for tok in lexicon(dialect).tokenizers:
         r = tok(text, 0, False, layer, Node)
         if r:
             for kind, node in r[0]:
@@ -42,7 +46,7 @@ def parse_glyph(text: str, layer: str = "L1", dialect=None) -> Optional[Node]:
     m = GLYPH_RE.match(text)
     if not m:
         return None
-    name = m.group("name").replace(_GAP, "").strip()
+    name = m.group("name").replace("\x00", "").strip()
     kind = OPEN_TO_KIND[m.group("open")]
     is_hole = name == "?"
     return Node(
@@ -90,79 +94,6 @@ _NODE_MODS = {"loc", "read", "write", "borrow", "owns", "grants", "requires", "^
 # Modifier names that are no `@name` (signs, cardinality, a stream bound).
 _SIGN_MODS = {"×", "!", "?", ".", "^"}
 
-def _mod_spans(rx, text: str) -> list:
-    """(start, end) of each modifier `rx` finds outside `"…"` strings. A
-    modifier's trailing text that is only `×N` / `xN` / `!` is left out of its
-    span (those are modifiers of their own)."""
-    spans = []
-    for m in rx.finditer(text):
-        if in_string(text, m.start()):
-            continue
-        start, end = m.start(), m.end()
-        tok = m.group(0)
-        pm = re.match(r"@[A-Za-z][\w-]*\s*\(", tok)
-        if pm:
-            close = _close_paren(tok[pm.end() - 1:])
-            if close >= 0:
-                cut = pm.end() + close
-                if cut < len(tok) and TAIL_ONLY_RE.match(tok[cut:]):
-                    end = start + cut
-        spans.append((start, end))
-    return spans
-
-
-# Masking. A captured modifier / payload is blanked in place, so every other
-# column stays put: with one space where the old text-deleting strip put one (a
-# modifier with an argument, a payload) and _GAP elsewhere — a filler the
-# tokenizer skips and parse_glyph drops, so text around a removed modifier still
-# reads as adjacent (as it did when the modifier was deleted).
-_GAP = "\x00"
-
-
-def _blank(n: int, spaced: bool = True) -> str:
-    return (" " + _GAP * (n - 1)) if spaced and n else _GAP * n
-
-
-def mod_pair(text: str) -> tuple:
-    """`@timeout(30s)` → ("timeout", "30s"); `@inv >= 0` → ("inv", ">= 0");
-    `@all` → ("all", None). A lone `( … )` argument loses its parens."""
-    m = re.match(r"@([A-Za-z][\w-]*)\s*", text)
-    if not m:
-        return (text.strip(), None)
-    rest = text[m.end():].strip()
-    if rest.startswith("(") and _close_paren(rest) == len(rest) - 1:
-        rest = rest[1:-1].strip()
-    return (m.group(1), rest or None)
-
-
-def _close_paren(text: str) -> int:
-    depth = 0
-    for i, ch in enumerate(text):
-        depth += (ch == "(") - (ch == ")")
-        if depth == 0:
-            return i
-    return -1
-
-
-def scan_mods(text: str) -> list:
-    """Every modifier in a statement-free text (a block header tail, an alias
-    body, a transition's tail) as (name, arg) pairs, in written order."""
-    out = []
-    masked = text
-    for rx in (STREAM_BOUND_RE, PRINCIPAL_SET_RE, MODIFIER_RE):
-        for start, end in _mod_spans(rx, masked):
-            tok = masked[start:end]
-            out.append((start, ("^", tok[1:]) if tok.startswith("^") else mod_pair(tok)))
-            masked = masked[:start] + " " * (end - start) + masked[end:]
-    for m in TAIL_MOD_RE.finditer(masked):
-        if in_string(masked, m.start()):
-            continue
-        card = m.group(1) or m.group(2)
-        out.append((m.start(), ("×", card) if card else ("^", m.group(3)) if m.group(3)
-                    else ("!", None)))
-    return [p for _pos, p in sorted(out, key=lambda x: x[0])]
-
-
 class Subject(NamedTuple):
     """The first endpoint of a flow statement — what a continuation line takes."""
     nodes: tuple              # node ids
@@ -176,10 +107,11 @@ def _add_mod(mods: list, pair: tuple):
         mods.append(pair)
 
 
-def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
+def extract_flows(toks: list, graph: Graph, layer: str, last_src=None,
                   dialect=None, first: Optional[list] = None, line_no: int = 0,
-                  out: Optional[dict] = None):
-    """Parse one flow statement: add its nodes, edges, joins, modifiers and access
+                  out: Optional[dict] = None, lead: int = 0):
+    """Build one flow statement (its tokens, sigil.core.tokens; `lead` the column
+    of its first character): add its nodes, edges, joins, modifiers and access
     declarations to `graph`. Returns the statement's Subject (its first endpoint;
     for a continuation line — one starting with an arrow — the inherited
     `last_src` Subject), or `last_src` unchanged when the line draws nothing.
@@ -189,14 +121,7 @@ def extract_flows(line: str, graph: Graph, layer: str, last_src=None,
     "head" (the id of the glyph the statement starts with, or None)."""
     if isinstance(last_src, Node):
         last_src = Subject((last_src.id,))
-    stripped = line
-    # Dialect line strips first (dialect-only syntax that must not leak as glyphs).
-    for strip in _hook(dialect, "render_line_strips"):
-        stripped = strip(stripped)
-    lead = len(stripped) - len(stripped.lstrip())
-    stripped, mods = _capture_mods(stripped)        # mods: [(column, (name, arg))]
-    stripped, payload, payload_span = _take_payload(stripped, mods)
-    tokens, event_args, glued = _tokenize_flow(stripped, layer, dialect, mods)
+    tokens, mods, payload, payload_span, event_args, glued = _model_tokens(toks, layer)
     head = _head(tokens, lead)
     tokens, paths = _fold_paths(tokens)
     if not any(t[0] == "glyph" for t in tokens):
@@ -246,149 +171,57 @@ def _head(tokens: list, lead: int) -> Optional[Node]:
     return None
 
 
-def _capture_mods(stripped: str) -> tuple:
-    """Capture a line's modifiers with their column and blank them (length-preserving,
-    so the columns of everything else stay put). Stream bounds first (their `@policy` is not
-    a modifier of its own); then the permission-graph access lists `@read(…)` /
-    `@write(…)` — principal NAMES, which must not read as actor glyphs; then every
-    other modifier with its argument — not an `@` inside a `"…"` string (`:
-    "ops@example.com"` is payload text).
-    Returns (the blanked line, [(column, (name, arg))])."""
-    mods = []
-
-    def capture(rx, s, pair):
-        for start, end in _mod_spans(rx, s):
-            tok = s[start:end]
-            mods.append((start, pair(tok)))
-            spaced = rx is PRINCIPAL_SET_RE or (rx is MODIFIER_RE and mod_pair(tok)[0]
-                                                  in ARG_MODIFIERS)
-            s = s[:start] + _blank(end - start, spaced) + s[end:]
-        return s
-
-    stripped = capture(STREAM_BOUND_RE, stripped, lambda tok: ("^", tok[1:]))
-    stripped = capture(PRINCIPAL_SET_RE, stripped, mod_pair)
-    stripped = capture(MODIFIER_RE, stripped, mod_pair)
-    return stripped, mods
-
-
-def _take_payload(stripped: str, mods: list) -> tuple:
-    """Take the terminal `: payload` (not a `:=` alias), kept as text for the edge
-    less its trailing cardinality / stream-bound / `!` modifiers and alias
-    references, which join `mods`. Returns (the line with the payload
-    blanked, the payload text or None, its (start, end) span or (-1, -1))."""
-    payload = None
-    payload_span = (-1, -1)
-    pm = PAYLOAD_RE.search(stripped)
-    if pm:
-        payload_span = (pm.start(), pm.end())
-        raw = pm.group(1)
-        refs = ALIAS_REF_RE.search(raw.replace(_GAP, " "))
-        if refs:
-            at = pm.start(1) + refs.start("names")
-            mods += [(at, (ALIAS_REF, name)) for name in refs.group("names").split()]
-            raw = raw[:refs.start("names")]
-        tail = PAYLOAD_TAIL_RE.search(raw.replace(_GAP, " "))   # same length
-        if tail and tail.start() < len(raw):
-            at = pm.start(1) + tail.start()
-            for t in TAIL_MOD_RE.finditer(tail.group(0)):
-                card = t.group(1) or t.group(2)
-                mods.append((at + t.start(), ("×", card) if card
-                             else ("^", t.group(3)) if t.group(3) else ("!", None)))
-            raw = raw[:tail.start()]
-        payload = raw.replace(_GAP, "").strip() or None
-        stripped = stripped[:pm.start()] + _blank(pm.end() - pm.start()) + stripped[pm.end():]
-        stripped = PAYLOAD_RE.sub(lambda m: _blank(len(m.group(0))), stripped)
-    return stripped, payload, payload_span
+def _model_tokens(toks: list, layer: str) -> tuple:
+    """A statement's tokens as the model reads them: (endpoints and operators as
+    (kind, value, column) — a glyph's value its Node, a broken glyph a "void"
+    endpoint —, [(column, (name, arg))] every modifier, the payload text or None,
+    its (start, end) span or (-1, -1), {id(event node): its `(…)` argument},
+    columns of `×N` glued to a glyph)."""
+    tokens, mods, event_args, glued = [], [], {}, set()
+    payload, payload_span = None, (-1, -1)
+    for t in toks:
+        if t.pair is not None:
+            mods.append((t.col, t.pair))
+            if t.flag == "glued":
+                glued.add(t.col)
+        kind = t.kind
+        if kind == "payload":
+            payload, payload_span = t.text or None, (t.col, t.end)
+        elif kind == "glyph":
+            node = _token_node(t, layer)
+            tokens.append(("glyph", node, t.col) if node is not None else ("void", None, t.col))
+        elif kind == "evarg":
+            prev = tokens[-1] if tokens else None
+            if prev is not None and prev[0] == "glyph" and prev[1].kind == "event" \
+                    and t.text.endswith(")") and _close_paren(t.text) == len(t.text) - 1:
+                event_args[id(prev[1])] = t.text[1:-1].strip() or None
+        elif kind == "arrow":
+            tokens.append(("arrow", t.text, t.col))
+        elif kind in ("join", "slash") and t.flag != "dead":
+            tokens.append((t.flag if t.flag in ("join", "slash") else kind, t.text, t.col))
+        elif kind == "op" and t.flag != "dead":
+            tokens.append(("op", t.text, t.col))
+    return tokens, mods, payload, payload_span, event_args, glued
 
 
-def _tokenize_flow(stripped: str, layer: str, dialect, mods: list) -> tuple:
-    """Tokenize a blanked flow line into glyphs, arrows, joins, op-call targets
-    and glued modifiers (those join `mods`). Returns (tokens as (kind, value,
-    column), {id(event token): its `(…)` argument}, columns of `×N` glued to a
-    glyph)."""
-    tokenizers = list(_hook(dialect, "render_tokenizers"))
-    tokens = []                                 # (kind, value, column)
-    event_args = {}                             # id(event token) -> its `(…)` argument
-    glued = set()                               # columns of `×N` glued to a glyph
-    i = 0
-    prev_was_glyph = False
-    while i < len(stripped):
-        ch = stripped[i]
-        if ch.isspace() or ch == _GAP:
-            i += 1
-            continue
-        # Dialect tokenizers first (extra glyph / operator syntax).
-        hit = None
-        for tok in tokenizers:
-            hit = tok(stripped, i, prev_was_glyph, layer, Node)
-            if hit:
-                break
-        if hit:
-            new_tokens, end, prev_was_glyph = hit
-            tokens.extend((k, v, i) for k, v in new_tokens)
-            i = end
-            continue
-        am = ARROW_RE.match(stripped, i)
-        if am:
-            tokens.append(("arrow", am.group(0), i))
-            i = am.end()
-            prev_was_glyph = False
-            continue
-        # Strict join `&` / race `&?` between glyphs (language.md "a & b") groups
-        # them into ONE endpoint: `<E> *> [A] & [B]` fans out to both A and B.
-        jm = JOIN_RE.match(stripped, i)
-        if jm and prev_was_glyph:
-            tokens.append(("join", jm.group(0), i))
-            i = jm.end()
-            prev_was_glyph = False
-            continue
-        gm = GLYPH_RE.match(stripped, i)
-        if gm:
-            node = parse_glyph(gm.group(0), layer)
-            end = gm.end()
-            if node:
-                tokens.append(("glyph", node, i))
-                arg = _event_arg(stripped, end) if node.kind == "event" else None
-                if arg is not None:             # `<H>({C})`: one glyph, its argument
-                    event_args[id(node)] = arg[0]
-                    end = arg[1]
-            i = end
-            prev_was_glyph = True
-            continue
-        if ch == "/" and prev_was_glyph:
-            nxt = stripped[i + 1] if i + 1 < len(stripped) else " "
-            if nxt in "[{<(|~*" and not stripped[i - 1].isspace():
-                # Qualified path `[Bullet]/{Transform}`: a `/` glued between glyphs.
-                tokens.append(("slash", "/", i))
-            else:
-                # Alternative `a / b` (language.md "Structure"): one-of endpoint.
-                tokens.append(("join", "/", i))
-            i += 1
-            prev_was_glyph = False
-            continue
-        if tokens and tokens[-1][0] == "arrow":
-            om = OP_TARGET_RE.match(stripped, i)
-            if om:
-                tokens.append(("op", om.group(0), i))
-                i = om.end()
-                prev_was_glyph = False
-                continue
-        mm = GLUED_MOD_RE.match(stripped, i)
-        if mm and (prev_was_glyph or mm.group("bang") or mm.group("card")
-                   or mm.group("card2") or mm.group("card3")) and (
-                not (mm.group("opt") or mm.group("field"))
-                or stripped[:i].rstrip(_GAP)[-1:] in tuple("]}>)|")):
-            card = mm.group("card") or mm.group("card2") or mm.group("card3")
-            pair = (("×", card) if card else ("!", None) if mm.group("bang")
-                    else ("?", None) if mm.group("opt") else (".", mm.group("field")))
-            mods.append((i, pair))
-            if card and stripped[:i].rstrip(_GAP)[-1:] in tuple("]}>)|"):
-                glued.add(i)
-            i = mm.end()
-            continue                            # prev_was_glyph unchanged
-        i += 1  # skip unrecognized chars
-        prev_was_glyph = False
-    return tokens, event_args, glued
+def _token_node(t, layer: str) -> Optional[Node]:
+    """A fresh node for a glyph token (a dialect's, in this layer), or None for a
+    broken glyph (a void endpoint: it places nothing, its links draw nothing)."""
+    if t.node is not None:
+        return dataclasses.replace(t.node, layer=layer, attrs=dict(t.node.attrs),
+                                   mods=list(t.node.mods))
+    if t.flag == "void":
+        return None
+    return parse_glyph(t.text, layer)
+
+
+def _close_paren(text: str) -> int:
+    depth = 0
+    for i, ch in enumerate(text):
+        depth += (ch == "(") - (ch == ")")
+        if depth == 0:
+            return i
+    return -1
 
 
 def _fold_paths(tokens: list) -> tuple:
@@ -450,9 +283,10 @@ def _group_endpoints(tokens: list, graph: Graph, last_src) -> tuple:
                        "op": tok, "col": _c}
             pending = None
             joining = None
-        elif kind == "glyph":
+        elif kind in ("glyph", "void"):     # a void endpoint (a broken glyph) has no node
             if cur is not None and joining and not cur.get("op"):
-                cur["nodes"].append(tok)
+                if tok is not None:
+                    cur["nodes"].append(tok)
                 cur["join"] = cur["join"] or joining
             else:
                 if cur is not None:        # adjacent glyphs, no operator
@@ -461,7 +295,8 @@ def _group_endpoints(tokens: list, graph: Graph, last_src) -> tuple:
                 if groups:
                     links.append(pending)
                     link_cols.append(pending_col if pending else None)
-                cur = {"nodes": [tok], "join": None, "join_idx": None, "op": None}
+                cur = {"nodes": [tok] if tok is not None else [], "join": None,
+                       "join_idx": None, "op": None}
                 pending = None
             joining = None
     if cur is not None:
@@ -580,17 +415,6 @@ def _op_before(tokens: list, col: int) -> Optional[int]:
     return before[-1][0] if before and before[-1][1] == "op" else None
 
 
-def _event_arg(text: str, at: int) -> Optional[tuple]:
-    """(argument, end column) of a `( … )` glued to an event glyph ending at `at`
-    (`<H>({C})` → ("{C}", …)); None when no balanced `(` follows."""
-    if not text.startswith("(", at):
-        return None
-    close = _close_paren(text[at:])
-    if close < 0:
-        return None
-    return text[at + 1:at + close].replace(_GAP, "").strip() or None, at + close + 1
-
-
 def _leaving(owner: Node, col: int, arrow_cols: list, link_cols: list,
              link_edges: dict) -> list:
     """The edges from `owner` drawn by the arrow next after column `col`: the
@@ -640,22 +464,8 @@ def _access(graph: Graph, owner: Node, pair: tuple, line_no: int, layer: str):
 TRANSITION_RE = re.compile(r"^(\S+)\s+(?:-<([^<>]*)>->|->)\s+(\S+)\s*(.*)$")
 PSEUDO_STATES = {"+": "start", "$": "end", "_": "any"}
 
-# What may precede an inline branch (`[parent] \\-& [child]`): glyphs only — no
-# payload colon, no prose.
-_BRANCH_PARENT_RE = re.compile(r"^\s*[~*]?[\[{<(|][^:]*[\]}>)|]\s*$")
-
 # Core glyph kinds (OPEN_TO_KIND); any other kind is a dialect's.
 _CORE_KINDS = set(OPEN_TO_KIND.values())
-
-
-def _close_head(stripped: str, before: int) -> tuple:
-    """The line that closes an expansion open `before` deep: the text before its
-    `}` (the body's last line) and the modifiers after it (`} @inv x` — the
-    node's)."""
-    cut = close_at(stripped, before)
-    if cut is None:
-        return stripped, []
-    return stripped[:cut], scan_mods(stripped[cut + 1:])
 
 
 def _layer_num(layer) -> int:
@@ -729,63 +539,40 @@ def _resolve_principal(g: Graph, name: str) -> Optional[str]:
 
 
 class _Frame:
-    """An open control block while its body is read."""
-    def __init__(self, idx: int):
-        self.idx = idx            # index into Graph.blocks
-        self.depth = 1            # braces open since the header's `{`
+    """An open control block while its body is built (`idx` into Graph.blocks;
+    None for a dialect keyword's block, which the model does not draw)."""
+    def __init__(self, idx: Optional[int]):
+        self.idx = idx
         self.arm = None           # branch: index of the arm being read
         self.subjects = []        # subjects of the body's own statements
 
 
-class _BodyLines:
-    """The lines of an expansion body read in one pass (see _DocParser._stream):
-    the document's own lines from `base` on, except those the body reads rewritten
-    (a header's text after its `{`, a closing line's text before its `}`)."""
-    def __init__(self, shared: list, base: int):
-        self.shared, self.base = shared, base
-        self.over: dict = {}                # body index → rewritten line
-        self.n = 0                          # lines read so far
+class _Builder:
+    """Builds one document level — the whole text, or a definition's body — from
+    the walk's items (sigil.core.statements). `run()` is a generator: it yields
+    each body Doc it needs built and is sent that body's Graph back, so nesting
+    grows a stack (_build), not the Python call stack."""
 
-    def __getitem__(self, k: int) -> str:
-        return self.over[k] if k in self.over else self.shared[self.base + k]
-
-    def __len__(self) -> int:
-        return self.n
-
-
-class _DocParser:
-    """parse_document's line-by-line state — one instance per document (and per
-    `:= { … }` sub-document). Handlers named `_on_*` take a line and return True
-    when it was theirs; `_in_*` continue a block being collected."""
-
-    def __init__(self, hole_seq: Optional[list], dialect, line0: int = 0):
+    def __init__(self, walk: Walk, doc: Doc, dialect, hole_seq: Optional[list] = None):
+        self.walk, self.doc, self.dialect = walk, doc, dialect
         self.graph = Graph()
         if hole_seq is not None:
             self.graph.hole_seq = hole_seq
         self.top = hole_seq is None
-        self.dialect = dialect
-        self.line0 = line0              # source line of this (sub-)document's first line, - 1
         self.layer = "L1"
         # The Subject a continuation line takes: the first endpoint of the last
         # statement that was not itself a continuation (or a closed block's subject).
         self.last_src = None
         # `X := { … }` / `X := expr` definitions and `state` machines, resolved once
         # the whole document is read so one written BEFORE its node's first use
-        # still attaches.
-        self.pending_expansions = []   # (name, kind, sub_graph|None, layer, mods, line)
-        self.pending_states = []       # (owner Node, state graph, `} @mods` pairs)
-        # Blocks being collected. Expansion: [target_name, target_kind, raw lines
-        # (read in one pass: only the header's text after its `{`), brace depth,
-        # first line, layer, header line]; state: [owner Node | None,
-        # lines, brace depth, header index]; declaration: [(regex, on_raw), depth,
-        # header index].
-        self.expansion = None
-        self.state = None
-        self.decl = None
-        self.decl_blocks = list(_hook(dialect, "DECLARATION_BLOCKS"))
-        self.prepasses = list(_hook(dialect, "render_prepasses"))
-        # Open control blocks (loop / parallel / branch / scope / owns), innermost
-        # last; and the block whose subject continuation lines after it take.
+        # still attaches: (name, kind, sub_graph|None, layer, mods, line, the id
+        # notes and heads were given, a dialect glyph's node or None) and (owner
+        # Node, state graph, `} @mods` pairs).
+        self.pending_expansions = []
+        self.pending_states = []
+        self.state_owner = None
+        # Open control blocks, innermost last; and the block whose subject
+        # continuation lines after it take.
         self.frames: list = []
         self.after_block = None
         # Composition tree state: open branches as (column, tree index), and the last
@@ -793,234 +580,72 @@ class _DocParser:
         # line].
         self.tree_stack: list = []
         self.tree_root: Optional[list] = None
-        # Notes: the node the current line is "about", the document's comments, and
-        # own-line comments waiting for the statement below.
+        # Notes: the node the current line is "about", and own-line comments waiting
+        # for the statement below.
         self.anchor = None
-        self.comments: dict = {}
-        self.marker = _comment_marker(dialect)
         self.above: list = []
         # No statement, declaration or section read yet: comments detached
         # above here are the document's header (top level only).
         self.seen = False
-        # The lines being read (block-strings folded): the text of a dropped line.
-        self.lines: list = []
 
     def ln(self, k: int) -> int:
-        """The source line of this document's line index k."""
-        return self.line0 + k + 1
+        """The source line of line index k."""
+        return k + 1
+
+    def comment(self, k: int) -> Optional[tuple]:
+        """Line k's comment (text, own_line): none on a line read from a piece of a
+        source line (a definition's body that starts after its `{`)."""
+        if k in self.doc.texts:
+            return None
+        return (self.walk.comments if self.doc.top else self.walk.inner).get(k)
+
+    def frame(self) -> Optional[_Frame]:
+        """The innermost open control block the model draws."""
+        return next((f for f in reversed(self.frames) if f.idx is not None), None)
 
     # -- driver ---------------------------------------------------------------
 
-    def parse(self, text: str) -> Graph:
-        # Pre-pass: fold multiline `"""…"""` block-strings to masked single-line STRs
-        # so the block body never emits phantom nodes (block-aware for this token).
-        # Then any dialect pre-passes (line-count preserving).
-        bodies: dict = {}
-        lines = fold_block_strings(text.splitlines(), comment_col, rescan=False,
-                                   bodies=bodies).lines
-        self.comments = collect_comments(lines, self.dialect)   # before dialect pre-passes
-        for prepass in self.prepasses:
-            lines = prepass(lines)
-        self.lines = lines
-        # A `"""` the pre-pass left (in a comment, a second block-string on a line)
-        # would be folded again inside a body, which reading bodies in one pass
-        # cannot see ahead to: such a document collects each body and parses it
-        # on its own, as a sub-document.
-        if any(BLOCK_DELIM in raw for raw in lines):
-            for k, raw in enumerate(lines):
-                self.line(k, raw)
-        else:
-            self._stream(lines)
-        graph = self._end(len(lines))
-        if bodies:
-            _attach_block_strings(graph, {self.ln(k): body for k, body in bodies.items()})
-        return graph
+    def run(self):
+        for it in self.doc.items:
+            if isinstance(it, NoteItem):
+                self.above.append((it.text, self.ln(it.line)))
+            elif isinstance(it, Blank):          # a blank line detaches waiting comments
+                self._detach()
+            elif isinstance(it, Declaration):
+                self.last_src = None
+                self.seen = True
+            elif isinstance(it, SectionHead):
+                self._section(it)
+            elif isinstance(it, Definition):
+                head = self._definition(it)
+                sub = (yield it.body) if it.closed else None
+                self._defined(it, head, sub)
+            elif isinstance(it, StateHead):
+                self._state_head(it)
+            elif isinstance(it, StateEnd):
+                self._state_end(it)
+            elif isinstance(it, BlockOpen):
+                self._block_open(it)
+            elif isinstance(it, BlockClose):
+                self._block_close(it.line)
+            elif isinstance(it, BlockMods):
+                self._block_mods(it)
+            elif isinstance(it, Flow):
+                self._flow_line(it.line, it.statement, it.arm)
+        return self._end(self.doc.end)
 
     def _end(self, n: int) -> Graph:
-        """The text (of n lines) is read: drop what was left open, then finish."""
-        self._drop_unclosed(n)
+        """The document (n lines) is read: drop what was left open, then finish."""
+        if self.doc.unclosed is not None:   # a body, `state` or declaration never closed
+            for k in range(self.doc.unclosed, n):
+                self._drop(k, "unclosed")
         while self.frames:                  # a block left open at the end of the text
-            self._close_block(n - 1)
+            if self.frames[-1].idx is None:
+                self.frames.pop()
+            else:
+                self._close_block(n - 1)
         self._detach()
         return self.finish()
-
-    def _stream(self, lines: list):
-        """Read the lines once each. An expansion body is read as it arrives by a
-        child parser — the stack's innermost — and adopted when its closing `}`
-        does; nesting grows the stack, not the Python call stack.
-
-        Every open body counts the same braces on a line it does not close, so one
-        running sum `acc` stands for all: body i's depth is offs[i] + acc. The
-        bodies a line closes are those whose depth it takes to 0 or below; the
-        outermost is found by bisecting the running minimum of offs. Inside it,
-        each deeper body reads that line's text before its `}` as a sub-document
-        would, and is adopted if its own parent closed on the line, else discarded
-        with the hole numbers it took (a sub-document never parses a body it
-        leaves unclosed)."""
-        stack = [self]                      # each parser but the last has an open body
-        offs: list = []                     # offs[i]: depth of stack[i]'s body, less acc
-        lows: list = []                     # lows[i]: -min(offs[:i + 1]) (ascending)
-        acc = 0
-        hole_seq = self.graph.hole_seq
-        for t, raw in enumerate(lines):
-            stripped = strip_comment(raw).rstrip()
-            line = stripped.strip()
-            delta = (self._delta(raw.strip(), line)
-                     if offs and line and not line.startswith("#!") else 0)
-            j = bisect_left(lows, acc + delta)
-            if j == len(lows):              # closes no body: the innermost reads it
-                acc += delta
-                self._read(stack, offs, lows, acc, t, raw, False)
-                continue
-            # Body j closes; the text before its `}` goes on down the open bodies.
-            head, mods = _close_head(stripped, offs[j] + acc)
-            closed = {j: mods}              # body index → modifiers after its `}`
-            fed = set()                     # bodies that read the line's text
-            text = head if head.strip() else None
-            i = j + 1
-            while text is not None and i < len(stack):
-                if i == len(stack) - 1:
-                    fed.add(i)
-                    self._read(stack, offs, lows, acc, t, text, True)
-                    break
-                p = stack[i]
-                fed.add(i)
-                text = p._body_line(t, text)
-                t_stripped = strip_comment(text).rstrip()
-                t_line = t_stripped.strip()
-                if t_line and not t_line.startswith("#!"):
-                    before = offs[i] + acc
-                    if before + self._delta(text.strip(), t_line) <= 0:
-                        head, closed[i] = _close_head(t_stripped, before)
-                        text = head if head.strip() else None
-                i += 1
-            while len(stack) > j + 1:
-                child = stack.pop()
-                offs.pop()
-                lows.pop()
-                parent = len(stack) - 1
-                if parent in closed:
-                    home = stack[parent]
-                    sub = child._end(child._body_len(t, parent + 1 in fed))
-                    home._close_expansion(home._adopt(sub), closed[parent])
-                else:
-                    hole_seq[0] = child.hole0   # its holes were never numbered
-            acc += delta
-        while len(stack) > 1:               # bodies left open at the end of the text
-            hole_seq[0] = stack.pop().hole0
-
-    def _read(self, stack: list, offs: list, lows: list, acc: int, t: int, text: str,
-              rewritten: bool):
-        """The innermost parser reads document line t (`text`, rewritten when it is
-        not the document's own line); a body it opens is pushed and reads the
-        header's text after the `{`."""
-        p = stack[-1]
-        if p is self:
-            self.line(t, text)
-        else:
-            p._read_body_line(t, text, rewritten)
-        while p.expansion is not None:
-            exp = p.expansion
-            child = _DocParser(self.graph.hole_seq, self.dialect, exp[4])
-            child.base = exp[4] - self.line0     # document index of its line 0
-            child.lines = _BodyLines(self.lines, child.base)
-            child.hole0 = self.graph.hole_seq[0]
-            off = exp[3] - acc
-            offs.append(off)
-            lows.append(max(lows[-1], -off) if lows else -off)
-            stack.append(child)
-            if not exp[2]:
-                break
-            child._read_body_line(t, exp[2].pop(), True)
-            p = child
-
-    def _body_line(self, t: int, text: str) -> str:
-        """A body's rewritten line arrives (document line t): this body's dialect
-        pre-passes run on it, as on a sub-document's lines. Returns it as read."""
-        k = t - self.base
-        for prepass in self.prepasses:
-            text = prepass([text])[0]
-        self.lines.over[k] = text
-        return text
-
-    def _read_body_line(self, t: int, text: str, rewritten: bool):
-        """A body reads its line at document index t. Its comments are those of the
-        line it was given (before its own pre-passes), as a sub-document's are."""
-        k = t - self.base
-        src = text
-        if rewritten:
-            text = self._body_line(t, text)
-        self.lines.n = k + 1
-        c = _comment_of(src, self.marker)
-        if c:
-            self.comments[k] = c
-        self.line(k, text)
-
-    def _body_len(self, t: int, fed: bool) -> int:
-        """How many lines this body has when document line t closes it (`fed`: the
-        closing line's head is its last line). A sub-document's text was its lines
-        joined with newlines and split again, which loses one trailing blank line."""
-        n = t - self.base + (1 if fed else 0)
-        if not fed and n > 0 and (n - 1) not in self.lines.over and self.lines[n - 1] == "":
-            n -= 1
-        self.lines.n = n
-        return n
-
-    def _close_expansion(self, sub: Graph, mods: list):
-        """The open expansion's body is read: `sub` is its graph."""
-        exp = self.expansion
-        self.pending_expansions.append((exp[0], exp[1], sub, exp[5], mods, exp[6]))
-        self.expansion = None
-
-    def line(self, k: int, raw: str):
-        raw_lead = raw.strip()
-        stripped = strip_comment(raw).rstrip()
-        line = stripped.strip()
-        # Inside an expansion block (checked first: everything up to its closing `}`
-        # — section headers, declarations, a nested `X := {` — belongs to it).
-        if self.expansion is not None:
-            self._in_expansion(raw, raw_lead, stripped, line)
-            return
-        if self.state is None and self.decl is None:
-            c = self.comments.get(k)
-            if c and c[1]:                  # a comment on its own line
-                self.above.append((c[0], self.ln(k)))
-                return
-            if not line:                    # a blank line detaches waiting comments
-                self._detach()
-        if self._on_declaration(k, raw_lead, line) or self._on_section(k, line):
-            return
-        if line.startswith("#!") or not line:
-            return
-        if self.state is not None:
-            self._in_state(k, line)
-        else:
-            self._statement(k, stripped, 0)
-
-    def _statement(self, k: int, text: str, offset: int):
-        """One statement (`text` found at column `offset`): a definition, a block
-        header, a line inside / closing an open block, or a flow."""
-        line = text.strip()
-        if not line:
-            return
-        if (self._on_alias(k, line) or self._on_state_head(k, line)
-                or self._on_block_head(k, text, offset)):
-            return
-        if self.frames:
-            fr = self.frames[-1]
-            before = fr.depth
-            fr.depth += line.count("{") - line.count("}")
-            if fr.depth <= 0:               # the line closes the innermost block
-                cut = close_at(text, before)
-                head = text[:cut] if cut is not None else text
-                if head.strip():
-                    self._flow_line(k, head, offset)
-                self._close_block(k)
-                rest = text[cut + 1:] if cut is not None else ""
-                if rest.strip():            # `} !> [X]`, `} }`, `} @inv …`
-                    self._after_close(k, rest, offset + cut + 1)
-                return
-        self._flow_line(k, text, offset)
 
     def finish(self) -> Graph:
         graph = self.graph
@@ -1028,7 +653,8 @@ class _DocParser:
         order = sorted(range(len(self.pending_expansions)),
                        key=lambda i: _layer_num(self.pending_expansions[i][3]))
         for i in order:
-            name, kind, sub_graph, layer, mods, line = self.pending_expansions[i]
+            name, kind, sub_graph, layer, mods, line, provisional, glyph = \
+                self.pending_expansions[i]
             level = _layer_num(layer)
             home, target_id = graph, None
             # Zoom: an expansion written in `--- Lk ---` (k >= 3) details a node of
@@ -1045,7 +671,11 @@ class _DocParser:
                         break
             if target_id is None:
                 target_id = _find_node(graph, name, kind)
-            if target_id is None:
+            if target_id is None and glyph is not None:
+                # A dialect glyph defined but never in a flow: its own node.
+                target_id = glyph.id
+                graph.nodes[target_id] = glyph
+            elif target_id is None:
                 # Defined but never referenced in a flow — still a node of the design.
                 # A bare-word definition (`walk := …`) is an `alias` node.
                 target_id = mk_id(name + "_" + (kind or "alias"))
@@ -1054,7 +684,6 @@ class _DocParser:
             node = home.nodes[target_id]
             for pair in mods:
                 _add_mod(node.mods, pair)
-            provisional = mk_id(name + "_" + (kind or "alias"))
             if provisional != target_id:     # notes and heads recorded before resolution
                 for note in self.graph.notes:
                     if note.node == provisional and note.line == line:
@@ -1094,17 +723,6 @@ class _DocParser:
 
     # -- helpers --------------------------------------------------------------
 
-    def _sub_parse(self, text: str, line0: int) -> Graph:
-        return self._adopt(parse_document(text, self.graph.hole_seq, self.dialect,
-                                          _line0=line0))
-
-    def _delta(self, raw_lead: str, line: str) -> int:
-        """Net braces a line opens. A raw-matched declaration opener (a `#…` marker,
-        erased by comment stripping) counts on the raw line, as _on_declaration does."""
-        if any(on_raw and rx.match(raw_lead) for rx, on_raw in self.decl_blocks):
-            line = raw_lead
-        return line.count("{") - line.count("}")
-
     def _detach(self):
         """The waiting comments precede no statement: before the document's first
         one (top level) they are its header — a document note — else dropped."""
@@ -1121,7 +739,7 @@ class _DocParser:
         if self.above:
             self.graph.notes.append(Note(None, " ".join(t for t, _ln in self.above),
                                          self.above[0][1], "block", block=bi))
-        trailing = self.comments.get(k)
+        trailing = self.comment(k)
         if trailing and not trailing[1] and not body.strip():
             self.graph.notes.append(Note(None, trailing[0], self.ln(k), "inline", block=bi))
         self.above.clear()
@@ -1131,7 +749,7 @@ class _DocParser:
         if node_id and self.above:
             self.graph.notes.append(Note(node_id, " ".join(t for t, _ln in self.above),
                                          self.above[0][1], "block"))
-        trailing = self.comments.get(k)
+        trailing = self.comment(k)
         if node_id and trailing and not trailing[1]:
             self.graph.notes.append(Note(node_id, trailing[0], self.ln(k), "inline", edges))
         self.above.clear()
@@ -1139,26 +757,13 @@ class _DocParser:
     def _drop(self, k: int, reason: str):
         """Record line index k as read and discarded (a blank or comment-only line
         is not recorded)."""
-        text = self.lines[k].strip() if 0 <= k < len(self.lines) else ""
+        lines = self.walk.lines
+        text = self.doc.texts.get(k, lines[k] if 0 <= k < len(lines) else "").strip()
         if strip_comment(text).strip():
             self.graph.dropped.append(Dropped(self.ln(k), reason, text))
 
-    def _drop_unclosed(self, n: int):
-        """At the end of the text: a block still being collected (an expansion,
-        a `state` machine, a declaration) was never closed — its header and every
-        line after it are lost."""
-        heads = []
-        if self.expansion is not None:
-            heads.append(self.expansion[6] - self.line0 - 1)
-        if self.state is not None:
-            heads.append(self.state[3])
-        if self.decl is not None:
-            heads.append(self.decl[2])
-        for k in range(min(heads), n) if heads else ():
-            self._drop(k, "unclosed")
-
     def _adopt(self, sub: Graph) -> Graph:
-        """A sub-document's graph, its dropped lines also listed as this graph's."""
+        """A body's graph, its dropped lines also listed as this graph's."""
         self.graph.dropped.extend(sub.dropped)
         return sub
 
@@ -1168,194 +773,104 @@ class _DocParser:
         self.graph.tree.append(TreeEntry(node_id, parent, rel, spawn, cond, depth, weight, line))
         return len(self.graph.tree) - 1
 
-    # -- blocks ---------------------------------------------------------------
+    # -- sections, definitions, machines ---------------------------------------
 
-    def _in_expansion(self, raw: str, raw_lead: str, stripped: str, line: str):
-        exp = self.expansion
-        if not line or line.startswith("#!"):
-            exp[2].append(raw)              # keep comments/blank lines for the sub-parse
-            return
-        before = exp[3]
-        exp[3] += self._delta(raw_lead, line)
-        if exp[3] > 0:
-            exp[2].append(raw)
-            return
-        # End of expansion — keep what precedes its closing `}`, then parse the
-        # body as a sub-document.
-        last, mods = _close_head(stripped, before)
-        if last.strip():
-            exp[2].append(last)
-        self._close_expansion(self._sub_parse("\n".join(exp[2]), exp[4]), mods)
-
-    def _on_declaration(self, k: int, raw_lead: str, line: str) -> bool:
-        """Dialect DECLARATION blocks (`name { … }` whose body declares, not flows)
-        render nothing. Raw-matched openers track depth on the raw line (a `#…`
-        marker would be erased by comment stripping), others on the stripped one."""
-        if self.decl is not None:
-            txt = raw_lead if self.decl[0][1] else line
-            self.decl[1] += txt.count("{") - txt.count("}")
-            if self.decl[1] <= 0:
-                self.decl = None
-            return True
-        for opener, on_raw in self.decl_blocks:
-            txt = raw_lead if on_raw else line
-            if opener.match(txt):
-                depth = txt.count("{") - txt.count("}")
-                self.decl = [(opener, on_raw), depth, k] if depth > 0 else None
-                self.last_src = None
-                self.seen = True
-                return True
-        return False
-
-    def _on_section(self, k: int, line: str) -> bool:
-        sec = SECTION_RE.match(line)
-        if not sec:
-            return False
+    def _section(self, it: SectionHead):
         self._detach()
         self.seen = True
-        if sec.group(1):
-            self.layer = sec.group(1)
+        if it.level:
+            self.layer = it.level
         if self.layer not in self.graph.layers:
             self.graph.layers.append(self.layer)
-        self.graph.sections.append(Section(sec.group(1), sec.group(2), self.ln(k)))
+        self.graph.sections.append(Section(it.level, it.title, self.ln(it.line)))
         self.last_src = None
         self.after_block = None
-        return True
 
-    def _on_alias(self, k: int, line: str) -> bool:
-        """Definitions — `name := expr`, `[name] := expr`, `X := { … }` — are not
-        flows: each names a node (a bare-word name is an `alias` node) whose
-        expansion is its definition — a `{ … }` body, or a one-line flow — parsed
-        recursively. A definition that draws no flow (prose, `retry := @after(…)`)
-        gives the node its modifiers and no expansion."""
-        am = ALIAS_RE.match(line)
-        if not am:
-            return False
-        name = am.group("svc") or am.group("data") or am.group("word")
-        kind = ("service" if am.group("svc") is not None
-                else "data" if am.group("data") is not None else None)
-        rhs = am.group("rhs").strip()
-        nid = mk_id(name + "_" + (kind or "alias"))
-        self.attach(nid, k)
-        self.graph.heads.append((self.ln(k), nid))
+    def _definition(self, it: Definition) -> tuple:
+        """Definitions — `name := expr`, `[name] := expr`, `X := { … }`, a dialect
+        glyph `[[x]] := { … }` — are not flows: each names a node (a bare-word name
+        is an `alias` node) whose expansion is its definition — a `{ … }` body, or a
+        one-line flow. Returns (kind, the id notes and heads are given, a dialect
+        glyph's node or None)."""
+        glyph = parse_glyph(it.glyph, self.layer, self.dialect) if it.glyph else None
+        kind = glyph.kind if glyph is not None else it.kind
+        nid = glyph.id if glyph is not None else mk_id(it.name + "_" + (kind or "alias"))
+        self.attach(nid, it.line)
+        self.graph.heads.append((self.ln(it.line), nid))
         self.last_src = None
         self.after_block = None
-        if EXPANSION_OPEN_RE.match(rhs):
-            body = rhs[1:]
-        elif rhs.endswith("{"):
-            body = ""
-        else:
-            # A one-line definition is an expansion when it draws a flow
-            # (`walk := [Node] -> walk(.children)`); a prose or modifier-only
-            # definition (`[Cache] := {Summary} store`, `retry := @after(…)`) only
-            # names the node — its modifiers become the node's.
-            sub = self._sub_parse(rhs, self.ln(k) - 1)
-            flow = bool(sub.edges)
-            self.pending_expansions.append((name, kind, sub if flow else None, self.layer,
-                                            [] if flow else scan_mods(rhs), self.ln(k)))
-            return True
-        cut = close_at(body, 1)
-        if cut is not None:
-            # One-line expansion `[X] := { … }`: its body is right here.
-            self.pending_expansions.append((name, kind,
-                                            self._sub_parse(body[:cut], self.ln(k) - 1),
-                                            self.layer, scan_mods(body[cut + 1:]),
-                                            self.ln(k)))
-        else:
-            self.expansion = [name, kind, [body] if body.strip() else [],
-                              1 + body.count("{") - body.count("}"),
-                              self.ln(k) - 1 if body.strip() else self.ln(k), self.layer,
-                              self.ln(k)]
-        return True
+        return kind, nid, glyph
 
-    def _on_state_head(self, k: int, line: str) -> bool:
-        """`state {X} { … }` — a state machine of entity X: collected, then parsed
-        into its own graph that hangs off the {X} node (like an expansion)."""
-        sm = STATE_HEAD_RE.match(line)
-        if not sm:
-            if not STATE_OPEN_RE.match(line):
-                return False
-            # No owner glyph: the block is consumed, nothing drawn.
-            self.attach(None, k)
-            depth = line.count("{") - line.count("}")
-            self.state = [None, [], depth, k] if depth > 0 else None
-            if depth <= 0:
-                self._drop(k, "no-owner")
-            return True
-        owner = parse_glyph(sm.group(1), self.layer, self.dialect)
-        self.attach(owner.id if owner else None, k)
-        body = line[sm.end():]
-        cut = close_at(body, 1)
-        if cut is not None:
-            # One-line `state {X} { A -> B }`.
-            if owner and body[:cut].strip():
-                self.pending_states.append((owner, self._adopt(
-                    parse_state_block([(body[:cut], self.ln(k))], owner.name)),
-                    scan_mods(body[cut + 1:])))
-            elif not owner:
-                self._drop(k, "no-owner")
-        else:
-            self.state = [owner, [(body.strip(), self.ln(k))] if body.strip() else [],
-                          1 + body.count("{") - body.count("}"), k]
-        return True
-
-    def _in_state(self, k: int, line: str):
-        st = self.state
-        before = st[2]
-        st[2] += line.count("{") - line.count("}")
-        if st[2] > 0:
-            st[1].append((line, self.ln(k)))
+    def _defined(self, it: Definition, head: tuple, sub: Optional[Graph]):
+        """The definition's body is built (`sub`; None when it never closed). A
+        one-line definition is an expansion when it draws a flow (`walk := [Node]
+        -> walk(.children)`); a prose or modifier-only one (`[Cache] := {Summary}
+        store`, `retry := @after(…)`) only names the node — its modifiers become
+        the node's."""
+        if sub is None:
             return
-        cut = close_at(line, before)
-        if cut is not None and line[:cut].strip():
-            st[1].append((line[:cut].strip(), self.ln(k)))   # a last transition before the `}`
-        if st[0]:
-            # Modifiers after the `}` (`} @inv ordered(id)`) are the owner's.
-            tail = scan_mods(line[cut + 1:]) if cut is not None else []
-            self.pending_states.append((st[0], self._adopt(parse_state_block(st[1],
-                                                                             st[0].name)),
-                                        tail))
+        kind, nid, glyph = head
+        sub = self._adopt(sub)
+        if it.form == "inline":
+            flow = bool(sub.edges)
+            self.pending_expansions.append((it.name, kind, sub if flow else None, self.layer,
+                                            [] if flow else scan_mods(it.rhs),
+                                            self.ln(it.line), nid, glyph))
         else:
-            for kk in range(st[3], k + 1):
-                self._drop(kk, "no-owner")
-        self.state = None
+            self.pending_expansions.append((it.name, kind, sub, self.layer, scan_mods(it.tail),
+                                            self.ln(it.line), nid, glyph))
 
-    def _on_block_head(self, k: int, text: str, offset: int) -> bool:
+    def _state_head(self, it: StateHead):
+        """`state {X} { … }` — a state machine of entity X, built into its own graph
+        that hangs off the {X} node (like an expansion)."""
+        owner = parse_glyph(it.owner, self.layer, self.dialect) if it.owner else None
+        self.state_owner = owner
+        self.attach(owner.id if owner else None, it.line)
+
+    def _state_end(self, it: StateEnd):
+        owner = self.state_owner
+        if owner is None:                   # no owner glyph: the block is consumed
+            for k in range(it.head, it.line + 1):
+                self._drop(k, "no-owner")
+            return
+        if it.line == it.head and not it.lines:
+            return                          # `state {X} { }`: nothing
+        machine = self._adopt(parse_state_block([(t, self.ln(k)) for t, k in it.lines],
+                                                owner.name))
+        # Modifiers after the `}` (`} @inv ordered(id)`) are the owner's.
+        self.pending_states.append((owner, machine, scan_mods(it.tail)))
+
+    # -- control blocks -----------------------------------------------------------
+
+    def _block_open(self, it: BlockOpen):
         """A control-block header — `loop …`, `parallel …`, `branch on X`, a scoped
         `name {`, an `[X] @owns |R| {` — opens a Block whose body statements are
-        ordinary flows (recorded as the block's members / edges / arms)."""
-        line = text.strip()
-        hm = LOOP_HEAD_RE.match(line)
-        om = BLOCK_OPEN_RE.search(text)
-        if hm:
-            kind = hm.group(1)
-        elif om and SCOPE_HEAD_RE.match(line):
-            kind = "scope"
-        elif om and "@owns" in text[:om.start()] and GLYPH_RE.search(text[:om.start()]):
-            kind = "owns"
-        else:
-            return False
-        if om is None:                      # a header with no body: nothing to read
-            return True
-        head = text[:om.start()].strip()
-        refs, mods = [], []
-        if kind == "owns":
+        ordinary flows (recorded as the block's members / edges / arms). A dialect
+        keyword's block is no Block: its statements are read as if it were not
+        there."""
+        if it.kind == "keyword":
+            self.frames.append(_Frame(None))
+            return
+        k = it.line
+        refs, mods, owned = [], [], []
+        if it.kind == "owns":
             # The header is itself a statement: the owner node (+ its @owns modifier).
             out = {}
-            self._flow_line(k, text[:om.start()], offset, out=out, in_header=True)
-            header = head
-            mods = scan_mods(head)
+            self._flow_line(k, it.header, None, out=out, in_header=True)
+            header = it.head
+            mods = scan_mods(it.head)
             refs = list(out.get("nodes", []))
             owned = [parse_glyph(gm.group(0), self.layer).id
                      for p in mods if p[0] == "owns" and p[1]
                      for gm in GLYPH_RE.finditer(p[1])]
         else:
-            header = re.sub(r"^(?:loop|parallel|branch(?:\s+on\b)?)\s*", "", head) \
-                if kind != "scope" else head
+            header = re.sub(r"^(?:loop|parallel|branch(?:\s+on\b)?)\s*", "", it.head) \
+                if it.kind != "scope" else it.head
             parts = [p for p in re.split(r"(?:^|\s+)(?=@[A-Za-z])", header) if p.strip()]
             mods = [mod_pair(p) for p in parts if p.startswith("@")]
-            for gm in GLYPH_RE.finditer(header):
-                n = parse_glyph(gm.group(0), self.layer)
+            # The glyphs the header names (not those inside a modifier's argument).
+            for t in it.toks:
+                n = _token_node(t, self.layer) if t.kind == "glyph" else None
                 if n is None:
                     continue
                 if n.is_hole:
@@ -1363,21 +878,23 @@ class _DocParser:
                     n.id = f"{n.id}{self.graph.hole_seq[0]}"
                 self.graph.nodes.setdefault(n.id, n)
                 refs.append(n.id)
-        parent = self.frames[-1].idx if self.frames else None
-        block = Block(kind, header, mods, parent=parent, lines=(self.ln(k), self.ln(k)),
-                      refs=list(dict.fromkeys(refs)))
-        if kind == "owns":
+        fr = self.frame()
+        block = Block(it.kind, header, mods, parent=fr.idx if fr else None,
+                      lines=(self.ln(k), self.ln(k)), refs=list(dict.fromkeys(refs)))
+        if it.kind == "owns":
             block._owned = owned            # resolved in finish()
         self.graph.blocks.append(block)
         self.frames.append(_Frame(len(self.graph.blocks) - 1))
         self.last_src = None
         self.after_block = None
-        body = text[om.start() + 1:]
-        if kind != "owns":                  # the owns header attached to its owner
-            self.attach_block(len(self.graph.blocks) - 1, k, body)
-        if body.strip():                    # statements after the header's `{`
-            self._statement(k, body, offset + om.start() + 1)
-        return True
+        if it.kind != "owns":               # the owns header attached to its owner
+            self.attach_block(len(self.graph.blocks) - 1, k, it.rest)
+
+    def _block_close(self, k: int):
+        if self.frames and self.frames[-1].idx is None:
+            self.frames.pop()
+            return
+        self._close_block(k)
 
     def _close_block(self, k: int):
         fr = self.frames.pop()
@@ -1394,45 +911,39 @@ class _DocParser:
         self.last_src = Subject(tuple(b.subject)) if b.subject else None
         self.after_block = fr.idx
 
-    def _after_close(self, k: int, rest: str, offset: int):
-        """Text after a block's closing `}` on the same line."""
-        line = rest.strip()
-        if line.startswith("@"):            # `} @inv …`: the block's own modifiers
-            b = self.graph.blocks[self.after_block]
-            for p in scan_mods(line):
-                _add_mod(b.modifiers, p)
+    def _block_mods(self, it: BlockMods):
+        """`} @inv …` after a block's `}`: the block's own modifiers."""
+        if self.after_block is None:
             return
-        self._statement(k, rest, offset)
+        b = self.graph.blocks[self.after_block]
+        for p in scan_mods(it.text.strip()):
+            _add_mod(b.modifiers, p)
 
     # -- flows ----------------------------------------------------------------
 
-    def _flow_line(self, k: int, text: str, offset: int, out: Optional[dict] = None,
+    def _flow_line(self, k: int, st, arm: Optional[str], out: Optional[dict] = None,
                    in_header: bool = False):
-        """Flow the statement `text` (found at column `offset`), record it in the
-        open blocks, and attach the waiting comments to the node it is about."""
+        """Build the flow statement `st` (read at line index k), record it in the
+        open blocks, and attach the waiting comments to the node it is about.
+        `arm`: the label of the branch arm it is the body of."""
         self.anchor = None
-        body = text.strip()
-        fr = self.frames[-1] if self.frames else None
+        fr = self.frame()
         block = self.graph.blocks[fr.idx] if fr else None
-        arm = False
-        if block is not None and block.kind == "branch" and not in_header:
-            am = ARM_RE.match(body)
-            if am and not ARROW_RE.match(body):
-                # A branch arm: its flow starts afresh (it is not a continuation).
-                block.arms.append((am.group("label"), []))
-                block.arm_nodes.append((am.group("label"), []))
-                fr.arm = len(block.arms) - 1
-                offset += text.find(am.group("body")) if am.group("body") else len(text)
-                text = body = am.group("body")
-                arm = True
-                self.last_src = None
-                if not body.strip():
-                    self.attach(None, k)
-                    return
-        continuation = bool(ARROW_RE.match(body))
-        col = offset + len(text) - len(text.lstrip())
+        is_arm = False
+        if arm is not None and block is not None and block.kind == "branch" and not in_header:
+            # A branch arm: its flow starts afresh (it is not a continuation).
+            block.arms.append((arm, []))
+            block.arm_nodes.append((arm, []))
+            fr.arm = len(block.arms) - 1
+            is_arm = True
+            self.last_src = None
+            if st is None:
+                self.attach(None, k)
+                return
+        continuation = st.cont
+        col = st.col - st.shift
         acc = {"nodes": [], "edges": []}
-        subject = self._flow(body, col, self.last_src, k, acc, heads=not arm)
+        subject = self._flow(st, col, self.last_src, k, acc, heads=not is_arm)
         if not continuation:
             self.last_src = subject
         elif (isinstance(subject, Subject) and isinstance(self.last_src, Subject)
@@ -1441,6 +952,8 @@ class _DocParser:
         edges = acc["edges"]
         keys = list(dict.fromkeys(e.key for e in edges))
         for f in self.frames:
+            if f.idx is None:
+                continue
             b = self.graph.blocks[f.idx]
             b.members.extend(n for n in acc["nodes"] if n not in b.members)
             b.edges.extend(e for e in keys if e not in b.edges)
@@ -1461,38 +974,42 @@ class _DocParser:
         drawn = tuple(dict.fromkeys(e.key for e in edges if e.src != e.dst))
         self.attach(self.anchor, k, drawn)
 
-    def _flow(self, text: str, col: int, last, k: int, acc: dict, heads: bool = True):
-        """One flow line; composition branches (`\\-<rel>`) become tree entries.
-        `heads`: whether the glyph it starts with heads a statement (Graph.heads);
-        a branch arm's body (`x => [A]`) heads none, its line starts with the label."""
-        graph, dialect = self.graph, self.dialect
+    def _flow(self, st, col: int, last, k: int, acc: dict, heads: bool = True):
+        """One flow statement; a composition branch (`\\-<rel>`) becomes a tree
+        entry. `heads`: whether the glyph it starts with heads a statement
+        (Graph.heads); a branch arm's body (`x => [A]`) heads none, its line
+        starts with the label."""
+        graph = self.graph
+        text = st.code.text
 
-        def flows(t, last, cap):
+        def first_col(at: int) -> int:
+            return at + len(text[at:]) - len(text[at:].lstrip())
+
+        def flows(toks, lead, last, cap):
             out = {}
-            res = extract_flows(t, graph, self.layer, last, dialect, first=cap,
-                                line_no=self.ln(k), out=out)
+            res = extract_flows(toks, graph, self.layer, last, self.dialect, first=cap,
+                                line_no=self.ln(k), out=out, lead=lead)
             acc["nodes"].extend(n for n in out.get("nodes", ()) if n not in acc["nodes"])
             acc["edges"].extend(out.get("edges", ()))
             if heads and out.get("head"):
                 graph.heads.append((self.ln(k), out["head"]))
             return res
 
-        m = BRANCH_RE.search(text)
-        if m is not None and m.start() > 0 and not _BRANCH_PARENT_RE.match(text[:m.start()]):
-            m = None                         # a marker inside prose / a payload, not a branch
-        if m is None:
+        lead = first_col(0)
+        if st.branch < 0:
             cap: list = []
-            last = flows(text, last, cap)
+            last = flows(st.toks, lead, last, cap)
             if cap:
                 self.tree_stack = [t for t in self.tree_stack if t[0] < col]
                 self.tree_root = [col, cap[0].id, None, self.ln(k)]
                 self.anchor = cap[0].id
             return last
-        left, rest = text[:m.start()], BRANCH_RE.sub(" ", text[m.end():])
-        bcol = m.start() + col
-        if left.strip():                     # inline: `[parent] \\-& [child]`
+        btok = st.toks[st.branch]
+        m = BRANCH_RE.match(btok.text)
+        bcol = col + btok.col - lead
+        if btok.col > lead:                  # inline: `[parent] \\-& [child]`
             cap = []
-            last = flows(left, last, cap)
+            last = flows(st.toks[:st.branch], lead, last, cap)
             self.tree_stack = [t for t in self.tree_stack if t[0] < col]
             if cap:
                 self.tree_root = [col, cap[0].id, None, self.ln(k)]
@@ -1507,7 +1024,7 @@ class _DocParser:
             parent = root[2]
             stack.append((root[0], parent))
         cap = []
-        last = flows(rest, last, cap)
+        last = flows(st.toks[st.branch + 1:], first_col(btok.col + len(btok.text)), last, cap)
         if cap:
             spawn = bool(m.group("spawn") or m.group("bare_spawn"))
             rel = m.group("rel") or ("*" if m.group("bare_spawn") else None)
@@ -1531,13 +1048,39 @@ class _DocParser:
         return [e]
 
 
-def parse_document(text: str, _hole_seq: Optional[list] = None, dialect=None,
-                   _line0: int = 0) -> Graph:
-    """Parse a Sigil document into a Graph structure (see "THE MODEL" above).
-    `dialect` is a loaded dialect (dialects.load) or None for core Sigil.
-    `_hole_seq` / `_line0` are internal: a sub-document (an expansion body) shares
-    its parent's hole counter, and its line numbers are offset to the source's."""
-    return _DocParser(_hole_seq, dialect, _line0).parse(text)
+def _build(walk: Walk, dialect) -> Graph:
+    """Build the model of a walked document: one _Builder per document level, a
+    body's built when its parent's run() asks for it."""
+    builders = [_Builder(walk, walk.doc, dialect)]
+    runs = [builders[0].run()]
+    value = None
+    while True:
+        try:
+            doc = runs[-1].send(value)
+        except StopIteration as stop:
+            runs.pop()
+            builders.pop()
+            if not runs:
+                return stop.value
+            value = stop.value
+            continue
+        value = None
+        child = _Builder(walk, doc, dialect, builders[-1].graph.hole_seq)
+        builders.append(child)
+        runs.append(child.run())
+
+
+def parse_document(text: str, dialect=None, walk: Optional[Walk] = None) -> Graph:
+    """Parse a Sigil document into a Graph structure (see "THE MODEL" in
+    sigil.core.graph). `dialect` is a loaded dialect (dialects.load) or None for
+    core Sigil. `walk`: the document's reading when the caller already has it
+    (sigil.core.statements.read_document — lint reads a document once)."""
+    if walk is None:
+        walk = read_document(text, dialect)
+    graph = _build(walk, dialect)
+    if walk.bodies:
+        _attach_block_strings(graph, {k + 1: body for k, body in walk.bodies.items()})
+    return graph
 
 
 def _attach_block_strings(graph: Graph, bodies: dict):
@@ -1547,42 +1090,6 @@ def _attach_block_strings(graph: Graph, bodies: dict):
         for e in g.edges:
             if e.payload and BLOCK_SENTINEL in e.payload and e.line in bodies:
                 e.block_string = bodies[e.line]
-
-
-def collect_comments(lines: list, dialect=None) -> dict:
-    """{line index: (text, own_line)} for every comment. Core comments start with
-    `#` (not the `#!` mode line, nor a `#&` marker — see lex.COMMENT_START_RE); a
-    dialect may add markers (COMMENT_MARKERS, regex sources matched at line start
-    or after whitespace). A marker inside a `"…"` string starts no comment."""
-    marker = _comment_marker(dialect)
-    out = {}
-    for k, line in enumerate(lines):
-        c = _comment_of(line, marker)
-        if c:
-            out[k] = c
-    return out
-
-
-def _comment_marker(dialect=None):
-    """The dialect's extra comment markers as one regex, or None."""
-    extra = list(_hook(dialect, "COMMENT_MARKERS"))
-    return re.compile(r"(?:^|(?<=\s))(?:" + "|".join(extra) + ")") if extra else None
-
-
-def _comment_of(line: str, marker) -> Optional[tuple]:
-    """collect_comments for one line: (text, own_line), or None."""
-    if line.lstrip().startswith(("#!", "#&")):
-        return None
-    hits = [comment_start(line, notes_only=True)]
-    if marker:
-        hits.append(next((h for h in marker.finditer(line)
-                          if not in_string(line, h.start())), None))
-    hits = [h for h in hits if h]
-    if not hits:
-        return None
-    m = min(hits, key=lambda h: h.start())
-    text = line[m.end():].strip()
-    return (text, not line[:m.start()].strip()) if text else None
 
 
 def _expand_alias_refs(graph: Graph):

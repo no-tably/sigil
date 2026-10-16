@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import NamedTuple, Optional
 
 
@@ -359,6 +360,7 @@ def _id_char(ch: str) -> str:
 _CODE_AHEAD_RE = re.compile(r"_*(?:0[0-9a-f]|10)[0-9a-f]{4}")
 
 
+@lru_cache(maxsize=8192)
 def mk_id(name: str) -> str:
     """Make a Mermaid-safe ID ([A-Za-z0-9_], never a digit first) from a glyph
     name. Lossy only for ASCII punctuation: `[a-b]` / `[a_b]` share an id, so

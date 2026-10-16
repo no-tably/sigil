@@ -1,7 +1,7 @@
 """What a document's comments say: notes, block-strings, acknowledgements.
 
     comments        collect_comments(lines, dialect) → {line index: (text,
-                    own_line)} (the parser's reading, sigil.core.parse)
+                    own_line)} (the one reading's, sigil.core.statements)
     notes           note_index(g): every node's notes, numbered in document
                     order (top level first, then expansions); note_key,
                     block_note_key, DOC_NOTE / BLOCK_NOTE keys; a block-string

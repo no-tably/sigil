@@ -1,19 +1,18 @@
 """
-lex — the lexical tables of Sigil text, kept once: the parser (sigil.core.parse)
-and lint (sigil.analyse.lint) both read lines through these. Where the two read
-a piece of text differently on purpose, both readings live here side by side,
-named apart (the parser's first, lint's after it):
+lex — the lexical tables of Sigil text, kept once: the statement walk
+(sigil.core.statements), its tokenizer (sigil.core.tokens), the parser
+(sigil.core.parse) and lint (sigil.analyse.lint) all read lines through these,
+one reading each:
 
     comments      COMMENT_START_RE, in_string, comment_start, comment_col,
-                  strip_comment (string-aware: the parser's),
-                  strip_comment_plain (any `#` after whitespace: lint's and the
-                  dialect API's), plain_comment_col
+                  code_end (where a line's code ends: `#` or a dialect's
+                  comment marker, outside a `"…"` string), strip_comment
     strings       STRING_RE, mask_strings
     block strings BLOCK_DELIM, BLOCK_SENTINEL, fold_block_strings → Folded
     verbs         is_mark, marks_follow_letters, VerbPattern; OP_TARGET_RE (a
                   flow's op-call target), EXT_OP_RE / INT_OP_RE (an op-call
                   payload), OP_HEAD_RE (an op-call's head `verb(`)
-    arrows        ARROWS, ARROW_RE, JOIN_RE
+    arrows        ARROWS, ARROW_RE
     glyphs        NAME_CHARS, GENERIC, GLYPH_RE, OPEN_TO_KIND, CLOSER, GENERIC_RE,
                   GLYPH_PATTERNS, ANY_GLYPH_RE, HOLE_RE, DIALECT_COL
     modifiers     PAREN_ARG, FREE_ARG_MODS, ARG_MODIFIERS, MODIFIER_RE,
@@ -21,14 +20,15 @@ named apart (the parser's first, lint's after it):
                   STREAM_BOUND_RE, GLUED_MOD_RE, TAIL_MOD_RE, CARD_RE, BOUND_RE,
                   FIELD_RE, ALIAS_REF_RE, ALIAS_REF
     payloads      PAYLOAD_RE, PAYLOAD_TAIL_RE, PAYLOAD_TAIL_LOOSE_RE
-    heads         SECTION_RE, ALIAS_RE, ALIAS_MASKED_RE, EXPANSION_OPEN_RE,
-                  BLOCK_OPEN_RE, STATE_HEAD_RE, STATE_OPEN_RE, STATE_HEAD_FLAT_RE,
-                  LOOP_HEAD_RE, SCOPE_HEAD_RE, ARM_RE, BRANCH_RE, CORE_RELATIONS,
-                  BRANCH_ANY_RE, branch_re, BARE_BRANCH_RE, close_at, net_braces
-    scanning      balanced_end (a bracket group's end), apply_masks (a dialect's
-                  length-preserving glyph masks)
+    heads         SECTION_RE, ALIAS_RE, EXPANSION_OPEN_RE, BLOCK_OPEN_RE,
+                  STATE_HEAD_RE, STATE_OPEN_RE, STATE_HEAD_FLAT_RE, LOOP_HEAD_RE,
+                  SCOPE_HEAD_RE, ARM_RE, BRANCH_RE, BRANCH_PARENT_RE,
+                  CORE_RELATIONS, BRANCH_ANY_RE, branch_re, BARE_BRANCH_RE,
+                  close_at, net_braces (braces in a string are string text)
+    scanning      balanced_end (a bracket group's end), apply_masks (a list of
+                  length-preserving `fn(line) -> line` masks)
 
-A dialect's hooks are read by sigil.core.dialects._hook; its vocabulary (the
+A dialect's hooks are read by sigil.core.dialects.hook; its vocabulary (the
 names a dialect builds on) is re-exported by sigil.core.vocab.
 
 Standard library only; imports nothing of sigil.
@@ -36,18 +36,17 @@ Standard library only; imports nothing of sigil.
 
 import re
 import unicodedata
-from typing import Callable, NamedTuple, Optional
+from typing import NamedTuple, Optional
 
 # ---------------------------------------------------------------------------
 # Comments and strings
 # ---------------------------------------------------------------------------
 
 # A comment starts at a `#` at line start or after whitespace — not the `#!` mode
-# line. The parser also skips a `#` inside a `"…"` string (`: "issue #5"` is a
-# payload; see comment_start); lint's plain reading does not (strip_comment_plain).
-# A `#&…` marker also starts here: it is erased from flows like a comment, but it
-# is dialect syntax (e.g. a declaration-block opener), not prose, so the parser
-# never makes a note of it.
+# line — and never inside a `"…"` string (`: "issue #5"` is a payload; see
+# comment_start). A `#&…` marker also starts here: it is erased from flows like a
+# comment, but it is dialect syntax (e.g. a declaration-block opener), not prose,
+# so the parser never makes a note of it.
 COMMENT_START_RE = re.compile(r"(?<!\S)#(?!!)")
 
 
@@ -60,6 +59,10 @@ def in_string(line: str, pos: int) -> bool:
 def comment_start(line: str, notes_only: bool = False):
     """The match of the first comment `#` on the line outside a `"…"` string, or
     None. `notes_only` skips `#&` markers (see COMMENT_START_RE)."""
+    if "#" not in line:
+        return None
+    if '"' not in line and not notes_only:
+        return COMMENT_START_RE.search(line)
     for m in COMMENT_START_RE.finditer(line):
         if in_string(line, m.start()):
             continue
@@ -78,32 +81,27 @@ def comment_col(line: str) -> Optional[int]:
     return m.start() if m else None
 
 
-def plain_comment_col(line: str) -> Optional[int]:
-    """Column of the first comment start on the line, strings not looked at."""
-    m = COMMENT_START_RE.search(line)
-    return m.start() if m else None
+def code_end(line: str, marker: Optional[re.Pattern] = None) -> int:
+    """Where the line's code ends: at its comment `#` (comment_col) or at the
+    first of a dialect's comment markers (`marker`, matched at line start or
+    after whitespace) outside a `"…"` string; else the line's length."""
+    col = comment_col(line)
+    end = len(line) if col is None else col
+    if marker is not None and not line.lstrip().startswith("#!"):
+        for m in marker.finditer(line, 0, end):
+            if not in_string(line, m.start()):
+                return m.start()
+    return end
 
 
 def strip_comment(line: str) -> str:
     """The line without its comment, a `#` inside a `"…"` string kept; a `#!`
-    mode line is returned whole (the parser's reading)."""
-    if line.startswith("#!"):
+    mode line is returned whole."""
+    if "#" not in line or line.startswith("#!"):
         return line
     m = comment_start(line)
     if m:
         return line[: m.start()]
-    return line
-
-
-def strip_comment_plain(line: str) -> str:
-    """Remove inline comments: a `#` at the start of the line or after whitespace
-    starts one, unless it is a `#!` (a mode line is returned whole). Not
-    inside-string aware (lint's reading, and the dialect API's strip_comment)."""
-    if line.startswith("#!"):
-        return line
-    col = plain_comment_col(line)
-    if col is not None:
-        return line[:col]
     return line
 
 
@@ -114,6 +112,8 @@ STRING_RE = re.compile(r'"[^"]*"')
 def mask_strings(line: str) -> str:
     """Blank the text inside `"…"` string literals (the quotes stay), so `;`, `@`,
     holes, glyphs and prose inside a string payload are inert. Length-preserving."""
+    if '"' not in line:
+        return line
     return STRING_RE.sub(lambda m: '"' + " " * (len(m.group(0)) - 2) + '"', line)
 
 
@@ -141,35 +141,34 @@ class Folded(NamedTuple):
     unterminated: Optional[int]
 
 
-def _block_open_pos(raw: str, comment_at: Callable[[str], Optional[int]]) -> Optional[int]:
-    """Index of an opening `\"\"\"` on this line that is NOT comment text, or None.
-    A `#!` mode line never opens a block; a `\"\"\"` after the comment start
-    `comment_at` finds is comment text (`# see \"\"\"` is inert)."""
+def _block_open_pos(raw: str) -> Optional[int]:
+    """Index of an opening `\"\"\"` on this line that is NOT comment text, or
+    None. A `#!` mode line never opens a block; a `\"\"\"` after the line's
+    comment `#` is comment text (`# see \"\"\"` is inert)."""
     if raw.lstrip().startswith("#!"):
         return None
     pos = raw.find(BLOCK_DELIM)
     if pos == -1:
         return None
-    col = comment_at(raw)
+    col = comment_col(raw)
     if col is not None and col < pos:
         return None
     return pos
 
 
-def fold_block_strings(lines: list, comment_at: Callable[[str], Optional[int]], *,
-                       rescan: bool, bodies: Optional[dict] = None) -> Folded:
+def fold_block_strings(lines: list, bodies: Optional[dict] = None) -> Folded:
     """Fold each `\"\"\"…\"\"\"` block into BLOCK_SENTINEL on its opening line,
-    blanking the consumed body lines. `comment_at` tells comment text from a
-    delimiter (the parser: comment_col; lint: plain_comment_col). `rescan` reads a
-    folded line again (whatever followed the closing `\"\"\"` may open another
-    block: lint); without it reading goes on after the block (the parser).
-    `bodies`, when given, gets {opening line index: the block's text} for each
-    terminated block. An unterminated block blanks every line from its opener."""
+    blanking the consumed body lines. A folded line is read again: whatever
+    followed the closing `\"\"\"` may open another block (`\"\"\" -> [C] :
+    \"\"\"`). `bodies`, when given, gets {opening line index: the text of the
+    line's first block} for each terminated block (a payload is terminal: the
+    first block on a line is its flow's). An unterminated block blanks every line
+    from its opener."""
     out = list(lines)
     n = len(out)
     i = 0
     while i < n:
-        open_pos = _block_open_pos(out[i], comment_at)
+        open_pos = _block_open_pos(out[i])
         if open_pos is None:
             i += 1
             continue
@@ -178,9 +177,8 @@ def fold_block_strings(lines: list, comment_at: Callable[[str], Optional[int]], 
         close_rel = after_open.find(BLOCK_DELIM)
         if close_rel != -1:           # degenerate single-line `"""…"""`
             if bodies is not None:
-                bodies[i] = after_open[:close_rel]
+                bodies.setdefault(i, after_open[:close_rel])
             out[i] = prefix + BLOCK_SENTINEL + after_open[close_rel + len(BLOCK_DELIM):]
-            i += 0 if rescan else 1
             continue
         j = i + 1
         while j < n and BLOCK_DELIM not in out[j]:
@@ -191,11 +189,10 @@ def fold_block_strings(lines: list, comment_at: Callable[[str], Optional[int]], 
             return Folded(out, i)
         close = out[j].find(BLOCK_DELIM)
         if bodies is not None:
-            bodies[i] = "\n".join([after_open] + out[i + 1:j] + [out[j][:close]])
+            bodies.setdefault(i, "\n".join([after_open] + out[i + 1:j] + [out[j][:close]]))
         out[i] = prefix + BLOCK_SENTINEL + out[j][close + len(BLOCK_DELIM):]
         for k in range(i + 1, j + 1):
             out[k] = ""
-        i = i if rescan else j + 1
     return Folded(out, None)
 
 
@@ -269,9 +266,6 @@ OP_HEAD_RE = VerbPattern(r"(?:op\s+)?(?P<verb>" + _VERB_DOTTED + r")\(")
 ARROWS = ["<->", "->", "~>", "=>", "!>", "?>", "*>", "→"]
 ARROW_RE = re.compile("(" + "|".join(map(re.escape, ARROWS)) + ")")
 
-# Strict join `&` / race `&?` between glyphs (language.md "a & b").
-JOIN_RE = re.compile(r"&\??")
-
 
 # ---------------------------------------------------------------------------
 # Glyphs
@@ -319,8 +313,9 @@ ANY_GLYPH_RE = re.compile(
 # A hole glyph (`[?]`, `{?}`, `<?>`, `(?)`, `|?|`).
 HOLE_RE = re.compile(r"(\[\?\]|\{\?\}|<\?>|\(\?\)|\|\?\|)")
 
-# Stands in for each column of a dialect glyph once lint masks it (a dialect's
-# lint_glyph_masks), so the glyph still counts as an endpoint.
+# Stands in for each column of a dialect glyph in a statement's Code (a glyph one
+# of the dialect's tokenizers reads), so text-reading rules see an endpoint there
+# and never read the glyph's own brackets.
 DIALECT_COL = "\x01"
 
 
@@ -429,9 +424,8 @@ SECTION_RE = re.compile(r"^-{2,}\s*(L\d+)?\s*:?\s*(.+?)\s*-{2,}\s*$")
 # `name := expr`, `[name] := expr` or `{name} := expr` — a definition, not a flow.
 _ALIAS_HEADS = r"\[(?P<svc>[^\]]+)\]|\{(?P<data>[^}]+)\}|(?P<word>[A-Za-z_][\w.]*)"
 ALIAS_RE = re.compile(r"^(?:" + _ALIAS_HEADS + r")\s*:=\s*(?P<rhs>.*)$")
-# Lint's: a masked dialect glyph (DIALECT_COL columns, group `dia`) may be named too.
-ALIAS_MASKED_RE = re.compile(
-    r"^(?:" + _ALIAS_HEADS + r"|(?P<dia>" + DIALECT_COL + r"+))\s*:=\s*(?P<rhs>.*)$")
+# The `:=` after a definition head written as a dialect glyph (`[[rate]] := {`).
+DEFINE_RE = re.compile(r"\s*:=\s*(?P<rhs>.*)$")
 
 # An alias right-hand side that opens an expansion block: a bare `{` (`X := {`,
 # `X := { [A] -> [B] }`) — not a data glyph (`X := {Summary} cache` is an alias).
@@ -441,10 +435,11 @@ BLOCK_OPEN_RE = re.compile(r"\{(?=\s|$)")
 
 # A state-machine header: `state <glyph> {` — any glyph owns the machine (`{Order}`
 # a record's lifecycle, `[Checkout]` a component's own modes). STATE_OPEN_RE also
-# takes a malformed header (no owner glyph), whose block is consumed unparsed.
+# takes a malformed header (no owner glyph: `state {`, `state Foo {`), whose block
+# is consumed unparsed.
 STATE_HEAD_RE = re.compile(r"^state\s*([~*]*[\[{<(|]" + NAME_CHARS + r"+(?:" + GENERIC
                            + r")?[\]}>)|])\s*\{")
-STATE_OPEN_RE = re.compile(r"^state\s*\{")
+STATE_OPEN_RE = re.compile(r"^state(?:\s[^{]*)?\{")
 # Lint's: the owner carries at most one level of generics, unnested
 # (`state {Job<T>} {`), nothing captured.
 STATE_HEAD_FLAT_RE = re.compile(
@@ -469,6 +464,9 @@ BRANCH_RE = re.compile(
     r"|\\-(?P<bare_spawn>\*)(?=\s|$)"
 )
 CORE_RELATIONS = ">&?$@!=_"
+# What may precede an inline branch (`[parent] \\-& [child]`): glyphs only — no
+# payload colon, no prose.
+BRANCH_PARENT_RE = re.compile(r"^\s*[~*]?[\[{<(|][^:]*[\]}>)|]\s*$")
 BRANCH_ANY_RE = re.compile(r"\\-")
 
 
@@ -486,13 +484,19 @@ BARE_BRANCH_RE = re.compile(
 
 
 def net_braces(text: str) -> int:
-    """How many more `{` than `}` the text holds."""
+    """How many more `{` than `}` the text holds (a brace in a string is string
+    text, not a brace)."""
+    if '"' in text:
+        text = mask_strings(text)
     return text.count("{") - text.count("}")
 
 
 def close_at(text: str, depth: int) -> Optional[int]:
     """Index of the `}` in `text` that closes a block open `depth` deep where the
-    text starts, or None when the block stays open past it."""
+    text starts, or None when the block stays open past it (a brace in a string
+    is string text)."""
+    if '"' in text:
+        text = mask_strings(text)
     for i, ch in enumerate(text):
         depth += (ch == "{") - (ch == "}")
         if ch == "}" and depth <= 0:

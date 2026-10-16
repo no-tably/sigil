@@ -42,8 +42,11 @@ class StatementWalk(unittest.TestCase):
                                  (4, 4, "-> [E]")])
 
     def test_a_one_line_definition_that_draws_is_an_alias_statement(self):
+        # A one-line definition's body is read as a statement either way (the model
+        # reads it); lint judges only one that draws (the other is `quiet`).
         w = walk("[R] := [A] -> [B]\n[S] := a prose note\n")
-        self.assertEqual([(s.line, s.alias) for s in w.statements], [(1, True)])
+        self.assertEqual([(s.line, s.alias, s.quiet) for s in w.statements],
+                         [(1, True, False), (2, True, True)])
         self.assertEqual(w.definitions, frozenset({"R", "S"}))
 
     def test_blocks_closed_as_they_close_then_those_left_open(self):

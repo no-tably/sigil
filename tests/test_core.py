@@ -182,7 +182,7 @@ TOY = textwrap.dedent('''
 
     lint_passes = lambda: [_no_bang]
     lint_payload_checks = lambda: [_tagged]
-    render_tokenizers = lambda: [_tok_star]
+    tokenizers = lambda: [_tok_star]
     NODE_KINDS = {"gem": {"open": "<<", "close": ">>", "mermaid_shape": ("{{", "}}"),
                           "mermaid_class": "gem", "classdef": "fill:#fff",
                           "color": "#00ffff", "border": "double",

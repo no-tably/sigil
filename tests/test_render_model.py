@@ -663,19 +663,22 @@ class NestedExpansions(unittest.TestCase):
         self.assertIn("flowchart TD", mermaid.render(_nest(1000)))
 
     def test_each_line_is_read_once(self):
+        # The one walk reads each line once, nesting included (a body is read by a
+        # reader of its own as its lines arrive, not collected and read again).
+        from sigil.core import statements
         read = []
-        line = render._DocParser.line
+        line = statements._DocReader.line
 
-        def spy(self, k, raw):
-            read.append(self.ln(k))
-            return line(self, k, raw)
+        def spy(self, k, piece, shift):
+            read.append(k + 1)
+            return line(self, k, piece, shift)
 
-        render._DocParser.line = spy
+        statements._DocReader.line = spy
         try:
             text = _nest(40)
             g = parse(text)
         finally:
-            render._DocParser.line = line
+            statements._DocReader.line = line
         self.assertEqual(len(read), len(set(read)))       # no line read twice
         self.assertEqual(len(read), 80)                    # the closing `}` lines: none
         inner = g.expansions["N0_service"].expansions["N1_service"]

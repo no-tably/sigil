@@ -19,8 +19,18 @@ vocab`), never from the linter.
     Diagnostic, LintResult      a lint finding (`severity:line:rule: message`) and the
                                 list a pass adds to (`result.add(severity, line, rule, message)`)
     strip_comment(line)         the line without its comment: a `#` at line start or
-                                after whitespace starts one (not inside-string aware);
-                                a `#!` mode line is returned whole
+                                after whitespace starts one, never inside a `"…"`
+                                string (`: "issue #5"` keeps its `#`); a `#!` mode line
+                                is returned whole
+
+The hooks a dialect defines are listed in sigil.core.dialects. One hook set
+serves the one reading of a document (sigil.core.statements): `prepasses()`
+(line rewrites before the walk), `strips()` (length-preserving blanks of a flow
+statement) and `tokenizers()` (extra glyph / arrow syntax: a node in the model,
+an endpoint for lint, a principal an access list may name) — the retired
+`lint_*` / `render_*` pairs (lint_prepasses, render_prepasses,
+render_line_strips, render_tokenizers, lint_glyph_masks,
+lint_principal_scanners) are refused by dialects.load().
 
 The lexical names (arrows, glyph patterns, the comment rule) are kept once in
 sigil.core.lex and re-exported here.
@@ -29,8 +39,7 @@ sigil.core.lex and re-exported here.
 from dataclasses import dataclass, field
 
 from sigil.core.lex import (  # noqa: F401  (re-exported: the dialect API)
-    ANY_GLYPH_RE, ARROW_RE, ARROWS, COMMENT_START_RE, GLYPH_PATTERNS,
-    strip_comment_plain as strip_comment)
+    ANY_GLYPH_RE, ARROW_RE, ARROWS, COMMENT_START_RE, GLYPH_PATTERNS, strip_comment)
 
 # ---------------------------------------------------------------------------
 # Known vocabulary

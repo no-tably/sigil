@@ -1,32 +1,89 @@
 """
-tokens — one statement read as tokens: the lexer every reader of a statement
-shares (lint's rules; sigil.core.statements hands it each statement the walk
-finds). Pure: the same text always gives the same tokens.
+tokens — one statement read as tokens: the one tokenizer. The statement walk
+(sigil.core.statements) hands it each statement; the parser (sigil.core.parse)
+builds the statement's flow from the tokens and lint's rules judge them. Pure:
+the same text always gives the same tokens.
 
-    code_line(raw, masks) → Code     a line as read: comment cut, strings and a
-                                     dialect's glyphs blanked, its column kept
-    tokenize_statement(code) → [Tok] the statement's tokens, each with its column
-                                     in the statement and what is malformed
-                                     about it (`problem`, "" when well formed)
+    Lexicon, lexicon(dialect)          what a dialect adds to reading a line: its
+                                       tokenizers, strips and comment markers
+    code_line(raw, lx) → Code          a line as read: comment cut, strings
+                                       blanked, a dialect glyph's columns
+                                       DIALECT_COL, its column kept
+    tokenize_statement(code, lx) → [Tok]
+                                       the statement's tokens, each with its
+                                       column in the statement, what is
+                                       malformed about it (`problem`) and the
+                                       modifier it places (`pair`)
+    mod_pair(text), scan_mods(text)    a modifier's (name, arg); every modifier
+                                       of a statement-free text (a block's or a
+                                       transition's tail, a definition's body)
 
-Unreadable text becomes a `bad` token or a token with a `problem`; only symbols
-the parser also ignores are skipped. The lexical tables are sigil.core.lex's.
+How a statement reads (the model's reading): its modifiers are found first,
+anywhere outside a string (a stream bound `^N@policy`, then the access lists
+`@read(…)` / `@write(…)`, then every other `@name` with its argument); its
+payload runs from the first `:` (not `:=`) to the line end, less those
+modifiers, a trailing count, bound or `!`, and modifier aliases after a `×N`
+(`: charge ×3 Retry`). The rest is read left to right: a dialect's tokenizers
+first, then arrows, joins, glyphs, op-call targets and the marks glued to a
+glyph (`×N`, `!`, `?`, `.field`). Unreadable text becomes a `bad` token or a
+token with a `problem`, which lint's hardening rules report; a token the model
+does not read (a join with no glyph before it, a broken glyph) says so in its
+`flag`. The lexical tables are sigil.core.lex's.
 """
 
 import re
+from functools import lru_cache
 from typing import NamedTuple, Optional
 
 from sigil.core.lex import (
-    ARROW_RE, BLOCK_OPEN_RE, BOUND_RE, CARD_RE, CLOSER, DIALECT_COL, FIELD_RE,
-    FREE_ARG_MODS, GENERIC_RE, MOD_NAME_RE, OP_HEAD_RE, PAYLOAD_TAIL_LOOSE_RE,
-    TAIL_ONLY_RE, apply_masks, balanced_end, comment_col, mask_strings)
+    ALIAS_REF, ALIAS_REF_RE, ARG_MODIFIERS, ARROW_RE, BLOCK_OPEN_RE, BOUND_RE, CARD_RE,
+    CLOSER, DIALECT_COL, FIELD_RE, FREE_ARG_MODS, GENERIC_RE, GLUED_MOD_RE, MODIFIER_RE,
+    MOD_NAME_RE, OP_HEAD_RE, OP_TARGET_RE, PAYLOAD_RE, PAYLOAD_TAIL_LOOSE_RE, PAYLOAD_TAIL_RE,
+    PRINCIPAL_SET_RE, STREAM_BOUND_RE, TAIL_MOD_RE, TAIL_ONLY_RE, balanced_end, code_end,
+    in_string, mask_strings)
 
+
+# ---------------------------------------------------------------------------
+# What a dialect adds to reading a line
+# ---------------------------------------------------------------------------
+
+class Lexicon(NamedTuple):
+    """A dialect's part in reading a statement: `tokenizers` (tried first at each
+    column), `strips` (length-preserving blanks of a flow statement's code),
+    `marker` (its extra comment markers as one pattern, or None)."""
+    tokenizers: tuple = ()
+    strips: tuple = ()
+    marker: Optional[re.Pattern] = None
+
+
+NO_DIALECT = Lexicon()
+
+
+@lru_cache(maxsize=64)
+def lexicon(dialect) -> Lexicon:
+    """The Lexicon of a loaded dialect (None: core Sigil)."""
+    if dialect is None:
+        return NO_DIALECT
+    from sigil.core.dialects import DialectError, _hook, retired_hook_problems
+    problems = retired_hook_problems(dialect)
+    if problems:
+        raise DialectError(f"sigil dialect {getattr(dialect, 'NAME', '?')!r}: "
+                           + "; ".join(problems))
+    extra = list(_hook(dialect, "COMMENT_MARKERS"))
+    marker = re.compile(r"(?:^|(?<=\s))(?:" + "|".join(extra) + ")") if extra else None
+    return Lexicon(tuple(_hook(dialect, "tokenizers")), tuple(_hook(dialect, "strips")),
+                   marker)
+
+
+# ---------------------------------------------------------------------------
+# A line as read
+# ---------------------------------------------------------------------------
 
 class Code(NamedTuple):
     """One line (or a slice of one) as a statement is read, two aligned strings:
     `text` has the comment cut, string contents blanked and dialect glyphs
-    replaced by DIALECT_COL; `raw` is the same span with strings intact. `col`
-    is the column of the span's first character in its line."""
+    replaced by DIALECT_COL; `raw` is the same span with strings and glyphs
+    intact. `col` is the column of the span's first character in its line."""
     text: str
     raw: str
     col: int = 0
@@ -36,36 +93,253 @@ class Code(NamedTuple):
         return Code(self.text[start:end], self.raw[start:end],
                     self.col + len(self.text[:start]))
 
+    def blank(self, spans) -> "Code":
+        """This span with the columns of each (start, end) blanked to spaces."""
+        text, raw = list(self.text), list(self.raw)
+        for start, end in spans:
+            for k in range(start, end):
+                text[k] = raw[k] = " "
+        return Code("".join(text), "".join(raw), self.col)
+
+
+def code_line(raw: str, lx: Lexicon = NO_DIALECT) -> Code:
+    """The Code of a raw line: comment cut, strings and dialect glyphs blanked."""
+    code = raw[:code_end(raw, lx.marker)]
+    masked = mask_strings(code)
+    if not lx.tokenizers:
+        return Code(masked, code)
+    cols = _dialect_columns(masked, lx.tokenizers)
+    if not any(cols):
+        return Code(masked, code)
+    # Dialect glyphs glued together (`[a]>[b]`) are one piece of dialect syntax.
+    for m in re.finditer(r"\S+", masked):
+        hits = [k for k in range(m.start(), m.end()) if cols[k]]
+        if hits:
+            for k in range(hits[0], hits[-1] + 1):
+                cols[k] = True
+    text = "".join(DIALECT_COL if c else ch for c, ch in zip(cols, masked))
+    return Code(text, code)
+
+
+def _dialect_columns(s: str, tokenizers) -> list:
+    """Which columns of `s` a dialect glyph covers (its tokenizers' glyph tokens)."""
+    from sigil.core.graph import Node
+    cols = [False] * len(s)
+    i, prev = 0, False
+    while i < len(s):
+        if s[i].isspace():
+            i += 1
+            continue
+        hit = _dialect_hit(tokenizers, s, i, prev, "L1", Node)
+        if hit is None:
+            i, prev = i + 1, False
+            continue
+        new, end, prev = hit
+        if any(kind == "glyph" for kind, _v in new):
+            for k in range(i, end):
+                cols[k] = True
+        i = max(end, i + 1)
+    return cols
+
+
+def _dialect_hit(tokenizers, s: str, i: int, prev: bool, layer: str, node_cls):
+    for tok in tokenizers:
+        hit = tok(s, i, prev, layer, node_cls)
+        if hit:
+            return hit
+    return None
+
+
+def dialect_glyph_nodes(text: str, lx: Lexicon) -> list:
+    """The nodes a dialect's tokenizers read as glyphs anywhere in `text` (a
+    principal an access list may name), with each one's (start, end)."""
+    from sigil.core.graph import Node
+    out, i, prev = [], 0, False
+    while i < len(text) and lx.tokenizers:
+        if text[i].isspace():
+            i += 1
+            continue
+        hit = _dialect_hit(lx.tokenizers, text, i, prev, "L1", Node)
+        if hit is None:
+            i, prev = i + 1, False
+            continue
+        new, end, prev = hit
+        out += [(node, (i, end)) for kind, node in new if kind == "glyph"]
+        i = max(end, i + 1)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Tokens
+# ---------------------------------------------------------------------------
 
 class Tok(NamedTuple):
-    """A token of one statement. `problem` names what is malformed ("" when well
-    formed); `glued` is True when the token touches the glyph before it."""
+    """A token of one statement, its column in the statement. `problem` names what
+    is malformed ("" when well formed); `glued`: it touches the glyph before it
+    (`[App]×N`). `pair`: the modifier the model places for it ((name, arg), or
+    None). `flag`: how the model reads it apart from its kind — "dead" (it reads
+    nothing here: a join with no glyph before it, a mark that marks no glyph),
+    "kv" (a payload that is a modifier's `key:value`), "glued" (a count the model
+    takes as the glyph's cardinality). A payload's `end` is where its text ends
+    (its modifiers inside). A dialect glyph carries the dialect's Node."""
     kind: str        # glyph nothing arrow join slash payload mod card bound mark
-                     # field evarg op word str blockopen blockclose alias bad
+                     # field evarg op word str blockopen blockclose alias aref bad
     text: str
     col: int
     problem: str = ""
     glued: bool = False
+    pair: Optional[tuple] = None
+    flag: str = ""
+    end: int = -1
+    node: object = None
 
 
-def code_line(raw: str, masks=()) -> Code:
-    """The Code of a raw line: comment cut, strings and dialect glyphs blanked."""
-    pos = comment_col(raw)
-    code = raw if pos is None else raw[:pos]
-    masked = mask_strings(code)
-    dm = apply_masks(masked, masks)
-    if len(dm) != len(masked):          # a mask that is not length-preserving
-        return Code(masked, code)
-    cols = [a != b for a, b in zip(masked, dm)]
-    # Dialect glyphs glued together (`[a]>[b]`) are one piece of dialect syntax.
-    for m in re.finditer(r"\S+", masked):
-        span = range(m.start(), m.end())
-        hits = [k for k in span if cols[k]]
-        if hits:
-            for k in range(hits[0], hits[-1] + 1):
-                cols[k] = True
-    text = "".join(DIALECT_COL if c else ch for c, ch in zip(cols, dm))
-    return Code(text, code)
+# Masking. A captured modifier / payload is blanked in place, so every other
+# column stays put: with one space where a text-deleting strip would put one (a
+# modifier with an argument, a payload) and _GAP elsewhere — a filler the
+# tokenizer skips, so text around a removed modifier still reads as adjacent.
+_GAP = "\x00"
+
+
+def _blank(n: int, spaced: bool = True) -> str:
+    return (" " + _GAP * (n - 1)) if spaced and n else _GAP * n
+
+
+def mod_pair(text: str) -> tuple:
+    """`@timeout(30s)` → ("timeout", "30s"); `@inv >= 0` → ("inv", ">= 0");
+    `@all` → ("all", None). A lone `( … )` argument loses its parens."""
+    m = re.match(r"@([A-Za-z][\w-]*)\s*", text)
+    if not m:
+        return (text.strip(), None)
+    rest = text[m.end():].strip()
+    if rest.startswith("(") and _close_paren(rest) == len(rest) - 1:
+        rest = rest[1:-1].strip()
+    return (m.group(1), rest or None)
+
+
+def _close_paren(text: str) -> int:
+    depth = 0
+    for i, ch in enumerate(text):
+        depth += (ch == "(") - (ch == ")")
+        if depth == 0:
+            return i
+    return -1
+
+
+def _mod_spans(rx, text: str) -> list:
+    """(start, end) of each modifier `rx` finds outside `"…"` strings. A
+    modifier's trailing text that is only `×N` / `xN` / `!` is left out of its
+    span (those are modifiers of their own)."""
+    spans = []
+    for m in rx.finditer(text):
+        if in_string(text, m.start()):
+            continue
+        start, end = m.start(), m.end()
+        tok = m.group(0)
+        pm = re.match(r"@[A-Za-z][\w-]*\s*\(", tok)
+        if pm:
+            close = _close_paren(tok[pm.end() - 1:])
+            if close >= 0:
+                cut = pm.end() + close
+                if cut < len(tok) and TAIL_ONLY_RE.match(tok[cut:]):
+                    end = start + cut
+        spans.append((start, end))
+    return spans
+
+
+class _Mod(NamedTuple):
+    start: int
+    end: int
+    pair: tuple
+    bound: bool          # a stream bound `^N@policy`
+
+
+def _capture_mods(text: str) -> tuple:
+    """A statement's modifiers, each with its span, and the text with them
+    blanked (length-preserving). Stream bounds first (their `@policy` is not a
+    modifier of its own); then the access lists `@read(…)` / `@write(…)` —
+    principal NAMES, never actor glyphs; then every other modifier with its
+    argument — not an `@` inside a `"…"` string (`: "ops@example.com"` is
+    payload text)."""
+    mods = []
+    if "@" not in text and "^" not in text:
+        return text, mods
+    for rx in (STREAM_BOUND_RE, PRINCIPAL_SET_RE, MODIFIER_RE):
+        for start, end in _mod_spans(rx, text):
+            tok = text[start:end]
+            if rx is STREAM_BOUND_RE:
+                pair, spaced = ("^", tok[1:]), False
+            else:
+                pair = mod_pair(tok)
+                spaced = rx is PRINCIPAL_SET_RE or pair[0] in ARG_MODIFIERS
+            mods.append(_Mod(start, end, pair, rx is STREAM_BOUND_RE))
+            text = text[:start] + _blank(end - start, spaced) + text[end:]
+    return text, mods
+
+
+class _Payload(NamedTuple):
+    colon: int           # the `:`'s column
+    start: int           # where its text starts (after the `:` and spaces)
+    end: int             # where the payload's span ends
+    text: Optional[str]  # the payload (None when empty)
+    rest: str            # its text up to its tail, blanked modifiers as _GAP / space
+    peeled: list         # [(column, kind, text, pair)] its tail and alias references
+
+
+def _take_payload(text: str) -> tuple:
+    """The terminal `: payload` (not a `:=` alias) of a modifier-blanked line, kept
+    as text less its trailing cardinality / stream-bound / `!` modifiers and
+    modifier-alias references. Returns (the line with every payload blanked, a
+    _Payload or None)."""
+    pm = PAYLOAD_RE.search(text) if ":" in text else None
+    if not pm:
+        return text, None
+    raw = pm.group(1)
+    peeled = []
+    refs = ALIAS_REF_RE.search(raw.replace(_GAP, " "))
+    if refs:
+        at = pm.start(1) + refs.start("names")
+        for nm in re.finditer(r"[A-Za-z_][\w-]*", refs.group("names")):
+            peeled.append((at + nm.start(), "aref", nm.group(0), (ALIAS_REF, nm.group(0))))
+        raw = raw[:refs.start("names")]
+    tail = PAYLOAD_TAIL_RE.search(raw.replace(_GAP, " "))   # same length
+    if tail and tail.start() < len(raw):
+        at = pm.start(1) + tail.start()
+        for t in TAIL_MOD_RE.finditer(tail.group(0)):
+            card = t.group(1) or t.group(2)
+            pair = ("×", card) if card else ("^", t.group(3)) if t.group(3) else ("!", None)
+            kind = "card" if card else "bound" if t.group(3) else "mark"
+            peeled.append((at + t.start(), kind, t.group(0).strip(), pair))
+        raw = raw[:tail.start()]
+    payload = raw.replace(_GAP, "").strip() or None
+    colon = text.index(":", pm.start())
+    out = text[:pm.start()] + _blank(pm.end() - pm.start()) + text[pm.end():]
+    out = PAYLOAD_RE.sub(lambda m: _blank(len(m.group(0))), out)
+    return out, _Payload(colon, pm.start(1), pm.end(), payload, raw, sorted(peeled))
+
+
+def _overlay(base: str, blanked: str, spans) -> str:
+    """`base` with the columns of each (start, end) taken from `blanked`."""
+    out = list(base)
+    for start, end in spans:
+        out[start:end] = blanked[start:end]
+    return "".join(out)
+
+
+def scan_mods(text: str) -> list:
+    """Every modifier in a statement-free text (a block header's tail, a
+    definition's body, a transition's tail) as (name, arg) pairs, in written
+    order: the statement's modifiers (as tokenize_statement finds them), then any
+    `×N` / `xN` / `^N` / `!` outside a string."""
+    masked, mods = _capture_mods(text)
+    out = [(m.start, m.pair) for m in mods]
+    for m in TAIL_MOD_RE.finditer(masked):
+        if in_string(masked, m.start()):
+            continue
+        card = m.group(1) or m.group(2)
+        out.append((m.start(), ("×", card) if card else ("^", m.group(3)) if m.group(3)
+                    else ("!", None)))
+    return [p for _pos, p in sorted(out, key=lambda x: x[0])]
 
 
 # -- the statement scanner ----------------------------------------------------
@@ -74,7 +348,7 @@ _WORD_RE = re.compile(r"[A-Za-z_\d][\w.-]*")
 
 
 # Unicode arrows other than the core `→` (U+2192): `⇒`, `⟶`, `↦`, … are not arrows.
-_FOREIGN_ARROW_RE = re.compile("[\u2190\u2191\u2193-\u21ff\u27f0-\u27ff\u2900-\u297f\u2b00-\u2bff]")
+_FOREIGN_ARROW_RE = re.compile("[←↑↓-⇿⟰-⟿⤀-⥿⬀-⯿]")
 
 
 _NEEDS_ARG_MODS = {"timeout", "after", "deadline", "fallback"}
@@ -99,6 +373,9 @@ _MERGE_OP_RE = re.compile(r"\|\|\|(?!\|)")
 _KEY_VALUE_RE = re.compile(r":[A-Za-z_][\w-]*(?=\s*(?:@|$))")
 
 
+_CLOSERS = tuple("]}>)|")
+
+
 def _scan_glyph(s: str, i: int) -> tuple:
     """Scan the glyph whose opener is s[i]: (end, problem). `problem` is "" for a
     well-formed glyph (`end` is past its closer), else "empty", "unclosed" (an
@@ -111,7 +388,7 @@ def _scan_glyph(s: str, i: int) -> tuple:
         if ch == ">" and j - 1 > i + 1 and s[j - 1] in "-~=!?*":
             return j - 1, "unclosed"                    # an arrow (even `<B ->`): resume at it
         if ch == closer:
-            return j + 1, ("" if s[i + 1:j].strip() else "empty")
+            return j + 1, ("" if s[i + 1:j].strip(" " + _GAP) else "empty")
         if ch == "<":                                   # a generic: `[Cache<K,V>]`
             m = GENERIC_RE.match(s, j)
             if not m:
@@ -148,8 +425,9 @@ def _free_arg_end(s: str, j: int) -> int:
     return k
 
 
-def _scan_mod(s: str, i: int) -> tuple:
-    """The modifier at s[i] (`@name`, its `( … )` and any free argument): (Tok, end)."""
+def _lint_mod(s: str, i: int) -> tuple:
+    """The modifier at s[i] as lint judges it (`@name`, its `( … )` and any free
+    argument): (Tok, end) — a `(` that never closes makes it run to the line end."""
     m = MOD_NAME_RE.match(s, i)
     name, j = m.group(1), m.end()
     k = j
@@ -218,28 +496,135 @@ def _top_level_items(s: str) -> list:
     return items
 
 
-def _scan_payload(code: Code, i: int) -> tuple:
-    """The payload starting at the `:` at column i, to the next `@` or the line end
-    (as the parser reads it), and the modifier tokens peeled off its tail."""
-    s = code.text
-    end = s.find("@", i)
-    end = len(s) if end < 0 else end
-    value = code.raw[i + 1:end]
-    tail = PAYLOAD_TAIL_LOOSE_RE.search(value)
-    toks = []
-    if tail and tail.start() > 0:
-        base = i + 1 + tail.start()
-        for t in re.finditer(r"×\s*(\w*)|x(\d+|N)\b|\^(\w*)(?:@[a-z]+)?|!", tail.group(0)):
-            if t.group(0) == "!":
-                toks.append(Tok("mark", "!", base + t.start()))
-            elif t.group(0).startswith("^"):
-                toks.append(Tok("bound", t.group(0), base + t.start(), _count_problem(t.group(3))))
+class _Reader:
+    """One statement being tokenized (see the module notes): `w` is the text the
+    scanners read — strings masked, the statement's modifiers and payload
+    blanked — and `prev` tracks whether the model's reading stands right after a
+    glyph (what a join, a `?`, a `.field` or a dialect tokenizer needs)."""
+
+    def __init__(self, code: Code, lx: Lexicon):
+        self.code, self.lx = code, lx
+        blanked, mods = _capture_mods(code.raw)
+        blanked, payload = _take_payload(blanked)
+        self.mods, self.payload = mods, payload
+        # The scanners read the masked text with the model's blanks over it.
+        masked = mask_strings(code.raw)
+        if blanked == code.raw:
+            self.w = masked
+        else:
+            spans = [(m.start, m.end) for m in mods]
+            if payload is not None:
+                spans.append((payload.colon, len(blanked)))
+            self.w = _overlay(masked, blanked, spans)
+        self.toks: list = []
+        self.prev = False
+
+    # -- the tokens of the blanked spans -------------------------------------
+
+    def span_tokens(self) -> list:
+        """The modifier, payload and payload-tail tokens (the spans the model
+        reads before the rest), as lint judges them."""
+        text, out = self.code.text, []
+        for m in self.mods:
+            if m.bound:
+                count = re.match(r"\^(\w*)", self.code.raw[m.start:m.end]).group(1)
+                out.append(Tok("bound", text[m.start:m.end], m.start,
+                               _count_problem(count), pair=m.pair))
+                continue
+            tok, _end = _lint_mod(text, m.start) if MOD_NAME_RE.match(text, m.start) \
+                else (Tok("mod", text[m.start:m.end], m.start), m.end)
+            if tok.problem != "unclosed":       # lint names an unclosed one to the line end
+                tok = tok._replace(text=text[m.start:m.end])
+            out.append(tok._replace(pair=m.pair))
+        p = self.payload
+        if p is not None:
+            out += self._payload_tokens(p)
+        return out
+
+    def _payload_tokens(self, p: _Payload) -> list:
+        """The payload token and its tail's: the model's peeled count, bound, `!`
+        and alias references, and — for lint — a count or bound with nothing to
+        count (`: x ×`), which the model leaves in the payload's text."""
+        out = []
+        for col, kind, text, pair in p.peeled:
+            count = re.match(r"[×^x]\s*(\w*)", text)
+            problem = _count_problem(count.group(1)) if kind in ("card", "bound") and count \
+                else ""
+            out.append(Tok(kind, text, col, problem, pair=pair))
+        rest = p.rest.replace(_GAP, " ")
+        loose = PAYLOAD_TAIL_LOOSE_RE.search(rest)
+        if loose and loose.start() > 0:
+            for t in re.finditer(r"×\s*(\w*)|\^(\w*)(?:@[a-z]+)?", loose.group(0)):
+                count = t.group(1) if t.group(0).startswith("×") else t.group(2)
+                if _count_problem(count) == "no-count":
+                    out.append(Tok("card" if t.group(0).startswith("×") else "bound",
+                                   t.group(0), p.start + loose.start() + t.start(), "no-count"))
+            rest = rest[:loose.start()]
+        problem = _payload_problem(rest) if rest.strip() else ""
+        kv = self._key_value(p.colon)
+        out.append(Tok("payload", p.text or "", p.colon, problem, flag="kv" if kv else "",
+                       end=p.end))
+        if kv:
+            m = _KEY_VALUE_RE.match(self.code.text, p.colon)
+            out.append(Tok("word", self.code.text[p.colon:m.end()], p.colon))
+        return out
+
+    def _key_value(self, colon: int) -> bool:
+        """Whether the payload's `:` joins a modifier's `key:value` argument
+        (`@spawn state:inline`): glued to a word that follows a modifier, with one
+        word after it and nothing else before the next modifier or the line end."""
+        text = self.code.text
+        if not _KEY_VALUE_RE.match(text, colon):
+            return False
+        wm = re.search(r"[A-Za-z_\d][\w.-]*$", text[:colon])
+        return bool(wm) and any(not m.bound and m.end <= wm.start()
+                                and not text[m.end:wm.start()].strip() for m in self.mods)
+
+    # -- the scan ------------------------------------------------------------
+
+    def scan(self) -> list:
+        w = self.w
+        i = 0
+        while i < len(w):
+            if w[i].isspace() or w[i] == _GAP:
+                i += 1
+                continue
+            hit = self._dialect(i)
+            if hit is None and self.code.text[i] == DIALECT_COL:
+                # Glued to a dialect glyph (`[[a]]>[[b]]`): dialect syntax, read by
+                # no core rule.
+                hit = [], i + 1, False
+            if hit is None:
+                for scanner in _SCANNERS:
+                    hit = scanner(self, i)
+                    if hit is not None:
+                        break
+            new, end, prev = hit
+            self.toks.extend(new)
+            self.prev = prev
+            i = end
+        return self.toks
+
+    def _dialect(self, i: int):
+        if not self.lx.tokenizers:
+            return None
+        from sigil.core.graph import Node
+        hit = _dialect_hit(self.lx.tokenizers, self.w, i, self.prev, "L1", Node)
+        if hit is None:
+            return None
+        new, end, prev = hit
+        toks = []
+        for kind, val in new:
+            if kind == "glyph":
+                toks.append(Tok("glyph", self.code.raw[i:end], i, node=val))
             else:
-                count = t.group(1) if t.group(1) is not None else t.group(2)
-                toks.append(Tok("card", t.group(0), base + t.start(), _count_problem(count)))
-        value = value[:tail.start()]
-    payload = Tok("payload", value.strip(), i, _payload_problem(value) if value.strip() else "")
-    return [payload] + toks, end
+                toks.append(Tok(kind, val, i))
+        return toks, end, prev
+
+    def before_is_closer(self, i: int) -> bool:
+        """Whether the character before column i (blanked modifiers that leave no
+        space skipped) closes a glyph — what a glued `×N`, `?` or `.field` needs."""
+        return self.w[:i].rstrip(_GAP)[-1:] in _CLOSERS
 
 
 def _after_glyph(toks: list) -> bool:
@@ -252,172 +637,178 @@ def _glued(s: str, i: int, toks: list) -> bool:
     return _after_glyph(toks) and i > 0 and not s[i - 1].isspace()
 
 
-# Each scanner looks at column i of a statement: it returns (new tokens, the column
-# to resume at), or None to let the next scanner try. Their order is the grammar's
-# precedence (an arrow before a glyph, so `<->` is never an event).
+# Each scanner looks at column i of the statement: it returns (new tokens, the
+# column to resume at, whether the model now stands after a glyph), or None to
+# let the next scanner try. Their order is the grammar's precedence (an arrow
+# before a glyph, so `<->` is never an event).
 
-def _scan_dialect(code: Code, i: int, toks: list):
-    s = code.text
-    if s[i] != DIALECT_COL:
-        return None
-    j = i
-    while j < len(s) and s[j] == DIALECT_COL:
-        j += 1
-    return [Tok("glyph", code.raw[i:j], i)], j
-
-
-def _scan_arrow_or_alias(code: Code, i: int, toks: list):
-    s = code.text
+def _scan_arrow_or_alias(r: _Reader, i: int):
+    s = r.w
     am = ARROW_RE.match(s, i)
     if am:
-        return [Tok("arrow", am.group(0), i)], am.end()
+        return [Tok("arrow", am.group(0), i)], am.end(), False
     if s.startswith(":=", i):
-        return [Tok("alias", ":=", i)], i + 2
-    if s[i] == ":" and _mod_key_value(code, i, toks):
-        end = _KEY_VALUE_RE.match(s, i).end()
-        return [Tok("word", s[i:end], i)], end
-    if s[i] == ":":
-        return _scan_payload(code, i)
+        return [Tok("alias", ":=", i)], i + 2, False
     return None
 
 
-def _mod_key_value(code: Code, i: int, toks: list) -> bool:
-    """Whether the `:` at column i joins a modifier's `key:value` argument
-    (`@spawn state:inline`): glued to a word that follows a modifier, with one word
-    after it and nothing else before the next modifier or the line end."""
-    if len(toks) < 2 or toks[-1].kind != "word" or toks[-2].kind != "mod":
-        return False
-    glued = toks[-1].col + len(toks[-1].text) == i
-    return glued and _KEY_VALUE_RE.match(code.text, i) is not None
-
-
-def _scan_join(code: Code, i: int, toks: list):
-    s = code.text
+def _scan_join(r: _Reader, i: int):
+    s = r.w
     if s[i] == "&":
         j = i + 2 if s.startswith("&?", i) else i + 1
-        return [Tok("join", s[i:j], i)], j
+        return [Tok("join", s[i:j], i, flag="" if r.prev else "dead")], j, False
     if s[i] == "/":
-        path = _glued(s, i, toks) and i + 1 < len(s) and s[i + 1] in "[{<(|~*"
-        return [Tok("slash" if path else "join", "/", i)], i + 1
+        path = _glued(s, i, r.toks) and i + 1 < len(s) and s[i + 1] in "[{<(|~*"
+        if r.prev:
+            # Qualified path `[Bullet]/{Transform}`: a `/` glued between glyphs; else
+            # an alternative `a / b` (language.md "Structure"): one-of endpoint.
+            model = (i + 1 < len(s) and s[i + 1] in "[{<(|~*" and not s[i - 1].isspace())
+            return [Tok("slash" if path else "join", "/", i,
+                        flag="" if model == path else ("slash" if model else "join"))], \
+                i + 1, False
+        return [Tok("slash" if path else "join", "/", i, flag="dead")], i + 1, False
     return None
 
 
-def _scan_modifier(code: Code, i: int, toks: list):
-    s = code.text
+def _scan_modifier(r: _Reader, i: int):
+    s = r.w
     if s[i] == "@":
         if not MOD_NAME_RE.match(s, i):
-            return [], i + 1
-        tok, end = _scan_mod(s, i)
-        return [tok], end
+            return [], i + 1, False
+        tok, end = _lint_mod(s, i)
+        return [tok], end, False
     if s[i] == "^":
-        m = BOUND_RE.match(s, i)
-        return [Tok("bound", m.group(0), i, _count_problem(m.group(1)))], m.end()
+        # Lint names the bound with its `@policy`, which the model reads as a
+        # modifier of its own when the bound has no count (`^@drop`).
+        m = BOUND_RE.match(r.code.text, i)
+        return [Tok("bound", m.group(0), i, _count_problem(m.group(1)))], \
+            max(BOUND_RE.match(s, i).end(), i + 1), False
     cm = CARD_RE.match(s, i)
     if cm:
         count = next(g for g in cm.groups() if g is not None)
-        return [Tok("card", cm.group(0), i, _count_problem(count),
-                    glued=_glued(s, i, toks))], cm.end()
+        gm = GLUED_MOD_RE.match(s, i)
+        card = gm and (gm.group("card") or gm.group("card2") or gm.group("card3"))
+        glued = _glued(s, i, r.toks)
+        if card:
+            flag = "glued" if r.before_is_closer(i) else ""
+            return [Tok("card", cm.group(0), i, _count_problem(count), glued=glued,
+                        pair=("×", card), flag=flag)], max(cm.end(), gm.end()), r.prev
+        return [Tok("card", cm.group(0), i, _count_problem(count), glued=glued)], \
+            cm.end(), False
     return None
 
 
-def _scan_glyph_token(code: Code, i: int, toks: list):
+def _scan_glyph_token(r: _Reader, i: int):
     """A glyph with its `~` / `*` prefixes, a block brace, an event's argument
     `<H>({C})`, or the empty `()`."""
-    s = code.text
+    s = r.w
     j = i
     while j < len(s) and s[j] in "~*":
         j += 1
     if j < len(s) and s[j] in "[{<(|" and j > i and not BLOCK_OPEN_RE.match(s, j):
         end, problem = _scan_glyph(s, j)
-        return [Tok("glyph", s[i:end], i, problem)], end
+        return _glyph(r, i, end, problem)
     if j > i:                                       # `~` / `*` before no glyph
-        return [Tok("bad", "~", i, "not-arrow")] if s[i] == "~" else [], j
+        return ([Tok("bad", "~", i, "not-arrow")] if s[i] == "~" else []), j, False
     ch = s[i]
     if ch == "{" and BLOCK_OPEN_RE.match(s, i):
-        return [Tok("blockopen", "{", i)], i + 1
+        return [Tok("blockopen", "{", i)], i + 1, False
     if ch == "}":
-        return [Tok("blockclose", "}", i)], i + 1
-    if ch == "(" and toks and toks[-1].kind == "glyph" \
-            and toks[-1].text.lstrip("~*").startswith("<") and not s[i - 1].isspace():
+        return [Tok("blockclose", "}", i)], i + 1, False
+    if ch == "(" and r.toks and r.toks[-1].kind == "glyph" \
+            and r.toks[-1].text.lstrip("~*").startswith("<") and not s[i - 1].isspace():
         end = balanced_end(s, i)
-        return [Tok("evarg", s[i:end if end > 0 else len(s)], i)], (end if end > 0 else len(s))
+        end = end if end > 0 else len(s)
+        return [Tok("evarg", r.code.raw[i:end].replace(_GAP, ""), i)], end, True
     if s.startswith("()", i):
-        return [Tok("nothing", "()", i)], i + 2
+        return [Tok("nothing", "()", i)], i + 2, False
     if ch == "<" and (i + 1 >= len(s) or s[i + 1] in " =-"):
-        return [], i + 1                            # a comparison; `<-` is SGL060's
+        return [], i + 1, False                     # a comparison; `<-` is SGL060's
     if _MERGE_OP_RE.match(s, i):
-        return [], i + 3                            # the `|||` value operator, no glyph
+        return [], i + 3, False                     # the `|||` value operator, no glyph
     if ch in "[{<(|":
         end, problem = _scan_glyph(s, i)
-        return [Tok("glyph", s[i:end], i, problem)], max(end, i + 1)
+        return _glyph(r, i, max(end, i + 1), problem)
     return None
 
 
-def _scan_op_target(code: Code, i: int, toks: list):
+def _glyph(r: _Reader, i: int, end: int, problem: str) -> tuple:
+    """A core glyph token from column i to `end`: the model reads it as a node
+    unless it is broken (unclosed or empty: a void endpoint, flag "void")."""
+    text = r.code.raw[i:end].replace(_GAP, "")
+    flag = "void" if problem in ("unclosed", "empty") else ""
+    return [Tok("glyph", text, i, problem, flag=flag)], end, not flag
+
+
+def _scan_op_target(r: _Reader, i: int):
     """`verb(args)` / `op ns.verb(args)` written as an arrow's target."""
-    if not toks or toks[-1].kind != "arrow":
+    last = r.toks[-1] if r.toks else None
+    if last is None or last.kind != "arrow":
         return None
-    om = OP_HEAD_RE.match(code.text, i)
-    end = balanced_end(code.text, om.end() - 1) if om else -1
-    return ([Tok("op", code.text[i:end], i)], end) if end > 0 else None
+    om = OP_HEAD_RE.match(r.w, i)
+    end = balanced_end(r.w, om.end() - 1) if om else -1
+    if end <= 0:
+        return None
+    model = OP_TARGET_RE.match(r.w, i)
+    text = r.code.raw[i:end].replace(_GAP, "")
+    flag = "" if model and model.end() == end else "dead"
+    return [Tok("op", text, i, flag=flag)], end, False
 
 
-def _scan_marker(code: Code, i: int, toks: list):
+def _scan_marker(r: _Reader, i: int):
     """`!` critical / `?` optional, and a `.field` accessor after a glyph."""
-    s = code.text
+    s = r.w
     bang = s[i] == "!" and not s.startswith(("!>", "!="), i)
-    if bang or s[i] == "?" and not s.startswith("?>", i):
-        return [Tok("mark", s[i], i)], i + 1
-    if s[i] == "." and _after_glyph(toks):
+    if bang:
+        return [Tok("mark", "!", i, pair=("!", None))], i + 1, r.prev
+    if s[i] == "?" and not s.startswith("?>", i):
+        if r.prev and r.before_is_closer(i):
+            return [Tok("mark", "?", i, pair=("?", None))], i + 1, r.prev
+        return [Tok("mark", "?", i, flag="dead")], i + 1, False
+    if s[i] == "." and _after_glyph(r.toks):
         m = FIELD_RE.match(s, i)
         if m:
-            return [Tok("field", m.group(0), i)], m.end()
+            if r.prev and r.before_is_closer(i):
+                return [Tok("field", m.group(0), i, pair=(".", m.group(0)[1:]))], m.end(), r.prev
+            return [Tok("field", m.group(0), i, flag="dead")], m.end(), False
     return None
 
 
-def _scan_value(code: Code, i: int, toks: list):
+def _scan_value(r: _Reader, i: int):
     """A string, a `${ref}`, a word or number outside a payload."""
-    s = code.text
+    s = r.w
     if s[i] == '"':
         j = s.find('"', i + 1)
         j = len(s) if j < 0 else j + 1
-        return [Tok("str", code.raw[i:j], i)], j
+        return [Tok("str", r.code.raw[i:j], i)], j, False
     if s.startswith("${", i):
         end = balanced_end(s, i + 1)
         end = len(s) if end < 0 else end
-        return [Tok("word", s[i:end], i)], end
+        return [Tok("word", s[i:end], i)], end, False
     wm = _WORD_RE.match(s, i)
-    return ([Tok("word", wm.group(0), i)], wm.end()) if wm else None
+    return ([Tok("word", wm.group(0), i)], wm.end(), False) if wm else None
 
 
-def _scan_other(code: Code, i: int, toks: list):
+def _scan_other(r: _Reader, i: int):
     """Anything else: a stray closer or arrow-like character is `bad`; other
-    symbols are skipped, as the parser skips them."""
-    ch = code.text[i]
+    symbols are skipped, as the model skips them."""
+    ch = r.w[i]
     if ch in "])":
-        return [Tok("bad", ch, i, "closer")], i + 1
+        return [Tok("bad", ch, i, "closer")], i + 1, False
     if ch in "->=~" or _FOREIGN_ARROW_RE.match(ch):
-        return [Tok("bad", ch, i, "not-arrow")], i + 1
-    return [], i + 1
+        return [Tok("bad", ch, i, "not-arrow")], i + 1, False
+    return [], i + 1, False
 
 
-_SCANNERS = (_scan_dialect, _scan_arrow_or_alias, _scan_join, _scan_modifier,
-             _scan_glyph_token, _scan_op_target, _scan_marker, _scan_value, _scan_other)
+_SCANNERS = (_scan_arrow_or_alias, _scan_join, _scan_modifier, _scan_glyph_token,
+             _scan_op_target, _scan_marker, _scan_value, _scan_other)
 
 
-def tokenize_statement(code: Code) -> list:
-    """Tokenize one statement (pure: the same Code always gives the same tokens).
-    Unreadable text becomes a `bad` token or a token with a `problem`, which the
-    hardening rules report; only symbols the parser also ignores are skipped."""
-    toks, i = [], 0
-    while i < len(code.text):
-        if code.text[i].isspace():
-            i += 1
-            continue
-        for scan in _SCANNERS:
-            hit = scan(code, i, toks)
-            if hit is not None:
-                new, i = hit
-                toks.extend(new)
-                break
-    return toks
+def tokenize_statement(code: Code, lx: Lexicon = NO_DIALECT) -> list:
+    """Tokenize one statement (pure: the same Code always gives the same tokens),
+    in column order. Unreadable text becomes a `bad` token or a token with a
+    `problem`, which the hardening rules report; only symbols the model also
+    ignores are skipped."""
+    r = _Reader(code, lx)
+    toks = r.scan() + r.span_tokens()
+    return sorted(toks, key=lambda t: t.col)

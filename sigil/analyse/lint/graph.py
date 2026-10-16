@@ -13,11 +13,12 @@ from sigil.analyse.lint.lines import _deletion_index, _deletions, _edit_distance
 # Graph checks (via sigil.core.parse)
 # ---------------------------------------------------------------------------
 
-def parse_for_lint(text: str, dialect=None):
-    """The parsed document (render.parse_document), or None if the parser fails —
-    the parser has its own tests; lint stays up."""
+def parse_for_lint(text: str, dialect=None, walk=None):
+    """The parsed document (render.parse_document, from `walk` when lint has
+    read it already), or None if the parser fails — the parser has its own
+    tests; lint stays up."""
     try:
-        return render.parse_document(text, dialect=dialect)
+        return render.parse_document(text, dialect=dialect, walk=walk)
     except Exception:
         return None
 

@@ -8,8 +8,8 @@ NAME] [--deep]` (the command, and --deep's join with check, live in sigil.cli).
 
 The rules, grouped by what they check:
 
-    scan          the masks and the block-string pre-pass (the tables are
-                  sigil.core.lex's, shared with the parser)
+    scan          the masks and the block-string report (the tables are
+                  sigil.core.lex's, the reading sigil.core.statements')
     lines         per-line rules: mode line, holes, prose verbs, modifiers, …
     payloads      what follows a flow's `:`
     permissions   `@read` / `@write` / `@borrow`
@@ -41,30 +41,31 @@ from sigil.analyse.lint.lines import (
 from sigil.analyse.lint.payloads import lint_payloads
 from sigil.analyse.lint.permissions import lint_permission_graph
 from sigil.core.dialects import _hook
-from sigil.analyse.lint.scan import collapse_block_strings  # noqa: F401  (a dialect's tests)
+from sigil.core.statements import read_document
+from sigil.analyse.lint.scan import (  # noqa: F401  (collapse_block_strings: a dialect's tests)
+    collapse_block_strings, dialect_masks, principal_scanners, unterminated_block)
 
 
 def lint(text: str, dialect=None) -> LintResult:
     """Lint a Sigil document. `dialect` is a loaded dialect (dialects.load) or
-    None for core Sigil."""
-    lines = text.splitlines()
+    None for core Sigil. The document is read once (read_document): the rules
+    below judge that reading, and the parser builds the model from it."""
     result = LintResult()
-
     known = VALID_MODIFIERS | set(_hook(dialect, "KNOWN_MODIFIERS", set()))
     deferred = set(_hook(dialect, "DEFERRED_MODIFIERS", set()))
-    masks = list(_hook(dialect, "lint_glyph_masks"))
 
-    # Core pre-pass: fold multiline `"""…"""` block-strings into masked single-line
-    # STRs (sigil's ONLY departure from line-orientation; see collapse_block_strings).
-    # Every linter below then runs unchanged on a line-oriented document.
-    lines = collapse_block_strings(lines, result)
+    # The one reading: block strings folded (an unterminated one is SGL170), the
+    # dialect's prepasses run (what they report follows the core pre-passes').
+    prepassed = LintResult()
+    walk = read_document(text, dialect, prepassed)
+    unterminated_block(walk.unterminated, result)
+    lines = list(walk.lines)
+    masks = dialect_masks(walk.lexicon)
     # Core pre-pass: composition-tree branch markers (unless the dialect owns them).
     if _hook(dialect, "COMPOSITION_LINT", True):
         lines = lint_composition(
             lines, result, CORE_RELATIONS + "".join(_hook(dialect, "COMPOSITION_RELATIONS", "")))
-    # Dialect pre-passes (line-count preserving).
-    for prepass in _hook(dialect, "lint_prepasses"):
-        lines = prepass(lines, result)
+    result.diagnostics.extend(prepassed.diagnostics)
 
     mode = lint_mode_line(lines, result)
     lint_mode_not_first(lines, result)
@@ -76,7 +77,7 @@ def lint(text: str, dialect=None) -> LintResult:
     lint_reverse_arrow(lines, result)
     lint_duplicate_glyph_in_flow(lines, result)
     lint_state_block_syntax(lines, result)
-    lint_permission_graph(lines, result, list(_hook(dialect, "lint_principal_scanners")))
+    lint_permission_graph(lines, result, principal_scanners(walk.lexicon))
     lint_payloads(
         lines, result,
         checks=list(_hook(dialect, "lint_payload_checks")),
@@ -84,8 +85,8 @@ def lint(text: str, dialect=None) -> LintResult:
         keywords=set(_hook(dialect, "BLOCK_KEYWORDS", set())),
         known=known,
     )
-    graph = parse_for_lint(text, dialect)
-    lint_hardening(lines, result, dialect, graph)
+    graph = parse_for_lint(text, dialect, walk)
+    lint_hardening(walk, result, dialect, graph)
     for extra in _hook(dialect, "lint_passes"):
         extra(lines, result)
     lint_graph(text, result, dialect, graph)
