@@ -25,12 +25,13 @@ vocab`), never from the linter.
 
 The hooks a dialect defines are listed in sigil.core.dialects. One hook set
 serves the one reading of a document (sigil.core.statements): `prepasses()`
-(line rewrites before the walk), `strips()` (length-preserving blanks of a flow
-statement) and `tokenizers()` (extra glyph / arrow syntax: a node in the model,
-an endpoint for lint, a principal an access list may name) — the retired
-`lint_*` / `render_*` pairs (lint_prepasses, render_prepasses,
-render_line_strips, render_tokenizers, lint_glyph_masks,
-lint_principal_scanners) are refused by dialects.load().
+(line rewrites before the walk; the place for a blank that depends on context,
+such as whether a line is a composition branch), `strips()` (length-preserving
+blanks of a flow statement's text, blind to its context) and `tokenizers()`
+(extra glyph / arrow syntax: a node in the model, an endpoint for lint, a
+principal an access list may name) — the retired `lint_*` / `render_*` pairs
+(lint_prepasses, render_prepasses, render_line_strips, render_tokenizers,
+lint_glyph_masks, lint_principal_scanners) are refused by dialects.load().
 
 The lexical names (arrows, glyph patterns, the comment rule) are kept once in
 sigil.core.lex and re-exported here.

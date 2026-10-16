@@ -70,6 +70,13 @@ upper-case attributes are data.
       dialect-only syntax that must not read as glyphs (a binding prefix, a
       layout marker). Never applied to block headers, definition heads,
       transitions or section headers.
+      A strip gets text only, never its context: a plain statement's code
+      from its lead; a composition-branch statement's code in pieces — the
+      text after its marker and, apart, a parent written before the marker.
+      So a strip cannot tell whether its statement had a branch marker, or
+      what the lines around it say. A blank that depends on that (e.g. the
+      value after a lone branch glyph) belongs in a prepass, which sees every
+      line whole.
   tokenizers() -> [fn(s, i, prev_was_glyph, layer, Node)
                    -> None | (tokens, end, prev_was_glyph)]
       Glyph-tokenizer extensions, tried (in order) at each column of a
