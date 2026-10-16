@@ -127,7 +127,7 @@ class TestCli(_TempDoc):
         self.assertEqual(p.returncode, 2)
         lines = p.stderr.strip().splitlines()
         self.assertEqual(len(lines), 1, p.stderr)
-        self.assertTrue(lines[0].startswith("view.py: "))
+        self.assertTrue(lines[0].startswith("sigil view: "))
         self.assertNotIn("built-in", p.stderr)
 
     def test_long_chain_is_fast(self):

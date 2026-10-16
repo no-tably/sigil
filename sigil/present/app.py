@@ -1275,7 +1275,7 @@ def checks_panel(summary: str, entries: list, cols: int, limit: int | None = Non
     for k, e in enumerate(entries):
         more = entry_rows(e, cols)
         if limit is not None and len(rows) + len(more) > limit - (k < len(entries) - 1):
-            rows.append([(f"… {len(entries) - k} more (check.py)", (kit.GREY["mid"], None, False))])
+            rows.append([(f"… {len(entries) - k} more (sigil check)", (kit.GREY["mid"], None, False))])
             break
         rows += more
     return rows
@@ -1986,7 +1986,7 @@ class ViewState:
                 rows += [[(ln, None)] for ln in lines[1:]]
                 shown += 1
             if shown < len(self.diags):
-                rows.append([(f"… {len(self.diags) - shown} more (view.py --once)",
+                rows.append([(f"… {len(self.diags) - shown} more (sigil view --once)",
                               (kit.GREY["mid"], None, False))])
         if self.show_checks and self.check_error:
             rows += [[(ln, failed)] for ln in info_lines(self.check_error, cols)]

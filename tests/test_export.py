@@ -336,7 +336,7 @@ class TestWrite(Tmp):
     def test_bad_input(self):
         code, _out, err = run([str(self.tmp / "missing.sigil"), "--out", str(self.tmp / "o")])
         self.assertEqual(code, 2)
-        self.assertIn("export.py:", err)
+        self.assertIn("sigil export:", err)
         code, _out, err = run([str(self.spec(READY)), "--out", str(self.tmp / "o"),
                                "--dialect", "no-such-dialect"])
         self.assertEqual(code, 2)

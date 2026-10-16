@@ -225,7 +225,7 @@ class TestLookupAndCli(_EnvCase):
         bad.write_bytes(b"a: \xff\xfe\n")
         code, _, err = _run(themes.main, [str(bad)])
         self.assertEqual(code, 2)
-        self.assertIn("themes.py:", err)
+        self.assertIn("sigil themes:", err)
         with self.assertRaises(themes.ThemeError):
             themes.load(str(bad))
 

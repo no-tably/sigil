@@ -803,7 +803,7 @@ class Cli(unittest.TestCase):
     def test_bad_input(self):
         p = self.cli(str(ROOT / "no-such-file.sigil"), stdin="")
         self.assertEqual(p.returncode, 2)
-        self.assertIn("check.py:", p.stderr)
+        self.assertIn("sigil check:", p.stderr)
 
     def test_hidden_findings_need_all(self):
         text = "[A] -> [B] : f()   # accepts: unguarded-call\n"   # SGC002: binding → hidden in sketch

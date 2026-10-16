@@ -153,7 +153,7 @@ class TestPanel(_Doc):
         short = self.overlay.panel(40, limit=4)
         self.assertLessEqual(len(short), 4)
         self.assertTrue(plain(short)[-1].startswith("… "))
-        self.assertTrue(plain(short)[-1].endswith("more (check.py)"))
+        self.assertTrue(plain(short)[-1].endswith("more (sigil check)"))
 
     def test_acknowledged_text_is_dimmed(self):
         rows = self.overlay.panel(200)

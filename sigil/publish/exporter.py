@@ -119,7 +119,7 @@ def out_problem(out: Path) -> Optional[str]:
         return f"{out} is not a folder"
     if (out / MANIFEST).is_file() or not any(out.iterdir()):
         return None
-    return (f"{out} holds files but no {MANIFEST}: export.py writes only into an "
+    return (f"{out} holds files but no {MANIFEST}: sigil export writes only into an "
             "empty folder or an earlier export")
 
 
@@ -350,7 +350,7 @@ def index_md(spec_name: str, manifest: dict, forms: dict) -> str:
                     f"({e['path']}/{SYSTEM_README}) — depends on {deps}")
     return "\n".join([
         f"# Export of {spec_name}", "",
-        f"Exported from `{spec_name}` (spec hash `{manifest['spec_hash']}`) by export.py.", "",
+        f"Exported from `{spec_name}` (spec hash `{manifest['spec_hash']}`) by sigil export.", "",
         f"- `{MANIFEST}` is the contract: per system, its interface hash, body hash, "
         "components and what it depends on. It is written last; a folder without it "
         "is no finished export.",

@@ -8,6 +8,7 @@
     sigil export FILE --mermaid --spine
     sigil frames draw FILE [--view V] [--depth N|all] [--width N] [--scenario S] …
     sigil frames follow CONTROL
+    sigil themes [NAME|PATH] [--list]
 
 Each subcommand imports its layer only when it runs, so `sigil lint` loads
 neither the simulator nor the views. `main(argv, dialect=…)` is what a dialect's
@@ -30,11 +31,10 @@ USAGE = __doc__.split("\n\n")[1].strip("\n")
 ROOT = Path(__file__).resolve().parents[1]   # the folder holding the package and bin/sigil
 
 
-# The name each command's messages (and its usage line, but view's) still begin
-# with: the old script's, so every message stays as it was. 0.6.0's docs pass
-# (D1) changes them to `sigil <cmd>`.
-SAID = {"lint": "lint.py", "check": "check.py", "view": "view.py",
-        "export": "export.py", "mermaid": "render.py"}
+# The name each command's messages and its usage line begin with (the Mermaid
+# chart is `sigil export --mermaid`, so it speaks as `sigil export`).
+SAID = {"lint": "sigil lint", "check": "sigil check", "view": "sigil view",
+        "export": "sigil export", "mermaid": "sigil export", "frames": "sigil frames"}
 
 
 def read_text(path: str) -> str:
@@ -168,7 +168,7 @@ def _lint(argv: list, dialect) -> int:
     ap.add_argument("file", help="a .sigil file, or - for stdin")
     _dialect_flag(ap, dialect)
     ap.add_argument("--deep", action="store_true",
-                    help="also run the composition checks (check.py) and merge the reports")
+                    help="also run the composition checks (sigil check) and merge the reports")
     a = ap.parse_args(argv)
     from sigil.analyse import lint
     try:
@@ -274,6 +274,7 @@ def _check(argv: list, dialect) -> int:
 def _view_parser(dialect, app) -> argparse.ArgumentParser:
     keys = ", ".join(f"{i} {v}" for i, v in enumerate(app.VIEWS, 1))
     ap = argparse.ArgumentParser(
+        prog=SAID["view"],
         description="Draw a Sigil document in the terminal and redraw it on every save "
                     "(--once: print it once and exit). Four views, by their keys: "
                     f"{keys}; it starts in the {app.DEFAULT_VIEW} view.")
@@ -360,7 +361,7 @@ def _view_parser(dialect, app) -> argparse.ArgumentParser:
                          "the run in plain words and its log; with --run: the run's "
                          "timeline (lanes, spans, moves, marks)")
     ap.add_argument("--checks", action="store_true",
-                    help="mark the composition checks' findings (check.py) on the drawing "
+                    help="mark the composition checks' findings (sigil check) on the drawing "
                          "and list them with their questions (live: key c toggles it)")
     ap.add_argument("--color", choices=("auto", "always", "never"), default="auto",
                     help="when to colour the output: auto (default: when it goes to a "
@@ -462,7 +463,7 @@ def _export_folder(argv: list, dialect) -> int:
     if done.problem:
         say("export", done.problem)
     for name in done.kept:
-        say("export", f"kept {out / name}/: it holds files {SAID['export']} did not "
+        say("export", f"kept {out / name}/: it holds files sigil export did not "
                       "write (its system is gone)")
     print(done.printed, end="")
     return done.status
@@ -595,7 +596,8 @@ def _start(text: str) -> int | None:
 
 def _frames(argv: list, dialect) -> int:
     from sigil.present import app, frames
-    ap = argparse.ArgumentParser(description="The Claude Code mod's drawing and split helper.")
+    ap = argparse.ArgumentParser(prog=SAID["frames"],
+                                 description="The Claude Code mod's drawing and split helper.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("draw", help="a document's drawing as JSON for the mod's pane")
     d.add_argument("file", type=Path)
@@ -620,8 +622,14 @@ def _frames(argv: list, dialect) -> int:
     return 0
 
 
+def _themes(argv: list, dialect) -> int:
+    """`sigil themes`: what `python3 -m sigil.present.themes` does (no dialect)."""
+    from sigil.present import themes
+    return themes.main(argv)
+
+
 COMMANDS = {"lint": _lint, "check": _check, "view": _view, "export": _export,
-            "frames": _frames}
+            "frames": _frames, "themes": _themes}
 
 
 def main(argv=None, dialect=None) -> int:

@@ -6,9 +6,9 @@ value "$name" refers to palette.name; `extends: other` starts from another
 theme and overrides only the keys this one sets. view.py and the site both read
 the same files, so a theme colours the terminal viewer and the web page alike.
 
-    themes.py [NAME|PATH]          # print the resolved theme as JSON
-    themes.py --list               # list the themes found
-    themes.py --help
+    sigil themes [NAME|PATH]       # print the resolved theme as JSON
+    sigil themes --list            # list the themes found
+    sigil themes --help
 
 Lookup for a NAME: themes/ next to this file, then each directory on
 SIGIL_THEME_PATH (os.pathsep-separated); `index` is never a theme name. A PATH
@@ -292,7 +292,7 @@ def names() -> list[str]:
     return found
 
 
-_USAGE = "usage: themes.py [NAME|PATH] | --list | --help"
+_USAGE = "usage: sigil themes [NAME|PATH] | --list | --help"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -309,7 +309,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         theme = load(argv[0] if argv else None)
     except (ThemeError, OSError, UnicodeDecodeError) as exc:
-        print(f"themes.py: {exc}", file=sys.stderr)
+        print(f"sigil themes: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(theme, indent=2, ensure_ascii=False))
     return 0
