@@ -3,7 +3,7 @@ it once — lines, statement walk, each statement's tokens — and both the pars
 (sigil.core.parse builds the model from that reading) and lint (its rules judge
 it) take it from there. The divergences between the parser's and lint's old
 readings are settled by the parser's reading, as one-walk/DIVERGENCES.md
-decides (ids D1–D17 below).
+decides (ids D1–D18 below).
 """
 import json
 import re
@@ -118,6 +118,12 @@ class Readings(unittest.TestCase):
                                  "branch on {Req}.kind {\n  x => [A]\n}\n")
         self.assertNotIn("n2_actor", g.nodes)
         self.assertEqual([b.refs for b in g.blocks], [[], ["Req_data"]])
+
+    def test_d18_a_ref_outside_a_payload_names_no_data_glyph(self):
+        g = parse.parse_document("[X] -> |tree| ${out.subtree}\n"
+                                 "loop @each kid of ${out.kids} {\n  [A] -> [B]\n}\n")
+        self.assertEqual(list(g.nodes), ["X_service", "tree_store", "A_service", "B_service"])
+        self.assertEqual([b.refs for b in g.blocks], [[]])
 
     def test_d12_one_payload_to_the_line_end_less_its_modifiers(self):
         g = parse.parse_document("[A] -> [B] : claim({S}) @timeout(1h) => {L}\n")
