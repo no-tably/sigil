@@ -57,6 +57,16 @@ class PrefixTest(unittest.TestCase):
         code, out, _err = run(cli.main, ["export", "x.sigil", "--mermaid", "--help"])
         self.assertTrue(out.startswith("usage: sigil export "), out[:80])
 
+    def test_export_usage_shows_both_forms(self):
+        forms = ("sigil export SPEC --out DIR", "sigil export FILE --mermaid")
+        for argv, stream in ((["export", "--help"], 1), (["export", "--bogus"], 2),
+                             (["export", "x.sigil", "--mermaid", "--help"], 1),
+                             (["export", "x.sigil", "--mermaid", "--bogus"], 2)):
+            with self.subTest(argv=argv):
+                said = run(cli.main, argv)[stream]
+                for form in forms:
+                    self.assertIn(form, said)
+
     def test_no_old_script_names_in_help(self):
         for cmd in ("lint", "check", "view", "export"):
             with self.subTest(cmd=cmd):

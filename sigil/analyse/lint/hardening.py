@@ -12,11 +12,12 @@ from typing import NamedTuple, Optional
 from sigil.core import parse as render
 from sigil.core.graph import walk_depth
 from sigil.core.dialects import _hook
-from sigil.core.lex import ARROWS, MOD_NAME_RE, SECTION_RE, comment_col
-from sigil.core.statements import Statement, Walk, read_document
+from sigil.core.lex import ARROWS, MOD_NAME_RE, SECTION_RE
+from sigil.core.statements import StateHead, Statement, Walk, read_document
 from sigil.core.tokens import Code, Tok
 from sigil.core.vocab import LintResult
 from sigil.analyse.lint.payloads import _classify_payload
+from sigil.analyse.lint.reading import documents
 
 
 # ---------------------------------------------------------------------------
@@ -281,11 +282,12 @@ _HEADER_GLYPH_RE = re.compile(r"^[~*]*[\[{<(|](?P<name>[^\[\]{}<>()|]+)[\]}>)|]$
 _DROPS_BODY = ("alias", "state")
 
 
-def walk_findings(walk: Walk) -> list:
-    """The findings about the document's structure, from its statement walk."""
+def walk_findings(walk: Walk, dialect=None) -> list:
+    """The findings about the document's structure, from its statement walk
+    (`dialect`: the one it was read with, whose glyphs may own a `state` block)."""
     return (_block_findings(walk.blocks) + _header_findings(walk.headers)
             + _section_findings(walk.sections, walk.definitions)
-            + _transition_findings(walk.transitions)
+            + _state_findings(walk.transitions, ownerless_heads(walk.doc, dialect))
             + _bare_branch_findings(walk.bare_branches)
             + _continuation_findings(walk.continuations))
 
@@ -329,11 +331,27 @@ def _section_findings(sections: tuple, defined: frozenset) -> list:
     return out
 
 
-def _transition_findings(transitions: tuple) -> list:
-    """SGL161 from the model's reading of each `state` block line (Transition):
-    an edge with no trigger, or a line that is no transition and writes no
-    `-<` (a malformed trigger is SGL090's)."""
-    out = []
+def ownerless_heads(doc, dialect=None) -> list:
+    """The lines (1-based) of the `state` heads with no owner the model reads: no
+    owner glyph (`state {`, `state Foo {`), or one the parser reads as no glyph
+    (sigil.core.parse.parse_glyph), in every definition body too. The parser
+    drops each such machine whole."""
+    if doc is None:
+        return []
+    return sorted(item.line + 1 for d in documents(doc) for item in d.items
+                  if isinstance(item, StateHead)
+                  and (item.owner is None or render.parse_glyph(item.owner, dialect=dialect)
+                       is None))
+
+
+def _state_findings(transitions: tuple, ownerless: list) -> list:
+    """SGL161, every one: a `state` block with no owner (`ownerless`: the lines of
+    its heads), and from the model's reading of each line of an owned one
+    (Transition) an edge with no trigger, or a line that is no transition and
+    writes no `-<` (a malformed trigger is SGL090's)."""
+    out = [Finding(line, "SGL161", "`state` block with no owner glyph "
+                   "(`state {Order} {`): the parser drops the whole machine.")
+           for line in ownerless]
     for t in transitions:
         if t.kind == "untriggered":
             out.append(Finding(t.line, "SGL161", f"transition `{t.raw}` has no trigger: "
@@ -368,12 +386,13 @@ def _continuation_findings(continuations: tuple) -> list:
     return out
 
 
-def reserved_marker_findings(lines: list) -> list:
-    """SGL188: `#=` is reserved for the decorated acknowledgement (RFC 0003 Q7)."""
+def reserved_marker_findings(walk: Walk) -> list:
+    """SGL188: `#=` is reserved for the decorated acknowledgement (RFC 0003 Q7).
+    A line's comment starts where the walk cut its code (Code.raw ends there: at
+    its `#`, or at a dialect's comment marker that comes first)."""
     out = []
-    for no, raw in enumerate(lines, 1):
-        pos = comment_col(raw)
-        if pos is not None and raw.startswith("#=", pos):
+    for no, (raw, code) in enumerate(zip(walk.lines, walk.codes), 1):
+        if raw.startswith("#=", len(code.raw)):
             out.append(Finding(no, "SGL188", "`#=` is reserved for acknowledgements "
                                "(RFC 0003) and acknowledges nothing yet; write "
                                "`# accepts: rule — reason`, or a plain `# …` comment."))
@@ -383,12 +402,10 @@ def reserved_marker_findings(lines: list) -> list:
 # -- what the parser itself reports (Graph.dropped, edges by line) -------------
 
 class ParsedFacts(NamedTuple):
-    """What the parsed model says about each line, for the rules that ask the
-    parser rather than re-read the text. `alias_refs`: line → {name} of each
-    modifier alias after a `×N` that no modifier-only alias defines
-    (render.ALIAS_REF); `dropped`: (line, reason, text) the parser discarded."""
+    """What the parsed model says about each line, for the rule that asks the
+    parser rather than the walk. `alias_refs`: line → {name} of each modifier
+    alias after a `×N` that no modifier-only alias defines (render.ALIAS_REF)."""
     alias_refs: dict
-    dropped: tuple
 
 
 def parsed_facts(graph) -> ParsedFacts:
@@ -399,39 +416,33 @@ def parsed_facts(graph) -> ParsedFacts:
             for name, arg in e.mods:
                 if name == render.ALIAS_REF:
                     alias_refs.setdefault(e.line, set()).add(arg)
-    dropped = tuple((d.line, d.reason, d.text) for d in graph.dropped)
-    return ParsedFacts(alias_refs, dropped)
+    return ParsedFacts(alias_refs)
 
 
 def parser_gap_findings(facts: ParsedFacts) -> list:
     """What the parsed model reports: SGL181 a modifier alias after `×N` that
-    nothing defines, SGL161 a `state` block with no owner (Graph.dropped; the
-    lines of a machine are judged from the walk's Transitions). A block never
-    closed is the walk's SGL160 at its opener; the lines the parser drops in it
-    say nothing more. SGL153 (an event argument
-    that breaks the chain) is retired: the parser reads `<E>(…)` from the same
-    tokens, so the chain cannot break; the id stays reserved."""
+    nothing defines. Every other drop is the walk's to report (SGL160 at a block
+    never closed, SGL161 at a `state` block with no owner). SGL153 (an event
+    argument that breaks the chain) is retired: the parser reads `<E>(…)` from
+    the same tokens, so the chain cannot break; the id stays reserved."""
     out = []
     for no, names in facts.alias_refs.items():
         for name in sorted(names):
             out.append(Finding(no, "SGL181", f"`{name}` after `×N` names no modifier-only "
                                f"alias: define it (`{name} := @after(…)`) or write its "
                                "modifiers inline. The model keeps it as an unresolved name."))
-    for line, reason, text in facts.dropped:
-        if reason == "no-owner" and text.startswith("state"):
-            out.append(Finding(line, "SGL161", "`state` block with no owner glyph "
-                               "(`state {Order} {`): the parser drops the whole machine."))
     return out
 
 
-def hardening_findings(walk, facts: Optional[ParsedFacts] = None, target=None) -> list:
+def hardening_findings(walk, facts: Optional[ParsedFacts] = None, target=None,
+                       dialect=None) -> list:
     """Every hardening finding of a document's reading (a Walk; a list of lines is
     read first), in line order, at most one per rule per line. `facts` (from the parsed
-    document) adds the rules that ask the parser; without it they are skipped.
-    `target`: see statement_findings."""
+    document) adds the rule that asks the parser; without it it is skipped.
+    `target`: see statement_findings; `dialect`: the one `walk` was read with."""
     if not isinstance(walk, Walk):
         walk = read_document("\n".join(walk))
-    found = walk_findings(walk) + reserved_marker_findings(walk.lines)
+    found = walk_findings(walk, dialect) + reserved_marker_findings(walk)
     for st in walk.statements:
         if not st.quiet:
             found += statement_findings(st, target)
@@ -476,5 +487,5 @@ def lint_hardening(walk: Walk, result: LintResult, dialect=None, graph=None):
     else:
         target = target_words(set(_hook(dialect, "ARROW_TARGET_WORDS", set())))
     for f in hardening_findings(walk, parsed_facts(graph) if graph is not None else None,
-                                target):
+                                target, dialect):
         result.add(HARDENING_SEVERITY[f.rule], f.line, f.rule, f.message)

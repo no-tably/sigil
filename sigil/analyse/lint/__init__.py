@@ -3,6 +3,7 @@ lint — Sigil syntax and structural validation: `sigil lint FILE|- [--dialect
 NAME] [--deep]` (the command, and --deep's join with check, live in sigil.cli).
 
     lint(text, dialect=…) → LintResult      every rule, in a fixed order
+    lint_reading(text, dialect=…) → Linted  the same, with the reading it judged
     exit_code(severities)                   0 no issues, 1 warnings, 2 errors
     lint_summary(result)                    "sigil: N issue(s) (…)"
 
@@ -24,6 +25,7 @@ pattern, probably a mistake), info (style suggestion, not required to fix).
 """
 
 from collections import Counter
+from typing import NamedTuple
 
 # The known vocabulary, the glyph and arrow tables, the diagnostic records and
 # strip_comment live in core (sigil.core.vocab, the dialect API); lint keeps the
@@ -45,13 +47,25 @@ from sigil.analyse.lint.reading import (  # noqa: F401  (collapse_block_strings:
     blank_lines, collapse_block_strings, header_tokens, line_views, state_lines,
     unterminated_block)
 from sigil.core.dialects import _hook
-from sigil.core.statements import read_document
+from sigil.core.statements import Walk, read_document
+
+
+class Linted(NamedTuple):
+    """A document's lint result and the one reading its rules judged (what
+    `sigil lint --deep` hands the checks, so the document is read once)."""
+    result: LintResult
+    walk: Walk
 
 
 def lint(text: str, dialect=None) -> LintResult:
     """Lint a Sigil document. `dialect` is a loaded dialect (dialects.load) or
     None for core Sigil. The document is read once (read_document): the rules
     below judge that reading, and the parser builds the model from it."""
+    return lint_reading(text, dialect).result
+
+
+def lint_reading(text: str, dialect=None) -> Linted:
+    """lint, with the document's reading (a Walk) beside the result."""
     result = LintResult()
     known = VALID_MODIFIERS | set(_hook(dialect, "KNOWN_MODIFIERS", set()))
     deferred = set(_hook(dialect, "DEFERRED_MODIFIERS", set()))
@@ -79,7 +93,7 @@ def lint(text: str, dialect=None) -> LintResult:
     lint_duplicate_glyph_in_flow(views, result)
     lint_state_block_syntax(walk.transitions, result)
     lint_permission_graph(walk.statements, headers,
-                          declared_principals(views, walk.statements, walk.lexicon), result)
+                          declared_principals(walk, markers), result)
     lint_payloads(walk.statements, result,
                   checks=list(_hook(dialect, "lint_payload_checks")), known=known)
     lint_hardening(walk, result, dialect, graph)
@@ -90,7 +104,7 @@ def lint(text: str, dialect=None) -> LintResult:
             extra(pass_lines, result)
     lint_graph(text, result, dialect, graph)
 
-    return result
+    return Linted(result, walk)
 
 
 def _composition(walk, graph, dialect, result: LintResult) -> tuple:

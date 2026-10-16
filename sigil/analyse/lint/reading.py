@@ -68,7 +68,7 @@ def blank_lines(lines: tuple, markers: dict) -> list:
     return [_blank(line, markers.get(k, ())) for k, line in enumerate(lines)]
 
 
-def _documents(doc: Doc):
+def documents(doc: Doc):
     """`doc` and every definition body inside it, outermost first."""
     stack = [doc]
     while stack:
@@ -82,7 +82,7 @@ def state_lines(doc: Doc) -> frozenset:
     """The line numbers (1-based) a `state` block covers, from its head to the line
     that closes it (to the end of its document when it is never closed)."""
     out: set = set()
-    for d in _documents(doc):
+    for d in documents(doc):
         head = None
         for item in d.items:
             if isinstance(item, StateHead):
@@ -107,7 +107,7 @@ def header_tokens(doc: Doc) -> list:
     """The HeaderTokens of each control-block header that is no statement of its
     own (an owns header is one), in document order."""
     return sorted((HeaderTokens(item.line + 1, item.toks, item.code)
-                   for d in _documents(doc) for item in d.items
+                   for d in documents(doc) for item in d.items
                    if isinstance(item, BlockOpen) and item.header is None),
                   key=lambda h: h.line)
 

@@ -7,9 +7,11 @@ modifier tokens (a flow's, an owns header's, a control-block header's).
 import re
 from typing import NamedTuple
 
-from sigil.core.lex import PRINCIPAL_SET_RE
+from sigil.core.lex import PRINCIPAL_SET_RE, mask_strings
+from sigil.core.statements import BlockMods, Definition, SectionHead, StateEnd, StateHead
 from sigil.core.tokens import dialect_glyph_nodes
 from sigil.core.vocab import GLYPH_PATTERNS, LintResult
+from sigil.analyse.lint.reading import documents, header_tokens
 
 
 # `@borrow(…)` with a narrowing arg, lending access to a delegate (the lent
@@ -34,31 +36,87 @@ def principal_base(name: str) -> str:
     return re.sub(r"<[^<>]*>|\([^()]*\)", "", name).strip().split(".")[0].strip()
 
 
-def declared_principals(views: tuple, statements: tuple, lx) -> set:
+def declared_principals(walk, markers: dict) -> set:
     """The declared ENTITY names a `@read`/`@write` principal may name (the
-    closed-reference universe): the bare name of every glyph of any kind
-    (`[X]`/`{X}`/`<X>`/`(X)`/`|X|`) in the document's code (LineView.bare: an
-    access list's members are not their own declaration), and of each dialect
-    glyph (`lx`: the dialect's reading) a statement holds — as a token or inside
-    its payload or a modifier's argument."""
-    declared: set = set()
-    for view in views:
-        for pat in GLYPH_PATTERNS.values():
-            for m in pat.finditer(view.bare):
-                base = principal_base(m.group(1).strip())
-                if base and base not in ("?", "_"):
-                    declared.add(base)
-    if lx.tokenizers:
-        for st in statements:
-            for t in st.toks:
-                if t.node is not None:
-                    names = [t.node.name]
-                elif t.kind in ("payload", "mod") and not is_access_list(t):
-                    names = [node.name for node, _span in dialect_glyph_nodes(t.text, lx)]
-                else:
-                    continue
-                declared.update(b for b in map(principal_base, names) if b and b != "?")
+    closed-reference universe), from the walk's reading (`walk`, a
+    sigil.core.statements.Walk): the bare name of every glyph of any kind
+    (`[X]`/`{X}`/`<X>`/`(X)`/`|X|`) its tokens hold — a statement's or a
+    control-block header's, a glyph token or one inside a payload, op or
+    modifier argument — and of every dialect glyph they hold (its Node); and
+    the glyphs its records name: a definition's head, a `state` block's owner,
+    a transition's trigger event, a layer section's title, and those in the
+    modifiers after a block's `}`. An access list's members are no declaration
+    of their own, nor is a branch marker the rules read past (`markers`:
+    lint.composition.branch_markers)."""
+    declared = _bases([t.trigger for t in walk.transitions if t.trigger])
+    for d in documents(walk.doc):
+        for item in d.items:
+            declared.update(_record_names(item))
+    for toks, skip in _token_runs(walk.statements, walk.doc, markers):
+        for k, t in enumerate(toks):
+            if k != skip and not is_access_list(t):
+                declared.update(_token_names(t, walk.lexicon))
     return declared
+
+
+def _token_runs(statements: tuple, doc, markers: dict):
+    """(tokens, index of the branch marker read past or -1) of each statement and
+    control-block header (lint.reading.header_tokens)."""
+    for st in statements:
+        skip = st.branch
+        if skip >= 0:
+            start = st.code.col + st.toks[skip].col
+            if (start, start + len(st.toks[skip].text)) not in markers.get(st.line - 1, ()):
+                skip = -1
+        yield st.toks, skip
+    for h in header_tokens(doc):
+        yield h.toks, -1
+
+
+def _token_names(tok, lx) -> set:
+    """The principal names one token declares: its dialect glyph's (`lx`: the
+    dialect's reading), each core glyph in its text outside the dialect glyphs
+    there (glyph_names), and those dialect glyphs' in a payload's or a
+    modifier's text."""
+    if tok.node is not None:
+        return _bases([tok.node.name], holes=("?",))
+    nodes = dialect_glyph_nodes(tok.text, lx) if lx.tokenizers else []
+    text = tok.text
+    for _node, (start, end) in nodes:
+        text = text[:start] + " " * (end - start) + text[end:]
+    names = glyph_names(text)
+    if tok.kind in ("payload", "mod"):
+        names |= _bases([node.name for node, _span in nodes], holes=("?",))
+    return names
+
+
+def _record_names(item) -> set:
+    """The principal names a walk record declares (see declared_principals)."""
+    if isinstance(item, Definition):
+        return (_bases([item.name]) if item.kind is not None else set()) \
+            | glyph_names(item.tail)
+    if isinstance(item, StateHead) and item.owner is not None:
+        return glyph_names(item.owner)
+    if isinstance(item, StateEnd):
+        return _bases([t.trigger for t in item.lines if t.trigger]) | glyph_names(item.tail)
+    if isinstance(item, BlockMods):
+        return glyph_names(item.text)
+    if isinstance(item, SectionHead) and item.level:
+        return glyph_names(item.title)
+    return set()
+
+
+def glyph_names(text: str) -> set:
+    """The principal name of each core glyph written in `text`, outside a `"…"`
+    string."""
+    code = mask_strings(text)
+    return _bases([m.group(1).strip() for pat in GLYPH_PATTERNS.values()
+                   for m in pat.finditer(code)])
+
+
+def _bases(names, holes=("?", "_")) -> set:
+    """The principal_base of each name, without the empty ones and the holes."""
+    return {b for b in map(principal_base, names) if b and b not in holes}
 
 
 class AccessMod(NamedTuple):

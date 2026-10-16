@@ -358,8 +358,10 @@ class Doc:
                  read_verbs: tuple = (), policy_words: tuple = (),
                  inv_heads: frozenset = frozenset(),
                  budget: Optional[int] = None, limits=None,
-                 rule_ids: Optional[dict] = None, overlaps=None):
+                 rule_ids: Optional[dict] = None, overlaps=None, walk=None):
         self.text = text
+        if walk is not None:         # the reading a caller made already (see walk)
+            self.__dict__["walk"] = walk
         self.lines = text.splitlines()
         self.mode = mode
         self.k = k
@@ -1013,7 +1015,7 @@ def limits_of(doc: Doc) -> dict:
 def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
           dialect=None, registry: Optional[dict] = None, pack=None,
           budget: Optional[int] = None, limits=None, overlaps=None,
-          export: bool = False) -> Report:
+          export: bool = False, walk=None) -> Report:
     """Check a document. `mode` overrides its mode line; `pack` defaults to the
     dialect's rule pack (dialect_pack), whose read verbs, policy words and
     `@inv` heads the rules read; `registry` defaults to the core rules, every rule module beside
@@ -1021,7 +1023,9 @@ def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
     (a sim.Limits) bound the simulator, `overlaps` (OVERLAPS or a number of runs)
     says which overlap runs it makes; None takes the defaults. `export` adds the
     export readiness rules to the default registry (a given `registry` runs as
-    it is)."""
+    it is). `walk`: the document's reading (sigil.core.statements.read_document
+    of `text` with `dialect`) when the caller has it already, as `sigil lint
+    --deep` does; None reads it here."""
     pack = dialect_pack(dialect) if pack is None else pack
     registry = default_registry(pack.rules, export) if registry is None else registry
     lines = text.splitlines()
@@ -1033,7 +1037,7 @@ def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
     doc = Doc(text, mode, k, known, dialect, read_verbs=pack.read_verbs,
               policy_words=pack.policy_words, inv_heads=pack.inv_heads,
               budget=budget, limits=limits, overlaps=overlaps,
-              rule_ids={r.id: r.name for r in registry.values()})
+              rule_ids={r.id: r.name for r in registry.values()}, walk=walk)
     first = [r for r in registry.values() if not r.after_acks]
     findings = run_rules(doc, first)
     fold(findings)

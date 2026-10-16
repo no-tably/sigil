@@ -2,10 +2,13 @@
 tokenized once, each line's code read once — the rules and the parser judge that
 reading (sigil.analyse.lint.reading), nothing reads the text again."""
 
+import io
 import sys
+import tempfile
+import types
 import unittest
 from collections import Counter
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -169,6 +172,49 @@ class ReadAsTheWalkReads(unittest.TestCase):
         self.assertEqual(rules("#!sketch\n[A] @inv unique:email -> [B] : {X}\n"), [])
         self.assertIn((2, "SGL100"),
                       rules("#!sketch\n[A] -> [B] : f() => [C] : {a: 1, b}\n"))
+
+
+def _dialect(**hooks):
+    d = types.ModuleType("toy_lint_walk_dialect")
+    d.NAME = "toy"
+    for k, v in hooks.items():
+        setattr(d, k, v)
+    return d
+
+
+class TheWalkAlone(unittest.TestCase):
+    """What lint reads beside the statements is the walk's record too."""
+
+    def test_a_reserved_marker_is_where_the_walk_cut_the_comment(self):
+        self.assertEqual(rules("#!sketch\n[A] -> [B] #= x\n#= alone\n"),
+                         [(2, "SGL188"), (3, "SGL188")])
+        self.assertEqual(rules('#!sketch\n[A] -> [B] # = x\n[A] -> [C] : "#= x"\n'), [])
+
+    def test_a_dialect_comment_marker_starts_the_comment(self):
+        d = _dialect(COMMENT_MARKERS=[r"//"])
+        said = lambda doc: [(x.line, x.rule) for x in lint.lint(doc, dialect=d).diagnostics]
+        self.assertEqual(said("#!sketch\n[A] -> [B] // see #= x\n"), [])
+        self.assertEqual(said("#!sketch\n[A] -> [B] #= x // y\n"), [(2, "SGL188")])
+
+    def test_principals_are_declared_by_what_the_walk_read(self):
+        # A state owner, a definition head, a trigger and a layer section's glyph
+        # declare a name; an access list's members and a branch condition do not.
+        doc = ("#!sketch\nstate {Job} {\n  + -<pay>-> Open\n}\n[Shop] := {\n  [A] -> [B]\n}\n"
+               "|S| @read(Job, pay, Shop)\n")
+        self.assertEqual(rules(doc), [])
+        doc = ("#!sketch\n[Ship]\n    \\-{hot}-? [Cache]\n|S| @read(hot, Ghost)\n"
+               "|T| @write(Ghost)\n")
+        self.assertEqual(rules(doc), [(4, "SGL143"), (4, "SGL143"), (5, "SGL143")])
+
+    def test_lint_deep_reads_the_document_once(self):
+        from sigil import cli
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "doc.sigil"
+            path.write_text(DOC, encoding="utf-8")
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                counts = reading_calls(lambda: cli.main(["lint", "--deep", str(path)]))
+        self.assertEqual(counts["read_lines"], 1)
+        self.assertEqual(counts["fold_block_strings"], 1)
 
 
 if __name__ == "__main__":

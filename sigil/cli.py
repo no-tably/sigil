@@ -183,12 +183,12 @@ def _lint(argv: list, dialect) -> int:
         say("lint", cannot_read(a.file, exc))
         return 2
 
-    result = lint.lint(text, dialect=loaded)
+    result, walk = lint.lint_reading(text, dialect=loaded)
     if not a.deep:
         return _report_lint(result, lint)
     from sigil.analyse import check
     try:
-        report = check.check(text, dialect=loaded)
+        report = check.check(text, dialect=loaded, walk=walk)
     except ValueError as exc:            # a refused rule pack or registry
         say("lint", f"--deep: {exc}")
         return 2
@@ -425,17 +425,25 @@ def _view(argv: list, dialect) -> int:
 # sigil export — the export folder, or with --mermaid the document as a chart
 # ---------------------------------------------------------------------------
 
+# Both forms of `sigil export`, as the command's usage line (its --help and the
+# message for a bad flag, in either form): the USAGE lines that start with it.
+EXPORT_USAGE = "\n       ".join(line.strip() for line in USAGE.splitlines()
+                                if line.strip().startswith("sigil export "))
+
+
 def _export(argv: list, dialect) -> int:
     if "--mermaid" in argv:
-        return _mermaid([a for a in argv if a != "--mermaid"], dialect)
+        return _mermaid(argv, dialect)
     return _export_folder(argv, dialect)
 
 
 def _export_folder(argv: list, dialect) -> int:
     ap = argparse.ArgumentParser(
-        prog=SAID["export"],
+        prog=SAID["export"], usage=EXPORT_USAGE,
         description="Export a ready Sigil spec as a build skeleton: a folder per "
-                    "system, a file per component, manifest.json as the contract.")
+                    "system, a file per component, manifest.json as the contract.",
+        epilog="With --mermaid it draws FILE as a Mermaid chart instead "
+               "(`sigil export FILE --mermaid --help`).")
     ap.add_argument("spec", help="a .sigil file whose mode line is #!spec")
     ap.add_argument("--out", required=True, metavar="DIR",
                     help="the export folder (empty, or an earlier export)")
@@ -477,9 +485,14 @@ def stem_of(path: str) -> str:
 
 
 def _mermaid(argv: list, dialect) -> int:
-    ap = argparse.ArgumentParser(prog=SAID["mermaid"],
-                                 description="Render a Sigil document as Mermaid.")
+    ap = argparse.ArgumentParser(
+        prog=SAID["mermaid"], usage=EXPORT_USAGE,
+        description="Render a Sigil document as Mermaid.",
+        epilog="Without --mermaid it exports a ready spec as a folder "
+               "(`sigil export SPEC --out DIR`; `sigil export --help`).")
     ap.add_argument("file", help="a .sigil file, or - for stdin")
+    ap.add_argument("--mermaid", action="store_true",
+                    help="draw the document as a Mermaid chart (this form)")
     ap.add_argument("--depth", type=depth_arg, default=1,
                     help="expansion depth (N or 'all')")
     ap.add_argument("--composition", choices=("subgraphs", "edges", "none"), default=None,

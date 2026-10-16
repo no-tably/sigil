@@ -103,8 +103,8 @@ class ParserFacts(unittest.TestCase):
     """The rules that ask the parsed model (Graph.dropped, edges by line)."""
 
     @staticmethod
-    def facts(alias_refs=None, dropped=()):
-        return hl.ParsedFacts(alias_refs or {}, tuple(dropped))
+    def facts(alias_refs=None):
+        return hl.ParsedFacts(alias_refs or {})
 
     def test_an_event_argument_chain_is_read_and_sgl153_is_retired(self):
         # The parser reads `<H>({C})` from the walk's tokens, so the chain cannot
@@ -133,20 +133,25 @@ class ParserFacts(unittest.TestCase):
         self.assertEqual([(f.line, f.rule) for f in hl.walk_findings(read_document(text))],
                          [(4, "SGL161")])
 
-    def test_dropped_lines_map_to_findings(self):
-        # #!spec / state { / + -<a>-> S / } / state {X} { / hello / a -<go b / }
-        dropped = [(2, "no-owner", "state {"), (3, "no-owner", "+ -<a>-> S"),
-                   (4, "no-owner", "}"), (6, "not-a-transition", "hello"),
-                   (7, "not-a-transition", "a -<go b")]
-        found = hl.parser_gap_findings(self.facts(dropped=dropped))
-        # One finding for the owner-less machine; a line that is no transition is
-        # the walk's (its Transition), not the parsed facts'.
-        self.assertEqual([(f.line, f.rule) for f in found], [(2, "SGL161")])
+    def test_every_sgl161_is_the_walk_s(self):
+        # One emitter: an owner-less machine at its head, a line of an owned one
+        # that is no transition; the parsed facts give none.
+        text = ("#!spec\nstate {\n  + -<a>-> S\n}\nstate {X} {\n  hello\n  a -<go b\n}\n"
+                "state ~~{Y} {\n}\n")
+        g = render.parse_document(text)
+        self.assertEqual(hl.parser_gap_findings(hl.parsed_facts(g)), [])
+        found = [(f.line, f.rule) for f in hl.walk_findings(read_document(text))]
+        self.assertEqual([x for x in found if x[1] == "SGL161"],
+                         [(2, "SGL161"), (9, "SGL161"), (6, "SGL161")])
+        # The heads it names are the machines the parser drops whole.
+        dropped = {d.line for d in g.dropped if d.reason == "no-owner"
+                   and d.text.startswith("state")}
+        self.assertEqual(set(hl.ownerless_heads(read_document(text).doc)), dropped)
 
     def test_the_parser_reports_what_it_dropped(self):
         g = render.parse_document("#!spec\n[A] := {\n  [B] -> [C]\n")
-        facts = hl.parsed_facts(g)
-        self.assertIn((3, "unclosed", "[B] -> [C]"), facts.dropped)
+        self.assertIn((3, "unclosed", "[B] -> [C]"),
+                      {(d.line, d.reason, d.text) for d in g.dropped})
 
     def test_an_unclosed_block_is_one_finding_at_its_opener(self):
         d = [(x.line, x.rule) for x in lint.lint("#!spec\nstate {X} {\n  + -<a>-> S\n").diagnostics
@@ -155,10 +160,8 @@ class ParserFacts(unittest.TestCase):
 
     def test_an_unclosed_block_is_the_walk_s_finding_alone(self):
         # The lines the parser drops in a block never closed say nothing more.
-        lines = ["#!spec", "[A] -> [B]"]
-        found = hl.hardening_findings(lines, facts=self.facts(dropped=[(2, "unclosed", "x"),
-                                                                         (3, "unclosed", "y")]))
-        self.assertEqual(found, [])
+        self.assertEqual(hardening("#!spec\n[A] := {\n  [B] -> [C]\n  [C] -> [D]\n"),
+                         {"SGL160@2"})
 
 
 class Tokens(unittest.TestCase):
