@@ -68,7 +68,6 @@ NOT_CALLEES = ("actor", "event", "data", "store", "state")
 AMPLIFICATION = 9                # SGC102: attempts at the bottom worth asking about
 _VALUE_RE = re.compile(r'^\s*(?:\$\{[^}]*\}|"[^"]*"|-?\d+(?:\.\d+)?|[A-Za-z_]\w*)\s*$')
 _VERB_RE = re.compile(r"\s*(?:op\s+)?(?:[A-Za-z_]\w*\.)*([A-Za-z_]\w*)")
-_BRANCH_RE = re.compile(r"^\s*(?:\\-|\*-|\{[^}]*\}-|\(\d+\)-)")
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +92,6 @@ class Facts:
     declared: Callable               # (principal, store) → modes (Doc.declared_access)
     read_verbs: tuple
     label: Callable                  # node id → glyph text
-    text: tuple                      # the document's lines
     effects: dict = field(default_factory=dict)
     failures: Optional["Failures"] = None
     spread: Optional[frozenset] = None    # memo of spread_nodes
@@ -129,8 +127,7 @@ def build_facts(doc) -> Facts:
         lines=first_lines(graphs, node_lines), access=doc.access_mode,
         declared=doc.declared_access,
         read_verbs=tuple(doc.read_verbs),
-        label=lambda nid: node_label(nodes[nid]) if nid in nodes else nid,
-        text=tuple(doc.lines))
+        label=lambda nid: node_label(nodes[nid]) if nid in nodes else nid)
 
 
 _INV_HEAD_RE = re.compile(r"\s*([A-Za-z_][\w-]*)")
@@ -2092,12 +2089,10 @@ def single_point_rule(ck):
 # ---------------------------------------------------------------------------
 
 def branch_line(facts: Facts, nid: str) -> int:
-    """The first `\\-` branch line naming the node (tree entries carry no line)."""
-    name = facts.nodes[nid].name if nid in facts.nodes else nid
-    for n, raw in enumerate(facts.text, start=1):
-        if _BRANCH_RE.match(raw) and re.search(rf"[\[({{|<]{re.escape(name)}[\])}}|>]", raw):
-            return n
-    return 0
+    """The first line the node hangs on a composition tree as a branch (a tree
+    entry with a relation), in any unit's graph; 0 when it hangs nowhere."""
+    return min((t.line for g in _graphs(facts) for t in g.tree
+                if t.node == nid and t.rel is not None and t.line), default=0)
 
 
 class Spawn(NamedTuple):

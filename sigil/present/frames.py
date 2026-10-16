@@ -49,6 +49,7 @@ import unicodedata
 from pathlib import Path
 
 from sigil.core.parse import parse_document
+from sigil.core.tokens import code_line
 from sigil.model import scene
 from sigil.model import sim as simulator
 from sigil.present import app, kit
@@ -66,32 +67,18 @@ WIDE_TAIL = "\0"   # a wide character's second cell (logic.ts's WIDE_TAIL): draw
 # A half-typed document
 # ---------------------------------------------------------------------------
 
-_STRING_RE = re.compile(r'"(?:[^"\\]|\\.)*"?')
-_INNER_BRACES_RE = re.compile(r"\{[^{}]*\}")
-
-
-def _code(line: str) -> str:
-    """The line without a trailing # comment and with "…" strings blanked to
-    spaces (same length), so neither a # nor a brace inside a string counts.
-    Mode lines (#!…) have no code."""
-    if line.lstrip().startswith("#!"):
-        return ""
-    blanked = _STRING_RE.sub(lambda m: " " * len(m.group()), line)
-    m = re.search(r"(^|\s)#", blanked)
-    return blanked[:m.start()] if m else blanked
-
-
 def autoclose(lines: list[str]) -> str:
     """The prefix as a document: close any `{` blocks still open, so a half-typed
-    expansion already draws. Braces are counted structurally: after dropping
-    balanced {…} runs on a line (data glyphs, \\-{cond}- relations, one-line
-    blocks), each `{` left opens a block and each `}` closes one — so `X := {`,
-    `state X {`, `[A] @owns |S| {`, `} @inv …` and `}}` all count."""
+    expansion already draws. Each line's code is read as core reads it
+    (tokens.code_line: its comment cut, "…" strings blanked; a `#!` mode line,
+    which the walk never reads as a statement, has none), then each `{` opens a
+    block and each `}` closes one, a `}` with none open read as stray — so
+    `X := {`, `state X {`, `[A] @owns |S| {`, `} @inv …` and `}}` all count, and
+    a balanced `{…}` (a data glyph, a \\-{cond}- relation, a one-line block)
+    nets nothing."""
     depth = 0
     for ln in lines:
-        code, prev = _code(ln), None
-        while code != prev:
-            prev, code = code, _INNER_BRACES_RE.sub("", code)
+        code = "" if ln.lstrip().startswith("#!") else code_line(ln).text
         for ch in code:
             if ch == "{":
                 depth += 1

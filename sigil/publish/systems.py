@@ -39,17 +39,17 @@ from sigil.analyse.check import CORE_NAMES
 def build_model(text: str, stem: str, dialect=None) -> Model:
     """The model of a document, hashed: parsed, its acknowledgements read as
     check reads them."""
-    lines = text.splitlines()
     walk = read_document(text, dialect)               # the one reading
     graph = parse.parse_document(text, dialect=dialect, walk=walk)
     comments = {k + 1: v for k, v in walk.comments.items()}
     acks = read_acks(comments, walk_layout(walk), frozenset(CORE_NAMES.values()))
-    return model_of(graph, lines, stem, acks)
+    return model_of(graph, stem, acks, comments)
 
 
-def model_of(graph, lines: list, stem: str, acks: Iterable = ()) -> Model:
+def model_of(graph, stem: str, acks: Iterable = (),
+             comments: Optional[dict] = None) -> Model:
     """sigil.model.systems.model_of with each system's interface and body hash."""
-    m = systems.model_of(graph, lines, stem, acks)
+    m = systems.model_of(graph, stem, acks, comments)
     return replace(m, systems={k: with_hashes(s, m.components) for k, s in m.systems.items()})
 
 

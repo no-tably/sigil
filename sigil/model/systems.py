@@ -8,7 +8,7 @@ adds the per-system interface and body hashes, the normalised JSON and the
 folder slugs that export writes (its model_of / build_model fill the hashes; a
 Model from here leaves them "").
 
-    model = model_of(graph, lines, stem="shop", acks=acks)
+    model = model_of(graph, stem="shop", acks=acks, comments=comments)
     model.shared, model.untyped
 
 SYSTEMS (inferred, no syntax of their own)
@@ -72,10 +72,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field, replace
-from typing import Iterable, NamedTuple, Optional
+from typing import Iterable, Mapping, NamedTuple, Optional
 
 from sigil.core.graph import walk_depth
-from sigil.core.lex import BLOCK_SENTINEL, GLYPH_BRACKETS, comment_start
+from sigil.core.lex import BLOCK_SENTINEL, GLYPH_BRACKETS
 
 
 # ---------------------------------------------------------------------------
@@ -190,16 +190,18 @@ class Model:
 # ---------------------------------------------------------------------------
 
 
-def model_of(graph, lines: list, stem: str, acks: Iterable = ()) -> Model:
-    """The model of a parsed document. `lines` are its source lines; `acks` its
-    acknowledgements (objects with `line`, `span` and `document`, as check.Ack)."""
+def model_of(graph, stem: str, acks: Iterable = (),
+             comments: Optional[Mapping] = None) -> Model:
+    """The model of a parsed document. `acks`: its acknowledgements (objects with
+    `line`, `span` and `document`, as check.Ack); `comments`: the walk's comments
+    they were read from, {1-based line: (text, own_line)} (check.Doc.comments)."""
     layout = lay_out(graph, stem)
     homes, shared_at = resolve_homes(layout)
     nodes = component_nodes(graph)
     flows = collect_flows(graph, nodes)
     facts = Facts(graph, layout, homes, flows,
                   {nid: glyph([n]) for g in walk(graph) for nid, n in g.nodes.items()},
-                  tuple((a, ack_text(lines, a.line)) for a in acks))
+                  tuple((a, ack_text(comments or {}, a.line)) for a in acks))
     appears = merged(graph_lines(graph, nodes), head_lines(graph, nodes))
     components = {nid: make_component(nid, insts, appears[nid], facts)
                   for nid, insts in nodes.items()}
@@ -540,11 +542,11 @@ def merged(*found: dict) -> dict:
     return {nid: tuple(sorted(v)) for nid, v in out.items()}
 
 
-def ack_text(lines: list, line: int) -> str:
-    """The acknowledgement comment on a 1-based line, verbatim (no `#`)."""
-    raw = lines[line - 1] if 0 < line <= len(lines) else ""
-    m = comment_start(raw, notes_only=True)
-    return (raw[m.end():] if m else raw).strip()
+def ack_text(comments: Mapping, line: int) -> str:
+    """The acknowledgement comment on a 1-based line, verbatim (no `#` or dialect
+    marker): its text in the walk's comments, "" when the line has none."""
+    found = comments.get(line)
+    return found[0] if found else ""
 
 
 # ---------------------------------------------------------------------------

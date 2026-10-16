@@ -32,7 +32,7 @@ def spine(text: str, stem: str, dialect=None) -> str:
     """The Mermaid chart of a document grouped by its export systems; `stem`
     names the top system (as `sigil export` names it after the file)."""
     graph = parse_document(text, dialect=dialect)
-    model = systems.model_of(graph, text.splitlines(), stem)
+    model = systems.model_of(graph, stem)
     return chart(graph, model, dialect)
 
 

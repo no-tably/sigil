@@ -46,7 +46,7 @@ from sigil.core.graph import (  # noqa: F401  (some for the views, as kit.NAME)
     access_kind, base_kind as _base_kind, drawn_join, edge_blocks, node_lines,
     section_of, use_dialect_kinds, walk_breadth as _walk)
 from sigil.core import graph as _graph
-from sigil.core.lex import BLOCK_SENTINEL, MODIFIER_RE
+from sigil.core.lex import BLOCK_SENTINEL, MODIFIER_RE, OPEN_TO_KIND
 from sigil.core.vocab import Diagnostic
 from sigil.analyse.lint import lint as _lint_document
 from sigil.model import scene
@@ -1103,7 +1103,6 @@ _PAYLOAD_TOKEN = re.compile(r"""
   | (?P<number>\b\d+(?:\.\d+)?\b)
   | (?P<punct>[(),:{}\[\]])
 """, re.X)
-_GLYPH_KIND = {"[": "service", "{": "data", "<": "event", "(": "actor", "|": "store"}
 
 
 def glyph_runs(tok: str, kind: str, bold: bool = False, bg=None) -> list:
@@ -1134,7 +1133,7 @@ def payload_runs(text: str) -> list:
             runs.append((text[last:m.start()], PAYLOAD_STYLE))
         role, tok = m.lastgroup, m.group()
         if role == "glyph":
-            runs += glyph_runs(tok, _GLYPH_KIND[tok.lstrip("~*")[0]])
+            runs += glyph_runs(tok, OPEN_TO_KIND[tok.lstrip("~*")[0]])
         elif role == "call":
             runs.append((tok, SYNTAX["call_name"]))
             pending = True
