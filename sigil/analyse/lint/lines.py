@@ -13,10 +13,11 @@ import re
 from typing import Optional
 
 from sigil.core.vocab import (
-    ANY_GLYPH_RE, ARROW_RE, GLYPH_PATTERNS, LintResult, VALID_LOOP_MODS, VALID_MODES,
+    ANY_GLYPH_RE, ARROW_RE, LintResult, VALID_LOOP_MODS, VALID_MODES,
     VALID_MODIFIERS, VALID_PARALLEL_MODS, VALID_STREAM_POLICIES)
 
 from sigil.core.lex import HOLE_RE, MOD_TOKEN_RE, first_content, is_comment_line, is_mode_line
+from sigil.core.tokens import glyph_spans
 
 
 # Vocabulary that strongly suggests a lifecycle state (if used as an actor)
@@ -79,18 +80,19 @@ def lint_holes_in_spec_mode(views: tuple, mode: Optional[str], result: LintResul
 def lint_actor_as_state(views: tuple, states: frozenset, result: LintResult):
     """Flag `(X)` where X looks like a state name, outside `state` blocks (`states`:
     the line numbers they cover). Dialect glyphs and `@read`/`@write` principal
-    lists hold no actor glyph (LineView.bare)."""
+    lists hold no actor glyph (LineView.bare); the actors are core's glyph_spans,
+    the name quoted as written between the parens."""
     for i, view in enumerate(views, start=1):
         if i in states:
             continue
-        for m in GLYPH_PATTERNS["actor"].finditer(view.bare):
-            name = m.group(1).strip().lower()
-            if name in STATE_VOCABULARY:
-                result.add(
-                    "warn", i, "SGL020",
-                    f"({m.group(1)}) looks like a lifecycle state, not an actor. "
-                    f"Use a `state {{Entity}} {{ ... }}` block instead."
-                )
+        for g in glyph_spans(view.bare):
+            if g.kind != "actor" or g.name.lower() not in STATE_VOCABULARY:
+                continue
+            result.add(
+                "warn", i, "SGL020",
+                f"({view.bare[g.start + 1:g.end - 1]}) looks like a lifecycle state, "
+                f"not an actor. Use a `state {{Entity}} {{ ... }}` block instead."
+            )
 
 
 def lint_prose_verbs(views: tuple, result: LintResult):

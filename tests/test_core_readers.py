@@ -2,12 +2,15 @@
 The readers outside core read the text the way core does: the half-typed
 document's open blocks (present/frames.autoclose), a composition branch's line
 (rules/flow.branch_line), the code lines `@inv` is found on (rules/inv), an
-acknowledgement's text in the export model (model/systems) and a glyph's kind
-in the payload colours (present/kit).
+acknowledgement's text in the export model (model/systems), a glyph's kind
+in the payload colours (present/kit), the store / event references of an
+argument (rules/state, rules/inv), the actor glyphs SGL020 reads and the access
+lists lint blanks (lint/lines, lint/permissions).
 """
 
 from __future__ import annotations
 
+import re
 import sys
 import textwrap
 import types
@@ -20,6 +23,9 @@ sys.path.insert(0, str(ROOT))
 from sigil.analyse import check as ck  # noqa: E402
 from sigil.analyse.rules import flow as cf  # noqa: E402
 from sigil.analyse.rules import inv as ci  # noqa: E402
+from sigil.analyse.rules import state as cs  # noqa: E402
+from sigil.analyse.lint import lint  # noqa: E402
+from sigil.core import lex  # noqa: E402
 from sigil.core.lex import CLOSER, OPEN_TO_KIND  # noqa: E402
 from sigil.present import frames, kit  # noqa: E402
 from sigil.publish import systems as em  # noqa: E402
@@ -135,6 +141,82 @@ class BranchLine(unittest.TestCase):
                 report = ck.check(text)
                 lines = [f.hit.line for f in report.shown if f.rule.id == "SGC167"]
                 self.assertEqual(lines, [want])
+
+
+class BranchLineReadsCore(unittest.TestCase):
+    """branch_line reads the lead from lex (BRANCH_LEAD_RE, the pattern flow.py
+    held) and the names from core's glyph_spans over the line's code."""
+
+    OLD_LEAD = re.compile(r"^\s*(?:\\-|\*-|\{[^}]*\}-|\(\d+\)-)")
+
+    def test_the_lead_is_the_one_flow_held(self):
+        for line in corpus_lines() + ["\\-x [A]", "*-> [A]", "{c d}- [A]", "(12)-", "-& {H}",
+                                      "-* [W]", "  \\-> [A]", "[P] \\-* [C]"]:
+            with self.subTest(line=line):
+                self.assertEqual(bool(lex.BRANCH_LEAD_RE.match(line)),
+                                 bool(self.OLD_LEAD.match(line)))
+
+    def test_a_name_in_a_comment_or_string_on_a_branch_line_is_text(self):
+        # Named change: the old search ran over the raw line.
+        for line in ("  \\-> [A]   # not [Worker]", '  \\-> [A] : "[Worker]"'):
+            with self.subTest(line=line):
+                facts = cf.flow_facts(doc_of(f"[Pool]\n{line}\n  \\-* [Worker]\n"))
+                self.assertEqual(cf.branch_line(facts, "Worker_service"), 3)
+
+    def test_a_branch_holds_its_lines_code_as_written(self):
+        facts = cf.flow_facts(doc_of("[Pool]\n  \\-> [A] : f([Worker])\n  \\-* [Worker]\n"))
+        self.assertEqual(facts.branches[0], (2, "  \\-> [A] : f([Worker])"))
+
+
+def corpus_lines() -> list:
+    """Every line of the repository's .sigil documents."""
+    out = []
+    for path in sorted(ROOT.glob("**/*.sigil")):
+        if "node_modules" not in path.parts:
+            out += path.read_text(encoding="utf-8").splitlines()
+    return out
+
+
+class GlyphRefsReadCore(unittest.TestCase):
+    """The store / event reference patterns of rules/state and rules/inv are read
+    off lex's tables and match as the literal patterns did."""
+
+    OLD_STORE = re.compile(r"[~*]?\|([^|]+)\|")
+    OLD_DATA_ONLY = re.compile(r"^\s*~?\{[^{}:]*\}\s*$")
+    OLD_REF = re.compile(r"(?P<pre>[~*]?)(?:\|(?P<store>[^|]+)\||<(?P<event>[^<>]+)>)")
+    EXTRA = ["lock-order(|A| < ~|B| < *|C|)", "atomic(|S|, <E>, *<F>)", "{}", " ~{Row} ",
+             "{Order: [Item]}", "*{X}", "~*|S|", "|a|b|", "<<E>>", "{ x }"]
+
+    def test_the_patterns_match_as_before(self):
+        for text in corpus_lines() + self.EXTRA:
+            with self.subTest(text=text):
+                for new, old in ((cs._STORE_REF_RE, self.OLD_STORE),
+                                 (ci._GLYPH_REF_RE, self.OLD_REF)):
+                    self.assertEqual([m.groupdict() or m.groups() for m in new.finditer(text)],
+                                     [m.groupdict() or m.groups() for m in old.finditer(text)])
+                self.assertEqual(bool(cs._DATA_ONLY_RE.match(text)),
+                                 bool(self.OLD_DATA_ONLY.match(text)))
+
+    def test_glyph_patterns_unchanged(self):
+        for kind, (open_, close) in lex.GLYPH_BRACKETS.items():
+            inside = "".join(map(re.escape, dict.fromkeys(open_ + close)))
+            with self.subTest(kind=kind):
+                self.assertEqual(lex.GLYPH_PATTERNS[kind].pattern,
+                                 f"{re.escape(open_)}([^{inside}]+){re.escape(close)}")
+
+
+class AccessListsReadCore(unittest.TestCase):
+    def test_blanked_as_before(self):
+        old = lex.PRINCIPAL_SET_RE
+        for text in corpus_lines() + ["|S| @read(a, b) @write( c )", "@read", "x@write(y)z"]:
+            with self.subTest(text=text):
+                self.assertEqual(lex.blank_access_lists(text),
+                                 old.sub(lambda m: " " * len(m.group(0)), text))
+
+    def test_an_actor_as_state_quotes_the_name_as_written(self):
+        result = lint("[A] -> ( Pending ) @read(done)\n")
+        self.assertEqual([d.message.split(")")[0] for d in result.diagnostics
+                          if d.rule == "SGL020"], ["( Pending "])
 
 
 class InvCode(unittest.TestCase):

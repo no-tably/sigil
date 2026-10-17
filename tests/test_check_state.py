@@ -497,13 +497,13 @@ class MachineClosingModifiers(unittest.TestCase):
                      self.HEAD + "  + -<Placed>-> Open } @inv ordered(order_id)\n"):
             f, m = self.machine(text)
             self.assertEqual(m.mods, (("inv", "ordered(order_id)"),), text)
-            self.assertEqual(cs.state_block_invs(f, m), ["ordered(order_id)"])
+            self.assertEqual(cs.state_block_invs(m), ["ordered(order_id)"])
 
     def test_a_later_block_s_closing_modifiers_are_not_the_machine_s(self):
         text = (self.HEAD + "  +    -<Placed>-> Open\n  Open -<Paid>-> Settled }\n"
                 "loop @times(2) {\n  [A] -> [B]\n} @inv ordered(order_id)\n")
         f, m = self.machine(text)
-        self.assertEqual((m.mods, cs.state_block_invs(f, m)), ((), []))
+        self.assertEqual((m.mods, cs.state_block_invs(m)), ((), []))
         self.assertIn("SGC205", [x.rule.id for x in ck.check(text).findings])
 
 

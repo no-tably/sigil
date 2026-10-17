@@ -49,6 +49,7 @@ from functools import cached_property
 from typing import NamedTuple, Optional
 
 from sigil.core import graph as core_graph
+from sigil.core.lex import GLYPH_BRACKETS, GLYPH_PATTERNS, PREFIXES_CLASS
 
 
 # ---------------------------------------------------------------------------
@@ -123,8 +124,12 @@ def ack_unused_rule(ck):
 # ---------------------------------------------------------------------------
 
 _HEAD_RE = re.compile(r"\s*([A-Za-z_][\w-]*)")
-_STORE_REF_RE = re.compile(r"[~*]?\|([^|]+)\|")
-_DATA_ONLY_RE = re.compile(r"^\s*~?\{[^{}:]*\}\s*$")
+# A store glyph `|S|` (core's pattern, a `~` / `*` prefix allowed), group 1 its name.
+_STORE_REF_RE = re.compile(PREFIXES_CLASS + "?" + GLYPH_PATTERNS["store"].pattern)
+# A payload that is one data glyph and nothing else (`{Order}`, `~{Row}`, `{}`):
+# a mutable `~` only, no `:` field list inside.
+_DATA_OPEN, _DATA_CLOSE = map(re.escape, GLYPH_BRACKETS["data"])
+_DATA_ONLY_RE = re.compile(rf"^\s*~?{_DATA_OPEN}[^{_DATA_OPEN}{_DATA_CLOSE}:]*{_DATA_CLOSE}\s*$")
 
 # Resolutions a plain store may state (catalog SGC131, SGC204): @inv heads.
 STORE_RESOLUTIONS = ("serialised", "cas", "atomic", "immutable")
@@ -1721,7 +1726,7 @@ def find_optional_callee(ck, f: Facts):
 # SGC205 ordering-unstated, static half (a guess)
 # ---------------------------------------------------------------------------
 
-def state_block_invs(f: Facts, m: MachineView) -> list:
+def state_block_invs(m: MachineView) -> list:
     """The `@inv` arguments written after a machine's closing brace (`} @inv …`)."""
     return inv_args(m.mods)
 
@@ -1750,7 +1755,7 @@ def find_ordering_unstated(ck, f: Facts):
     sources, or by `×N` instances, with no `@inv ordered(key)` on it or its
     events. A guess (one tier down): the trace half finds the real orderings."""
     for m in f.machines:
-        heads = set(f.heads(m.owner)) | {inv_head(a) for a in state_block_invs(f, m)}
+        heads = set(f.heads(m.owner)) | {inv_head(a) for a in state_block_invs(m)}
         sources = trigger_sources(f, m)
         events = list(dict.fromkeys(e for evs in sources.values() for e in evs))
         heads |= {h for e in events for h in f.heads(e)}

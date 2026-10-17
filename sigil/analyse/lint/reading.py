@@ -9,7 +9,7 @@ composition branch markers are where the walk found them.
 
 from typing import NamedTuple
 
-from sigil.core.lex import DIALECT_COL, PRINCIPAL_SET_RE, fold_block_strings
+from sigil.core.lex import DIALECT_COL, blank_access_lists, fold_block_strings
 from sigil.core.statements import BlockOpen, Definition, Doc, StateEnd, StateHead, Walk
 from sigil.core.tokens import Code
 from sigil.core.vocab import LintResult
@@ -37,8 +37,7 @@ def line_views(walk: Walk, markers: dict) -> tuple:
     views = []
     for k, (text, raw) in enumerate(zip(texts, raws)):
         text, raw = _blank(text, markers.get(k, ())), _blank(raw, markers.get(k, ()))
-        bare = PRINCIPAL_SET_RE.sub(lambda m: " " * len(m.group(0)),
-                                    text.replace(DIALECT_COL, " "))
+        bare = blank_access_lists(text.replace(DIALECT_COL, " "))
         views.append(LineView(_with_dialect_text(text, raw), bare))
     return tuple(views)
 

@@ -24,8 +24,6 @@ regen_docs.py — regenerate the drawings embedded in the docs from `sigil view`
   command's output on the site example published as NAME.sigil
   (site/examples/NN-NAME.sigil: 00-shortener, 04-orders).
 
-The README's commands are matched as `sigil view` or the older `view.py`.
-
 Standard library only.
 """
 from __future__ import annotations
@@ -46,9 +44,8 @@ SIM_ALL_EXAMPLES = {"shortener.sigil": ROOT / "site" / "examples" / "00-shortene
                     "orders.sigil": ROOT / "site" / "examples" / "04-orders.sigil"}
 
 
-# The README names the viewer by its command; both names are read, so the
-# drawings stay checked while the docs move from `view.py` to `sigil view`.
-VIEW = r"(?:view\.py|sigil view)"
+# The README names the viewer by its command.
+VIEW = r"sigil view"
 FLOW_RE = re.compile(r"`" + VIEW + r"` draws it in the terminal.*?:\n\n```\n(.*?)```", re.S)
 GRAPH_RE = re.compile(r"`--graph` draws the same design.*?:\n\n```\n(.*?)```", re.S)
 SIM_RE = re.compile(r"```sh\n" + VIEW + r" checkout.sigil (--once --tree --sim '([^']+)')\n```"

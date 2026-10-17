@@ -645,7 +645,7 @@ def events_ignored(ck, doc):
 def ordering_declared(st, f, m) -> bool:
     """`@inv ordered(key)` on the machine's owner, after its `}`, or on an event
     that drives it (as SGC205's static half reads it)."""
-    heads = set(f.heads(m.owner)) | {st.inv_head(a) for a in st.state_block_invs(f, m)}
+    heads = set(f.heads(m.owner)) | {st.inv_head(a) for a in st.state_block_invs(m)}
     heads |= {h for tr in f.doc.graph.triggers if tr.owner == m.owner
               for h in f.heads(tr.event)}
     return "ordered" in heads

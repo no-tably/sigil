@@ -132,13 +132,14 @@ class TestRegenDocs(unittest.TestCase):
         text = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertEqual(regen.missing_anchors(text), [])
 
-    def test_both_command_names(self):
-        for cmd in ("view.py", "sigil view"):
+    def test_the_command_name(self):
+        """The README's commands are `sigil view`; the old `view.py` is no anchor."""
+        for cmd, found in (("sigil view", True), ("view.py", False)):
             doc = (f"```sh\n{cmd} orders.sigil --once --sim all\n```\n\n```\nx\n```\n"
                    f"```sh\n{cmd} checkout.sigil --once --run --sim 'A'\n```\n\n```\nx\n```\n")
             missing = regen.missing_anchors(doc)
-            self.assertNotIn("sim all orders.sigil", missing, cmd)
-            self.assertNotIn("run", missing, cmd)
+            self.assertEqual("sim all orders.sigil" not in missing, found, cmd)
+            self.assertEqual("run" not in missing, found, cmd)
             self.assertIn("flow", missing, cmd)
 
 

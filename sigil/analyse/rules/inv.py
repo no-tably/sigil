@@ -37,12 +37,16 @@ from functools import cached_property
 from typing import NamedTuple, Optional
 
 from sigil.core import graph as core_graph
+from sigil.core.lex import PREFIXES_CLASS, glyph_name_source
 
 
 SYNC_KINDS = ("->", "→", "<->", "*>", "?>")       # the caller waits (as rules.flow)
 BOUND_HEADS = ("depth", "hops", "concurrency")
 
-_GLYPH_REF_RE = re.compile(r"(?P<pre>[~*]?)(?:\|(?P<store>[^|]+)\||<(?P<event>[^<>]+)>)")
+# A store or event glyph (core's patterns, a `~` / `*` prefix allowed), its name
+# in the group of its kind.
+_GLYPH_REF_RE = re.compile(f"(?P<pre>{PREFIXES_CLASS}?)(?:{glyph_name_source('store', 'store')}"
+                           f"|{glyph_name_source('event', 'event')})")
 _BOUND_RE = re.compile(r"^\s*[\w-]+\s*(?:<=|≤|<)\s*(?P<n>\S+)\s*$")
 _SLA_RE = re.compile(r"p(?P<p>\d+(?:\.\d+)?)\s*(?:<=|≤|<)\s*(?P<t>\d+(?:\.\d+)?\s*[a-z]+)")
 _OPERATOR_RE = re.compile(r"\+\+|\|\||[-+*/]")

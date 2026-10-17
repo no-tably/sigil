@@ -60,6 +60,8 @@ from dataclasses import dataclass, field
 from typing import Callable, NamedTuple, Optional
 
 from sigil.core.graph import node_label, node_lines
+from sigil.core.lex import BRANCH_LEAD_RE
+from sigil.core.tokens import glyph_spans
 
 
 SYNC_KINDS = ("->", "→", "<->", "*>", "?>")      # the caller waits
@@ -92,7 +94,7 @@ class Facts:
     declared: Callable               # (principal, store) → modes (Doc.declared_access)
     read_verbs: tuple
     label: Callable                  # node id → glyph text
-    branches: tuple                  # (line, source line) of each branch-led statement
+    branches: tuple                  # (line, code as written) of each branch-led statement
     effects: dict = field(default_factory=dict)
     failures: Optional["Failures"] = None
     spread: Optional[frozenset] = None    # memo of spread_nodes
@@ -129,19 +131,15 @@ def build_facts(doc) -> Facts:
         declared=doc.declared_access,
         read_verbs=tuple(doc.read_verbs),
         label=lambda nid: node_label(nodes[nid]) if nid in nodes else nid,
-        branches=branch_statements(doc.walk, doc.lines))
+        branches=branch_statements(doc.walk))
 
 
-# A statement led by a composition branch marker: `\\-…`, or a bare `*-…`,
-# `{c}-…`, `(N)-…` (well-formed or not: lint judges the marker).
-_BRANCH_LEAD_RE = re.compile(r"^\s*(?:\\-|\*-|\{[^}]*\}-|\(\d+\)-)")
-
-
-def branch_statements(walk, lines) -> tuple:
-    """(line, source line) of every statement the walk reads at the start of its
-    line whose code (strings masked, comment cut) starts with a branch marker."""
-    return tuple((st.line, lines[st.line - 1]) for st in walk.statements
-                 if not st.shift and _BRANCH_LEAD_RE.match(st.code.text))
+def branch_statements(walk) -> tuple:
+    """(line, the line's code as written: comment cut, strings and dialect glyphs
+    intact) of every statement the walk reads at the start of its line whose code
+    (strings masked, comment cut) starts with a branch marker (lex.BRANCH_LEAD_RE)."""
+    return tuple((st.line, walk.codes[st.line - 1].raw) for st in walk.statements
+                 if not st.shift and BRANCH_LEAD_RE.match(st.code.text))
 
 
 _INV_HEAD_RE = re.compile(r"\s*([A-Za-z_][\w-]*)")
@@ -2103,12 +2101,13 @@ def single_point_rule(ck):
 # ---------------------------------------------------------------------------
 
 def branch_line(facts: Facts, nid: str) -> int:
-    """The first branch statement whose line writes the node's name in any
-    glyph's brackets (tree entries carry the line their node is written on,
-    which may be a parent's inline `[P] \\-* [C]`); 0 when none does."""
+    """The first branch statement whose line writes the node's name as a glyph of
+    any kind (core's glyph_spans: outside a string, nested glyphs too; tree
+    entries carry the line their node is written on, which may be a parent's
+    inline `[P] \\-* [C]`); 0 when none does."""
     name = facts.nodes[nid].name if nid in facts.nodes else nid
-    named = re.compile(rf"[\[({{|<]{re.escape(name)}[\])}}|>]")
-    return next((n for n, raw in facts.branches if named.search(raw)), 0)
+    return next((n for n, code in facts.branches
+                 if any(g.name == name for g in glyph_spans(code))), 0)
 
 
 class Spawn(NamedTuple):

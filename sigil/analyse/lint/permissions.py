@@ -7,7 +7,7 @@ modifier tokens (a flow's, an owns header's, a control-block header's).
 import re
 from typing import NamedTuple
 
-from sigil.core.lex import DIALECT_COL, PRINCIPAL_SET_RE
+from sigil.core.lex import DIALECT_COL, PRINCIPAL_SET_RE, blank_access_lists
 from sigil.core.statements import BlockMods, Definition, SectionHead
 from sigil.core.tokens import dialect_glyph_nodes, glyph_spans
 from sigil.core.vocab import LintResult
@@ -64,11 +64,11 @@ def declared_principals(walk, markers: dict) -> set:
 def _state_names(walk) -> set:
     """The principal name of each core glyph on the lines a `state` block covers
     (lint.reading.state_lines), read from the walk's code of each line with its
-    access lists and dialect glyphs blanked."""
+    access lists (core's blank_access_lists) and dialect glyphs blanked."""
     names: set = set()
     for n in state_lines(walk.doc):
         code = walk.codes[n - 1].text.replace(DIALECT_COL, " ")
-        names |= glyph_names(PRINCIPAL_SET_RE.sub(lambda m: " " * len(m.group(0)), code))
+        names |= glyph_names(blank_access_lists(code))
     return names
 
 

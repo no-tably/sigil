@@ -15,11 +15,13 @@ one reading each:
     arrows        ARROWS, ARROW_RE
     glyphs        GLYPH_BRACKETS (the core kinds' brackets: OPEN_TO_KIND,
                   CLOSER, OPENERS, CLOSERS and their regex classes,
-                  GLYPH_PATTERNS read off it), GLYPH_PREFIXES, glyph_kind,
+                  GLYPH_PATTERNS read off it, glyph_name_source),
+                  GLYPH_PREFIXES, glyph_kind,
                   NAME_CHARS, GENERIC,
                   GLYPH_RE, GENERIC_RE, ANY_GLYPH_RE, HOLE_RE, DIALECT_COL
     modifiers     PAREN_ARG, FREE_ARG_MODS, ARG_MODIFIERS, MODIFIER_RE,
                   MOD_TOKEN_RE, MOD_NAME_RE, TAIL_ONLY_RE, PRINCIPAL_SET_RE,
+                  blank_access_lists,
                   STREAM_BOUND_RE, GLUED_MOD_RE, TAIL_MOD_RE, CARD_RE, BOUND_RE,
                   FIELD_RE, ALIAS_REF_RE, ALIAS_REF
     payloads      PAYLOAD_RE, PAYLOAD_TAIL_RE, PAYLOAD_TAIL_LOOSE_RE
@@ -27,6 +29,7 @@ one reading each:
                   STATE_HEAD_RE, STATE_OPEN_RE, LOOP_HEAD_RE,
                   SCOPE_HEAD_RE, ARM_RE, BRANCH_RE, BRANCH_PARENT_RE,
                   CORE_RELATIONS, BRANCH_ANY_RE, branch_re, BARE_BRANCH_RE,
+                  BRANCH_LEAD_RE,
                   close_at, net_braces (braces in a string are string text)
     scanning      balanced_end (a bracket group's end)
 
@@ -344,14 +347,17 @@ GLYPH_RE = re.compile(
 )
 
 
-def _name_pattern(open_: str, close: str) -> "re.Pattern":
-    """A glyph of these brackets, group 1 its name (no bracket of its own inside)."""
+def glyph_name_source(kind: str, group: str = "") -> str:
+    """The regex source of one `kind` glyph, its name captured (no bracket of its
+    own inside) — group 1, or the named group `group` when given."""
+    open_, close = GLYPH_BRACKETS[kind]
     inside = "".join(map(re.escape, dict.fromkeys(open_ + close)))
-    return re.compile(f"{re.escape(open_)}([^{inside}]+){re.escape(close)}")
+    cap = f"(?P<{group}>" if group else "("
+    return f"{re.escape(open_)}{cap}[^{inside}]+){re.escape(close)}"
 
 
 # One pattern per core glyph kind, group 1 the name (no generics: lint's reading).
-GLYPH_PATTERNS = {kind: _name_pattern(*pair) for kind, pair in GLYPH_BRACKETS.items()}
+GLYPH_PATTERNS = {kind: re.compile(glyph_name_source(kind)) for kind in GLYPH_BRACKETS}
 
 # Any glyph at all (for flow-line analysis). The `<->` bidirectional arrow is
 # never an event glyph `<-…>`.
@@ -412,6 +418,15 @@ TAIL_ONLY_RE = re.compile(r"^(?:\s*(?:×\s*\w+|x(?:\d+|N)\b|!(?![>=])))+\s*$")
 PRINCIPAL_SET_RE = re.compile(
     r"@(?P<mod>read|write)\s*\((?P<set>[^()]*)\)"
 )
+
+
+def blank_access_lists(text: str) -> str:
+    """`text` with each `@read(…)` / `@write(…)` access list blanked to spaces
+    (length-preserving): its members are principal names, never glyphs."""
+    if "@" not in text:
+        return text
+    return PRINCIPAL_SET_RE.sub(lambda m: " " * len(m.group(0)), text)
+
 
 # A stream bound `^N` / `^N@policy` (language.md "Streams"), glued to a glyph:
 # captured before the generic `@name` modifier rule, which would otherwise take
@@ -527,6 +542,11 @@ def branch_re(relations: str) -> re.Pattern:
 BARE_BRANCH_RE = re.compile(
     r"^(?:\*-[>&?$@!=_]|-\*(?=\s|$)|-[&?$@!=_](?=\s)|\(\d+\)-[>&?$@!=_]"
     r"|\{[A-Za-z0-9_-]+\}-[>&?$@!=_])")
+
+# What leads a statement that stands as a composition branch, well formed or not
+# (lint judges the marker): a `\\-`, or a bare `*-`, `{c}-`, `(N)-` written
+# without it, its relation not looked at.
+BRANCH_LEAD_RE = re.compile(r"^\s*(?:" + BRANCH_ANY_RE.pattern + r"|\*-|\{[^}]*\}-|\(\d+\)-)")
 
 
 def net_braces(text: str) -> int:
