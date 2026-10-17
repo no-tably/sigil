@@ -161,3 +161,44 @@ class ScannerShortcuts(unittest.TestCase):
     def test_a_statement_with_no_modifier_or_payload_keeps_its_scan_order(self):
         toks = tokens.tokenize_statement(tokens.code_line("[A] -> [B] & [C] => <D>"))
         self.assertEqual([t.col for t in toks], sorted(t.col for t in toks))
+
+
+def _mods(line: str) -> list:
+    return [t.pair for t in tokens.tokenize_statement(tokens.code_line(line)) if t.pair]
+
+
+class FreeArgumentModifier(unittest.TestCase):
+    """A free-argument modifier (`@owns`, `@inv`, …) ends where the next header
+    token starts: a stream bound, an access list, `×N`, `!`, a block `{`. Its
+    argument never carries the blanks of another capture, and what follows it
+    reads as it would without it."""
+
+    def test_a_bound_and_a_mark_after_a_parenthesised_argument(self):
+        self.assertEqual(_mods("[Y] @owns(|S|) ^4 ! {"),
+                         [("owns", "|S|"), ("^", "4"), ("!", None)])
+        self.assertEqual(_mods("[Y] @owns(|S|) ^4 ! {")[1:], _mods("[Y] ^4 ! {"))
+
+    def test_a_bound_and_a_mark_after_a_free_argument(self):
+        self.assertEqual(_mods("[Y] @owns |S| ^4 ! {"),
+                         [("owns", "|S|"), ("^", "4"), ("!", None)])
+        self.assertEqual(_mods("[Y] @owns |S| ×3 !"),
+                         [("owns", "|S|"), ("×", "3"), ("!", None)])
+
+    def test_a_block_brace_ends_the_argument(self):
+        self.assertEqual(_mods("[Y] @owns(|S|) ×3 ! {"),
+                         [("owns", "|S|"), ("×", "3"), ("!", None)])
+
+    def test_no_argument_carries_a_blank(self):
+        for line in ("[Y] @owns(|S|) ^4@drop {", "[Y] @inv x > 0 ^4 -> [Z]",
+                     "[Y] @owns |S| @read(A) {"):
+            for _name, arg in _mods(line):
+                self.assertNotIn("\x00", arg or "", line)
+
+    def test_an_argument_with_marks_inside_keeps_them(self):
+        self.assertEqual(_mods("[Y] @inv a != b"), [("inv", "a != b")])
+        self.assertEqual(_mods("[Y] @owns(|S|) |T|"), [("owns", "(|S|) |T|")])
+
+    def test_the_owner_of_an_owns_block_reads_the_same(self):
+        g = parse.parse_document("[Y] @owns(|S|) ^4 ! {\n  [Y] -> |S|\n}\n")
+        self.assertEqual(g.nodes["Y_service"].mods, [("owns", "|S|"), ("^", "4"), ("!", None)])
+        self.assertEqual(g.blocks[0].modifiers, [("owns", "|S|"), ("^", "4"), ("!", None)])

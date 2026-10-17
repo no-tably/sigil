@@ -192,6 +192,39 @@ READERS = (parse, statements, tokens, comments, lint, composition, hardening, li
            permissions, reading)
 
 
+class GlyphTables(unittest.TestCase):
+    """The glyph brackets and prefixes are lex's one table; a `state` owner takes
+    the prefixes a glyph takes; one predicate says what a mode line is."""
+
+    def test_the_bracket_strings_are_the_table_s(self):
+        self.assertEqual(lex.OPENERS, "".join(o for o, _c in lex.GLYPH_BRACKETS.values()))
+        self.assertEqual(lex.CLOSERS, "".join(c for _o, c in lex.GLYPH_BRACKETS.values()))
+        for o in lex.OPENERS:
+            self.assertTrue(re.fullmatch(lex.OPENERS_CLASS, o), o)
+        for c in lex.CLOSERS:
+            self.assertTrue(re.fullmatch(lex.CLOSERS_CLASS, c), c)
+
+    def test_a_state_owner_is_a_glyph_the_parser_reads(self):
+        for head, owner in (("state {X} {", "{X}"), ("state ~{X} {", "~{X}"),
+                            ("state ~*{X} {", "~*{X}"), ("state ~~{X} {", None),
+                            ("state *~{X} {", None)):
+            m = lex.STATE_HEAD_RE.match(head)
+            self.assertEqual(m.group(1) if m else None, owner, head)
+            glyph = parse.parse_glyph(head[len("state "):-2])
+            self.assertEqual(glyph is not None, owner is not None, head)
+
+    def test_an_owner_less_head_has_no_owner_in_the_walk(self):
+        doc = statements.read_document("state ~~{X} {\n  A -<a>-> B\n}\n").doc
+        heads = [i for i in doc.items if isinstance(i, statements.StateHead)]
+        self.assertEqual([h.owner for h in heads], [None])
+
+    def test_a_mode_line_indented_or_not(self):
+        self.assertTrue(lex.is_mode_line("#!spec"))
+        self.assertTrue(lex.is_mode_line("  #!craft # x"))
+        self.assertFalse(lex.is_mode_line("[A] #!x"))
+        self.assertFalse(lex.is_mode_line("# !spec"))
+
+
 class OneSourceOfTruth(unittest.TestCase):
     def test_no_reader_keeps_a_copy_of_a_lex_pattern(self):
         held = {(v.pattern, v.flags): name for name, v in vars(lex).items()

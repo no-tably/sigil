@@ -240,7 +240,7 @@ class Graph:
     heads: list = field(default_factory=list)
     # Events wired to state-machine transitions by name (top-level graph only).
     triggers: list = field(default_factory=list)
-    # Comments attached to nodes (see collect_comments / parse_document).
+    # Comments attached to nodes (the walk's comments, see parse_document).
     notes: list = field(default_factory=list)
     # Control blocks, joined endpoints, the permission graph, section headers —
     # see the model description above.

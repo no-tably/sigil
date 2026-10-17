@@ -18,6 +18,7 @@ sys.path.insert(0, str(_DIR))
 
 from sigil import cli  # noqa: E402
 from sigil.core import lex, parse as render  # noqa: E402
+from sigil.core.statements import read_document  # noqa: E402
 from sigil.publish import mermaid  # noqa: E402
 
 
@@ -149,7 +150,7 @@ class HashInsideString(unittest.TestCase):          # 8, 19
 
     def test_amp_marker_is_stripped_but_no_note(self):
         self.assertEqual(lex.strip_comment("[A] #&marker"), "[A] ")
-        self.assertEqual(render.collect_comments(["[A] #&marker # real"]), {0: ("real", False)})
+        self.assertEqual(read_document("[A] #&marker # real").comments, {0: ("real", False)})
 
     def test_at_sign_inside_string_payload(self):
         g = parse('[A] -> [B] : "mail ops@example.com"')

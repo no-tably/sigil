@@ -1,7 +1,5 @@
 """What a document's comments say: notes, block-strings, acknowledgements.
 
-    comments        collect_comments(lines, dialect) → {line index: (text,
-                    own_line)} (the one reading's, sigil.core.statements)
     notes           note_index(g): every node's notes, numbered in document
                     order (top level first, then expansions); note_key,
                     block_note_key, DOC_NOTE / BLOCK_NOTE keys; a block-string
@@ -23,7 +21,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from sigil.core.graph import Note, walk_breadth
-from sigil.core.parse import collect_comments  # noqa: F401  (re-exported)
+from sigil.core.lex import is_mode_line
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +168,7 @@ def walk_layout(walk) -> Layout:
 
 def _holds_code(line: str, code: str) -> bool:
     stripped = line.strip()
-    if stripped.startswith("#!"):
+    if is_mode_line(stripped):
         return False
     return stripped.startswith("#&") or bool(code.strip())
 

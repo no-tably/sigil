@@ -22,10 +22,9 @@ from sigil.core.lex import (  # noqa: F401  (also read as parse.<name> by the mo
 from sigil.core.graph import (  # noqa: F401  (also read as parse.<name>)
     Access, Block, Dropped, Edge, Graph, Join, Node, Note, Section, TreeEntry, Trigger,
     mk_id, walk_depth)
-from sigil.core.statements import (  # noqa: F401  (collect_comments: read as parse.<name>)
+from sigil.core.statements import (
     BlockClose, BlockMods, BlockOpen, Blank, Declaration, Definition, Doc, Flow,
-    Note as NoteItem, SectionHead, StateEnd, StateHead, Walk, collect_comments,
-    read_document)
+    Note as NoteItem, SectionHead, StateEnd, StateHead, Walk, read_document)
 from sigil.core.tokens import lexicon, mod_pair, scan_mods
 
 # ---------------------------------------------------------------------------

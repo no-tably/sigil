@@ -4,7 +4,7 @@ lex — the lexical tables of Sigil text, kept once: the statement walk
 (sigil.core.parse) and lint (sigil.analyse.lint) all read lines through these,
 one reading each:
 
-    comments      COMMENT_START_RE, in_string, comment_start, comment_col,
+    comments      is_mode_line, COMMENT_START_RE, in_string, comment_start, comment_col,
                   code_end (where a line's code ends: `#` or a dialect's
                   comment marker, outside a `"…"` string), strip_comment
     strings       STRING_RE, mask_strings
@@ -14,7 +14,8 @@ one reading each:
                   payload), OP_HEAD_RE (an op-call's head `verb(`)
     arrows        ARROWS, ARROW_RE
     glyphs        GLYPH_BRACKETS (the core kinds' brackets: OPEN_TO_KIND,
-                  CLOSER, GLYPH_PATTERNS read off it), NAME_CHARS, GENERIC,
+                  CLOSER, OPENERS, CLOSERS and their regex classes,
+                  GLYPH_PATTERNS read off it), GLYPH_PREFIXES, NAME_CHARS, GENERIC,
                   GLYPH_RE, GENERIC_RE, ANY_GLYPH_RE, HOLE_RE, DIALECT_COL
     modifiers     PAREN_ARG, FREE_ARG_MODS, ARG_MODIFIERS, MODIFIER_RE,
                   MOD_TOKEN_RE, MOD_NAME_RE, TAIL_ONLY_RE, PRINCIPAL_SET_RE,
@@ -26,8 +27,7 @@ one reading each:
                   SCOPE_HEAD_RE, ARM_RE, BRANCH_RE, BRANCH_PARENT_RE,
                   CORE_RELATIONS, BRANCH_ANY_RE, branch_re, BARE_BRANCH_RE,
                   close_at, net_braces (braces in a string are string text)
-    scanning      balanced_end (a bracket group's end), apply_masks (a list of
-                  length-preserving `fn(line) -> line` masks)
+    scanning      balanced_end (a bracket group's end)
 
 A dialect's hooks are read by sigil.core.dialects._hook; its vocabulary (the
 names a dialect builds on) is re-exported by sigil.core.vocab.
@@ -73,10 +73,16 @@ def comment_start(line: str, notes_only: bool = False):
     return None
 
 
+def is_mode_line(line: str) -> bool:
+    """Whether the line is a `#!` mode line (indented or not): it holds no code
+    and no comment."""
+    return line.lstrip().startswith("#!")
+
+
 def comment_col(line: str) -> Optional[int]:
     """Column of the comment `#` on the line (not one inside a closed `"…"`
     string, not on a line that is a `#!` mode line once indented), or None."""
-    if line.lstrip().startswith("#!"):
+    if is_mode_line(line):
         return None
     m = comment_start(line)
     return m.start() if m else None
@@ -88,7 +94,7 @@ def code_end(line: str, marker: Optional[re.Pattern] = None) -> int:
     after whitespace) outside a `"…"` string; else the line's length."""
     col = comment_col(line)
     end = len(line) if col is None else col
-    if marker is not None and not line.lstrip().startswith("#!"):
+    if marker is not None and not is_mode_line(line):
         for m in marker.finditer(line, 0, end):
             if not in_string(line, m.start()):
                 return m.start()
@@ -150,7 +156,7 @@ def _block_open_pos(raw: str) -> Optional[int]:
     None. A `#!` mode line never opens a block; a `\"\"\"` after the line's
     comment `#` is comment text (`# see \"\"\"` is inert)."""
     pos = raw.find(BLOCK_DELIM)
-    if pos == -1 or raw.lstrip().startswith("#!"):
+    if pos == -1 or is_mode_line(raw):
         return None
     col = comment_col(raw)
     if col is not None and col < pos:
@@ -281,13 +287,6 @@ ARROW_RE = re.compile("(" + "|".join(map(re.escape, ARROWS)) + ")")
 NAME_CHARS = r"[^\[\]\{\}<>()|]"
 GENERIC = (r"<" + NAME_CHARS + r"*(?:<" + NAME_CHARS + r"*>" + NAME_CHARS + r"*)*>")
 GENERIC_RE = re.compile(GENERIC)
-GLYPH_RE = re.compile(
-    r"(?P<mut>~)?(?P<stream>\*)?"
-    r"(?P<open>[\[\{<\(\|])"
-    r"(?P<name>" + NAME_CHARS + r"+(?:" + GENERIC + r")?)"
-    r"(?P<close>[\]\}>\)\|])"
-)
-
 # The core glyph kinds and their brackets — the one table; the views below and
 # core.graph.GLYPH_KINDS (a node's label brackets) are read off it.
 GLYPH_BRACKETS = {
@@ -301,6 +300,23 @@ GLYPH_BRACKETS = {
 # Each glyph's opening bracket → its kind, and → its closing bracket.
 OPEN_TO_KIND = {open_: kind for kind, (open_, _close) in GLYPH_BRACKETS.items()}
 CLOSER = dict(GLYPH_BRACKETS.values())
+
+# Every glyph's opening / closing bracket as one string, and the prefixes a glyph
+# may carry (`~` mutable, then `*` stream); OPENERS_CLASS, CLOSERS_CLASS and
+# PREFIXES_CLASS are regex classes of them.
+OPENERS = "".join(OPEN_TO_KIND)
+CLOSERS = "".join(CLOSER.values())
+GLYPH_PREFIXES = "~*"
+OPENERS_CLASS = "[" + re.escape(OPENERS) + "]"
+CLOSERS_CLASS = "[" + re.escape(CLOSERS) + "]"
+PREFIXES_CLASS = "[" + re.escape(GLYPH_PREFIXES) + "]"
+
+GLYPH_RE = re.compile(
+    r"(?P<mut>~)?(?P<stream>\*)?"
+    r"(?P<open>" + OPENERS_CLASS + ")"
+    r"(?P<name>" + NAME_CHARS + r"+(?:" + GENERIC + r")?)"
+    r"(?P<close>" + CLOSERS_CLASS + ")"
+)
 
 
 def _name_pattern(open_: str, close: str) -> "re.Pattern":
@@ -444,9 +460,10 @@ BLOCK_OPEN_RE = re.compile(r"\{(?=\s|$)")
 # A state-machine header: `state <glyph> {` — any glyph owns the machine (`{Order}`
 # a record's lifecycle, `[Checkout]` a component's own modes). STATE_OPEN_RE also
 # takes a malformed header (no owner glyph: `state {`, `state Foo {`), whose block
-# is consumed unparsed.
-STATE_HEAD_RE = re.compile(r"^state\s*([~*]*[\[{<(|]" + NAME_CHARS + r"+(?:" + GENERIC
-                           + r")?[\]}>)|])\s*\{")
+# is consumed unparsed. The owner's prefixes are a glyph's (GLYPH_RE: `~`, then
+# `*`), so `state ~~{X} {` has no owner to the walk, as to the parser.
+STATE_HEAD_RE = re.compile(r"^state\s*(~?\*?" + OPENERS_CLASS + NAME_CHARS + r"+(?:"
+                           + GENERIC + r")?" + CLOSERS_CLASS + r")\s*\{")
 STATE_OPEN_RE = re.compile(r"^state(?:\s[^{]*)?\{")
 
 # A control block header: its statements are ordinary flows.
@@ -469,7 +486,8 @@ BRANCH_RE = re.compile(
 CORE_RELATIONS = ">&?$@!=_"
 # What may precede an inline branch (`[parent] \\-& [child]`): glyphs only — no
 # payload colon, no prose.
-BRANCH_PARENT_RE = re.compile(r"^\s*[~*]?[\[{<(|][^:]*[\]}>)|]\s*$")
+BRANCH_PARENT_RE = re.compile(r"^\s*" + PREFIXES_CLASS + "?" + OPENERS_CLASS + "[^:]*" + CLOSERS_CLASS
+                              + r"\s*$")
 BRANCH_ANY_RE = re.compile(r"\\-")
 
 
@@ -526,10 +544,3 @@ def balanced_end(s: str, i: int) -> int:
             if not stack:
                 return j + 1
     return -1
-
-
-def apply_masks(line: str, masks) -> str:
-    """Apply a dialect's glyph masks (length-preserving `fn(line) -> line`) in order."""
-    for mask in masks:
-        line = mask(line)
-    return line

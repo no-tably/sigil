@@ -29,6 +29,18 @@ glyph (`×N`, `!`, `?`, `.field`). Unreadable text becomes a `bad` token or a
 token with a `problem`, which lint's hardening rules report; a token the model
 does not read (a join with no glyph before it, a broken glyph) says so in its
 `flag`. The lexical tables are sigil.core.lex's.
+
+The modifier and payload capture (_capture_mods, _take_payload, run by _Reader
+before the scan) is part of this one reading, not a second tokenizer: it only
+decides which spans are a modifier or the payload, and blanks them in place so
+every other column stays put; the scanner then reads the rest, and the spans'
+own tokens (span_tokens) come from the same capture. It stays a pass of its own
+because what a span is depends on the whole statement, not on what is left of
+it: a stream bound is taken before the `@policy` it holds, an access list before
+the `@name` rule, a free argument runs up to the next arrow or `@`, and a
+payload runs from its `:` to the line end less a tail peeled from the right
+(`×N`, `!`, alias references). A left-to-right scanner would need that same
+look-ahead at each column, so folding it in would move the pass, not remove it.
 """
 
 import re
@@ -38,8 +50,9 @@ from typing import NamedTuple, Optional
 
 from sigil.core.lex import (
     ALIAS_REF, ALIAS_REF_RE, ARG_MODIFIERS, ARROW_RE, BLOCK_OPEN_RE, BOUND_RE, CARD_RE,
-    CLOSER, DIALECT_COL, FIELD_RE, FREE_ARG_MODS, GENERIC_RE, GLUED_MOD_RE, MODIFIER_RE,
-    MOD_NAME_RE, OP_HEAD_RE, OP_TARGET_RE, PAYLOAD_RE, PAYLOAD_TAIL_LOOSE_RE, PAYLOAD_TAIL_RE,
+    CLOSER, CLOSERS, DIALECT_COL, FIELD_RE, FREE_ARG_MODS, GENERIC_RE, GLUED_MOD_RE,
+    GLYPH_PREFIXES, MODIFIER_RE, MOD_NAME_RE, OPENERS, OPENERS_CLASS, OP_HEAD_RE,
+    OP_TARGET_RE, PAYLOAD_RE, PAYLOAD_TAIL_LOOSE_RE, PAYLOAD_TAIL_RE, PREFIXES_CLASS,
     PRINCIPAL_SET_RE, STREAM_BOUND_RE, TAIL_MOD_RE, TAIL_ONLY_RE, balanced_end, code_end,
     in_string, mask_strings)
 
@@ -239,25 +252,41 @@ def _close_paren(text: str) -> int:
 
 
 def _mod_spans(rx, text: str) -> list:
-    """(start, end) of each modifier `rx` finds outside `"…"` strings. A
-    modifier's trailing text that is only `×N` / `xN` / `!` is left out of its
-    span (those are modifiers of their own)."""
+    """(start, end) of each modifier `rx` finds outside `"…"` strings, a free
+    argument cut where the next header token starts (_own_length)."""
     spans = []
     quoted = '"' in text
     for m in rx.finditer(text):
         if quoted and in_string(text, m.start()):
             continue
-        start, end = m.start(), m.end()
-        tok = m.group(0)
-        pm = _MOD_PAREN_RE.match(tok)
-        if pm:
-            close = _close_paren(tok[pm.end() - 1:])
-            if close >= 0:
-                cut = pm.end() + close
-                if cut < len(tok) and TAIL_ONLY_RE.match(tok[cut:]):
-                    end = start + cut
-        spans.append((start, end))
+        spans.append((m.start(), m.start() + _own_length(m.group(0))))
     return spans
+
+
+# Where a free modifier argument stops at the latest: a span blanked by an earlier
+# capture (a stream bound `^N`, an access list) or a block `{`.
+_ARG_STOP_RE = re.compile(_GAP + "|" + BLOCK_OPEN_RE.pattern)
+
+
+def _own_length(tok: str) -> int:
+    """How much of a matched modifier `tok` is the modifier's own. A free argument
+    (`@owns(|S|) ^4 ! {`, `@owns |S| ×3`) ends before a blanked span or a block
+    `{`, and leaves out a trailing run of `×N` / `xN` / `!` — modifiers of their
+    own, read as they would be without it."""
+    stop = _ARG_STOP_RE.search(tok, 1)
+    if stop:
+        tok = tok[:stop.start()].rstrip()
+    pm = _MOD_PAREN_RE.match(tok)
+    if pm:
+        close = _close_paren(tok[pm.end() - 1:])
+        if close >= 0:
+            cut = pm.end() + close
+            return cut if cut < len(tok) and TAIL_ONLY_RE.match(tok[cut:]) else len(tok)
+    head = _MOD_HEAD_RE.match(tok)
+    for gap in re.finditer(r"\s+", tok[head.end():] if head else ""):
+        if TAIL_ONLY_RE.match(tok[head.end() + gap.start():]):
+            return head.end() + gap.start()
+    return len(tok)
 
 
 class _Mod(NamedTuple):
@@ -385,7 +414,8 @@ _NEEDS_ARG_MODS = {"timeout", "after", "deadline", "fallback"}
 _POSITIVE_MODS = {"timeout", "deadline"}         # a zero or negative duration is no bound
 
 
-_GLYPH_START_RE = re.compile(r"^[~*]*[\[{<(|]")
+# Where a glyph starts: its prefixes, then an opening bracket.
+_GLYPH_START_RE = re.compile("^" + PREFIXES_CLASS + "*" + OPENERS_CLASS)
 
 
 # A payload item made only of operator characters (`++`, `||`, `->`, `&?`, a
@@ -401,7 +431,7 @@ _MERGE_OP_RE = re.compile(r"\|\|\|(?!\|)")
 _KEY_VALUE_RE = re.compile(r":[A-Za-z_][\w-]*(?=\s*(?:@|$))")
 
 
-_CLOSERS = tuple("]}>)|")
+_CLOSERS = tuple(CLOSERS)
 
 
 # A glyph whose text holds no bracket at all up to its closer: _scan_glyph's
@@ -522,7 +552,7 @@ def _payload_problem(raw: str) -> str:
 
 _BRACKET_RE = re.compile(r"[(\[{)\]}]")        # what _payload_problem balances
 # An item after whitespace that _GLYPH_START_RE would take as a glyph.
-_LATER_GLYPH_RE = re.compile(r"\s[~*]*[\[{<(|]")
+_LATER_GLYPH_RE = re.compile(r"\s" + PREFIXES_CLASS + "*" + OPENERS_CLASS)
 
 
 def _top_level_items(s: str) -> list:
@@ -701,17 +731,21 @@ def _scan_arrow_or_alias(r: _Reader, i: int):
     return None
 
 
+# What a glyph's text may start with: a prefix or an opening bracket.
+_GLYPH_HEADS = OPENERS + GLYPH_PREFIXES
+
+
 def _scan_join(r: _Reader, i: int):
     s = r.w
     if s[i] == "&":
         j = i + 2 if s.startswith("&?", i) else i + 1
         return [Tok("join", s[i:j], i, flag="" if r.prev else "dead")], j, False
     if s[i] == "/":
-        path = _glued(s, i, r.toks) and i + 1 < len(s) and s[i + 1] in "[{<(|~*"
+        path = _glued(s, i, r.toks) and i + 1 < len(s) and s[i + 1] in _GLYPH_HEADS
         if r.prev:
             # Qualified path `[Bullet]/{Transform}`: a `/` glued between glyphs; else
             # an alternative `a / b` (language.md "Structure"): one-of endpoint.
-            model = (i + 1 < len(s) and s[i + 1] in "[{<(|~*" and not s[i - 1].isspace())
+            model = (i + 1 < len(s) and s[i + 1] in _GLYPH_HEADS and not s[i - 1].isspace())
             return [Tok("slash" if path else "join", "/", i,
                         flag="" if model == path else ("slash" if model else "join"))], \
                 i + 1, False
@@ -752,9 +786,9 @@ def _scan_glyph_token(r: _Reader, i: int):
     `<H>({C})`, or the empty `()`."""
     s = r.w
     j = i
-    while j < len(s) and s[j] in "~*":
+    while j < len(s) and s[j] in GLYPH_PREFIXES:
         j += 1
-    if j < len(s) and s[j] in "[{<(|" and j > i and not BLOCK_OPEN_RE.match(s, j):
+    if j < len(s) and s[j] in OPENERS and j > i and not BLOCK_OPEN_RE.match(s, j):
         end, problem = _scan_glyph(s, j)
         return _glyph(r, i, end, problem)
     if j > i:                                       # `~` / `*` before no glyph
@@ -765,7 +799,7 @@ def _scan_glyph_token(r: _Reader, i: int):
     if ch == "}":
         return [Tok("blockclose", "}", i)], i + 1, False
     if ch == "(" and r.toks and r.toks[-1].kind == "glyph" \
-            and r.toks[-1].text.lstrip("~*").startswith("<") and not s[i - 1].isspace():
+            and r.toks[-1].text.lstrip(GLYPH_PREFIXES).startswith("<") and not s[i - 1].isspace():
         end = balanced_end(s, i)
         end = end if end > 0 else len(s)
         return [Tok("evarg", r.code.raw[i:end].replace(_GAP, ""), i)], end, True
@@ -775,7 +809,7 @@ def _scan_glyph_token(r: _Reader, i: int):
         return [], i + 1, False                     # a comparison; `<-` is SGL060's
     if ch == "|" and _MERGE_OP_RE.match(s, i):
         return [], i + 3, False                     # the `|||` value operator, no glyph
-    if ch in "[{<(|":
+    if ch in OPENERS:
         end, problem = _scan_glyph(s, i)
         return _glyph(r, i, max(end, i + 1), problem)
     return None
@@ -861,7 +895,7 @@ _STARTS = {
     _scan_arrow_or_alias: "<-~=!?*:",
     _scan_join: "&/",
     _scan_modifier: "@^x*",
-    _scan_glyph_token: "~*[{<(|}",
+    _scan_glyph_token: GLYPH_PREFIXES + OPENERS + "}",
     _scan_op_target: _LETTERS,
     _scan_marker: "!?.",
     _scan_value: '"$0123456789' + _LETTERS,

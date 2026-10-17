@@ -31,10 +31,15 @@ from sigil.core.dialects import DialectError, _hook
 from sigil.core.lex import (
     ALIAS_RE, ANY_GLYPH_RE, ARM_RE, ARROW_RE, BARE_BRANCH_RE, BLOCK_OPEN_RE,
     BRANCH_ANY_RE, BRANCH_PARENT_RE, BRANCH_RE, DEFINE_RE, DIALECT_COL, EXPANSION_OPEN_RE,
-    GLYPH_RE, LOOP_HEAD_RE, SCOPE_HEAD_RE, SECTION_RE, STATE_HEAD_RE, STATE_OPEN_RE,
-    close_at, comment_start, fold_block_strings, in_string, mask_strings, net_braces)
+    CLOSERS, GLYPH_PREFIXES, GLYPH_RE, LOOP_HEAD_RE, OPENERS, SCOPE_HEAD_RE, SECTION_RE,
+    STATE_HEAD_RE, STATE_OPEN_RE, close_at, comment_start, fold_block_strings, in_string,
+    is_mode_line, mask_strings, net_braces)
 from sigil.core.tokens import (
     NO_DIALECT, Code, Lexicon, Tok, code_line, lexicon, tokenize_statement)
+
+# What a glyph's text carries around its name: its prefixes and brackets (and
+# spaces) — a definition head's name is its text less them.
+_GLYPH_MARKS = GLYPH_PREFIXES + OPENERS + CLOSERS + " "
 
 
 # ---------------------------------------------------------------------------
@@ -295,7 +300,7 @@ def comment_of(line: str, marker) -> Optional[tuple]:
     starts no comment."""
     if marker is None and "#" not in line:
         return None
-    if line.lstrip().startswith(("#!", "#&")):
+    if is_mode_line(line) or line.lstrip().startswith("#&"):
         return None
     m = comment_start(line, notes_only=True)
     if marker:
@@ -309,15 +314,10 @@ def comment_of(line: str, marker) -> Optional[tuple]:
     return (text, not line[:m.start()].strip()) if text else None
 
 
-def collect_comments(lines: list, dialect=None) -> dict:
-    """{line index: (text, own_line)} for every comment (comment_of)."""
-    marker = lexicon(dialect).marker
-    out = {}
-    for k, line in enumerate(lines):
-        c = comment_of(line, marker)
-        if c:
-            out[k] = c
-    return out
+def collect_comments(lines: list, marker) -> dict:
+    """{line index: (text, own_line)} for every comment (comment_of; `marker`
+    a dialect's comment markers, or None)."""
+    return {k: c for k, line in enumerate(lines) if (c := comment_of(line, marker))}
 
 
 # ---------------------------------------------------------------------------
@@ -335,7 +335,7 @@ def read_lines(lines: list, dialect=None, result=None) -> Walk:
     bodies: dict = {}
     folded = fold_block_strings(list(lines), bodies)
     lines = folded.lines
-    comments = collect_comments(lines, dialect)
+    comments = collect_comments(lines, lx.marker)
     prepasses = list(_hook(dialect, "prepasses"))
     if prepasses:
         from sigil.core.vocab import LintResult
@@ -347,7 +347,7 @@ def read_lines(lines: list, dialect=None, result=None) -> Walk:
                 raise DialectError(f"sigil dialect {getattr(dialect, 'NAME', '?')!r}: "
                                    f"prepass {_name(prepass)} must keep the line count "
                                    f"({before} lines in, {len(lines)} out)")
-        inner = {k: c for k, line in enumerate(lines) if (c := comment_of(line, lx.marker))}
+        inner = collect_comments(lines, lx.marker)
     else:
         inner = comments
     codes = tuple(code_line(raw, lx) for raw in lines)
@@ -447,7 +447,7 @@ class _Walker:
         for t, code in enumerate(self.codes):
             line = self.heads[t]
             delta = (self.delta(self.leads[t], code.raw)
-                     if offs and line and not line.startswith("#!") else 0)
+                     if offs and line and not is_mode_line(line) else 0)
             j = bisect_left(lows, acc + delta)
             if j == len(lows):              # closes no body: the innermost reads it
                 acc += delta
@@ -466,7 +466,7 @@ class _Walker:
                     break
                 stack[i].texts[t] = text
                 t_line = text.strip()
-                if t_line and not t_line.startswith("#!"):
+                if t_line and not is_mode_line(t_line):
                     before = offs[i] + acc
                     if before + self.delta(t_line, text) <= 0:
                         text, closed[i] = _close_head(text.rstrip(), before)
@@ -560,7 +560,7 @@ class _Walker:
                 new, end, _prev = hit
                 dm = DEFINE_RE.match(s, end)
                 if dm and any(kind == "glyph" for kind, _v in new):
-                    name = raw[lead:end].strip("[]{}<>()|~* ")
+                    name = raw[lead:end].strip(_GLYPH_MARKS)
                     return name, None, raw[lead:end], dm.start("rhs")
                 return None
         return None
@@ -730,7 +730,7 @@ class _DocReader:
             if not raw_lead:
                 self.blank = True
             return
-        if self._section(k, line, code) or line.startswith("#!"):
+        if self._section(k, line, code) or is_mode_line(line):
             return
         if self.state is not None:
             self._state_line(k, line, code)
