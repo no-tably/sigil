@@ -111,8 +111,9 @@ the browser — write a design, switch views, step through a simulation.
 ## Tools
 
 One command, `sigil`, Python 3 standard library only: run `bin/sigil` (or
-`python3 -m sigil` from the repository). Each subcommand takes a file or `-` for
-stdin. Every flag and key is in [`docs/tools.md`](./docs/tools.md).
+`python3 -m sigil` from the repository). `lint`, `check` and `export --mermaid`
+take `-` for stdin; `view` needs a file, since it redraws on save, and so does the
+folder export, since the file's stem names the top system. Every flag and key is in [`docs/tools.md`](./docs/tools.md).
 
 | Command | Does |
 | --- | --- |
@@ -417,7 +418,7 @@ changed and writes `delta.json`. Here `[Stock]`'s reprice call now returns a
 `{Price}`:
 
 ```
-since spec 8c05e20fdfd8e0f2: 2 rebuild, 1 recheck, 2 unchanged
+since spec 42c36c489b8429a2: 2 rebuild, 1 recheck, 2 unchanged
   rebuild    Catalog (body 047fc4d040438706 → 3b41ebbe867e8651)
   rebuild    Warehouse (body 43fb9956b782789c → 12e4df86f4932dc2)
   recheck    shop (interface changed: Catalog, Warehouse)

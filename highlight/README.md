@@ -51,7 +51,7 @@ ship its own extended grammar set built on these same scopes.
 | `syntax/sigil.vim` | nvim/vim | syntax (`syn match/region` → `sigil*` groups) |
 | `ftdetect/sigil.vim` | nvim/vim | filetype detection for `*.sigil` |
 | `after/syntax/sigil.vim` | nvim/vim | the `sigil*` group → hex mapping |
-| `sample.sigil` | all | smoke fixture (lints clean with `../lint.py`) |
+| `sample.sigil` | all | smoke fixture (lints clean with `../bin/sigil lint`) |
 
 ---
 

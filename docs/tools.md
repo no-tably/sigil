@@ -2,8 +2,9 @@
 
 Every tool is a subcommand of one command, `sigil`, with no dependencies beyond
 the Python 3 standard library: run `bin/sigil` (or `python3 -m sigil` from the
-repository). Each subcommand takes a file, or `-` for stdin. The
-[README](../README.md) has the overview.
+repository). `lint`, `check` and `export --mermaid` take `-` for stdin; `view`
+needs a file, since it redraws on save, and the folder export needs one too, since
+the file's stem names the top system. The [README](../README.md) has the overview.
 
 ## The command
 
