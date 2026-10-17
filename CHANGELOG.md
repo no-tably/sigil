@@ -120,6 +120,11 @@ was plainly wrong. What changes:
   report that earlier line.
 - A plain check leaves out an unused acknowledgement of an export readiness rule by
   the rule's id, no longer by the shape of the finding's scope.
+- **The Claude Code plugin says which Claude Code it needs: 2.1.281 or later.**
+  Older versions refuse to install it (`userConfig … Unrecognized key: "options"`
+  before 2.1.260) or to load its viewer mod; 0.5.0 needed the same. `claude update`.
+- **SGC205 reads a state machine's `} @inv ordered(…)` from its own closing `}`**; a
+  machine closed on its last transition line no longer borrows a later block's.
 
 ### The package
 

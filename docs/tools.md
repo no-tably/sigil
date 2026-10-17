@@ -54,7 +54,7 @@ name: `sigil lint: message`, `sigil check: …`, `sigil view: …`, `sigil expor
 | Code | Means |
 | --- | --- |
 | 0 | OK: nothing to report (`--sim all` and `--rules` always exit 0) |
-| 1 | warnings or findings only |
+| 1 | warnings, no errors (info alone exits 0) |
 | 2 | errors: an error-severity diagnostic or finding, bad usage, or input the tool cannot read |
 
 Two exceptions: `sigil view --once` exits 1 on a lint error, since the drawing is its

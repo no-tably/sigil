@@ -144,6 +144,9 @@ for several coding agents. Each GitHub release attaches one archive per agent,
 claude --plugin-dir ./sigil-claude-<version>
 ```
 
+The plugin needs Claude Code 2.1.281 or later (`claude update`): older versions
+refuse its settings (`Unrecognized key: "options"`, before 2.1.260) or its viewer mod.
+
 Commands appear as `/sigil:sigil-view <file>` and `/sigil:sigil-lint <file>`.
 
 The Claude Code plugin also carries a viewer mod. The agent gets a `view` tool

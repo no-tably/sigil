@@ -10,7 +10,8 @@ the same files, so a theme colours the terminal viewer and the web page alike.
     sigil themes --list            # list the themes found
     sigil themes --help
 
-Lookup for a NAME: themes/ next to this file, then each directory on
+Lookup for a NAME: themes/ in the folder that holds the sigil package (the
+repository, or the skill's scripts/), then each directory on
 SIGIL_THEME_PATH (os.pathsep-separated); `index` is never a theme name. A PATH
 (it ends in .yaml/.yml or contains a slash) is read directly. The default is env
 SIGIL_THEME, else "sigil". An `extends` value that is a path is resolved against

@@ -7,7 +7,9 @@ Python half is the package's `sigil frames` (`sigil/present/frames.py`), which t
 skill ships in `skills/sigil/scripts/` with `bin/sigil`. `tests/` and
 `tsconfig.json` are not shipped.
 [`docs/tools.md`](../../docs/tools.md#the-claude-code-viewer) documents how it
-behaves.
+behaves. It needs Claude Code 2.1.281 or later: before 2.1.260 the manifest's
+`userConfig` `options` (the settings pickers) is an unknown key, and before 2.1.281
+the engine refuses the hooks module.
 
 ```
 hooks/hooks.json     names the hooks module

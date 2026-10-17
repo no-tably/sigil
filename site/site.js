@@ -32,7 +32,7 @@
   };
 
   // ------------------------------------------------------------------ cell width
-  // The columns text takes in a frame, by viewkit.cell_width's rule: a wide
+  // The columns text takes in a frame, by sigil/present/kit.py cell_width's rule: a wide
   // (East Asian W / F) character takes 2, a combining mark or zero-width
   // character none, anything else 1. WIDE is Python's unicodedata table as
   // exact ranges, written by tools/wide_table.py (`--check` says if it is stale);
