@@ -17,6 +17,9 @@ the same text always gives the same tokens.
     mod_pair(text), scan_mods(text)    a modifier's (name, arg); every modifier
                                        of a statement-free text (a block's or a
                                        transition's tail, a definition's body)
+    glyph_spans(text) → [GlyphSpan]    every core glyph a text span writes (a
+                                       token's or a record's text), nested ones
+                                       too: the glyphs an access list may name
 
 How a statement reads (the model's reading): its modifiers are found first,
 anywhere outside a string (a stream bound `^N@policy`, then the access lists
@@ -52,7 +55,7 @@ from typing import NamedTuple, Optional
 from sigil.core.lex import (
     ALIAS_REF, ALIAS_REF_RE, ARG_MODIFIERS, ARROW_RE, BLOCK_OPEN_RE, BOUND_RE, CARD_RE,
     CLOSER, CLOSERS, DIALECT_COL, FIELD_RE, FREE_ARG_MODS, GENERIC_RE, GLUED_MOD_RE,
-    GLYPH_PREFIXES, MODIFIER_RE, MOD_NAME_RE, OPENERS, OPENERS_CLASS, OP_HEAD_RE,
+    GLYPH_PATTERNS, GLYPH_PREFIXES, MODIFIER_RE, MOD_NAME_RE, OPENERS, OPENERS_CLASS, OP_HEAD_RE,
     OP_TARGET_RE, PAYLOAD_RE, PAYLOAD_TAIL_LOOSE_RE, PAYLOAD_TAIL_RE, PREFIXES_CLASS,
     PRINCIPAL_SET_RE, STREAM_BOUND_RE, TAIL_MOD_RE, TAIL_ONLY_RE, balanced_end, code_end,
     in_string, mask_strings)
@@ -182,6 +185,27 @@ def dialect_glyph_nodes(text: str, lx: Lexicon) -> list:
         out += [(node, (i, end)) for kind, node in new if kind == "glyph"]
         i = max(end, i + 1)
     return out
+
+
+class GlyphSpan(NamedTuple):
+    """A core glyph written in a text span: its kind, its name as written
+    (stripped) and its (start, end) in the span."""
+    kind: str
+    name: str
+    start: int
+    end: int
+
+
+def glyph_spans(text: str) -> list:
+    """Every core glyph `text` writes outside a `"…"` string, kind by kind: a
+    bracket pair with none of that kind's brackets inside — so a glyph inside
+    another kind's brackets is one too (`[Pool<Worker>]` writes `Worker`,
+    `: {Order: [Item]}` writes `Item`, `<H>({C})` writes `C`). A text span here is
+    any text a statement or record holds: a token's, a definition's tail, a
+    section title, a block's or a `state` block's closing modifiers."""
+    code = mask_strings(text)
+    return [GlyphSpan(kind, m.group(1).strip(), m.start(), m.end())
+            for kind, pat in GLYPH_PATTERNS.items() for m in pat.finditer(code)]
 
 
 # ---------------------------------------------------------------------------

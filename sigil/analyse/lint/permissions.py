@@ -7,10 +7,10 @@ modifier tokens (a flow's, an owns header's, a control-block header's).
 import re
 from typing import NamedTuple
 
-from sigil.core.lex import DIALECT_COL, PRINCIPAL_SET_RE, mask_strings
+from sigil.core.lex import DIALECT_COL, PRINCIPAL_SET_RE
 from sigil.core.statements import BlockMods, Definition, SectionHead
-from sigil.core.tokens import dialect_glyph_nodes
-from sigil.core.vocab import GLYPH_PATTERNS, LintResult
+from sigil.core.tokens import dialect_glyph_nodes, glyph_spans
+from sigil.core.vocab import LintResult
 from sigil.analyse.lint.reading import documents, header_tokens, state_lines
 
 
@@ -116,11 +116,9 @@ def _record_names(item) -> set:
 
 
 def glyph_names(text: str) -> set:
-    """The principal name of each core glyph written in `text`, outside a `"…"`
-    string."""
-    code = mask_strings(text)
-    return _bases([m.group(1).strip() for pat in GLYPH_PATTERNS.values()
-                   for m in pat.finditer(code)])
+    """The principal name of each core glyph written in `text` (core's
+    glyph_spans: outside a `"…"` string, nested glyphs too)."""
+    return _bases([g.name for g in glyph_spans(text)])
 
 
 def _bases(names, holes=("?", "_")) -> set:

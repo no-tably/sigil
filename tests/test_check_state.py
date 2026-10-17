@@ -482,6 +482,31 @@ class Suppression(unittest.TestCase):
         self.assertEqual([f.rule.id for f in rep.acknowledged], ["SGC131"])
 
 
+class MachineClosingModifiers(unittest.TestCase):
+    """`} @inv …` after a machine's `}` is read by the parser onto the machine
+    (Graph.mods, MachineView.mods); SGC205 reads it there, not off the text."""
+    HEAD = "#!craft\n[Payments] ~> <Paid>\n[Checkout] ~> <Placed>\nstate {Order} {\n"
+
+    def machine(self, text):
+        f = cs.facts_of(ck.Doc(text, "craft", 2, frozenset()))
+        (m,) = f.machines
+        return f, m
+
+    def test_the_closing_modifiers_are_the_machine_s(self):
+        for text in (self.HEAD + "  + -<Placed>-> Open\n} @inv ordered(order_id)\n",
+                     self.HEAD + "  + -<Placed>-> Open } @inv ordered(order_id)\n"):
+            f, m = self.machine(text)
+            self.assertEqual(m.mods, (("inv", "ordered(order_id)"),), text)
+            self.assertEqual(cs.state_block_invs(f, m), ["ordered(order_id)"])
+
+    def test_a_later_block_s_closing_modifiers_are_not_the_machine_s(self):
+        text = (self.HEAD + "  +    -<Placed>-> Open\n  Open -<Paid>-> Settled }\n"
+                "loop @times(2) {\n  [A] -> [B]\n} @inv ordered(order_id)\n")
+        f, m = self.machine(text)
+        self.assertEqual((m.mods, cs.state_block_invs(f, m)), ((), []))
+        self.assertIn("SGC205", [x.rule.id for x in ck.check(text).findings])
+
+
 class Severity(unittest.TestCase):
     def test_146_case_2_is_advisory_and_the_base_case_a_hint(self):
         case2 = check_state("#!spec\nstate {Job} {\n  + -<submit>-> Open\n}\n")

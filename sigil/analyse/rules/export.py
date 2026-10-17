@@ -35,7 +35,7 @@ def model_of(doc):
     found = doc.__dict__.get("_export_model")
     if found is None:
         found = doc.__dict__["_export_model"] = systems.model_of(
-            doc.graph, TOP_STEM, doc.acks, doc.comments)
+            doc.graph, TOP_STEM, systems.accepted(doc.acks, doc.comments))
     return found
 
 

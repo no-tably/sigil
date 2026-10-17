@@ -135,6 +135,8 @@ from sigil.core.lex import GLYPH_BRACKETS
 #               for a comment block detached from every statement before the
 #               first one (a document header), to the document itself.
 #   role        what this graph is when it hangs off a node: "expansion"|"state".
+#   mods        a `state` machine's modifiers written after its `}` (`} @inv
+#               ordered(id)`): its own record of them; its owner node has them too.
 #
 # Modifiers (Node.mods / Edge.mods / Block.modifiers) are (name, arg) pairs in
 # written order; arg is the text inside the modifier's parens (or after it), or
@@ -251,6 +253,8 @@ class Graph:
     # Transitions trigger narrowing took away, and the lines the parser discarded.
     narrowed: list = field(default_factory=list)
     dropped: list = field(default_factory=list)
+    # A state machine's modifiers written after its `}` (see "mods" above).
+    mods: list = field(default_factory=list)
 
 
 @dataclass

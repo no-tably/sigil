@@ -734,9 +734,9 @@ class _Builder:
                 home.expansions[target_id] = sub_graph
                 by_level.setdefault(level, []).append(sub_graph)
 
-        for owner, machine, tail in self.pending_states:
+        for owner, machine in self.pending_states:
             node = graph.nodes.setdefault(owner.id, owner)
-            for pair in tail:
+            for pair in machine.mods:
                 _add_mod(node.mods, pair)
             home = graph.expansions.get(owner.id)
             if home is None:
@@ -876,8 +876,9 @@ class _Builder:
         if it.line == it.head and not it.lines:
             return                          # `state {X} { }`: nothing
         machine = self._adopt(parse_state_block(it.lines, owner.name))
-        # Modifiers after the `}` (`} @inv ordered(id)`) are the owner's.
-        self.pending_states.append((owner, machine, scan_mods(it.tail)))
+        # Modifiers after the `}` (`} @inv ordered(id)`): the machine's, and the owner's.
+        machine.mods = scan_mods(it.tail)
+        self.pending_states.append((owner, machine))
 
     # -- control blocks -----------------------------------------------------------
 

@@ -12,7 +12,9 @@ from typing import NamedTuple, Optional
 from sigil.core import parse as render
 from sigil.core.graph import walk_depth
 from sigil.core.dialects import _hook
-from sigil.core.lex import ARROWS, MOD_NAME_RE, SECTION_RE
+from sigil.core.lex import (
+    ARROWS, CLOSERS_CLASS, MOD_NAME_RE, NAME_CHARS, OPENERS_CLASS, PREFIXES_CLASS, SECTION_RE,
+    glyph_kind)
 from sigil.core.statements import StateHead, Statement, Walk, read_document
 from sigil.core.tokens import Code, Tok
 from sigil.core.vocab import LintResult
@@ -157,7 +159,7 @@ def _lone_payload_finding(subject: Tok, payload: Tok) -> list:
     lost payload; so is an empty map (`~|graph| : {}`). A type annotation
     (`[A] : {X}`) is grammar the model drops."""
     kind = "map" if re.fullmatch(r"\{\s*\}", payload.text) else _classify_payload(payload.text)[0]
-    if subject.text.lstrip("~*").startswith("|") and kind in ("value", "map"):
+    if glyph_kind(subject.text) == "store" and kind in ("value", "map"):
         return []
     if kind == "entity":
         return [("SGL150", f"the type annotation `: {payload.text}` is grammar, but the "
@@ -210,7 +212,7 @@ def _trailing_findings(toks: list, sig: list) -> list:
     for t in (t for t in toks if t.col > link.end_col):
         if t.kind == "mod" and MOD_NAME_RE.match(t.text).group(1) in _RESILIENCE_MODS:
             data = link.dst is not None and link.dst.kind == "glyph" \
-                and dst_text.lstrip("~*")[:1] in "{<"
+                and glyph_kind(dst_text) in ("data", "event")
             if link.arrow.text == "=>" or data:
                 out.append(("SGL182", f"`{t.text.strip()}` sits on a flow that is not a "
                             f"call (`{link.arrow.text} {dst_text}`); resilience modifiers "
@@ -276,7 +278,9 @@ def _as_judged(toks, code: Code, target) -> list:
 _LOOP_BOUND_RE = re.compile(r"@(?:each|while|until|times)\b")
 
 
-_HEADER_GLYPH_RE = re.compile(r"^[~*]*[\[{<(|](?P<name>[^\[\]{}<>()|]+)[\]}>)|]$")
+# A header that is one glyph and nothing else: prefixes, a bracket pair, its name.
+_HEADER_GLYPH_RE = re.compile("^" + PREFIXES_CLASS + "*" + OPENERS_CLASS
+                              + "(?P<name>" + NAME_CHARS + "+)" + CLOSERS_CLASS + "$")
 
 
 _DROPS_BODY = ("alias", "state")

@@ -225,6 +225,50 @@ class GlyphTables(unittest.TestCase):
         self.assertFalse(lex.is_mode_line("# !spec"))
 
 
+class LineAndGlyphReadings(unittest.TestCase):
+    """The mode-line rules, the permission graph and the hardening and payload
+    rules read lines and glyph texts through core (lex, tokens), not their own
+    `#` / bracket tests."""
+
+    def test_a_comment_line_is_a_core_comment_and_nothing_else(self):
+        for line in ("#", "# c", "  # c", "#&x", "#= r"):
+            self.assertTrue(lex.is_comment_line(line), line)
+        for line in ("", "#!spec", "  #!craft", "[A] # c", "-// c"):
+            self.assertFalse(lex.is_comment_line(line), line)
+
+    def test_the_first_content_line_skips_blanks_and_comments(self):
+        self.assertEqual(lex.first_content(["", "# c", "  ", "#!spec", "[A]"]), 3)
+        self.assertEqual(lex.first_content(["# c", "[A] -> [B]"]), 1)
+        self.assertIsNone(lex.first_content(["", "# only", "#&x"]))
+
+    def test_the_mode_rules_and_check_read_one_first_content_line(self):
+        from sigil.analyse import check
+        for doc, mode in ((["# t", "", "#!craft"], "craft"), (["#!spec x"], "spec"),
+                          (["[A]", "#!spec"], "sketch"), (["# t"], "sketch")):
+            self.assertEqual(check.read_mode(doc), mode, doc)
+        r = vocab.LintResult()
+        self.assertEqual(lines.lint_mode_line(["# t", "#!spec x"], r), "#!spec")
+        lines.lint_mode_not_first(["# t", "[A]", "  #!spec"], r)
+        self.assertEqual([(d.line, d.rule) for d in r.diagnostics], [(2, "SGL001"), (3, "SGL080")])
+
+    def test_glyph_kind_skips_the_prefixes(self):
+        for text, kind in (("~|S|", "store"), ("*<E>", "event"), ("~*{D}", "data"),
+                           ("[A]", "service"), ("(U)", "actor"), ("~", None), ("x", None),
+                           ("", None)):
+            self.assertEqual(lex.glyph_kind(text), kind, text)
+
+    def test_glyph_spans_find_nested_glyphs_outside_strings(self):
+        spans = tokens.glyph_spans('[Pool<Worker>] -> {Order: [Item]} : "[No]" <H>({C})')
+        self.assertEqual(sorted((g.kind, g.name) for g in spans), [
+            ("actor", "{C}"), ("data", "C"), ("data", "Order: [Item]"), ("event", "H"),
+            ("event", "Worker"),
+            ("service", "Item"), ("service", "Pool<Worker>")])
+        g = next(g for g in spans if g.name == "Item")
+        self.assertEqual(g.end - g.start, len("[Item]"))
+        self.assertEqual(permissions.glyph_names("[Pool<Worker>] : {Order: [Item]}"),
+                         {"Pool", "Worker", "Item", "Order: [Item]"})
+
+
 class OneSourceOfTruth(unittest.TestCase):
     def test_no_reader_keeps_a_copy_of_a_lex_pattern(self):
         held = {(v.pattern, v.flags): name for name, v in vars(lex).items()

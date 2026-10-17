@@ -101,6 +101,51 @@ class DeepCli(unittest.TestCase):
         self.assertIn(":RSL164: shared-pool:", r.stdout)
 
 
+class ParsedOnce(unittest.TestCase):
+    """`sigil lint --deep` and the export gate read and parse a document once:
+    check judges lint's reading (Walk) and the model parsed from it."""
+
+    def counting(self):
+        from sigil.core import parse, statements
+        calls = {"read": 0, "parse": 0}
+        read, parse_document = statements.read_lines, parse.parse_document
+
+        def counted_read(*a, **k):
+            calls["read"] += 1
+            return read(*a, **k)
+
+        def counted_parse(*a, **k):
+            calls["parse"] += 1
+            return parse_document(*a, **k)
+        statements.read_lines, parse.parse_document = counted_read, counted_parse
+
+        def restore():
+            statements.read_lines, parse.parse_document = read, parse_document
+        self.addCleanup(restore)
+        return calls
+
+    def test_deep_reads_and_parses_once(self):
+        import contextlib
+        import io
+        calls = self.counting()
+        with contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()):
+            cli.main(["lint", str(ROOT / "site" / "examples" / "02-shop.sigil"), "--deep"])
+        self.assertEqual(calls, {"read": 1, "parse": 1})
+
+    def test_the_export_gate_reads_and_parses_once(self):
+        from sigil.publish import exporter
+        text = (ROOT / "site" / "examples" / "07-export.sigil").read_text(encoding="utf-8")
+        calls = self.counting()
+        self.assertEqual(exporter.gate(text, None, lint, check), ())
+        self.assertEqual(calls, {"read": 1, "parse": 1})
+
+    def test_check_takes_the_graph_it_is_given(self):
+        linted = lint.lint_reading(MIXED)
+        doc = check.Doc(MIXED, "spec", 2, frozenset(), walk=linted.walk, graph=linted.graph)
+        self.assertIs(doc.graph, linted.graph)
+
+
 class DeepLines(unittest.TestCase):
     def test_lint_first_on_a_shared_line(self):
         report = check.check(MIXED)

@@ -358,10 +358,12 @@ class Doc:
                  read_verbs: tuple = (), policy_words: tuple = (),
                  inv_heads: frozenset = frozenset(),
                  budget: Optional[int] = None, limits=None,
-                 rule_ids: Optional[dict] = None, overlaps=None, walk=None):
+                 rule_ids: Optional[dict] = None, overlaps=None, walk=None, graph=None):
         self.text = text
         if walk is not None:         # the reading a caller made already (see walk)
             self.__dict__["walk"] = walk
+            if graph is not None:    # and the model it parsed from that reading
+                self.__dict__["graph"] = graph
         self.lines = text.splitlines()
         self.mode = mode
         self.k = k
@@ -490,11 +492,13 @@ class Doc:
 
 
 def read_mode(lines: list) -> str:
-    """The mode as lint reads it (the first content line); none means sketch."""
-    from sigil.analyse.lint.lines import lint_mode_line
-    from sigil.core.vocab import LintResult
-    found = lint_mode_line(lines, LintResult())
-    return found[2:] if found else "sketch"
+    """The mode as lint reads it (the first content line, lex.first_content, when
+    it is a mode line); none means sketch."""
+    from sigil.core.lex import first_content
+    from sigil.core.vocab import VALID_MODES
+    k = first_content(lines)
+    head = lines[k].split()[0] if k is not None else ""
+    return head[2:] if head in VALID_MODES else "sketch"
 
 
 # ---------------------------------------------------------------------------
@@ -1015,7 +1019,7 @@ def limits_of(doc: Doc) -> dict:
 def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
           dialect=None, registry: Optional[dict] = None, pack=None,
           budget: Optional[int] = None, limits=None, overlaps=None,
-          export: bool = False, walk=None) -> Report:
+          export: bool = False, walk=None, graph=None) -> Report:
     """Check a document. `mode` overrides its mode line; `pack` defaults to the
     dialect's rule pack (dialect_pack), whose read verbs, policy words and
     `@inv` heads the rules read; `registry` defaults to the core rules, every rule module beside
@@ -1025,7 +1029,8 @@ def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
     export readiness rules to the default registry (a given `registry` runs as
     it is). `walk`: the document's reading (sigil.core.statements.read_document
     of `text` with `dialect`) when the caller has it already, as `sigil lint
-    --deep` does; None reads it here."""
+    --deep` and the export gate do, and `graph` the model parsed from that walk
+    (sigil.core.parse.parse_document); None reads / parses it here."""
     pack = dialect_pack(dialect) if pack is None else pack
     registry = default_registry(pack.rules, export) if registry is None else registry
     lines = text.splitlines()
@@ -1037,7 +1042,7 @@ def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
     doc = Doc(text, mode, k, known, dialect, read_verbs=pack.read_verbs,
               policy_words=pack.policy_words, inv_heads=pack.inv_heads,
               budget=budget, limits=limits, overlaps=overlaps,
-              rule_ids={r.id: r.name for r in registry.values()}, walk=walk)
+              rule_ids={r.id: r.name for r in registry.values()}, walk=walk, graph=graph)
     first = [r for r in registry.values() if not r.after_acks]
     findings = run_rules(doc, first)
     fold(findings)

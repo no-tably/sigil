@@ -274,6 +274,7 @@ class MachineView(NamedTuple):
     any: frozenset           # `_` ids
     end: frozenset           # `$` ids
     transitions: tuple
+    mods: tuple = ()         # (name, arg) written after the machine's `}`
 
     def outgoing(self, s: str) -> list:
         """Transitions that leave s: its own, then the wildcards (`_`)."""
@@ -329,7 +330,7 @@ def machine_view(owner: str, owner_node, graph) -> MachineView:
                   for e in graph.edges)
     return MachineView(owner, glyph(owner_node), getattr(owner_node, "kind", "") == "data",
                        states, frozenset(pseudo["start"]), frozenset(pseudo["any"]),
-                       frozenset(pseudo["end"]), trans)
+                       frozenset(pseudo["end"]), trans, tuple(graph.mods))
 
 
 # ---------------------------------------------------------------------------
@@ -1721,16 +1722,8 @@ def find_optional_callee(ck, f: Facts):
 # ---------------------------------------------------------------------------
 
 def state_block_invs(f: Facts, m: MachineView) -> list:
-    """`} @inv …` written after a machine's closing brace. The parser keeps no
-    modifiers there yet, so this reads the closing line's text (a stopgap until
-    the model records them on the owner)."""
-    lines = f.doc.lines
-    end = max((t.line for t in m.transitions), default=0)
-    for n in range(end, len(lines)):
-        text = lines[n].strip()
-        if text.startswith("}"):
-            return re.findall(r"@inv\s*\(?\s*([^@#]*?)\s*\)?\s*(?=@|#|$)", text[1:])
-    return []
+    """The `@inv` arguments written after a machine's closing brace (`} @inv …`)."""
+    return inv_args(m.mods)
 
 
 def trigger_sources(f: Facts, m: MachineView) -> dict:

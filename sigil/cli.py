@@ -183,16 +183,16 @@ def _lint(argv: list, dialect) -> int:
         say("lint", cannot_read(a.file, exc))
         return 2
 
-    result, walk = lint.lint_reading(text, dialect=loaded)
+    linted = lint.lint_reading(text, dialect=loaded)
     if not a.deep:
-        return _report_lint(result, lint)
+        return _report_lint(linted.result, lint)
     from sigil.analyse import check
-    try:
-        report = check.check(text, dialect=loaded, walk=walk)
+    try:                                 # check judges lint's reading and model
+        report = check.check(text, dialect=loaded, walk=linted.walk, graph=linted.graph)
     except ValueError as exc:            # a refused rule pack or registry
         say("lint", f"--deep: {exc}")
         return 2
-    return _report_deep(result, report, lint, check)
+    return _report_deep(linted.result, report, lint, check)
 
 
 # ---------------------------------------------------------------------------

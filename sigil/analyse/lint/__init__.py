@@ -51,10 +51,12 @@ from sigil.core.statements import Walk, read_document
 
 
 class Linted(NamedTuple):
-    """A document's lint result and the one reading its rules judged (what
-    `sigil lint --deep` hands the checks, so the document is read once)."""
+    """A document's lint result, the one reading its rules judged and the model
+    parsed from it (None when the parser failed) — what `sigil lint --deep` and
+    the export gate hand the checks, so the document is read and parsed once."""
     result: LintResult
     walk: Walk
+    graph: object = None
 
 
 def lint(text: str, dialect=None) -> LintResult:
@@ -104,7 +106,7 @@ def lint_reading(text: str, dialect=None) -> Linted:
             extra(pass_lines, result)
     lint_graph(text, result, dialect, graph)
 
-    return Linted(result, walk)
+    return Linted(result, walk, graph)
 
 
 def _composition(walk, graph, dialect, result: LintResult) -> tuple:

@@ -7,7 +7,7 @@ PayloadSite is what a dialect's payload check is handed.
 import re
 from sigil.core.vocab import ARROW_RE, LintResult, VALID_MODIFIERS
 
-from sigil.core.lex import EXT_OP_RE, INT_OP_RE, MOD_TOKEN_RE, mask_strings
+from sigil.core.lex import EXT_OP_RE, INT_OP_RE, MOD_TOKEN_RE, glyph_kind, mask_strings
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +127,7 @@ def _classify_payload(value_text: str):
 
     # Other single glyph entity payloads (`<X>`, `[X]`, `(X)`, `|X|`,
     # optionally `~`/`*` prefixed) are structural.
-    if re.match(r"^[~*]*[\[<(|]", v):
+    if glyph_kind(v) not in (None, "data"):
         return ("entity", v)
 
     # Scalars / ref / value-op expression.

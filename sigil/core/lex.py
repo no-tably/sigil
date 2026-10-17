@@ -4,7 +4,7 @@ lex — the lexical tables of Sigil text, kept once: the statement walk
 (sigil.core.parse) and lint (sigil.analyse.lint) all read lines through these,
 one reading each:
 
-    comments      is_mode_line, COMMENT_START_RE, in_string, comment_start, comment_col,
+    comments      is_mode_line, is_comment_line, first_content, COMMENT_START_RE, in_string, comment_start, comment_col,
                   code_end (where a line's code ends: `#` or a dialect's
                   comment marker, outside a `"…"` string), strip_comment
     strings       STRING_RE, mask_strings
@@ -15,7 +15,8 @@ one reading each:
     arrows        ARROWS, ARROW_RE
     glyphs        GLYPH_BRACKETS (the core kinds' brackets: OPEN_TO_KIND,
                   CLOSER, OPENERS, CLOSERS and their regex classes,
-                  GLYPH_PATTERNS read off it), GLYPH_PREFIXES, NAME_CHARS, GENERIC,
+                  GLYPH_PATTERNS read off it), GLYPH_PREFIXES, glyph_kind,
+                  NAME_CHARS, GENERIC,
                   GLYPH_RE, GENERIC_RE, ANY_GLYPH_RE, HOLE_RE, DIALECT_COL
     modifiers     PAREN_ARG, FREE_ARG_MODS, ARG_MODIFIERS, MODIFIER_RE,
                   MOD_TOKEN_RE, MOD_NAME_RE, TAIL_ONLY_RE, PRINCIPAL_SET_RE,
@@ -77,6 +78,22 @@ def is_mode_line(line: str) -> bool:
     """Whether the line is a `#!` mode line (indented or not): it holds no code
     and no comment."""
     return line.lstrip().startswith("#!")
+
+
+def is_comment_line(line: str) -> bool:
+    """Whether the line is a core comment and nothing else: its first non-blank
+    is a `#` (a bare `#` and a `#&` marker line count) that is not the `#!` mode
+    line. A dialect's comment markers are not read here: the mode-line rules see
+    a line of them as content, as they always have."""
+    s = line.lstrip()
+    return s.startswith("#") and not s.startswith("#!")
+
+
+def first_content(lines) -> Optional[int]:
+    """The index of the first line that is neither blank nor a comment line
+    (is_comment_line) — where a document's mode line belongs — or None."""
+    return next((k for k, line in enumerate(lines)
+                 if line.strip() and not is_comment_line(line)), None)
 
 
 def comment_col(line: str) -> Optional[int]:
@@ -310,6 +327,14 @@ GLYPH_PREFIXES = "~*"
 OPENERS_CLASS = "[" + re.escape(OPENERS) + "]"
 CLOSERS_CLASS = "[" + re.escape(CLOSERS) + "]"
 PREFIXES_CLASS = "[" + re.escape(GLYPH_PREFIXES) + "]"
+
+
+
+def glyph_kind(text: str) -> Optional[str]:
+    """The core kind whose opening bracket `text` starts with once its `~` / `*`
+    prefixes are skipped (`~|S|` → "store", `*<E>` → "event"), or None."""
+    return OPEN_TO_KIND.get(text.lstrip(GLYPH_PREFIXES)[:1])
+
 
 GLYPH_RE = re.compile(
     r"(?P<mut>~)?(?P<stream>\*)?"

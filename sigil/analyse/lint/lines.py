@@ -4,7 +4,8 @@ like a state, prose verbs between glyphs, invented modifiers, `;` separators,
 reversed arrows, a glyph twice in one flow, a `state` block's syntax — and the
 edit-distance index the near-name suggestions use (here and in lint.graph).
 
-The mode-line rules read the document's lines; the others read each line's code
+The mode-line rules read the document's lines through core's line readings
+(lex.first_content, is_mode_line, is_comment_line); the others read each line's code
 as the walk found it (lint.reading.LineView) or the walk's `state` block lines (Transition).
 """
 
@@ -15,7 +16,7 @@ from sigil.core.vocab import (
     ANY_GLYPH_RE, ARROW_RE, GLYPH_PATTERNS, LintResult, VALID_LOOP_MODS, VALID_MODES,
     VALID_MODIFIERS, VALID_PARALLEL_MODS, VALID_STREAM_POLICIES)
 
-from sigil.core.lex import HOLE_RE, MOD_TOKEN_RE
+from sigil.core.lex import HOLE_RE, MOD_TOKEN_RE, first_content, is_comment_line, is_mode_line
 
 
 # Vocabulary that strongly suggests a lifecycle state (if used as an actor)
@@ -38,32 +39,28 @@ PROSE_VERBS = {
 
 
 def lint_mode_line(lines: list, result: LintResult) -> Optional[str]:
-    """First non-empty, non-comment line should be a mode declaration."""
-    for i, raw in enumerate(lines, start=1):
-        stripped = raw.strip()
-        if not stripped:
-            continue
-        if stripped.startswith("#") and not stripped.startswith("#!"):
-            continue  # comment, skip
-        # This is the first content line
-        parts = stripped.split()
-        if parts[0] in VALID_MODES:
-            if len(parts) > 1:
-                result.add(
-                    "error", i, "SGL001",
-                    f"mode line must be exactly '{parts[0]}' — no trailing text. "
-                    f"Put titles in section headers: `--- Title ---`"
-                )
-            return parts[0]
-        else:
-            result.add(
-                "warn", i, "SGL002",
-                f"first content line is not a mode declaration "
-                f"(#!spec / #!sketch / #!craft). Got: {stripped[:40]!r}"
-            )
-            return None
-    result.add("warn", 0, "SGL003", "document is empty or all comments")
-    return None
+    """The first content line (lex.first_content: past blank and comment lines)
+    should be a mode declaration."""
+    k = first_content(lines)
+    if k is None:
+        result.add("warn", 0, "SGL003", "document is empty or all comments")
+        return None
+    stripped = lines[k].strip()
+    parts = stripped.split()
+    if parts[0] not in VALID_MODES:
+        result.add(
+            "warn", k + 1, "SGL002",
+            f"first content line is not a mode declaration "
+            f"(#!spec / #!sketch / #!craft). Got: {stripped[:40]!r}"
+        )
+        return None
+    if len(parts) > 1:
+        result.add(
+            "error", k + 1, "SGL001",
+            f"mode line must be exactly '{parts[0]}' — no trailing text. "
+            f"Put titles in section headers: `--- Title ---`"
+        )
+    return parts[0]
 
 
 def lint_holes_in_spec_mode(views: tuple, mode: Optional[str], result: LintResult):
@@ -234,23 +231,19 @@ def lint_duplicate_glyph_in_flow(views: tuple, result: LintResult):
 
 
 def lint_mode_not_first(lines: list, result: LintResult):
-    """If a mode line appears anywhere other than the top, flag it."""
+    """If a mode line (lex.is_mode_line) appears anywhere other than the top, flag
+    it; blank and comment lines (lex.is_comment_line) come before it freely."""
     seen_content = False
     for i, raw in enumerate(lines, start=1):
-        stripped = raw.strip()
-        if not stripped:
-            continue
-        if stripped.startswith("#!"):
+        if is_mode_line(raw):
             if seen_content:
                 result.add(
                     "error", i, "SGL080",
-                    f"mode line '{stripped}' must be the first non-empty line of the document."
+                    f"mode line '{raw.strip()}' must be the first non-empty line of the document."
                 )
             seen_content = True     # a second mode line is misplaced too
-            continue
-        if stripped.startswith("#"):
-            continue
-        seen_content = True
+        elif raw.strip() and not is_comment_line(raw):
+            seen_content = True
 
 
 def lint_state_block_syntax(transitions: tuple, result: LintResult):
