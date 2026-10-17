@@ -1,25 +1,25 @@
 """
-export.py — export a ready Sigil spec as a build skeleton: one folder per system,
+sigil.publish.exporter — export a ready Sigil spec as a build skeleton: one folder per system,
 one Markdown file per component, and a manifest that is the contract.
 
 Usage:
-    ./export.py <spec.sigil> --out DIR [--dialect D] [--json] [--dry-run]
+    sigil export <spec.sigil> --out DIR [--dialect D] [--json] [--dry-run]
 
 Options:
     --out DIR    the export folder (made when missing). It must be empty, or hold
-                 an earlier export (a manifest.json): export.py never writes over
+                 an earlier export (a manifest.json): `sigil export` never writes over
                  a folder it did not make
-    --dialect D  load a dialect (as lint.py and check.py do; default $SIGIL_DIALECT)
+    --dialect D  load a dialect (as `sigil lint` and `sigil check` do; default $SIGIL_DIALECT)
     --json       print the delta as JSON instead of the summary in words
     --dry-run    print the delta and write nothing
 
 The gate. Only a document that is ready exports: its mode line is `#!spec`,
-lint.py reports no error, and check.py with the readiness rules (`--export`,
+`sigil lint` reports no error, and `sigil check` with the readiness rules (`--export`,
 spec mode, so overlap runs too) leaves no error and no warning unacknowledged
-(info is fine). Otherwise export.py prints the lines that block it, exits 2 and
+(info is fine). Otherwise `sigil export` prints the lines that block it, exits 2 and
 touches nothing.
 
-The folder (systems, homes and hashes as export_model.py reads them):
+The folder (systems, homes and hashes as sigil.model.systems reads them):
 
     DIR/
       manifest.json            the contract, written LAST (temp file + os.replace)
@@ -32,10 +32,10 @@ The folder (systems, homes and hashes as export_model.py reads them):
     manifest.json = {"sigil_export": 1, "spec": <file name>, "spec_hash": …,
       "systems": {name: {"path", "interface", "body", "components", "depends_on"}}}
 
-Folder and file names are slugs of the names (export_model.slugs). Whoever
+Folder and file names are slugs of the names (systems.slugs). Whoever
 builds against the export reads the manifest first: its hashes are the truth.
 
-Re-export and delta. Before writing, export.py reads the manifest already in DIR
+Re-export and delta. Before writing, `sigil export` reads the manifest already in DIR
 (if any) and sorts every system into one list:
 
     added      in the new export only
@@ -51,7 +51,7 @@ Re-export and delta. Before writing, export.py reads the manifest already in DIR
       "new", "because"?}}}   (old/new: {"interface", "body"}, or null;
       because: the systems whose interface changed, for a recheck)
 
-A system folder may also hold a builder's own files: export.py deletes or
+A system folder may also hold a builder's own files: `sigil export` deletes or
 compares only the files an earlier export wrote (the names its manifest's
 components give), so any other file in a system folder stays, and a removed
 system's folder stays while it holds one.
@@ -65,8 +65,8 @@ with --json or --dry-run, lists every system as added). The delta is a hint:
 the manifest's hashes stay the truth.
 
 Exit codes: 0 exported (or a dry run) · 1 the folder could not be written · 2 not ready to
-export, or bad input (unreadable spec, unknown dialect, a folder export.py did
-not make, or a manifest.json export.py cannot read).
+export, or bad input (unreadable spec, unknown dialect, a folder `sigil export` did
+not make, or a manifest.json it cannot read).
 
 Standard library only. Deterministic: no clock, no randomness, no set-order output.
 """
@@ -369,7 +369,7 @@ def index_md(spec_name: str, manifest: dict, forms: dict) -> str:
 # ---------------------------------------------------------------------------
 
 def written_files(manifest: Optional[dict]) -> dict:
-    """{folder: the file names export.py wrote there} for the export `manifest`
+    """{folder: the file names `sigil export` wrote there} for the export `manifest`
     describes (None: no export yet, so nothing). Only these are ever overwritten
     as stale or deleted: a file a builder adds to a system folder is not ours."""
     out: dict = {}
@@ -396,7 +396,7 @@ def write_export(out: Path, plan: ExportPlan, only: Optional[Iterable] = None,
     names the files an earlier export wrote: the only ones removed when the plan
     no longer holds them. The index, delta.json and manifest are written only
     when their content changed. Returns the dropped folders kept because they
-    hold files export.py did not write."""
+    hold files `sigil export` did not write."""
     written = written or {}
     wanted = set(plan.systems if only is None else only)
     keys = [k for k in plan.systems if k in wanted]
@@ -417,7 +417,7 @@ def write_export(out: Path, plan: ExportPlan, only: Optional[Iterable] = None,
 
 def read_manifest(out: Path) -> Optional[dict]:
     """The manifest of the export already in `out` (None: there is none). Raises
-    ValueError for one export.py cannot read."""
+    ValueError for one `sigil export` cannot read."""
     text = written_text(out / MANIFEST)
     if text is None:
         return None

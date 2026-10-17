@@ -1,5 +1,5 @@
 """
-dialects.py — load a Sigil DIALECT: an optional extension of the core notation.
+sigil.core.dialects — load a Sigil DIALECT: an optional extension of the core notation.
 
 Core Sigil (`sigil lint` / `sigil check` / … with no dialect) knows only the
 standard vocabulary. A dialect is a single Python module (`dialect.py`) that
@@ -161,7 +161,7 @@ upper-case attributes are data.
 
   -- check (the rule-pack hook; catalog §1 CG6, §1 MG16) -------------------------
   check_rules(api) -> [api.Rule]
-      Composition rules the dialect adds to check.py's registry. `api` is the
+      Composition rules the dialect adds to `sigil check`'s registry. `api` is the
       check module (its Rule and Hit records), as for core rule modules. Ids use
       the dialect's own prefix; ids and names may not reuse a core one.
   INV_HEADS: set[str]
@@ -354,7 +354,7 @@ class CoreNames(NamedTuple):
 
 
 class RulePack(NamedTuple):
-    """A dialect's contribution to check.py (see the module docstring)."""
+    """A dialect's contribution to `sigil check` (see the module docstring)."""
     rules: tuple = ()
     inv_heads: frozenset = frozenset()
     read_verbs: frozenset = frozenset()

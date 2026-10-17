@@ -1,9 +1,9 @@
 """
-check_trace.py — the behavioural rules: what the simulator's runs show.
+rules.trace — the behavioural rules: what the simulator's runs show.
 
-Not a command: check.py loads it (RULE_MODULES) and calls `rules(ck)`,
+Not a command: sigil.analyse.check loads it (RULE_MODULES) and calls `rules(ck)`,
 `exploration_causes(ck)` and `extend_rules(ck, rules)` with itself as `ck`, so
-this module never imports check.py. Every rule here reads the runs of the
+this module never imports it. Every rule here reads the runs of the
 document's bounded exploration (sim.combinations over the canonical scene, up
 to `doc.k` deviations at once, then the overlap runs — the listed overlap
 starts (sim.overlaps), then those with each deviated run's choices, then each
@@ -507,7 +507,7 @@ def clashes(acc: list, self_concurrent: frozenset, together: frozenset = frozens
 
 class TraceFacts:
     """The exploration of one document and the per-run facts the rules share.
-    `state` is check_state.Facts (store, machine and arrival facts); `budget`
+    `state` is rules.state.Facts (store, machine and arrival facts); `budget`
     and `limits` bound the exploration (the document's: `doc.budget`,
     `doc.limits`, which --json reports)."""
 

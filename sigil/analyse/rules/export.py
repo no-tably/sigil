@@ -1,11 +1,11 @@
 """
-check_export.py — Sigil export readiness: can this spec be exported as a build
-skeleton (export.py), one folder per system with a stated contract at each
+rules.export — Sigil export readiness: can this spec be exported as a build
+skeleton (`sigil export`), one folder per system with a stated contract at each
 boundary?
 
-A rule module for check.py, loaded only when a check is asked for export
-readiness (`check.py --export`, `check(…, export=True)`): `rules(ck)` returns this
-module's `ck.Rule`s, where `ck` is check.py itself (passed in, so this module
+A rule module for sigil.analyse.check, loaded only when a check is asked for export
+readiness (`sigil check --export`, `check(…, export=True)`): `rules(ck)` returns this
+module's `ck.Rule`s, where `ck` is sigil.analyse.check itself (passed in, so this module
 never imports it). Rules (binding: errors in spec):
 
     SGC401 no-home            a component written in two systems, neither of
@@ -13,10 +13,10 @@ never imports it). Rules (binding: errors in spec):
     SGC402 untyped-boundary   a flow across a system boundary with no payload,
                               or a synchronous call across one with no return
 
-Both read the export model's facts (export_model.py: Model.shared, Model.untyped),
+Both read the export model's facts (sigil.model.systems: Model.shared, Model.untyped),
 so what the gate refuses is exactly what the exporter would write ambiguously.
 Systems are inferred: every `X := { … }` expansion, every composition-tree root,
-and the top level (export.py names it after the spec file; here it is "the top
+and the top level (`sigil export` names it after the spec file; here it is "the top
 level", since a check has no file name and no fact depends on it).
 
 Standard library only. Deterministic: the model's order, never set order.

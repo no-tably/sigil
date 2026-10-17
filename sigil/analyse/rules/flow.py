@@ -1,10 +1,10 @@
 """
-check_flow.py — Sigil composition checks over calls, delivery, sagas, load and
+rules.flow — Sigil composition checks over calls, delivery, sagas, load and
 failure handling (RFC 0003, rfcs/0003-composition-checks.catalog.md §2 families 10x-12x and 16x,
 §3 the static halves of SGC201 and SGC202).
 
-Not a command: check.py loads it (RULE_MODULES) and calls `rules(ck)` with
-itself as `ck`, so this module never imports check.py. Every rule reads one
+Not a command: sigil.analyse.check loads it (RULE_MODULES) and calls
+`rules(ck)` with itself as `ck`, so this module never imports it. Every rule reads one
 `Facts` record per document (flow_facts): the simulator's canonical scene and
 program, the work wires outside state machines, node modifiers over every unit,
 the call graph, and the failure flow. A rule never asks for a shape; each hit
@@ -79,11 +79,11 @@ class Facts:
     """The flow facts of one document (flow_facts). `effects`, `failures` and
     `spread` are the mutable part: memos filled the first time a rule asks
     (effect_of, failures_of, spread_nodes)."""
-    sim: object                      # sim.py
-    scene: object                    # scene.py
+    sim: object                      # sigil.model.sim
+    scene: object                    # sigil.model.scene
     prog: object                     # sim.Program of the canonical scene
-    graph: object                    # render.Graph of the document
-    nodes: dict                      # id → render.Node, first seen over every unit
+    graph: object                    # core.graph.Graph of the document
+    nodes: dict                      # id → core.graph.Node, first seen over every unit
     mods: dict                       # id → [(name, arg)] over every occurrence
     flows: tuple                     # flow wires outside state machines, scene order
     unit: dict                       # id(wire) → unit index

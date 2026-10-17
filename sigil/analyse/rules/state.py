@@ -1,11 +1,11 @@
 """
-check_state.py — Sigil composition checks over shared state, state machines,
+rules.state — Sigil composition checks over shared state, state machines,
 termination and structure (RFC 0003, rfcs/0003-composition-checks.catalog.md), plus the stale
 acknowledgement rule.
 
-A rule module for check.py: `rules(ck)` returns this module's `ck.Rule`s and
-`exploration_causes(ck)` its SGC090 cause, where `ck` is check.py itself (passed
-in, so this module never imports it). Rules:
+A rule module for sigil.analyse.check: `rules(ck)` returns this module's
+`ck.Rule`s and `exploration_causes(ck)` its SGC090 cause, where `ck` is
+sigil.analyse.check itself (passed in, so this module never imports it). Rules:
 
     SGC003 ack-unused                an acknowledgement that covers no finding
     SGC131 shared-writable-store     two writers to a plain store, no resolution
@@ -237,7 +237,7 @@ def bfs(seeds, step) -> list:
 def spawned(t) -> bool:
     """A composition-tree child that is a dynamic instance (catalog §1.4
     concurrent(n)): a `\\-*` spawn or a `*-` child. The same predicate as
-    check_flow.instances; `\\-$` (from data) is no spawn."""
+    rules.flow.instances; `\\-$` (from data) is no spawn."""
     return bool(t.spawn or t.rel == "*")
 
 
@@ -360,7 +360,7 @@ class Facts:
 
     @cached_property
     def nodes(self) -> dict:
-        """{id: render.Node} over every graph, first seen."""
+        """{id: core.graph.Node} over every graph, first seen."""
         out = {}
         for g, _o, _l, _t in self.units:
             for nid, n in g.nodes.items():
@@ -382,7 +382,7 @@ class Facts:
     def mods(self) -> dict:
         """{node id: [(name, arg)]}: every modifier written on a node, over every
         occurrence in every graph (an expansion's `[Walk] @inv depth <= 32`
-        declares the same node). The same fact as check_flow.node_mods."""
+        declares the same node). The same fact as rules.flow.node_mods."""
         out, seen = {}, set()
         for g, _o, _l, _t in self.units:
             for nid, n in g.nodes.items():

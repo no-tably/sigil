@@ -39,7 +39,7 @@ from sigil.core.lex import GLYPH_BRACKETS
 # One Graph per document; one more per `X := { … }` expansion / alias body /
 # `state` machine, hung off the node it expands (Graph.expansions). The Graph is
 # the single source of truth for every presentation (the Mermaid export, the terminal
-# graph and tree views in view.py) and for a future simulation engine that walks
+# graph and tree views in sigil/present/views) and for a future simulation engine that walks
 # pathways: viewers decide how to SHOW it, never what it MEANS. Every field below
 # is filled by the parser; nothing is inferred later by a viewer.
 #
@@ -165,7 +165,7 @@ class Node:
     is_stream: bool = False
     layer: str = "L1"
     # Free-form metadata a dialect attaches to the nodes its tokenizers build
-    # (core Sigil leaves it empty). See dialects.py NODE_KINDS.
+    # (core Sigil leaves it empty). See sigil.core.dialects NODE_KINDS.
     attrs: dict = field(default_factory=dict)
     # Every modifier written on this node, as (name, arg) — see "Modifiers" above.
     mods: list = field(default_factory=list)

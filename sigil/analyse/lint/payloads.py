@@ -179,7 +179,7 @@ def lint_payloads(statements: tuple, result: LintResult, checks=(), known=None):
         part that starts with no letter) is rejected (SGL102), as a payload
         and as an arrow's target alike.
     Core Sigil does NOT require a tag on a value payload. A dialect may add
-    per-payload rules (`checks`, see dialects.py `lint_payload_checks`).
+    per-payload rules (`checks`, see sigil.core.dialects `lint_payload_checks`).
     """
     if known is None:
         known = VALID_MODIFIERS

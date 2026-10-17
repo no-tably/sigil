@@ -1,8 +1,9 @@
 """
-check.py — Sigil composition checks: is the design a document describes sound?
+sigil.analyse.check — Sigil composition checks: is the design a document
+describes sound?
 
-lint.py checks that a document is well formed; check.py asks whether the design
-says how its risks are handled (RFC 0003, rfcs/0003-composition-checks.catalog.md).
+`sigil lint` checks that a document is well formed; `sigil check` asks whether
+the design says how its risks are handled (RFC 0003, rfcs/0003-composition-checks.catalog.md).
 A finding never forbids a shape: it names a risk the design leaves undeclared, and is satisfied by
 declaring the handling in the notation (`@timeout`, `×N`, `!>`, `@inv …`, …) or by
 a reasoned acknowledgement:
@@ -10,17 +11,17 @@ a reasoned acknowledgement:
     [API] -> [Payments] : charge(total) ×3   # accepts: retry-without-idempotency — an upsert
 
 Usage:
-    ./check.py <file.sigil> [--mode sketch|craft|spec] [--k N] [--budget N]
-               [--overlaps off|listed|all|N]
-               [--limit NAME=N ...] [--json] [--all] [--export]
-    ./check.py --rules
-    cat doc.sigil | ./check.py -
+    sigil check <file.sigil> [--mode sketch|craft|spec] [--k N] [--budget N]
+                [--overlaps off|listed|all|N]
+                [--limit NAME=N ...] [--json] [--all] [--export]
+    sigil check --rules
+    cat doc.sigil | sigil check -
 
 Options:
     --mode M     check as mode M (default: the document's mode line; none = sketch)
     --k N        failure combinations explored per scenario (default: 1, spec 2)
     --budget N   runs one exploration may make: deviation combinations, then
-                 overlap runs (default: check_trace.BUDGET)
+                 overlap runs (default: rules.trace.BUDGET)
     --overlaps off|listed|all|N  overlap runs (a later entry started while an
                  earlier one's episode runs) to make: none; the listed starts
                  (sim.overlaps), alone and with each deviation; those, then every
@@ -34,9 +35,9 @@ Options:
     --all        also print the findings the mode hides (sketch's info)
     --export     check export readiness too: the readiness rules (EXPORT_MODULES:
                  SGC401 no-home, SGC402 untyped-boundary) run with the others,
-                 as export.py's gate runs them
+                 as `sigil export`'s gate runs them
     --rules      list the rule registry (the readiness rules too) and exit
-    --dialect D  load a dialect (as lint.py does; default $SIGIL_DIALECT)
+    --dialect D  load a dialect (as `sigil lint` does; default $SIGIL_DIALECT)
 
 Output (lint-compatible, sorted by line, then rule id, then anchor):
     <severity>:<line>:<SGCnnn>: <name>: <message>
@@ -57,19 +58,20 @@ A finding built on a guess drops one tier (never below hint); a trace finding
 whose witness needs k >= 2 deviations, or that comes from a rule still marked
 `trace_warn_only`, is capped at warn.
 
-Rule modules. check.py loads the sibling modules in RULE_MODULES that exist; each
-defines `rules(ck)` and returns a list of `ck.Rule`, where `ck` is this module
-(passed in, so a rule module never imports check.py itself). A rule's `match(doc)`
+Rule modules. This module loads the modules in RULE_MODULES (sigil.analyse.rules)
+that exist; each defines `rules(ck)` and returns a list of `ck.Rule`, where `ck`
+is this module (passed in, so a rule module never imports sigil.analyse.check
+itself). A rule's `match(doc)`
 yields `ck.Hit`s; `doc` is a `ck.Doc` (lines, mode, k, graph, comments, acks, and
 the simulator's canonical scene and program, all computed on first use). A module
-may also define `exploration_causes(ck)`, match functions whose Hits check.py
+may also define `exploration_causes(ck)`, match functions whose Hits this module
 gathers into the one SGC090 rule, and `extend_rules(ck, rules)`, which returns the
 whole registered list with its own additions to rules other modules register
 (idempotent; applied after every module's `rules`). The modules in EXPORT_MODULES
 load the same way, but only for a check asked for export readiness (`--export`,
 `check(…, export=True)`); their names (EXPORT_NAMES) are known either way, so an
 acknowledgement of one is no unknown rule, and never stale, in a plain check.
-A loaded dialect's rule pack (dialects.py,
+A loaded dialect's rule pack (sigil.core.dialects,
 `check_rules`, `READ_VERBS`, `policy_words`) joins the registry and the Doc. The
 registry, the finding record, tiers × modes, acknowledgements and folding live
 here; rule modules hold only matches and their data.
@@ -138,12 +140,12 @@ CORE_NAMES = {
     "SGC304": "layer-inversion", "SGC306": "timeout-below-sla",
 }
 RETIRED_IDS = frozenset({"SGC105", "SGC164", "SGC305"})
-# The export readiness rules (check_export.py): in the catalog's id space, run only
+# The export readiness rules (rules.export): in the catalog's id space, run only
 # when a check is asked for export readiness (EXPORT_MODULES).
 EXPORT_NAMES = {"SGC401": "no-home", "SGC402": "untyped-boundary"}
 CATALOG = {**CORE_NAMES, **EXPORT_NAMES}
-# Core id spaces: lint codes are SGL…, check ids SGC…. lint.py keeps no table of
-# its codes, so the core reserves both prefixes whole: a dialect's rule id or
+# Core id spaces: lint codes are SGL…, check ids SGC…. `sigil lint` keeps no table
+# of its codes, so the core reserves both prefixes whole: a dialect's rule id or
 # lint code may start with neither (registry_problem, dialect_pack).
 CORE_ID_PREFIXES = {"SGL": "lint codes", "SGC": "check ids"}
 # Fixed by editing a line, never by a decision about the design (catalog §5): the
@@ -345,9 +347,9 @@ class Doc:
     """One document, its mode and k, and the model facts the rules read. Every
     fact is computed on first use, so a rule pays only for what it reads.
 
-    The model's facts, for rule modules (catalog §1.4): `doc.graph` (render's
+    The model's facts, for rule modules (catalog §1.4): `doc.graph` (core's
     Graph: Edge.card / src_mods / implied, Graph.narrowed / dropped), `doc.scene`
-    (scene.py: call_policy, declared_access, writers), `doc.sc` / `doc.prog` (the
+    (sigil.model.scene: call_policy, declared_access, writers), `doc.sc` / `doc.prog` (the
     simulator's canonical scene and program), and `doc.access_mode(w)` (with
     `doc.declared_access` and `doc.writers`, memoised), which
     reads the dialect's extra read verbs (catalog §1 CG6). `doc.inv_heads` is the recognised
@@ -701,7 +703,7 @@ def match_policy_in_prose(doc: Doc):
 
 
 def core_rules() -> list:
-    """The rules check.py itself carries."""
+    """The rules sigil.analyse.check itself carries."""
     return [
         Rule("SGC001", "ack-unknown-rule", "binding",
              ask="No rule is named so. Did you mean another name?",
@@ -842,7 +844,7 @@ def default_registry(extra: Iterable = (), export: bool = False) -> dict:
 
 def core_names():
     """What the core names, for refusing a clashing dialect pack (dialects.CoreNames).
-    Lint codes are left empty: lint.py keeps no table of them, so the core reserves
+    Lint codes are left empty: `sigil lint` keeps no table of them, so the core reserves
     their whole prefix instead (CORE_ID_PREFIXES, enforced by dialect_pack and
     registry_problem)."""
     return _dialects().CoreNames(

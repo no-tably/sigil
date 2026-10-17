@@ -455,6 +455,9 @@ def _export_folder(argv: list, dialect) -> int:
     a = ap.parse_args(argv)
     from sigil.analyse import check, lint
     from sigil.publish import exporter
+    if a.spec == "-":                        # the top system is named after the file
+        say("export", "SPEC must be a file: its stem names the top system")
+        return 2
     spec, out = Path(a.spec), Path(a.out)
     try:
         loaded = load_dialect(a.dialect)

@@ -1,9 +1,10 @@
 """
-check_inv.py — Sigil composition checks over the document's own `@inv`
+rules.inv — Sigil composition checks over the document's own `@inv`
 declarations (RFC 0003, rfcs/0003-composition-checks.catalog.md §4).
 
-A rule module for check.py: `rules(ck)` returns this module's `ck.Rule`s, where
-`ck` is check.py itself (passed in, so this module never imports it). Rules:
+A rule module for sigil.analyse.check: `rules(ck)` returns this module's
+`ck.Rule`s, where `ck` is sigil.analyse.check itself (passed in, so this
+module never imports it). Rules:
 
     SGC301 inv-unchecked       an `@inv` with no recognised head (listed, never failed)
     SGC302 inv-dangling        a recognised `@inv` naming what its anchor never touches
@@ -12,10 +13,10 @@ A rule module for check.py: `rules(ck)` returns this module's `ck.Rule`s, where
     SGC306 timeout-below-sla   a caller's `@timeout` below the callee's declared `@sla`
 
 SGC173's declared-order clause (`@inv lock-order(…)`) lives with the lock-order
-graph in check_state.py.
+graph in rules.state.
 
-Recognised heads are the document's (`doc.inv_heads`): check.py's INV_HEADS plus
-the loaded dialect's rule-pack heads. Each rule only checks what a declaration
+Recognised heads are the document's (`doc.inv_heads`): sigil.analyse.check's
+INV_HEADS plus the loaded dialect's rule-pack heads. Each rule only checks what a declaration
 says; none asks for the wiring to change to fit a claim (catalog SGC303 "Declare").
 
 Reading of the catalog's SGC302 query: a store or event a recognised invariant
@@ -38,7 +39,7 @@ from typing import NamedTuple, Optional
 from sigil.core import graph as core_graph
 
 
-SYNC_KINDS = ("->", "→", "<->", "*>", "?>")       # the caller waits (as check_flow)
+SYNC_KINDS = ("->", "→", "<->", "*>", "?>")       # the caller waits (as rules.flow)
 BOUND_HEADS = ("depth", "hops", "concurrency")
 
 _GLYPH_REF_RE = re.compile(r"(?P<pre>[~*]?)(?:\|(?P<store>[^|]+)\||<(?P<event>[^<>]+)>)")

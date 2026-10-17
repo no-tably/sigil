@@ -48,6 +48,15 @@ class PrefixTest(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertTrue(err.startswith("sigil export: "), err)
 
+    def test_export_folder_refuses_stdin(self):
+        # The top system is named after the spec file's stem: stdin has none (as 0.5).
+        with tempfile.TemporaryDirectory() as tmp:
+            code, out, err = run(cli.main, ["export", "-", "--out", tmp])
+            self.assertEqual(list(Path(tmp).iterdir()), [])
+        self.assertEqual((code, out), (2, ""))
+        self.assertEqual(err, "sigil export: SPEC must be a file: its stem names "
+                              "the top system\n")
+
     def test_usage_lines_name_the_subcommand(self):
         for cmd in ("lint", "check", "view", "export", "frames"):
             with self.subTest(cmd=cmd):

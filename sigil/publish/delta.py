@@ -29,7 +29,7 @@ _FOLDER_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
 
 
 def manifest_problem(obj) -> Optional[str]:
-    """Why `obj` (a parsed manifest.json) is no manifest this export.py wrote
+    """Why `obj` (a parsed manifest.json) is no manifest `sigil export` wrote
     (None: it is one). Folder names must be slugs, so a delta never deletes
     anything outside the export."""
     if not isinstance(obj, dict) or obj.get("sigil_export") != EXPORT_VERSION:
