@@ -37,7 +37,8 @@ every other column stays put; the scanner then reads the rest, and the spans'
 own tokens (span_tokens) come from the same capture. It stays a pass of its own
 because what a span is depends on the whole statement, not on what is left of
 it: a stream bound is taken before the `@policy` it holds, an access list before
-the `@name` rule, a free argument runs up to the next arrow or `@`, and a
+the `@name` rule, a free argument runs up to the next arrow or `@` (and stops
+before a blanked span, the header's block `{` and a trailing `×N` / `!`), and a
 payload runs from its `:` to the line end less a tail peeled from the right
 (`×N`, `!`, alias references). A left-to-right scanner would need that same
 look-ahead at each column, so folding it in would move the pass, not remove it.
