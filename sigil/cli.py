@@ -462,16 +462,16 @@ def _export_folder(argv: list, dialect) -> int:
     try:
         loaded = load_dialect(a.dialect)
         text = read_text(a.spec)
-        blocking = exporter.gate(text, loaded, lint, check)
+        passed = exporter.ready(text, loaded, lint, check)
     except (ValueError, OSError) as exc:
         say("export", str(exc))
         return 2
-    if blocking:
-        print("\n".join(blocking))
-        say("export", f"{spec.name} is not ready to export: {len(blocking)} "
+    if passed.blocking:
+        print("\n".join(passed.blocking))
+        say("export", f"{spec.name} is not ready to export: {len(passed.blocking)} "
                       "blocking line(s); nothing written")
         return 2
-    done = exporter.run(text, spec, out, loaded, a.json, a.dry_run)
+    done = exporter.run(text, spec, out, loaded, a.json, a.dry_run, passed)
     if done.problem:
         say("export", done.problem)
     for name in done.kept:

@@ -93,23 +93,40 @@ SYSTEM_JSON = "system.json"
 _README_KEY = "\0readme"                     # reserves `readme` among component slugs
 
 
-def gate(text: str, dialect, lint, check) -> tuple:
-    """The lines that block exporting `text` (none: it is ready). `lint` and
-    `check` are the sigil.analyse lint and check modules (the command passes
-    them in). A document that is no spec, or
-    that lint finds errors in, is not checked further. Raises ValueError for a
-    rule pack check refuses. The document is read and parsed once: lint's
-    reading and model are the ones check judges."""
+@dataclass(frozen=True)
+class Gate:
+    """What the gate found: the lines that block the export (none: it is
+    ready), and lint's reading of the document (its Walk and parsed model), the
+    one the export's model is built from. `walk` and `graph` are None when lint
+    did not run (the document is no spec)."""
+    blocking: tuple
+    walk: object = None
+    graph: object = None
+
+
+def ready(text: str, dialect, lint, check) -> Gate:
+    """The gate on `text`: what blocks exporting it, and the reading it made.
+    `lint` and `check` are the sigil.analyse lint and check modules (the command
+    passes them in). A document that is no spec, or that lint finds errors in,
+    is not checked further. Raises ValueError for a rule pack check refuses. The
+    document is read and parsed once: lint's reading and model are the ones
+    check judges (and run builds the export's model from)."""
     mode = check.read_mode(text.splitlines())
     if mode != "spec":
-        return (f"mode: the document is `#!{mode}`; only a `#!spec` document exports",)
+        return Gate((f"mode: the document is `#!{mode}`; only a `#!spec` document exports",))
     linted = lint.lint_reading(text, dialect=dialect)
     errors = tuple(d.format() for d in linted.result.diagnostics if d.severity == "error")
     if errors:
-        return errors
+        return Gate(errors, linted.walk, linted.graph)
     report = check.check(text, mode="spec", dialect=dialect, export=True,
                          walk=linted.walk, graph=linted.graph)
-    return tuple(f.line_text() for f in report.shown if f.severity in ("error", "warn"))
+    return Gate(tuple(f.line_text() for f in report.shown if f.severity in ("error", "warn")),
+                linted.walk, linted.graph)
+
+
+def gate(text: str, dialect, lint, check) -> tuple:
+    """The lines that block exporting `text` (none: it is ready): ready's."""
+    return ready(text, dialect, lint, check).blocking
 
 
 def out_problem(out: Path) -> Optional[str]:
@@ -541,9 +558,10 @@ class Outcome:
 
 
 def run(text: str, spec: Path, out: Path, dialect, as_json: bool = False,
-        dry_run: bool = False) -> Outcome:
+        dry_run: bool = False, passed: Optional[Gate] = None) -> Outcome:
     """Export `text` (a spec the gate passed, read from `spec`) into `out`, or
-    with `dry_run` only say what would change."""
+    with `dry_run` only say what would change. `passed`: that gate (ready's), whose
+    reading the model is built from; None reads and parses `text` here."""
     try:
         problem = out_problem(out)
         old = None if problem else read_manifest(out)
@@ -551,7 +569,9 @@ def run(text: str, spec: Path, out: Path, dialect, as_json: bool = False,
         problem = str(exc)
     if problem:
         return Outcome(2, problem=problem)
-    plan = plan_export(em.build_model(text, spec.stem, dialect), spec.name, text)
+    walk, graph = (passed.walk, passed.graph) if passed else (None, None)
+    model = em.build_model(text, spec.stem, dialect, walk=walk, graph=graph)
+    plan = plan_export(model, spec.name, text)
     change = delta(old, plan.manifest)
     if dry_run:
         head = [f"sigil export (dry run): nothing written to {out}"]

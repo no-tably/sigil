@@ -36,11 +36,15 @@ from sigil.analyse.check import CORE_NAMES
 # Entry points
 # ---------------------------------------------------------------------------
 
-def build_model(text: str, stem: str, dialect=None) -> Model:
+def build_model(text: str, stem: str, dialect=None, walk=None, graph=None) -> Model:
     """The model of a document, hashed: parsed, its acknowledgements read as
-    check reads them."""
-    walk = read_document(text, dialect)               # the one reading
-    graph = parse.parse_document(text, dialect=dialect, walk=walk)
+    check reads them. `walk`: the document's reading (read_document of `text`
+    with `dialect`) when the caller has it already, as the export gate does, and
+    `graph` the model parsed from that walk; None reads / parses it here."""
+    if walk is None:
+        walk = read_document(text, dialect)           # the one reading
+    if graph is None:
+        graph = parse.parse_document(text, dialect=dialect, walk=walk)
     comments = {k + 1: v for k, v in walk.comments.items()}
     acks = read_acks(comments, walk_layout(walk), frozenset(CORE_NAMES.values()))
     return model_of(graph, stem, systems.accepted(acks, comments))
