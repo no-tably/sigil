@@ -7,11 +7,11 @@ modifier tokens (a flow's, an owns header's, a control-block header's).
 import re
 from typing import NamedTuple
 
-from sigil.core.lex import PRINCIPAL_SET_RE, mask_strings
-from sigil.core.statements import BlockMods, Definition, SectionHead, StateEnd, StateHead
+from sigil.core.lex import DIALECT_COL, PRINCIPAL_SET_RE, mask_strings
+from sigil.core.statements import BlockMods, Definition, SectionHead
 from sigil.core.tokens import dialect_glyph_nodes
 from sigil.core.vocab import GLYPH_PATTERNS, LintResult
-from sigil.analyse.lint.reading import documents, header_tokens
+from sigil.analyse.lint.reading import documents, header_tokens, state_lines
 
 
 # `@borrow(…)` with a narrowing arg, lending access to a delegate (the lent
@@ -42,13 +42,15 @@ def declared_principals(walk, markers: dict) -> set:
     sigil.core.statements.Walk): the bare name of every glyph of any kind
     (`[X]`/`{X}`/`<X>`/`(X)`/`|X|`) its tokens hold — a statement's or a
     control-block header's, a glyph token or one inside a payload, op or
-    modifier argument — and of every dialect glyph they hold (its Node); and
-    the glyphs its records name: a definition's head, a `state` block's owner,
-    a transition's trigger event, a layer section's title, and those in the
-    modifiers after a block's `}`. An access list's members are no declaration
-    of their own, nor is a branch marker the rules read past (`markers`:
+    modifier argument — and of every dialect glyph they hold (its Node); every
+    core glyph written on a `state` block's lines (head to close: its owner, a
+    transition's trigger event — `-<E>-` reads as the event glyph `<E>` — its
+    payload and modifiers, the text after the `}`); and the glyphs its records
+    name: a definition's head, a layer section's title, and those in the
+    modifiers after a block's `}`. An access list's members are no declaration of their
+    own, nor is a branch marker the rules read past (`markers`:
     lint.composition.branch_markers)."""
-    declared = _bases([t.trigger for t in walk.transitions if t.trigger])
+    declared = _state_names(walk)
     for d in documents(walk.doc):
         for item in d.items:
             declared.update(_record_names(item))
@@ -57,6 +59,17 @@ def declared_principals(walk, markers: dict) -> set:
             if k != skip and not is_access_list(t):
                 declared.update(_token_names(t, walk.lexicon))
     return declared
+
+
+def _state_names(walk) -> set:
+    """The principal name of each core glyph on the lines a `state` block covers
+    (lint.reading.state_lines), read from the walk's code of each line with its
+    access lists and dialect glyphs blanked."""
+    names: set = set()
+    for n in state_lines(walk.doc):
+        code = walk.codes[n - 1].text.replace(DIALECT_COL, " ")
+        names |= glyph_names(PRINCIPAL_SET_RE.sub(lambda m: " " * len(m.group(0)), code))
+    return names
 
 
 def _token_runs(statements: tuple, doc, markers: dict):
@@ -95,10 +108,6 @@ def _record_names(item) -> set:
     if isinstance(item, Definition):
         return (_bases([item.name]) if item.kind is not None else set()) \
             | glyph_names(item.tail)
-    if isinstance(item, StateHead) and item.owner is not None:
-        return glyph_names(item.owner)
-    if isinstance(item, StateEnd):
-        return _bases([t.trigger for t in item.lines if t.trigger]) | glyph_names(item.tail)
     if isinstance(item, BlockMods):
         return glyph_names(item.text)
     if isinstance(item, SectionHead) and item.level:

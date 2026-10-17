@@ -182,6 +182,61 @@ def _dialect(**hooks):
     return d
 
 
+# Two probes: a glyph in each place a principal may be declared.
+PERM_PROBE = (
+    '#!craft\n'
+    '# a comment naming [InComment]\n'
+    '[A] -> [B] : "a string [InString]"\n'
+    '[A] -> [B] : send({InPayload}) @timeout(5s)\n'
+    '[A] -> [B] @fallback([InMod])\n'
+    'state {Owner} {\n'
+    '  new -<Trig>-> paid\n'
+    '  paid -<{TData}>-> done\n'
+    '}\n'
+    '--- L1: [Sect] ---\n'
+    'Def := [DefBody] -> [X]\n'
+    '[DefHead] := [Y] -> [Z]\n'
+    'loop @times(2) {\n'
+    '  [A] -> [B]\n'
+    '} @inv lock-order(|BlockMod|)\n'
+    '[Root]\n'
+    '  \\-> [Branch]\n'
+    '  {cond}-> [Cond]\n'
+    '  (2)-> [Weighted]\n'
+    '[A] -> [B] : """\n'
+    '  [InBlock]\n'
+    '"""\n'
+    '[K] @owns |Owned| {\n'
+    '  [K] -> |Owned|\n'
+    '}\n'
+    '|Res| @read(InComment, InString, InPayload, InMod, Owner, Trig, TData, Sect, DefBody, Def, DefHead, BlockMod, Branch, cond, Cond, Weighted, InBlock, Owned, Nope)\n'
+    '|Res2| @write(X, Y, Z, K, Root, A, B, N2) \n'
+    '[N2] -> [Q] @read(Res) @write(Res2)\n'
+)
+
+PERM2_PROBE = (
+    '#!craft\n'
+    'state [Mach] {\n'
+    '  a -<E1>-> b : {Payload1}\n'
+    '  b -<(Act1)>-> c @guard([G1])\n'
+    '  c -<|St1|>-> d\n'
+    '  d -> e\n'
+    '  e -<E2 {Inl}>-> f\n'
+    '} @inv x([AfterState])\n'
+    '@enum Mode { fast, slow }\n'
+    'Alias := @after(5s) [AliasGlyph]\n'
+    '[P] -> [Q] : op db.q({OpArg}, [OpSvc])\n'
+    '[P]/{Path} -> [R]\n'
+    '[P] -> ~*|Mut| : ${state.Ref}\n'
+    '[P] -> <Gen<Inner>> : x\n'
+    '[S] \\-& [InlineKid]\n'
+    '[S] @requires([Req]) -> [T]\n'
+    '(Who)×3 -> [T]\n'
+    '|Res| @read(Mach, E1, Payload1, Act1, G1, St1, E2, Inl, AfterState, fast, Mode, AliasGlyph, OpArg, OpSvc, Path, Mut, Ref, Gen, Inner, InlineKid, Req, Who)\n'
+    '[P] -> [T] @read(Res)\n'
+)
+
+
 class TheWalkAlone(unittest.TestCase):
     """What lint reads beside the statements is the walk's record too."""
 
@@ -205,6 +260,38 @@ class TheWalkAlone(unittest.TestCase):
         doc = ("#!sketch\n[Ship]\n    \\-{hot}-? [Cache]\n|S| @read(hot, Ghost)\n"
                "|T| @write(Ghost)\n")
         self.assertEqual(rules(doc), [(4, "SGL143"), (4, "SGL143"), (5, "SGL143")])
+
+    def test_every_glyph_on_a_state_line_declares_its_name(self):
+        # A glyph in a transition's payload or guard, a glyph trigger and a glyph
+        # inside a trigger declare names, as the code of any other line does; an
+        # access list on a state line declares nothing, and `-<E2 {Inl}>-` is no
+        # event glyph (E2 stays undeclared).
+        doc = ("#!craft\nstate [Mach] {\n  a -<E1>-> b : {Payload1} @read(Hidden)\n"
+               "  b -<(Act1)>-> c @guard([G1])\n  c -<|St1|>-> d\n  d -> e\n"
+               "  e -<E2 {Inl}>-> f\n  f -<{TData}>-> g\n} @inv x([AfterState])\n"
+               "|Res| @read(Mach, E1, Payload1, Act1, G1, St1, E2, Inl, TData, AfterState, Hidden)\n"
+               "[P] -> [T] @read(Res)\n")
+        names = [d.message.split("'")[1] for d in lint.lint(doc).diagnostics
+                 if d.rule == "SGL143"]
+        self.assertEqual(names, ["E2", "Hidden"])
+
+    def test_declared_names_match_the_line_reading_on_two_probes(self):
+        # Every place a glyph may stand (comments and strings declare nothing):
+        # the SGL143 names are those the per-line reading before one-walk gave.
+        cases = [
+            (PERM_PROBE, ["InComment", "InString", "Def", "InBlock", "Nope"]),
+            (PERM2_PROBE, ["E2", "fast", "Mode", "Ref", "Gen"]),
+        ]
+        for doc, undeclared in cases:
+            names = [d.message.split("'")[1] for d in lint.lint(doc).diagnostics
+                     if d.rule == "SGL143"]
+            self.assertEqual(names, undeclared)
+
+    def test_a_state_line_in_a_definition_body_declares_its_glyphs(self):
+        doc = ("#!craft\nMach := {\n  state [M2] {\n    a -<E1>-> b : {DPay}\n"
+               "    b -<(DAct)>-> c\n  } @inv x([DTail])\n}\n"
+               "|Res| @read(M2, E1, DPay, DAct, DTail)\n[P] -> [T] @read(Res)\n")
+        self.assertNotIn("SGL143", [d.rule for d in lint.lint(doc).diagnostics])
 
     def test_lint_deep_reads_the_document_once(self):
         from sigil import cli
