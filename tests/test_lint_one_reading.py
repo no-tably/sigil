@@ -216,6 +216,14 @@ class TheWalkAlone(unittest.TestCase):
         self.assertEqual(counts["read_lines"], 1)
         self.assertEqual(counts["fold_block_strings"], 1)
 
+    def test_export_gate_reads_the_document_once(self):
+        from sigil.analyse import check
+        from sigil.publish import exporter
+        spec = "#!spec\n[Shop] -> |Ledger| : {Entry}\n"
+        counts = reading_calls(lambda: exporter.gate(spec, None, lint, check))
+        self.assertEqual(counts["read_lines"], 1)
+        self.assertEqual(counts["fold_block_strings"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

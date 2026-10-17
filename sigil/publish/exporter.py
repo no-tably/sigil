@@ -98,15 +98,16 @@ def gate(text: str, dialect, lint, check) -> tuple:
     `check` are the sigil.analyse lint and check modules (the command passes
     them in). A document that is no spec, or
     that lint finds errors in, is not checked further. Raises ValueError for a
-    rule pack check.py refuses."""
+    rule pack check.py refuses. The document is read once: lint's reading is
+    the one check judges."""
     mode = check.read_mode(text.splitlines())
     if mode != "spec":
         return (f"mode: the document is `#!{mode}`; only a `#!spec` document exports",)
-    errors = tuple(d.format() for d in lint.lint(text, dialect=dialect).diagnostics
-                   if d.severity == "error")
+    linted = lint.lint_reading(text, dialect=dialect)
+    errors = tuple(d.format() for d in linted.result.diagnostics if d.severity == "error")
     if errors:
         return errors
-    report = check.check(text, mode="spec", dialect=dialect, export=True)
+    report = check.check(text, mode="spec", dialect=dialect, export=True, walk=linted.walk)
     return tuple(f.line_text() for f in report.shown if f.severity in ("error", "warn"))
 
 
