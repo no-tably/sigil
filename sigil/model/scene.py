@@ -1,9 +1,9 @@
 """
-scene.py — the shared presentation model: what any view draws and the simulator
-runs, built from render.py's Graph.
+sigil.model.scene — the shared presentation model: what any view draws and the
+simulator runs, built from core's Graph (sigil.core.graph).
 
-Not a command: the views (view_graph.py, view_tree.py) and the simulator load
-it. The Graph says what a design MEANS; the Scene says what is SHOWN at a given
+Not a command: the views (sigil.present.views) and the simulator load it.
+The Graph says what a design MEANS; the Scene says what is SHOWN at a given
 depth and with given options — which graphs are drawn, every wire between their
 nodes with its colour, payload, notes and join marks, and where an event is
 drawn. A view only decides how a Scene looks (boxes and edges, or an outline
@@ -14,7 +14,7 @@ and lanes); it never re-derives wiring or colour on its own.
 THE SCENE
 
 Scene
-  graph       the Graph it was built from (render.parse_document)
+  graph       the Graph it was built from (parse.parse_document)
   options     SceneOptions(events, triggers, access, depth)
   units       [Unit(owner, level, graph)]: the graphs drawn — the document, then
               each `X := { … }` / `state` expansion up to `depth`, depth-first in
@@ -27,14 +27,14 @@ Scene
               emits, access, arms, compose. A wire per edge: a flow written twice
               is two wires with one key (a view that draws one stroke per key
               dedups; the simulator may not).
-  sections    the document's `--- sections ---` (render.Section)
+  sections    the document's `--- sections ---` (core.graph.Section)
   blocks      [BlockRef(owner, index, block)]: the control blocks of every unit
   notes       {node id: [(number, text, kind, edges)]}: core.comments.note_index()
   collapsed   the event ids drawn where they land (events="land"): no row or box
               of their own; their emit wires replace them
 
 SceneNode
-  node        the render.Node
+  node        the core.graph.Node
   unit        the owner of the unit it is first seen in (None: the document)
   section     index into Scene.sections of the section it is written in (-1:
               none, or not a top-level node)
@@ -86,7 +86,7 @@ Wire
               state machine it drives (driver_wires); None for the rest
   legs        emit: (the wire into the event, the wire out of it)
   spawn       compose: `*-` (instances spawned at runtime)
-  edge        the render.Edge a flow wire comes from (None for the rest)
+  edge        the core.graph.Edge a flow wire comes from (None for the rest)
   call        flow: the Call it makes (see CALLS); None when it is no call
   returns_of  flow: the `=>` wire of an op-call target's return
               (`[S] -> plan() => {Plan}`): the call wire it returns from
@@ -97,7 +97,7 @@ A flow wire is a call when its target is an op-call (`[S] -> plan({Seed})`, a
 self-call), it is a glyph self-edge (`[Doc.walk] -> [Doc.walk] : child`,
 recursion; its payload is what each call carries), or its payload is an
 op-call (`: crawl({Plan}) => {Site}`). A state machine's self-transition is no
-call. Call (the payload text is parsed here, once — render.py keeps it whole):
+call. Call (the payload text is parsed here, once — core's parse keeps it whole):
 
   op          the op text without the `op ` keyword and without the return
               ("crawl({Plan})"); None for a glyph self-edge
@@ -137,7 +137,7 @@ failure emission stays edges-fail), else its source node's kind colour. A row's
 `◀` / an edge's head takes its wire's colour; where wires share cells (a
 fan-out's trunk, a back bundle's way), the wire nearest its target owns them,
 unless a member is an error wire or a run is playing: then the most severe member
-wins (view_graph.share_rank — run state first, then `!>`), wrapped or not. A
+wins (views.graph.share_rank — run state first, then `!>`), wrapped or not. A
 simulation overlay restyles on top (the kit's wire_style: active = full colour
 + bold, inactive = muted, failed = edges-fail).
 
@@ -178,7 +178,7 @@ class SceneOptions(NamedTuple):
 class Unit(NamedTuple):
     owner: Optional[str]            # the node the expansion hangs off; None: the document
     level: int
-    graph: object                   # render.Graph
+    graph: object                   # core.graph.Graph
 
 
 class Call(NamedTuple):
@@ -195,12 +195,12 @@ class Call(NamedTuple):
 class BlockRef(NamedTuple):
     owner: Optional[str]
     index: int                      # into the unit graph's blocks
-    block: object                   # render.Block
+    block: object                   # core.graph.Block
 
 
 @dataclass
 class SceneNode:
-    node: object                    # render.Node
+    node: object                    # core.graph.Node
     unit: Optional[str] = None
     section: int = -1
     blocks: tuple = ()
@@ -480,7 +480,7 @@ def access_wires(g) -> list:
 
 def rel_mark(t) -> str:
     """A composition entry's relation as the tree view writes it before the
-    child (render.TreeEntry): `─` contains, `&` has, `?` when, `$` from data,
+    child (core.graph.TreeEntry): `─` contains, `&` has, `?` when, `$` from data,
     `@` attached, `!` alerts, `=` gathers, `_` one of, `*` spawns (`*=` spawns
     and gathers); "" for a root. Without its condition or weight."""
     if t.parent is None:
@@ -702,7 +702,7 @@ def call_policy(w: Wire) -> list:
 class AccessIndex(NamedTuple):
     """What access_mode reads off the whole document, gathered in one walk
     (access_index): a caller classifying many wires builds it once."""
-    nodes: dict                # id → render.Node, first seen over every graph
+    nodes: dict                # id → core.graph.Node, first seen over every graph
     declared: dict             # (principal, store) → {"read", "write"} declared
     produced: frozenset        # (src, line) of every `=>` edge
     continued: frozenset       # (src, cont) of every `=>` edge continuing a line
@@ -841,7 +841,7 @@ def pass_through_candidates(g) -> list:
     in no composition tree as a branch or a parent, and owning no expansion. An
     expansion may write the event too: that occurrence stays a node of its
     unit, but loses its wires with the rest (a graph view keeps the sub-graph's
-    box and edges, see view_graph._landed). In document order."""
+    box and edges, see views.graph._landed). In document order."""
     tree = getattr(g, "tree", None) or []
     placed = {t.node for t in tree if t.parent is not None}
     parents = {tree[t.parent].node for t in tree if t.parent is not None}

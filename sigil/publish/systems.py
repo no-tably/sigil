@@ -2,7 +2,7 @@
 The export model as it leaves sigil: the hashed model, its normalised JSON, the
 folder slugs. The model itself — systems, homes, components, flows, what is
 untyped — is sigil.model.systems (check's export rules read it too); this module
-adds what export.py writes.
+adds what sigil export writes.
 
     model = build_model(text, stem="shop")
     model.systems["shop"].interface_hash, model.systems["shop"].body_hash

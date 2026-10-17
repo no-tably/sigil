@@ -1,7 +1,7 @@
 """
-view_run.py — the run view of view.py: one simulated run drawn as a timeline.
+views/run.py — the run view of sigil view: one simulated run drawn as a timeline.
 
-Not a command: view.py loads it. The other three views draw the design (what
+Not a command: the app loads it. The other three views draw the design (what
 can happen); this one draws a trace (what did happen in one run): who acted,
 when, in what order, for how long, waiting on whom, on which instance, and how
 each call ended. Time (sim ticks) runs left to right, one column a tick, under
@@ -45,9 +45,9 @@ below the drawing, then the timeline wraps into bands (each with its own ruler
 and the lanes active in it), then labels are cut. Long quiet stretches fold
 into one ≈ column. The ruler says where a loop's next iteration starts (`↺2`).
 
-compose_run() returns the rows view.py prints, the same shape as the other
+compose_run() returns the rows the app prints, the same shape as the other
 views' compose functions; the facts are sim.timeline()'s. Drawing primitives
-and styles come from viewkit.py (read as kit.NAME, so a theme change reaches
+and styles come from sigil.present.kit (read as kit.NAME, so a theme change reaches
 them); colours are theme roles only.
 """
 

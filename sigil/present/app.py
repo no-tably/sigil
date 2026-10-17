@@ -1,10 +1,10 @@
 """
-view.py — Live terminal view of a Sigil document's graph.
+sigil view — Live terminal view of a Sigil document's graph.
 
 Usage:
-    view.py <file.sigil>                 # live view: redraws on every save
-    view.py <file.sigil> --once          # print the drawing + lint once, exit
-    view.py <file.sigil> --once --depth all --payloads --color always
+    sigil view <file.sigil>              # live view: redraws on every save
+    sigil view <file.sigil> --once       # print the drawing + lint once, exit
+    sigil view <file.sigil> --once --depth all --payloads --color always
 
 Options:
     --depth N|all    Show `X := { … }` expansions as sections below the graph,
@@ -19,7 +19,7 @@ Options:
                      when lint reports an error. Also used when stdout is not a tty.
     --color WHEN     auto (default: colour when stdout is a tty) | always | never.
     --theme NAME     Colour theme: a name in themes/ or a .yaml path (default:
-                     env SIGIL_THEME, else sigil). See themes.py.
+                     env SIGIL_THEME, else sigil). See sigil themes.
     --events MODE    land | nodes: how a pass-through event is drawn. land: where
                      it lands — no row / box of its own, each emitter wired straight
                      to each destination in the event's colour (tree: the › emit
@@ -61,7 +61,7 @@ Options:
                      dotted edges principal → store headed r / w / b (tree: lanes
                      whose source is marked r / w / b), a store badged with its
                      writers, `1w` (one owns it) or `Nw` (shared). Off by default.
-    --sim SCENARIO   Simulate a pathway of the design (sim.py): `happy` (every
+    --sim SCENARIO   Simulate a pathway of the design (the simulator): `happy` (every
                      default), a scenario's name (an unknown one lists them all),
                      or `a+b` to combine two. With --once: the final frame of the
                      run (or --frame's) drawn over the view, the sim legend, then the outcome and
@@ -103,7 +103,7 @@ Keys (live view):
     u  the run view: instances shown before folding, 3 → 8 → all
     o  layout: auto → wrap → pan (the status bar says what is shown: wrap, pan,
        or auto→wrap / auto→pan)   f  flip between wrap and pan
-    c  checks: the composition checks overlay (check.py) and the findings panel
+    c  checks: the composition checks overlay (sigil check) and the findings panel
     arrows / h j k L pan   pgup / pgdn / space page   g home   z  re-centre   q  quit
     mouse: drag to pan; wheel scrolls (shift+wheel or a sideways wheel: across)
     x  sim mode: play the chosen scenario's run over the drawing (every view plays
@@ -115,7 +115,7 @@ Keys (live view):
        w  follow: pan to keep the run's tokens and active nodes in view (on)
 
 Zero dependencies: python3 standard library only. The graph comes from
-render.parse_document (the same parse render.py turns into Mermaid), laid out
+core's parse_document (the same parse sigil export --mermaid draws), laid out
 top-down in layers (cycle breaking, longest-path layering, barycenter ordering,
 block-merged x placement, one track per fan-out) and drawn with box-drawing
 characters. The live view is a plain alternate-screen terminal loop. Wrapped
@@ -197,7 +197,7 @@ last few events dim, and the narration line after `›` — what is happening no
 in plain words (`[API] calls [Payments] with charge(total) — attempt 2 of 4`),
 held while a token travels. --once --sim prints the path under its outcome.
 
-Run view (--run, 4): one run as a timeline (view_run.py over sim.timeline) —
+Run view (--run, 4): one run as a timeline (views/run.py over sim.timeline) —
 what did happen, where the other three views draw what can. Time runs left to
 right on a tick ruler, one column a tick (a quiet stretch of more than 3 ticks
 folds into one ≈ column); one lane per participant, composition instance
@@ -229,10 +229,10 @@ reason). A finding anchored on no drawn node or wire (a block, the document)
 is listed only.
 
 Modules: this file is the app (the --once printer, the live view, the CLI). The
-drawing lives beside it — viewkit.py (styles, canvas, runs, notes, fit panels),
-view_graph.py (the graph view), view_tree.py (the tree view), view_flow.py
-(the flow view) and view_run.py (the run view) — and every name of those five
-is also reachable here as view.NAME.
+drawing lives beside it in sigil.present — kit.py (styles, canvas, runs, notes,
+fit panels) and views/graph.py (the graph view), views/tree.py (the tree view),
+views/flow.py (the flow view) and views/run.py (the run view), read here as kit,
+vgraph, vtree, vflow and vrun.
 """
 
 from __future__ import annotations
@@ -389,7 +389,7 @@ def drawn_call_marks(graph, depth: int, payloads: bool) -> frozenset:
     payloads are on; with them the glyph marks a node of it carries (`≋` a
     stream, `‹›` a generic role) and `ƀ` when a `@borrow(read)` is declared
     (listed only with the access entries), and the outline's structure marks
-    (view_tree.outline_marks: `┄` internals, `⎫` a one-of set). A missing graph
+    (vtree.outline_marks: `┄` internals, `⎫` a one-of set). A missing graph
     (a parse error) shows none."""
     if graph is None:
         return frozenset()
@@ -477,8 +477,8 @@ def sim_keys_legend(player=None, follow: bool | None = None):
 def sim_legend(tree: bool = False) -> list:
     """The legend row of the simulation overlay's marks, one row for every view so
     they can't drift apart: tokens (● out in its wire's colour, ○ a return or
-    fallback, ✕ failed, a muted ⊘ cancelled — view_graph.sim_look, which the flow
-    view draws with too, and view_tree's lanes draw them alike; a failed node's
+    fallback, ✕ failed, a muted ⊘ cancelled — vgraph.sim_look, which the flow
+    view draws with too, and vtree's lanes draw them alike; a failed node's
     badge shares the token's ✕ and its meaning, so it is listed once, here), wires
     now, taken before or untouched, the other badges after a label (… waiting, ×n, ↻k) and the
     drawn machine's current state. `tree`: adds the tree view's own entry, `▸` an
@@ -516,7 +516,7 @@ def path_legend() -> list:
 
 
 # ---------------------------------------------------------------------------
-# Simulation — one document's run and the controls over it (sim.py does the
+# Simulation — one document's run and the controls over it (the simulator does the
 # running; the views draw a Frame). Pure: the clock comes in as `now`.
 # ---------------------------------------------------------------------------
 
@@ -947,7 +947,7 @@ def sim_run(player: SimPlayer, limits=None) -> dict:
 
 # -- every scenario at once (--sim list / --sim all): text an agent reads and
 #    diffs between two versions of a design. Running is the edge (run_all); the
-#    facts and the table are pure. No scenario is named `list` or `all`: sim.py
+#    facts and the table are pure. No scenario is named `list` or `all`: sim
 #    names a deviation after its choice point, always with punctuation
 #    (`API.charge:fails`, `Risk?>Review`, `Order.Open-Paid->Settled`). --------
 
@@ -1140,7 +1140,7 @@ def sim_json(path: Path, name: str, dialect=None, limits=None,
 
 def run_json(path: Path, name: str | None, dialect=None, limits=None,
              unroll: int | None = None, depth: int | None = None) -> int:
-    """--run --json [--sim NAME]: print the run's timeline (view_run.timeline_json:
+    """--run --json [--sim NAME]: print the run's timeline (vrun.timeline_json:
     lanes with their labels, spans, moves, marks) as JSON — the scenario's run,
     else the happy one; no drawing, no lint. `depth` (--depth; None: not given,
     every level): the timeline as the run view drawn to it. Exit status 0;
@@ -1155,7 +1155,7 @@ def run_json(path: Path, name: str | None, dialect=None, limits=None,
 
 
 # ---------------------------------------------------------------------------
-# Checks — check.py's findings on one document, mapped onto the Scene a view
+# Checks — sigil check's findings on one document, mapped onto the Scene a view
 # draws (kit.CheckMarks; the views mark them) and listed in a panel. Running
 # the checker is the edge (run_checks); the rest is pure.
 # ---------------------------------------------------------------------------
@@ -1168,8 +1168,8 @@ class ChecksUnavailable(RuntimeError):
 
 
 def run_checks(text: str, dialect=None):
-    """check.py's Report on `text` in its document mode. Raises ChecksUnavailable
-    without check.py; the checker's own errors pass through."""
+    """sigil check's Report on `text` in its document mode. Raises ChecksUnavailable
+    without the checker; the checker's own errors pass through."""
     if importlib.util.find_spec("sigil.analyse.check") is None:
         raise ChecksUnavailable("sigil view: checks need sigil.analyse.check")
     from sigil.analyse import check
@@ -1177,7 +1177,7 @@ def run_checks(text: str, dialect=None):
 
 
 def checks_summary(report) -> str:
-    """check.py's one-line summary of a Report."""
+    """sigil check's one-line summary of a Report."""
     from sigil.analyse import check
     return check.summary(report)
 
@@ -1190,7 +1190,7 @@ class CheckEntry(NamedTuple):
 
 def check_entries(report) -> list:
     """[CheckEntry]: the findings the report shows, then the acknowledged ones,
-    numbered from 1 in that order (check.py's own output order)."""
+    numbered from 1 in that order (sigil check's own output order)."""
     found = [(f, False) for f in report.shown] + [(f, True) for f in report.acknowledged]
     return [CheckEntry(kit.CheckMark(n, f.severity, acked), f)
             for n, (f, acked) in enumerate(found, 1)]
@@ -1268,7 +1268,7 @@ def entry_rows(e: CheckEntry, cols: int) -> list:
 
 
 def checks_panel(summary: str, entries: list, cols: int, limit: int | None = None) -> list:
-    """The findings panel: check.py's summary, then each entry's rows
+    """The findings panel: sigil check's summary, then each entry's rows
     (entry_rows); at most `limit` rows (None: all), the last then saying how
     many entries are left out."""
     rows = [[(summary, (kit.GREY["mid"], None, False))]]

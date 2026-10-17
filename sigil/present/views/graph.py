@@ -1,17 +1,17 @@
 """
-view_graph.py — the graph view of view.py: a Sigil document drawn as boxes and
+views/graph.py — the graph view of sigil view: a Sigil document drawn as boxes and
 edges.
 
-Not a command: view.py loads it. The layered layout (cycle breaking,
+Not a command: the app loads it. The layered layout (cycle breaking,
 longest-path layering, barycenter ordering, block-merged x placement, one track
 per fan-out) and its drawing, chips on edges, control-block frames, `:=`
 expansions and `--- section ---`s as stacked sections, triggers, notes and the
 graph legend, and a simulation run drawn over it all at one frame (sim_look;
 compose's `trace` / `tick`; sim_focus says where that frame's action is drawn).
-compose() returns the rows view.py prints. What is wired to what,
-in which colour, and where an event is drawn comes from the Scene (scene.py);
+compose() returns the rows the app prints. What is wired to what,
+in which colour, and where an event is drawn comes from the Scene (model.scene);
 this module only lays it out. Drawing primitives and styles come from
-viewkit.py (read as kit.NAME, so a theme change reaches them).
+sigil.present.kit (read as kit.NAME, so a theme change reaches them).
 """
 
 from __future__ import annotations
@@ -1635,7 +1635,7 @@ def _landed_tags(scn) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Simulation overlay — a sim Frame (sim.py, projected onto the Scene this
+# Simulation overlay — a sim Frame (sigil.model.sim, projected onto the Scene this
 # drawing is built from: sim.project) drawn over the graph (sim.md §7): each
 # stroke by its wire's state (kit.wire_style), tokens on the edges' cells,
 # boxes by their node's status with badges (… ✕ ×n ↻k), a drawn state
@@ -1698,7 +1698,7 @@ class _Route(NamedTuple):
 
 class _Stage(NamedTuple):
     """What of a Scene a frame's badges and leads are read against (_stage)."""
-    nodes: dict     # node id → render.Node, over the document and every expansion
+    nodes: dict     # node id → core.graph.Node, over the document and every expansion
     machines: dict  # owner id → its drawn state machine's node ids
 
 
@@ -2005,7 +2005,7 @@ def compose(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = 
     colour with the event's name beside its head (scene.land_events). Every
     edge takes its wire's colour (the Scene's colour policy).
 
-    `trace`, `tick`: a simulation run (sim.py) drawn over the graph at frame
+    `trace`, `tick`: a simulation run (sigil.model.sim) drawn over the graph at frame
     `tick`; see sim_look. The trace must be named as this drawing's Scene:
     sim.project(trace, scene.build_scene(g, events=events, triggers=triggers,
     access=access, depth=depth)). Each box's badges are padded to their widest

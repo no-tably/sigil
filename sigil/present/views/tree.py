@@ -1,17 +1,17 @@
 """
-view_tree.py — the tree view of view.py: the composition tree as an outline,
+views/tree.py — the tree view of sigil view: the composition tree as an outline,
 every flow as a lane in a gutter beside it.
 
-Not a command: view.py loads it. Outline rows (`\\-` branches and `:=`
+Not a command: the app loads it. Outline rows (`\\-` branches and `:=`
 expansions) with their call marks (`↺` / `↻` / `⇱`), lanes packed into the
 gutter, block brackets, join taps, the right margin (a chip per call or payload,
 modifiers, inline notes), margin callouts and the tree legend — and, given a
-sim.py trace, one frame of it over the tree (lit lanes, tokens in the gutter,
+sigil.model.sim trace, one frame of it over the tree (lit lanes, tokens in the gutter,
 row statuses, the current machine states). compose_tree() returns the rows
-view.py prints. What is wired to what, in which
+the app prints. What is wired to what, in which
 colour, with which payload, notes and join marks — and where an event is drawn —
-comes from the Scene (scene.py); this module only lays it out. Drawing
-primitives and styles come from viewkit.py (read as kit.NAME, so a theme change
+comes from the Scene (model.scene); this module only lays it out. Drawing
+primitives and styles come from sigil.present.kit (read as kit.NAME, so a theme change
 reaches them).
 """
 
@@ -228,7 +228,7 @@ def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
     / w / b) into its store, a store badged `1w` / `Nw` writers. `mods`:
     modifiers after a node's label, and after the payload in a flow's chip.
 
-    `trace`, `tick`: a simulation (sim.py) drawn over the tree at frame `tick`
+    `trace`, `tick`: a simulation (model.sim) drawn over the tree at frame `tick`
     (the layout holds still for the whole trace — every row gets a status slot
     before its label, every node room for its widest badge). The trace must be
     named as this drawing's Scene: sim.project(trace, scene.build_scene(g,
@@ -1209,7 +1209,7 @@ def _draw_lanes(cv: kit.Canvas, lanes, ends, *, muted_sources: bool = False):
 
 
 # ---------------------------------------------------------------------------
-# Simulation overlay — one Frame of a sim.py Trace painted over the tree
+# Simulation overlay — one Frame of a sim Trace painted over the tree
 # ---------------------------------------------------------------------------
 #
 # A frame restyles what the tree already draws and adds marks in room the
@@ -1363,7 +1363,7 @@ def _trace_badge_widths(trace, nodes: dict, hidden: set, names: dict) -> dict:
     """_badge_widths, worked out once per trace object and drawing (its hidden
     owners, its nodes' names): a run plays frame after frame of one trace. The
     memo holds the last _WIDTHS_KEPT (by identity — a Trace holds dicts, so it
-    cannot be hashed), as view_graph's _trace_slots does."""
+    cannot be hashed), as views.graph's _trace_slots does."""
     key = (frozenset(hidden), tuple(names.items()))
     for kept, kept_key, widest in _widths_memo:
         if kept is trace and kept_key == key:

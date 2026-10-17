@@ -1,8 +1,8 @@
 """
-viewkit.py — the drawing kit both views of view.py share.
+sigil.present.kit — the drawing kit every view of sigil view shares.
 
-Not a command: view.py (the app) loads it, and view_graph.py / view_tree.py
-draw with it. It holds:
+Not a command: the app (sigil.present.app) loads it, and the views
+(sigil.present.views: graph, tree, flow, run) draw with it. It holds:
 
     styles      the theme's colours as (fg, bg, bold) styles — apply_theme(),
                 use_theme(), use_dialect(), kind_color(), edge_style(), muted()
@@ -58,7 +58,7 @@ from sigil.present import themes
 
 # ---------------------------------------------------------------------------
 # Styles — a style is (fg, bg, bold) with "#rrggbb" colours or None. Colours
-# come from the theme (themes/<name>.yaml, see themes.py); each one remembers
+# come from the theme (themes/<name>.yaml, see present.themes); each one remembers
 # its theme role, so a drawing can be re-coloured by role (the site does).
 # ---------------------------------------------------------------------------
 
@@ -86,7 +86,7 @@ THEME: dict = {}                    # the theme in use, over the built-in colour
 
 # The built-in colours: the sigil theme (themes/sigil.yaml), in its sections and
 # role names. Every theme is applied over a fresh copy of these, so a partial
-# theme overrides only what it names. Without themes.py they are used as-is.
+# theme overrides only what it names. Without a theme they are used as-is.
 _BUILTIN_THEME = {
     "palette": {"bg": "#0d1117"},
     "kinds": {"service": "#8aa0ff", "data": "#d2a8ff", "event": "#e85d9e",
@@ -1707,8 +1707,8 @@ def _stroke_sample(kind: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Checks overlay — composition-check findings (check.py) marked on a drawing.
-# view.py maps each finding's anchor onto the Scene a view draws (CheckMarks);
+# Checks overlay — composition-check findings (sigil check) marked on a drawing.
+# the app maps each finding's anchor onto the Scene a view draws (CheckMarks);
 # both views then mark what it names alike: a marked box's border / a marked
 # wire's stroke in its worst finding's colour, and each finding's number after
 # the node's label (graph: beside a wire's head; tree: on its target's row).

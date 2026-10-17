@@ -21,7 +21,7 @@ from sigil.model.sim.program import Frame, Limits, Trace, _program_of, carried, 
 # per participant, composition instance and recursion level), each activation
 # a span on its lanes, each hop a move between them, a self-call's pulse, a
 # host op and a base case a mark. Read from a trace's events in one pass;
-# pure, no drawing (view_run.py draws it).
+# pure, no drawing (views/run.py draws it).
 
 RUN_SHOW = 3                   # instances per (node, owner's node) and levels per lane before folding
 

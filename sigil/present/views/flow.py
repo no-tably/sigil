@@ -1,8 +1,8 @@
 """
-view_flow.py — the flow view of view.py: a Sigil document drawn as a call graph
+views/flow.py — the flow view of sigil view: a Sigil document drawn as a call graph
 read left to right.
 
-Not a command: view.py loads it. It looks like the page's background toy graphs:
+Not a command: the app loads it. It looks like the page's background toy graphs:
 bare glyph labels, no boxes, one column per call depth, wires bending between them.
 
     (Shopper) ──▶ [API] ─┬─▶ [Payments]
@@ -23,7 +23,7 @@ same head share its last run (┴ ┤); a target with several kinds of head take
 them stacked, bundled by a bracket (`▶┐` / `✖┘`). A wire that only crosses
 another hops it (─│─), never joins it.
 
-What is drawn comes from the Scene (scene.py), as in the other two views: every
+What is drawn comes from the Scene (model.scene), as in the other two views: every
 wire in its arrow's stroke and head (`!>` ✖, a permission's r / w / b) and its
 colour (the colour policy), each flow's chip (`┆payload ┆ mods┆`, p / m) on its
 wire between the two columns, a self-call's chip on a stub under its subject
@@ -33,7 +33,7 @@ head in the graph view (`↩`, a landed event's name, a path's `[A]/`, an inline
 note's #N), led by a qualified source path's `from [A]/`, as bare text on its
 wire, triggers (e), the checks overlay (c: a marked wire's stroke and a marked
 label's brackets in the finding's style, its number after the label or on the
-wire) and a simulation frame (view_graph's
+wire) and a simulation frame (vgraph's
 sim_look: lit and muted wires, tokens on their cells, labels by status, badges).
 `:=` expansions and state machines are drawn as parts under the document's, like
 the graph view's sections. A control block's flows are drawn in its frame under
@@ -46,8 +46,8 @@ Given a width it wraps (compose_flow): chips to letters with a key, then hung
 under their senders (`─a▶` over `a┆{Cart}`), then each part too wide cut between
 its columns into bands joined by numbered plugs (`─▶①` … `①──┬─▶`).
 
-compose_flow() returns the rows view.py prints, the same shape as
-view_graph.compose(). Drawing primitives and styles come from viewkit.py (read
+compose_flow() returns the rows the app prints, the same shape as
+vgraph.compose(). Drawing primitives and styles come from kit (read
 as kit.NAME, so a theme change reaches them).
 """
 
@@ -89,12 +89,12 @@ class _Stroke(NamedTuple):
 class _Part:
     title: str                  # "" | an expansion's title | a kit.Rule (a section)
     owner: Optional[str]        # the unit it draws (None: the document)
-    graph: object               # that unit's render.Graph
-    nodes: dict                 # id → render.Node, drawing order
+    graph: object               # that unit's core.graph.Graph
+    nodes: dict                 # id → core.graph.Node, drawing order
     strokes: list = field(default_factory=list)
     base: object = None         # a band (_band_part): the part it is cut from
     blocks: list = field(default_factory=list)  # its control blocks' parts, framed under it
-    block: object = None        # a block's part: its render.Block (the frame's title)
+    block: object = None        # a block's part: its core.graph.Block (the frame's title)
 
 
 def flow_parts(scn, depth: int) -> list:
@@ -103,7 +103,7 @@ def flow_parts(scn, depth: int) -> list:
     wires of its unit between its nodes; a machine's part also draws what drives
     it (the event, or the emitter of an event drawn where it lands) into the
     state it enters, and the owner's part an edge from that driver into the
-    owner (as view_graph does)."""
+    owner (as vgraph does)."""
     parts, titles = [], {}
     for u in scn.units:
         gone = scn.collapsed if u.level == 0 else frozenset()
@@ -268,7 +268,7 @@ class _Vx:
     col: int = 0
     row: int = 0
     heads: list = field(default_factory=list)   # a node's in-ports: one per arrow kind, stacked
-    stubs: list = field(default_factory=list)   # a node's self-call stubs (view_graph._Stub)
+    stubs: list = field(default_factory=list)   # a node's self-call stubs (vgraph._Stub)
     ins: list = field(default_factory=list)     # (vertex id, segment) in
     outs: list = field(default_factory=list)    # (vertex id, segment) out
     mark: int = -1              # column of its self-call mark in its runs (-1: none)
@@ -499,7 +499,7 @@ def _sort_heads(lay: _Layout) -> bool:
 
 def _columns(ids: list, strokes: list) -> dict:
     """{node id: column}: the longest chain of flows into it once each cycle is
-    broken (view_graph's DFS in document order), then each source moved along to
+    broken (vgraph's DFS in document order), then each source moved along to
     just before the nearest node it feeds."""
     succ = {i: [] for i in ids}
     for st in strokes:
@@ -755,7 +755,7 @@ def _bundle_looks(paths: list, ctx: "_Ctx") -> dict:
 
 
 def _share_rank(ctx: "_Ctx", p: _Path) -> tuple:
-    """view_graph.share_rank of a path's wire, in its run state when there is
+    """vgraph.share_rank of a path's wire, in its run state when there is
     a run: the one rule both views share for cells several wires run along."""
     return vgraph.share_rank(p.stroke.kind, ctx.state(p.stroke))
 
@@ -1053,7 +1053,7 @@ def _draw_stubs(cv: _Canvas, x: int, y: int, stubs, styles: dict) -> dict:
 
 class _Ctx:
     """One drawing's options and annotations: wire styles (the colour policy, a
-    sim frame's, the checks' over them), tags (view_graph._tags: after a label,
+    sim frame's, the checks' over them), tags (vgraph._tags: after a label,
     by node id; beside a head, by wire key), chips, the sim look; and, filled as
     labels are made, the column of each label's self-call mark (mark_at).
     `hang`: what is written on a wire, and a label's notes and modifiers, hang
@@ -1117,7 +1117,7 @@ class _Ctx:
         return None
 
     def selfs_of(self, part: _Part) -> dict:
-        """{node id: view_graph._Selfs} of the part's nodes that call themselves."""
+        """{node id: vgraph._Selfs} of the part's nodes that call themselves."""
         key = (id(part.graph), part.owner)
         if self.hang and key in self._selfs:    # a band: its part's, worked out once
             out = dict(self._selfs[key])
@@ -1166,7 +1166,7 @@ class _Ctx:
         """[runs]: the chips a stroke carries between its columns — one per call
         written on it (kit.chip_lists, never merged), each `┆…┆`, then what the
         graph view writes beside its head (a transition's or an arm's label,
-        view_graph._tags's runs) as bare text on the first; [] when none. Hung
+        vgraph._tags's runs) as bare text on the first; [] when none. Hung
         (self.hang): [_Hung] instead, the same text, each lettered once per
         part, from a (a band's stroke takes the letters of its part's)."""
         key = (id(part.base or part), st.key)
@@ -1207,7 +1207,7 @@ class _Ctx:
 
     def _bare(self, part: _Part, st: _Stroke) -> list:
         """What the graph view writes beside a stroke's head (a transition's or an
-        arm's label, view_graph._tags's runs: `↩`, a landed event's name, a
+        arm's label, vgraph._tags's runs: `↩`, a landed event's name, a
         path's `[A]/`, #N), led by a qualified source path's `from [A]/`, as
         runs with no blank at either end."""
         bare = []
@@ -1846,7 +1846,7 @@ def compose_flow(g, depth: int, payloads: bool, notes: str = "off", triggers: bo
                  events: str = "nodes", trace=None, tick: int = 0, checks=None,
                  probe: bool = False, memo=None):
     """The flow view as rows of (text, style) runs, plus its width — the same
-    arguments and return as view_graph.compose(). Each part (the document or a
+    arguments and return as vgraph.compose(). Each part (the document or a
     section of it, then each drawn expansion and machine) is a call graph read
     left to right under its title. `payloads` / `mods`: each flow's chip on its
     wire between the columns; notes (any mode but "off"): #N tags and the notes
@@ -1854,18 +1854,18 @@ def compose_flow(g, depth: int, payloads: bool, notes: str = "off", triggers: bo
     scene.build_scene). `width`: the columns to fit; a drawing wider than that
     wraps by a ladder, each step taken only when the one before still doesn't
     fit: (a) each chip a marker letter (┆a┆), the chips listed in a panel at
-    the bottom-right (view_graph's way); (b) what is written on a wire, and a
+    the bottom-right (vgraph's way); (b) what is written on a wire, and a
     label's notes and modifiers, hung under the node that sends it, the wire
     keeping its letter (_hang); (c) each part still too wide cut into bands
     (_banded); (d) when a band is still too wide, a hint under the drawing that
     the tree view reads narrow panes best (it never switches by itself). The
     notes list wraps at the width. `trace`,
     `tick`: a simulation frame over the drawing, the trace named as this
-    drawing's Scene names it (sim.project), as view_graph.compose takes it;
+    drawing's Scene names it (sim.project), as vgraph.compose takes it;
     `checks` (kit.CheckMarks named the same way): the checks overlay. `probe`:
     the frame's tokens and active labels drawn in kit.Probe styles (sim_focus).
     The step and the cuts are chosen on the frame's drawing, whose badge slots
-    are the run's (view_graph._trace_slots), so a run's frames take the same
+    are the run's (vgraph._trace_slots), so a run's frames take the same
     columns; the chip panel fits only in blank cells, so a badge marked on
     one frame and blank on another may change the step. With a `memo`
     (kit.FrameMemo, kept by a caller drawing a run frame after frame) the cuts
@@ -1920,7 +1920,7 @@ LADDER = ("natural", "letters", "hung")     # compose_flow's wrap ladder, its st
 
 
 def _laid(plan, look):
-    """The plan (kit.Plan) of the layout drawn under `look` (a view_graph.SimLook,
+    """The plan (kit.Plan) of the layout drawn under `look` (a vgraph.SimLook,
     None: no frame) — each wrap step's parts, cuts and drawings — kept while a
     run's frames lay out alike: a fresh one when this frame's _extent differs
     from the last frame's (a lead or badge of another width), so the cuts are
@@ -2052,7 +2052,7 @@ def _part_rows(scn, depth, payloads, mods, notes, look, checks, marks, hang: boo
                     break
 
     def framed(part, tree, fit):
-        """part's canvas with its blocks' frames under it (view_graph's _stack)."""
+        """part's canvas with its blocks' frames under it (vgraph's _stack)."""
         d, kids = tree
         inner = None if fit is None else max(fit - vgraph.FRAME_PAD, 1)
         frames = [vgraph._framed(framed(bp, kid, inner), _frame_title(ctx, bp.block), _Canvas, fit)

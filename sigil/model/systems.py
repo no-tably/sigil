@@ -505,7 +505,7 @@ def lifecycle(machine) -> Optional[Lifecycle]:
 def graph_lines(graph, nodes: dict) -> dict:
     """{node id: lines it is written on}, as the graphs tell: the lines of the
     edges, access lists, joins and block headers naming it and the statements a
-    trailing comment of its sits on. (viewkit.node_lines also guesses a line for
+    trailing comment of its sits on. (kit.node_lines also guesses a line for
     a node nothing names, from its neighbours; a guessed line would hand it their
     acknowledgements, so head_lines adds the statements it heads instead.)"""
     out = {nid: set() for nid in nodes}

@@ -148,7 +148,7 @@ class Group(NamedTuple):
 class Region(NamedTuple):
     ui: int
     index: int                 # into the unit graph's blocks
-    block: object              # render.Block
+    block: object              # core.graph.Block
     items: tuple
 
 
@@ -159,7 +159,7 @@ class Machine(NamedTuple):
 
 
 class TriggerRef(NamedTuple):
-    trigger: object            # render.Trigger
+    trigger: object            # core.graph.Trigger
     wire: object               # its trigger wire
     transition: Optional[tuple]  # the state unit's transition wire ident
 
@@ -184,7 +184,7 @@ class Program:
     triggers: dict             # event id → (TriggerRef, …)
     tree: list                 # [(ui, index in its unit's tree, TreeEntry)]
     tree_nodes: frozenset      # the node ids tree places
-    unit_nodes: dict           # node id → render.Node, first seen over units
+    unit_nodes: dict           # node id → core.graph.Node, first seen over units
     order: dict                # id(wire) → position in Scene.wires
     access: object             # scene.access_index of the document
     summaries: dict = None     # summary wire ident → its detail wire idents (_summaries)
@@ -808,7 +808,7 @@ _LAST_PROGRAM: list = [None, None]     # [graph, its Program]: the last one buil
 
 def _program_of(graph) -> Program:
     """program(canonical(graph)), built once for a run of calls on one document
-    (each scenario of `view.py --sim all`, a scenario list then its runs). A
+    (each scenario of `sigil view --sim all`, a scenario list then its runs). A
     Program is never changed once built, so sharing it is safe."""
     if _LAST_PROGRAM[0] is not graph:
         _LAST_PROGRAM[:] = [graph, program(canonical(graph))]
