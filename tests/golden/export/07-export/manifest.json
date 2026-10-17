@@ -1,12 +1,12 @@
 {
   "sigil_export": 1,
   "spec": "07-export.sigil",
-  "spec_hash": "8c05e20fdfd8e0f2",
+  "spec_hash": "42c36c489b8429a2",
   "systems": {
     "07-export": {
       "path": "07-export",
       "interface": "f418b361e094547a",
-      "body": "856cc9df7dafa83f",
+      "body": "23efe2ea06bd3482",
       "components": [
         "(Shopper)",
         "<OrderPlaced>",

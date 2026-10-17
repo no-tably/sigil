@@ -24,8 +24,8 @@
 ── notes ──
 
 ¶ a small shop, locked as a spec and ready to export: each expansion and
-  each composition tree becomes a system of its own (try export.py --out
-  DIR)
+  each composition tree becomes a system of its own (try sigil export FILE
+  --out DIR)
 
 tree   ─ contains  ┄ := internals  & has  * spawns  ? when  $ from data  @ attached  ! alerts
        = gathers  _ one of  (N) weight

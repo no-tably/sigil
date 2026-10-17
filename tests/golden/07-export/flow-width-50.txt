@@ -58,8 +58,8 @@ b┆save({Order})
 
 ¶ a small shop, locked as a spec and ready to
   export: each expansion and each composition tree
-  becomes a system of its own (try export.py --out
-  DIR)
+  becomes a system of its own (try sigil export
+  FILE --out DIR)
 #1 signed-in shoppers only; the storefront answers
    every request
 #2 a failed payment reaches the shopper

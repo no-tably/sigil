@@ -1,6 +1,6 @@
 # Export of 07-export.sigil
 
-Exported from `07-export.sigil` (spec hash `8c05e20fdfd8e0f2`) by sigil export.
+Exported from `07-export.sigil` (spec hash `42c36c489b8429a2`) by sigil export.
 
 - `manifest.json` is the contract: per system, its interface hash, body hash, components and what it depends on. It is written last; a folder without it is no finished export.
 - `<system>/README.md` describes a system: its components, its boundary (the flows that cross it) and what it depends on.
