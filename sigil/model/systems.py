@@ -8,7 +8,7 @@ adds the per-system interface and body hashes, the normalised JSON and the
 folder slugs that export writes (its model_of / build_model fill the hashes; a
 Model from here leaves them "").
 
-    model = model_of(graph, stem="shop", acks=acks, comments=comments)
+    model = model_of(graph, stem="shop", accepts=accepted(acks, comments))
     model.shared, model.untyped
 
 SYSTEMS (inferred, no syntax of their own)
@@ -190,18 +190,34 @@ class Model:
 # ---------------------------------------------------------------------------
 
 
-def model_of(graph, stem: str, acks: Iterable = (),
-             comments: Optional[Mapping] = None) -> Model:
-    """The model of a parsed document. `acks`: its acknowledgements (objects with
-    `line`, `span` and `document`, as check.Ack); `comments`: the walk's comments
-    they were read from, {1-based line: (text, own_line)} (check.Doc.comments)."""
+class Accepted(NamedTuple):
+    """One acknowledgement as the model keeps it: the lines it covers (`span`),
+    whether it covers the whole document, and its comment's text verbatim."""
+    span: frozenset
+    document: bool
+    text: str
+
+
+def accepted(acks: Iterable, comments: Mapping) -> tuple:
+    """Each acknowledgement (objects with `line`, `span` and `document`, as
+    check.Ack) with the text of its comment, as [Accepted]. `comments`: the walk's
+    comments they were read from, {1-based line: (text, own_line)}
+    (check.Doc.comments); the one place the two are paired. A line with no
+    comment gives "" (it never holds an acknowledgement)."""
+    return tuple(Accepted(frozenset(a.span), a.document, comments.get(a.line, ("",))[0])
+                 for a in acks)
+
+
+def model_of(graph, stem: str, accepts: Iterable[Accepted] = ()) -> Model:
+    """The model of a parsed document; `accepts`: its acknowledgements, each with
+    its text (accepted(acks, comments))."""
     layout = lay_out(graph, stem)
     homes, shared_at = resolve_homes(layout)
     nodes = component_nodes(graph)
     flows = collect_flows(graph, nodes)
     facts = Facts(graph, layout, homes, flows,
                   {nid: glyph([n]) for g in walk(graph) for nid, n in g.nodes.items()},
-                  tuple((a, ack_text(comments or {}, a.line)) for a in acks))
+                  tuple(accepts))
     appears = merged(graph_lines(graph, nodes), head_lines(graph, nodes))
     components = {nid: make_component(nid, insts, appears[nid], facts)
                   for nid, insts in nodes.items()}
@@ -220,7 +236,7 @@ class Facts(NamedTuple):
     homes: dict                         # node id → system key
     flows: list                         # Flows, document order
     glyphs: dict                        # node id → glyph, every node
-    acks: tuple                         # (acknowledgement, its comment text)
+    accepts: tuple                      # Accepted, document order
 
 
 # ---------------------------------------------------------------------------
@@ -440,8 +456,8 @@ def make_component(nid: str, insts: list, lines: tuple, facts: Facts) -> Compone
         modifiers=tuple(sorted({norm_mod(m) for i in insts for m in i.mods},
                                key=_mod_key)),
         access=granted_access(facts.graph, nid, facts.glyphs),
-        accepts=tuple(t for a, t in facts.acks
-                      if not a.document and set(lines) & set(a.span)),
+        accepts=tuple(a.text for a in facts.accepts
+                      if not a.document and set(lines) & a.span),
         lifecycle=lifecycle(lay.machines.get(nid)),
         lines=lines)
 
@@ -542,13 +558,6 @@ def merged(*found: dict) -> dict:
     return {nid: tuple(sorted(v)) for nid, v in out.items()}
 
 
-def ack_text(comments: Mapping, line: int) -> str:
-    """The acknowledgement comment on a 1-based line, verbatim (no `#` or dialect
-    marker): its text in the walk's comments, "" when the line has none."""
-    found = comments.get(line)
-    return found[0] if found else ""
-
-
 # ---------------------------------------------------------------------------
 # Flows
 # ---------------------------------------------------------------------------
@@ -622,7 +631,7 @@ def make_systems(facts: Facts, components: dict, inside: dict) -> dict:
     (no hashes: sigil.publish.systems adds them); the top one also holds the
     document-wide acknowledgements."""
     lay, flows, graph = facts.lay, facts.flows, facts.graph
-    doc_accepts = tuple(t for a, t in facts.acks if a.document)
+    doc_accepts = tuple(a.text for a in facts.accepts if a.document)
     deps = dependencies(lay, flows, inside)
     out = {}
     for key, (name, kind, face, parent) in lay.systems.items():

@@ -187,6 +187,19 @@ class TestComponents(unittest.TestCase):
         a = model(text, "t").components["A_service"]
         self.assertEqual((a.lines, a.accepts), ((2,), ()))
 
+    def test_accepted_pairs_each_acknowledgement_with_its_own_text(self):
+        class Ack:                      # as check.Ack: line, span, document
+            def __init__(self, line, span, document=False):
+                self.line, self.span, self.document = line, span, document
+        comments = {1: ("accepts: a-rule — whole doc", True),
+                    3: ("accepts: b-rule — here", False)}
+        got = model_systems.accepted(
+            [Ack(1, (), True), Ack(3, [3]), Ack(9, [9])], comments)
+        self.assertEqual(got, (
+            model_systems.Accepted(frozenset(), True, "accepts: a-rule — whole doc"),
+            model_systems.Accepted(frozenset({3}), False, "accepts: b-rule — here"),
+            model_systems.Accepted(frozenset({9}), False, "")))
+
     def test_lifecycle(self):
         text = ("[Checkout] -> {Order} : {Cart}\n[Pay] ~> <Paid>\n"
                 "state {Order} {\n  + -<Placed>-> Open\n  Open -<Paid>-> Settled\n"

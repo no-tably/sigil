@@ -46,7 +46,9 @@ from sigil.core.graph import (  # noqa: F401  (some for the views, as kit.NAME)
     access_kind, base_kind as _base_kind, drawn_join, edge_blocks, node_lines,
     section_of, use_dialect_kinds, walk_breadth as _walk)
 from sigil.core import graph as _graph
-from sigil.core.lex import BLOCK_SENTINEL, MODIFIER_RE, OPEN_TO_KIND
+from sigil.core.lex import (
+    BLOCK_SENTINEL, GLYPH_PREFIXES, MODIFIER_RE, PREFIXES_CLASS, comment_start,
+    first_content, glyph_kind, is_mode_line)
 from sigil.core.vocab import Diagnostic
 from sigil.analyse.lint import lint as _lint_document
 from sigil.model import scene
@@ -1090,10 +1092,18 @@ class Retained:
 
 # A payload drawn as code: glyphs with their kind's brackets and an off-white
 # name, calls with coloured ( ), the rest by syntax role.
+#
+# A colouring split of its own, not a second reading of Sigil: core's tokenizer
+# (sigil.core.tokens) reads a whole statement and hands a payload back as one
+# span, while this splits any shown text (a payload, a block header, a section
+# title, a note's code line) finer — strings, `${…}` references, call names,
+# operators, numbers, punctuation — only to pick each piece's colour. It starts
+# from core's glyph reading (lex's prefix class and brackets: a glyph may carry
+# `~` / `*`, lex.glyph_kind names its kind); what it reads decides no fact.
 _PAYLOAD_TOKEN = re.compile(r"""
     (?P<string>"(?:[^"\\]|\\.)*")
   | (?P<ref>\$\{[^}]*\})
-  | (?P<glyph>[~*]?(?:\[[^\]\s,][^\],]*\]|\{[^}\s:,][^}:,]*\}|<(?!->)[^<>\s][^<>]*>
+  | (?P<glyph>""" + PREFIXES_CLASS + r"""?(?:\[[^\]\s,][^\],]*\]|\{[^}\s:,][^}:,]*\}|<(?!->)[^<>\s][^<>]*>
                     |(?<!\w)\([^)\s][^)]*\)|\|[^|\s][^|]*\|))
   | (?P<call>[A-Za-z_][\w.]*)(?=\()
   | (?P<operator>=>|->|~>|!>|\?>|\*>|<->|\+\+|\|\||[+\-*/])
@@ -1109,7 +1119,7 @@ def glyph_runs(tok: str, kind: str, bold: bool = False, bg=None) -> list:
     """A glyph as runs: lead (~ *) and brackets in the kind's colour, the name in
     the same colour, muted (ui.name_saturation). Brackets are the kind's own (`[[` `]]` for an
     alias, a dialect's `<<` `>>`), else one character each side."""
-    lead = tok[:len(tok) - len(tok.lstrip("~*"))]
+    lead = tok[:len(tok) - len(tok.lstrip(GLYPH_PREFIXES))]
     body = tok[len(lead):]
     colour = (kind_color(kind), bg, bold)
     spec = KINDS.get(kind, {})
@@ -1133,7 +1143,7 @@ def payload_runs(text: str) -> list:
             runs.append((text[last:m.start()], PAYLOAD_STYLE))
         role, tok = m.lastgroup, m.group()
         if role == "glyph":
-            runs += glyph_runs(tok, OPEN_TO_KIND[tok.lstrip("~*")[0]])
+            runs += glyph_runs(tok, glyph_kind(tok))
         elif role == "call":
             runs.append((tok, SYNTAX["call_name"]))
             pending = True
@@ -1764,27 +1774,23 @@ def check_runs(marks) -> list:
 
 def doc_title(text: str) -> str:
     """A document's title: the first `# comment` line of its leading comment block
-    (`#!` mode lines and `#&` lines skipped); "" when the document doesn't open
-    with one."""
+    (`#!` mode lines skipped; a leading `#&` line ends the block); "" when the
+    document doesn't open with one."""
     for line in text.splitlines():
-        line = line.strip()
-        if line.startswith("#") and not line.startswith(("#!", "#&")):
-            return line.lstrip("#").strip()
-        if line and not line.startswith("#!"):
-            return ""
+        if not line.strip() or is_mode_line(line):
+            continue
+        m = comment_start(line, notes_only=True)
+        own = m is not None and not line[:m.start()].strip()
+        return line[m.end():].lstrip("#").strip() if own else ""
     return ""
 
 
 def doc_mode(text: str) -> str:
     """The document's mode line (`#!sketch`, `#!craft`, …): its first `#!` line
     before any statement; "" when it has none."""
-    for line in text.splitlines():
-        line = line.strip()
-        if line.startswith("#!"):
-            return line.split()[0]
-        if line and not line.startswith("#"):
-            return ""
-    return ""
+    lines = text.splitlines()
+    k = first_content(lines)
+    return lines[k].split()[0] if k is not None and is_mode_line(lines[k]) else ""
 
 
 def _call(fn, text, dialect):

@@ -43,13 +43,12 @@ def build_model(text: str, stem: str, dialect=None) -> Model:
     graph = parse.parse_document(text, dialect=dialect, walk=walk)
     comments = {k + 1: v for k, v in walk.comments.items()}
     acks = read_acks(comments, walk_layout(walk), frozenset(CORE_NAMES.values()))
-    return model_of(graph, stem, acks, comments)
+    return model_of(graph, stem, systems.accepted(acks, comments))
 
 
-def model_of(graph, stem: str, acks: Iterable = (),
-             comments: Optional[dict] = None) -> Model:
+def model_of(graph, stem: str, accepts: Iterable[systems.Accepted] = ()) -> Model:
     """sigil.model.systems.model_of with each system's interface and body hash."""
-    m = systems.model_of(graph, stem, acks, comments)
+    m = systems.model_of(graph, stem, accepts)
     return replace(m, systems={k: with_hashes(s, m.components) for k, s in m.systems.items()})
 
 
