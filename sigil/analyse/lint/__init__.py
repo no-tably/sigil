@@ -12,7 +12,8 @@ The rules, grouped by what they check:
     reading       what the rules read off the one reading
                   (sigil.core.statements): each line's code (LineView), the
                   `state` block lines, header tokens; the block-string report
-    lines         per-line rules: mode line, holes, prose verbs, modifiers, …
+    lines         per-line rules: mode line, holes, prose verbs, modifiers,
+                  `#&` declarations no dialect declares (SGL189), …
     payloads      what follows a flow's `:`
     permissions   `@read` / `@write` / `@borrow`
     composition   `\\-` branch markers
@@ -38,14 +39,14 @@ from sigil.analyse.lint.composition import CORE_RELATIONS, branch_markers, lint_
 from sigil.analyse.lint.graph import lint_graph, parse_for_lint
 from sigil.analyse.lint.hardening import lint_hardening
 from sigil.analyse.lint.lines import (
-    lint_actor_as_state, lint_duplicate_glyph_in_flow, lint_holes_in_spec_mode,
-    lint_invented_modifiers, lint_mode_line, lint_mode_not_first, lint_prose_verbs,
+    lint_actor_as_state, lint_declarations, lint_duplicate_glyph_in_flow,
+    lint_holes_in_spec_mode, lint_invented_modifiers, lint_mode_line, lint_mode_not_first, lint_prose_verbs,
     lint_reverse_arrow, lint_semicolon_separator, lint_state_block_syntax)
 from sigil.analyse.lint.payloads import lint_payloads
 from sigil.analyse.lint.permissions import declared_principals, lint_permission_graph
 from sigil.analyse.lint.reading import (  # noqa: F401  (collapse_block_strings: a dialect's tests)
-    blank_lines, collapse_block_strings, header_tokens, line_views, state_lines,
-    unterminated_block)
+    blank_lines, collapse_block_strings, declarations, header_tokens, line_views,
+    state_lines, unterminated_block)
 from sigil.core.dialects import _hook
 from sigil.core.statements import Walk, read_document
 
@@ -90,6 +91,8 @@ def lint_reading(text: str, dialect=None) -> Linted:
     lint_actor_as_state(views, state_lines(walk.doc), result)
     lint_prose_verbs(views, result)
     lint_invented_modifiers(views, result, known, deferred)
+    lint_declarations(declarations(walk.doc), _declared(dialect), result,
+                      loaded=dialect is not None)
     lint_semicolon_separator(views, result)
     lint_reverse_arrow(views, result)
     lint_duplicate_glyph_in_flow(views, result)
@@ -120,6 +123,13 @@ def _composition(walk, graph, dialect, result: LintResult) -> tuple:
     lint_composition(walk, graph, result, relations)
     markers = branch_markers(walk, relations)
     return markers, markers
+
+
+def _declared(dialect):
+    """The `#&` names the dialect declares (its DECLARATIONS), or None when it
+    names none (no dialect, or one without the hook)."""
+    names = _hook(dialect, "DECLARATIONS", None)
+    return None if names is None else set(names)
 
 
 def exit_code(severities) -> int:

@@ -89,8 +89,9 @@ class TestCoreVocabulary(unittest.TestCase):
         self.assertNotIn("SGL040", rules(doc))
 
     def test_dialect_syntax_does_not_crash(self):
-        # Shapes a dialect might add (a header block, double-bracket refs, a
-        # line-leading marker, an event binding, `]>[` chains): core does not
+        # Shapes a dialect might add (a `#&` declaration with its block — core
+        # reads it as a declaration that draws nothing —, double-bracket refs, a
+        # comment marker, an event binding, `]>[` chains): core does not
         # understand them, but must neither crash nor invent node kinds.
         doc = ("#!spec\n#&header~{\n  address: a/b\n}\n[[x]] @spawn\n"
                "\\-> [y] -//comment\non <click> |t| -> [v] : ${clicked}\n"
@@ -100,6 +101,7 @@ class TestCoreVocabulary(unittest.TestCase):
         g = render.parse_document(doc)
         core_kinds = {"service", "data", "event", "actor", "store", "state"}
         self.assertLessEqual({n.kind for n in g.nodes.values()}, core_kinds)
+        self.assertFalse([e for e in g.edges if e.line in (2, 3, 4)])
 
 
 # ---------------------------------------------------------------------------

@@ -419,6 +419,7 @@ lowering, not part of this surface.
 | `a & b`            | **strict join** (both must succeed) |
 | `a &? b`           | race / first-wins            |
 | `#!spec`, `#!sketch`, `#!craft` | mode declaration (top of doc) |
+| `#& name …`        | dialect declaration (line-leading; see "Dialects") |
 
 `&` is strict-join-by-default — bare `A & B` means "both A and B, wait for both, fail if either fails." For racing, use `&?`. For fire-and-forget parallelism, use `~>` multiple times or a `parallel @none` block.
 
@@ -1158,6 +1159,20 @@ A dialect **adds**; it never changes the meaning of core syntax:
   own id prefix and never reuse a core rule's id or name, its heads never redefine
   a core head, and a dialect may not claim a comment marker the core reserves
   (`#=`).
+
+**Dialect declarations: `#& name …`.** As `#!` marks the mode, `#&` at the start
+of a line marks a declaration that belongs to a dialect: `#& header { address:
+a/b }` (marker, space, the name the dialect gives it, then what it declares).
+`#&header` with no space reads the same; the name runs up to a space, `~`, `{` or
+the end of the line. Core reads every such line the same way, with or without a
+dialect: a statement that draws nothing, never a comment, a note or part of a
+flow. A `{ … }` block it opens (`{` or `~{`, on one line or many, ending where its
+braces balance; a brace inside a `"…"` string is string text) is its body, which
+no rule reads and the model does not draw. What the name means is the dialect's:
+it lists the names it declares (the `DECLARATIONS` hook), and lint warns
+(`SGL189`) on a `#&` name no loaded dialect declares. Like `#=` (see "Checks"),
+the marker is reserved by the core; a `#&` after code on a line is erased like a
+comment and makes no note.
 
 The dialect's own document is the authority on its vocabulary; it names the core
 sections it extends. A dialect's grammar is an **addendum** to the core formal

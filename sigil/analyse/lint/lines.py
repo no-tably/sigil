@@ -1,8 +1,9 @@
 """
 Per-line rules: the mode line (SGL001/SGL002), holes in spec mode, an actor named
 like a state, prose verbs between glyphs, invented modifiers, `;` separators,
-reversed arrows, a glyph twice in one flow, a `state` block's syntax — and the
-edit-distance index the near-name suggestions use (here and in lint.graph).
+reversed arrows, a glyph twice in one flow, a `state` block's syntax, a `#&`
+declaration no dialect declares (SGL189) — and the edit-distance index the
+near-name suggestions use (here and in lint.graph).
 
 The mode-line rules read the document's lines through core's line readings
 (lex.first_content, is_mode_line, is_comment_line); the others read each line's code
@@ -185,6 +186,32 @@ def lint_invented_modifiers(views: tuple, result: LintResult,
                 f"modifier {mod} is not in the standard vocabulary. "
                 f"{hint}Consider demoting to a comment."
             )
+
+
+def lint_declarations(declarations, declared: Optional[set], result: LintResult,
+                      loaded: bool = False):
+    """SGL189: a `#&` declaration no loaded dialect declares. `declarations`: the
+    walk's Declaration records (lint.reading.declarations); `declared`: the loaded
+    dialect's DECLARATIONS, or None. Core reads every `#&` line the same way (a
+    declaration that draws nothing), so a name is only a dialect's to give: one is
+    judged when no dialect is `loaded`, or the loaded one lists its DECLARATIONS. A
+    dialect without that hook validates its own `#&` lines; nothing is said."""
+    if loaded and declared is None:
+        return
+    for d in declarations:
+        if d.name is None:              # a dialect's own opener (DECLARATION_BLOCKS)
+            continue
+        what = f"`#& {d.name}`" if d.name else "`#&`"
+        if not loaded:
+            result.add("warn", d.line + 1, "SGL189",
+                       f"{what} is a dialect declaration, but no loaded dialect declares "
+                       "it (--dialect NAME); core reads it as a declaration that draws "
+                       "nothing.")
+        elif d.name not in declared:
+            known = ", ".join(f"`#& {n}`" for n in sorted(declared)) or "none"
+            result.add("warn", d.line + 1, "SGL189",
+                       f"{what} is a dialect declaration, but the loaded dialect does not "
+                       f"declare it (it declares {known}).")
 
 
 def lint_semicolon_separator(views: tuple, result: LintResult):

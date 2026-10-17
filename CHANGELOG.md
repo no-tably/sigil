@@ -175,6 +175,20 @@ and check hooks keep their names. `strip_comment` in `sigil.core.vocab` is now
 string-aware: a `#` inside a `"…"` string starts no comment. `docs/tools.md`
 ("Dialects") lists the hooks.
 
+**`#& name …` is core syntax for a dialect's declarations**, as `#!` is for the
+mode. Core reads a line-leading `#& name …` (or `#&name`, the same) as a
+statement that draws nothing, never a comment, a note or a flow, and the
+`{ … }` block it opens (`{` or `~{`, one line or many) as a body no rule reads,
+with or without a dialect (before, core read such a block's lines as flows unless
+the dialect's `DECLARATION_BLOCKS` matched it, and per-line lint rules still read
+a matched block's body). A new hook, `DECLARATIONS`, lists the `#&` names a
+dialect declares, and lint warns (SGL189) on a name no loaded dialect declares; a
+dialect without the hook hears nothing. `sigil.core.vocab.declaration_name(line)`
+reads the name. The viewer's title steps over the mode line and `#&`
+declarations, and reads comments the dialect's way (its `COMMENT_MARKERS`): a
+document whose opening comment comes after a declaration, or is written with the
+dialect's marker, now gets a title.
+
 ## 0.5.0 — 2026-10-15
 
 Runs whose entries happen at the same time, and checks that look for races between

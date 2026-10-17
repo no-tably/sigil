@@ -5,6 +5,8 @@ lex — the lexical tables of Sigil text, kept once: the statement walk
 one reading each:
 
     comments      is_mode_line, is_comment_line, first_content, COMMENT_START_RE, in_string, comment_start, comment_col,
+                  DECLARATION_MARK, DECLARATION_RE, declaration_name (a
+                  line-leading `#& name …`: a dialect declaration),
                   code_end (where a line's code ends: `#` or a dialect's
                   comment marker, outside a `"…"` string), strip_comment
     strings       STRING_RE, mask_strings
@@ -49,10 +51,27 @@ from typing import NamedTuple, Optional
 
 # A comment starts at a `#` at line start or after whitespace — not the `#!` mode
 # line — and never inside a `"…"` string (`: "issue #5"` is a payload; see
-# comment_start). A `#&…` marker also starts here: it is erased from flows like a
-# comment, but it is dialect syntax (e.g. a declaration-block opener), not prose,
-# so the parser never makes a note of it.
+# comment_start). A `#&` (DECLARATION_MARK) also starts here: it is erased from
+# flows like a comment, but it is dialect syntax, not prose, so the parser never
+# makes a note of it; leading a line it is a declaration (declaration_name).
 COMMENT_START_RE = re.compile(r"(?<!\S)#(?!!)")
+
+# A dialect declaration (language.md "Dialects"): a line led by `#&`, then the
+# name of what it declares — `#& name …`, or `#&name` the same — the name being
+# NAME_CHARS up to a space, `~`, `{` or the end of the line (it may be empty). The
+# name belongs to a dialect (its DECLARATIONS). The statement walk reads such a
+# line as a statement that draws nothing, and a `{ … }` block it opens as its
+# body (sigil.core.statements); it is never a comment, a note or a flow.
+DECLARATION_MARK = "#&"
+
+
+def declaration_name(line: str) -> Optional[str]:
+    """The name a line-leading `#&` declaration gives ("" when it names none), or
+    None when the line is no declaration (see DECLARATION_RE)."""
+    if DECLARATION_MARK not in line:
+        return None
+    m = DECLARATION_RE.match(line)
+    return m.group("name") if m else None
 
 
 def in_string(line: str, pos: int) -> bool:
@@ -63,7 +82,7 @@ def in_string(line: str, pos: int) -> bool:
 
 def comment_start(line: str, notes_only: bool = False):
     """The match of the first comment `#` on the line outside a `"…"` string, or
-    None. `notes_only` skips `#&` markers (see COMMENT_START_RE)."""
+    None. `notes_only` skips a `#&` (DECLARATION_MARK, see COMMENT_START_RE)."""
     if "#" not in line:
         return None
     if '"' not in line and not notes_only:
@@ -71,7 +90,7 @@ def comment_start(line: str, notes_only: bool = False):
     for m in COMMENT_START_RE.finditer(line):
         if in_string(line, m.start()):
             continue
-        if notes_only and line.startswith("&", m.end()):
+        if notes_only and line.startswith(DECLARATION_MARK, m.start()):
             continue
         return m
     return None
@@ -85,11 +104,12 @@ def is_mode_line(line: str) -> bool:
 
 def is_comment_line(line: str) -> bool:
     """Whether the line is a core comment and nothing else: its first non-blank
-    is a `#` (a bare `#` and a `#&` marker line count) that is not the `#!` mode
-    line. A dialect's comment markers are not read here: the mode-line rules see
-    a line of them as content, as they always have."""
+    is a `#` (a bare `#` counts) that is not the `#!` mode line nor a `#&`
+    declaration, which is a statement and so comes after the mode line. A
+    dialect's comment markers are not read here: the mode-line rules see a line
+    of them as content, as they always have."""
     s = line.lstrip()
-    return s.startswith("#") and not s.startswith("#!")
+    return s.startswith("#") and not s.startswith("#!") and declaration_name(s) is None
 
 
 def first_content(lines) -> Optional[int]:
@@ -305,6 +325,9 @@ ARROW_RE = re.compile("(" + "|".join(map(re.escape, ARROWS)) + ")")
 # `{List<T>}`, `<Msg<T>>` — one level of nesting inside the generic list
 # (`{List<Map<K,V>>}`). The generic is part of the ONE glyph's name.
 NAME_CHARS = r"[^\[\]\{\}<>()|]"
+# A `#&` declaration's line: the mark, spaces, the name (declaration_name).
+DECLARATION_RE = re.compile(r"\s*" + DECLARATION_MARK + r"\s*(?P<name>(?:(?![\s~])"
+                            + NAME_CHARS + r")*)")
 GENERIC = (r"<" + NAME_CHARS + r"*(?:<" + NAME_CHARS + r"*>" + NAME_CHARS + r"*)*>")
 GENERIC_RE = re.compile(GENERIC)
 # The core glyph kinds and their brackets — the one table; the views below and

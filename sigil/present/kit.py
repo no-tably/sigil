@@ -47,8 +47,10 @@ from sigil.core.graph import (  # noqa: F401  (some for the views, as kit.NAME)
     section_of, use_dialect_kinds, walk_breadth as _walk)
 from sigil.core import graph as _graph
 from sigil.core.lex import (
-    BLOCK_SENTINEL, GLYPH_PREFIXES, MODIFIER_RE, PREFIXES_CLASS, comment_start,
-    first_content, glyph_kind, is_mode_line)
+    BLOCK_SENTINEL, GLYPH_PREFIXES, MODIFIER_RE, PREFIXES_CLASS, declaration_name,
+    first_content, glyph_kind, is_mode_line, net_braces)
+from sigil.core.statements import comment_of
+from sigil.core.tokens import lexicon
 from sigil.core.vocab import Diagnostic
 from sigil.analyse.lint import lint as _lint_document
 from sigil.model import scene
@@ -1772,16 +1774,25 @@ def check_runs(marks) -> list:
     return [(" " + check_glyph(m), check_mark_style(m)) for m in marks]
 
 
-def doc_title(text: str) -> str:
-    """A document's title: the first `# comment` line of its leading comment block
-    (`#!` mode lines skipped; a leading `#&` line ends the block); "" when the
-    document doesn't open with one."""
+def doc_title(text: str, dialect=None) -> str:
+    """A document's title: the first comment line of its opening notes, a
+    heading's extra `#`s dropped. Blank lines, `#!` mode lines and `#&`
+    declarations (lex.declaration_name, with the `{ … }` block one opens) are
+    stepped over; a comment is read the dialect's way (statements.comment_of with
+    its COMMENT_MARKERS). "" when another statement (or a bare `#`) comes first."""
+    marker = lexicon(dialect).marker
+    depth = 0                           # braces a declaration's block holds open
     for line in text.splitlines():
+        if depth > 0:
+            depth += net_braces(line)
+            continue
         if not line.strip() or is_mode_line(line):
             continue
-        m = comment_start(line, notes_only=True)
-        own = m is not None and not line[:m.start()].strip()
-        return line[m.end():].lstrip("#").strip() if own else ""
+        if declaration_name(line) is not None:
+            depth = net_braces(line)
+            continue
+        c = comment_of(line, marker)
+        return c[0].lstrip("#").strip() if c and c[1] else ""
     return ""
 
 

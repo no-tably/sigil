@@ -660,12 +660,13 @@ hooks (documented in `sigil/core/dialects.py`):
 | `strips()` | `[fn(line) -> line]` | blanks of a flow statement's text that keep its length (spaces, never deletion), applied after its branch marker is read; never to block headers, definition heads, transitions or section headers. A strip sees text only, not its context. |
 | `tokenizers()` | `[fn(s, i, prev_was_glyph, layer, Node) -> None \| (tokens, end, prev_was_glyph)]` | extra glyph or arrow syntax, tried at each column before the core rules. A glyph one reads is a glyph everywhere: a node in the model, an endpoint for lint, a definition head, and (by name) a principal an access list may name. |
 | `COMMENT_MARKERS` | regex sources | extra comment markers; one ends a statement's code as `#` does, never inside a `"…"` string. |
+| `DECLARATIONS` | `set[str]` | the `#&` names the dialect declares (`#& header …` declares `header`). Core reads every line-leading `#& name …` (or `#&name`) as a declaration that draws nothing, its `{ … }` block a body no rule reads; lint warns (SGL189) on a name no loaded dialect declares. A dialect without this hook hears nothing: it checks its own `#&` lines. `sigil.core.vocab.declaration_name(line)` reads the name. |
 
 The other hooks keep their names: `lint_passes()`, `lint_payload_checks()` (its
 `site` also says `branch`, true on a composition-branch statement), the data hooks
 (`KNOWN_MODIFIERS`, `DECLARATION_BLOCKS`, `BLOCK_KEYWORDS`, `COMPOSITION_RELATIONS`,
-…) and the check hooks. The 0.5 hooks are refused by name: a dialect that still
-defines `lint_prepasses` or `render_prepasses` (now `prepasses`),
+…) and the check hooks; a `#&` declaration needs no `DECLARATION_BLOCKS` entry.
+The 0.5 hooks are refused by name: a dialect that still defines `lint_prepasses` or `render_prepasses` (now `prepasses`),
 `render_line_strips` (now `strips`), `render_tokenizers`, `lint_glyph_masks` or
 `lint_principal_scanners` (now `tokenizers`) fails to load with an error naming the
 hook that replaces it. `strip_comment` from `sigil.core.vocab` is string-aware: a `#`

@@ -1657,7 +1657,7 @@ class ViewState:
         except OSError:
             return False
         self.text = text
-        self.title = kit.doc_title(text)
+        self.title = kit.doc_title(text, self.dialect)
         self.mode = kit.doc_mode(text)
         try:
             self.graph = kit._call(parse.parse_document, text, self.dialect)

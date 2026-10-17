@@ -231,15 +231,17 @@ class LineAndGlyphReadings(unittest.TestCase):
     `#` / bracket tests."""
 
     def test_a_comment_line_is_a_core_comment_and_nothing_else(self):
-        for line in ("#", "# c", "  # c", "#&x", "#= r"):
+        for line in ("#", "# c", "  # c", "#= r"):
             self.assertTrue(lex.is_comment_line(line), line)
-        for line in ("", "#!spec", "  #!craft", "[A] # c", "-// c"):
+        for line in ("", "#!spec", "  #!craft", "[A] # c", "-// c", "#&x", "#& header ~{"):
             self.assertFalse(lex.is_comment_line(line), line)
 
     def test_the_first_content_line_skips_blanks_and_comments(self):
         self.assertEqual(lex.first_content(["", "# c", "  ", "#!spec", "[A]"]), 3)
         self.assertEqual(lex.first_content(["# c", "[A] -> [B]"]), 1)
-        self.assertIsNone(lex.first_content(["", "# only", "#&x"]))
+        self.assertIsNone(lex.first_content(["", "# only", "#"]))
+        # a `#&` declaration is a statement: the mode line comes before it
+        self.assertEqual(lex.first_content(["# c", "#&x", "#!spec"]), 1)
 
     def test_the_mode_rules_and_check_read_one_first_content_line(self):
         from sigil.analyse import check

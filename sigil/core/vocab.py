@@ -22,6 +22,11 @@ vocab`), never from the linter.
                                 after whitespace starts one, never inside a `"…"`
                                 string (`: "issue #5"` keeps its `#`); a `#!` mode line
                                 is returned whole
+    DECLARATION_MARK            `#&`, the mark that leads a dialect declaration line
+    declaration_name(line)      the name a line-leading `#& name …` declares (`#&name`
+                                the same; "" when it names none), or None when the
+                                line is no declaration — the names a dialect lists in
+                                its DECLARATIONS hook
 
 The hooks a dialect defines are listed in sigil.core.dialects. One hook set
 serves the one reading of a document (sigil.core.statements): `prepasses()`
@@ -33,14 +38,15 @@ principal an access list may name) — the retired `lint_*` / `render_*` pairs
 (lint_prepasses, render_prepasses, render_line_strips, render_tokenizers,
 lint_glyph_masks, lint_principal_scanners) are refused by dialects.load().
 
-The lexical names (arrows, glyph patterns, the comment rule) are kept once in
-sigil.core.lex and re-exported here.
+The lexical names (arrows, glyph patterns, the comment rule, the `#&`
+declaration reading) are kept once in sigil.core.lex and re-exported here.
 """
 
 from dataclasses import dataclass, field
 
 from sigil.core.lex import (  # noqa: F401  (re-exported: the dialect API)
-    ANY_GLYPH_RE, ARROW_RE, ARROWS, COMMENT_START_RE, GLYPH_PATTERNS, strip_comment)
+    ANY_GLYPH_RE, ARROW_RE, ARROWS, COMMENT_START_RE, DECLARATION_MARK, GLYPH_PATTERNS,
+    declaration_name, strip_comment)
 
 # ---------------------------------------------------------------------------
 # Known vocabulary

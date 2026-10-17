@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from sigil.core.graph import Note, walk_breadth
-from sigil.core.lex import is_mode_line
+from sigil.core.lex import declaration_name, is_mode_line
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +152,7 @@ class Layout:
 
 def walk_layout(walk) -> Layout:
     """The Layout of a document's reading (a sigil.core.statements Walk): a line
-    holds a statement when it has code (or is a `#&` marker line; an opening
+    holds a statement when it has code (or is a `#&` declaration line; an opening
     `\"\"\"` never closed counts too), the blocks are the walk's `}`-closed
     spans, the quoted lines its block-string bodies."""
     statements = {k + 1 for k, code in enumerate(walk.codes)
@@ -170,7 +170,7 @@ def _holds_code(line: str, code: str) -> bool:
     stripped = line.strip()
     if is_mode_line(stripped):
         return False
-    return stripped.startswith("#&") or bool(code.strip())
+    return declaration_name(stripped) is not None or bool(code.strip())
 
 
 # Any case, so a rule id (`SGC111`) or a mixed-case name still reads as an

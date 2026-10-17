@@ -1,16 +1,18 @@
 """
 What lint reads off a document's one reading (sigil.core.statements.Walk), for
 the rules that judge a line rather than a statement: each line's code as those
-rules see it (LineView), the lines `state` blocks cover, the tokens of the
-control-block headers — and the block-string report (SGL170). Nothing here reads
-the text again: comments, strings, dialect glyphs, the dialect's strips and the
-composition branch markers are where the walk found them.
+rules see it (LineView; a declaration's lines blank), the lines `state` blocks
+cover, the tokens of the control-block headers, the declarations — and the
+block-string report (SGL170). Nothing here reads the text again: comments,
+strings, dialect glyphs, the dialect's strips and the composition branch markers
+are where the walk found them.
 """
 
 from typing import NamedTuple
 
 from sigil.core.lex import DIALECT_COL, blank_access_lists, fold_block_strings
-from sigil.core.statements import BlockOpen, Definition, Doc, StateEnd, StateHead, Walk
+from sigil.core.statements import (
+    BlockOpen, Declaration, Definition, Doc, StateEnd, StateHead, Walk)
 from sigil.core.tokens import Code
 from sigil.core.vocab import LintResult
 
@@ -26,14 +28,17 @@ class LineView(NamedTuple):
 
 
 def line_views(walk: Walk, markers: dict) -> tuple:
-    """A LineView per line of `walk`. `markers`: {line index: [(start, end)]} of
-    the branch markers to blank (composition.branch_markers)."""
+    """A LineView per line of `walk` (a declaration's lines blank). `markers`:
+    {line index: [(start, end)]} of the branch markers to blank
+    (composition.branch_markers)."""
     texts = [c.text for c in walk.codes]
     raws = [c.raw for c in walk.codes]
     for st in walk.statements:
         k, at = st.line - 1, st.code.col
         texts[k] = _overlay(texts[k], st.code.text, at)
         raws[k] = _overlay(raws[k], st.code.raw, at)
+    for k in walk.declared:             # a declaration and its body: no rule reads them
+        texts[k] = raws[k] = " " * len(texts[k])
     views = []
     for k, (text, raw) in enumerate(zip(texts, raws)):
         text, raw = _blank(text, markers.get(k, ())), _blank(raw, markers.get(k, ()))
@@ -75,6 +80,12 @@ def documents(doc: Doc):
         yield d
         stack.extend(i.body for i in reversed(d.items)
                      if isinstance(i, Definition) and i.body is not None)
+
+
+def declarations(doc: Doc) -> list:
+    """Every Declaration of the document and its definition bodies, in line order."""
+    return sorted((i for d in documents(doc) for i in d.items
+                   if isinstance(i, Declaration)), key=lambda i: i.line)
 
 
 def state_lines(doc: Doc) -> frozenset:

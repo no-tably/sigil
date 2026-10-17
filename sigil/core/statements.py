@@ -32,8 +32,8 @@ from sigil.core.lex import (
     ALIAS_RE, ANY_GLYPH_RE, ARM_RE, ARROW_RE, BARE_BRANCH_RE, BLOCK_OPEN_RE,
     BRANCH_ANY_RE, BRANCH_PARENT_RE, BRANCH_RE, DEFINE_RE, DIALECT_COL, EXPANSION_OPEN_RE,
     CLOSERS, GLYPH_PREFIXES, GLYPH_RE, LOOP_HEAD_RE, OPENERS, SCOPE_HEAD_RE, SECTION_RE,
-    STATE_HEAD_RE, STATE_OPEN_RE, close_at, comment_start, fold_block_strings, in_string,
-    is_mode_line, mask_strings, net_braces)
+    DECLARATION_MARK, STATE_HEAD_RE, STATE_OPEN_RE, close_at, comment_start,
+    declaration_name, fold_block_strings, in_string, is_mode_line, mask_strings, net_braces)
 from sigil.core.tokens import (
     NO_DIALECT, Code, Lexicon, Tok, code_line, lexicon, tokenize_statement)
 
@@ -166,8 +166,11 @@ class Blank(NamedTuple):
 
 
 class Declaration(NamedTuple):
-    """The opener of a dialect declaration block (its body is consumed)."""
+    """A declaration: a line-leading `#& name …` (lex.declaration_name; `name` its
+    name) or the opener of a dialect's DECLARATION_BLOCKS (`name` None). It draws
+    nothing; a `{ … }` block it opens is its body, consumed."""
     line: int
+    name: Optional[str] = None
 
 
 class SectionHead(NamedTuple):
@@ -268,7 +271,9 @@ class Walk(NamedTuple):
     body lines, read after the prepasses (a body is read as written then).
     `spans`: (header line, closing line) of every block a `}` closed — control
     blocks, `state` blocks, definition bodies, dialect declarations — as they
-    close; `quoted`: the indices of the lines a block string's body consumed."""
+    close; `quoted`: the indices of the lines a block string's body consumed;
+    `declared`: the indices of the lines a declaration holds (a `#&` line or a
+    dialect's opener, and its block's body), which no rule reads."""
     statements: tuple
     blocks: tuple
     headers: tuple
@@ -287,6 +292,7 @@ class Walk(NamedTuple):
     inner: dict = {}
     spans: tuple = ()
     quoted: frozenset = frozenset()
+    declared: frozenset = frozenset()
 
 
 # ---------------------------------------------------------------------------
@@ -295,12 +301,12 @@ class Walk(NamedTuple):
 
 def comment_of(line: str, marker) -> Optional[tuple]:
     """A line's comment: (text, own_line), or None. Core comments start with `#`
-    (not the `#!` mode line, nor a `#&` marker — see lex.COMMENT_START_RE); a
-    dialect's markers (`marker`, one pattern) too. A marker inside a `"…"` string
-    starts no comment."""
+    (not the `#!` mode line, nor a `#&` — a declaration when it leads the line,
+    see lex.COMMENT_START_RE); a dialect's markers (`marker`, one pattern) too. A
+    marker inside a `"…"` string starts no comment."""
     if marker is None and "#" not in line:
         return None
-    if is_mode_line(line) or line.lstrip().startswith("#&"):
+    if is_mode_line(line) or declaration_name(line) is not None:
         return None
     m = comment_start(line, notes_only=True)
     if marker:
@@ -415,6 +421,7 @@ class _Walker:
         self.bare: list = []
         self.continuations: list = []
         self.spans: list = []       # (header line, closing line), 1-based, as they close
+        self.declared: set = set()  # line indices a declaration holds
         self.defined = frozenset(filter(None, (self.definition_name(c) for c in codes
                                                 if ":=" in c.raw)))
 
@@ -423,7 +430,7 @@ class _Walker:
                     tuple(self.headers), tuple(self.sections), tuple(self.transitions),
                     tuple(self.bare), tuple(self.continuations), self.defined, self.codes,
                     doc, lines, comments, bodies, folded.unterminated, self.lx, self.inner,
-                    tuple(self.spans), folded.quoted)
+                    tuple(self.spans), folded.quoted, frozenset(self.declared))
 
     # -- the document, line by line ----------------------------------------------
 
@@ -521,11 +528,26 @@ class _Walker:
         return end
 
     def delta(self, raw_lead: str, text: str) -> int:
-        """Net braces a line opens. A raw-matched declaration opener (a `#…` marker,
-        erased with the comment) counts on the raw line."""
-        if any(on_raw and rx.match(raw_lead) for rx, on_raw in self.decl_blocks):
+        """Net braces a line opens. A declaration read on the raw line (a `#&`
+        declaration or a raw-matched dialect opener, erased with the comment)
+        counts on the raw line."""
+        if self.opener(raw_lead, None):
             return net_braces(raw_lead)
         return net_braces(text)
+
+    def opener(self, raw_lead: str, line: Optional[str]) -> Optional[bool]:
+        """Whether the line opens a declaration, and how its braces are read: True
+        on the raw line (a `#&` declaration — core's, whatever the dialect — or a
+        dialect opener matched there), False on its code (`line`; None: those
+        openers are not tried); None when it opens none."""
+        if declaration_name(raw_lead) is not None:
+            return True
+        for rx, on_raw in self.decl_blocks:
+            if on_raw and rx.match(raw_lead):
+                return True
+            if not on_raw and line is not None and rx.match(line):
+                return False
+        return None
 
     def code(self, k: int, piece: Optional[str], shift: int) -> Code:
         if piece is None:
@@ -660,7 +682,7 @@ class _DocReader:
         self.base = 0                  # a body's first line
         self.item = self.def_line = 0  # a body's Definition (its index in the parent)
         self.state: Optional[_State] = None
-        self.decl = None               # [(opener, on_raw), depth]
+        self.decl = None               # [on_raw, depth] of an open declaration block
         self.decl_line = 0
         self.texts: dict = {}
         self.subject = False           # a flow above that a continuation line takes
@@ -724,7 +746,7 @@ class _DocReader:
                 return
             if not line:
                 self.items.append(Blank(k))
-        if (self.decl is not None or w.decl_blocks) and self._declaration(k, raw_lead, line):
+        if self._declaration(k, raw_lead, line):
             return
         if not line:
             if not raw_lead:
@@ -744,25 +766,29 @@ class _DocReader:
         self.blank = False
 
     def _declaration(self, k: int, raw_lead: str, line: str) -> bool:
-        """Dialect declaration blocks: consumed whole, never read. A raw-matched
-        opener (a `#…` marker, erased with the comment) counts on the raw line."""
+        """Declarations (a `#&` line, a dialect's DECLARATION_BLOCKS opener) and
+        their blocks: consumed whole, never read. One read on the raw line (a `#…`
+        marker, erased with the comment) counts its braces there."""
         if self.decl is not None:
-            txt = raw_lead if self.decl[0][1] else line
+            self.w.declared.add(k)
+            txt = raw_lead if self.decl[0] else line
             self.decl[1] += net_braces(txt)
             if self.decl[1] <= 0:
                 self.decl = None
                 self.w.spans.append((self.decl_line + 1, k + 1))
             return True
-        for opener, on_raw in self.w.decl_blocks:
-            txt = raw_lead if on_raw else line
-            if opener.match(txt):
-                depth = net_braces(txt)
-                self.decl = [(opener, on_raw), depth] if depth > 0 else None
-                self.decl_line = k
-                self.items.append(Declaration(k))
-                self.subject = False
-                return True
-        return False
+        if not (self.w.decl_blocks or DECLARATION_MARK in raw_lead):
+            return False
+        on_raw = self.w.opener(raw_lead, line)
+        if on_raw is None:
+            return False
+        depth = net_braces(raw_lead if on_raw else line)
+        self.decl = [on_raw, depth] if depth > 0 else None
+        self.decl_line = k
+        self.w.declared.add(k)
+        self.items.append(Declaration(k, declaration_name(raw_lead)))
+        self.subject = False
+        return True
 
     def _section(self, k: int, line: str, code: Code) -> bool:
         sec = SECTION_RE.match(line) if line.startswith("--") else None

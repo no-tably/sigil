@@ -114,12 +114,24 @@ upper-case attributes are data.
       core classification: value / ext-op / ext-op-bad / map / entity / int-op /
       opaque), known_modifiers (core ∪ dialect allowlist), branch (True on a
       composition-branch statement).
+  DECLARATIONS: set[str]
+      The `#&` names the dialect declares (`#& header …` declares "header"). A
+      line-leading `#& name …` (`#&name` reads the same; lex.declaration_name) is
+      core syntax, read the same with or without a dialect: a statement that
+      draws nothing, never a comment, a note or part of a flow, and a `{ … }`
+      block it opens (`{` or `~{`, one line or many) is its body, consumed as a
+      DECLARATION_BLOCKS body is. What a name means is the dialect's. Core lint
+      warns (SGL189) on a `#&` name no loaded dialect declares: with no dialect,
+      or when the dialect defines DECLARATIONS without it. A dialect that does
+      not define DECLARATIONS hears nothing (it validates its own `#&` lines).
   DECLARATION_BLOCKS: [(compiled_regex, on_raw: bool)]
       Openers of `name { … }` blocks whose bodies are DECLARATIONS, not flows.
       The walk consumes their bodies: no rule reads them and the model draws
       nothing for them. `on_raw=True` matches the raw stripped line (use it for
       markers that begin with `#`, which comment stripping would erase);
-      otherwise the line's code. The body ends when its braces balance.
+      otherwise the line's code. The body ends when its braces balance. A `#&`
+      line needs no entry here (see DECLARATIONS); one that matches it too
+      reads the same.
   BLOCK_KEYWORDS: set[str]
       Extra statement-leading block keywords (alongside state/loop/parallel/
       branch) whose header line carries no flow payload.
