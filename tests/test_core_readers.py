@@ -43,33 +43,98 @@ def closes(lines: list) -> int:
 
 
 class Autoclose(unittest.TestCase):
+    """autoclose adds the `}` core's walk needs: no more (a stray one would be
+    SGL122 in the drawn prefix), no fewer."""
+
     def test_a_brace_in_a_string_or_comment_opens_nothing(self):
         self.assertEqual(closes(['[A] := { : "{ # {"   # {']), 1)
 
-    def test_strings_follow_the_notations_rule(self):
-        # `"…"` has no escapes and an unclosed quote opens no string (lex.STRING_RE).
-        self.assertEqual(closes(['[A] := { : "a\\"{"']), 2)
-        self.assertEqual(closes(['[A] -> [B] : "x {']), 1)
+    def test_a_string_still_being_typed_opens_nothing(self):
+        for line in ['[A] : "half {', '[A] -> [B] : "x {', '[A] -> [B] : "a \\" {"',
+                     '[A] -> [B] : """ {', '""" {']:
+            with self.subTest(line=line):
+                self.assertEqual(closes([line]), 0)
+
+    def test_a_block_strings_body_opens_nothing(self):
+        self.assertEqual(closes(["[A] := {", '"""', "{", '"""']), 1)
+        self.assertEqual(closes(["[A] := {", '  """', "  {", '  """']), 1)
+
+    def test_no_close_lands_in_an_unterminated_block_string(self):
+        self.assertEqual(closes(["[A] := {", '"""', "{"]), 0)
+
+    def test_closes_until_the_walk_has_none_open(self):
+        # The body's `{"` after `\"` is counted as the definition reads it: one
+        # `}` closes that, the next the definition.
+        self.assertEqual(closes(["[X] := {", '"x \\" {"']), 2)
+        self.assertEqual(closes(["[A] := {", "  [B] := {", "    [C] -> [D]"]), 2)
 
     def test_a_mode_line_has_no_code(self):
         self.assertEqual(closes(["#!spec {", "[A] := {"]), 1)
 
-    def test_a_stray_close_is_read_and_the_line_goes_on(self):
-        self.assertEqual(closes(["} [A] := {"]), 1)
+    def test_a_line_led_by_a_stray_close_opens_nothing(self):
+        # The walk reads `} [A] := {` as a flow, so a `}` after it would be stray.
+        self.assertEqual(closes(["} [A] := {"]), 0)
+
+    def test_an_unclosed_glyph_opens_nothing(self):
+        self.assertEqual(closes(["[A] -> {B"]), 0)
+
+    def test_every_prefix_closed_draws_no_stray_close(self):
+        for lines in (["[A] := {", "  state X {"], ['[A] -> [B] : "x {'],
+                      ['[A] : "half {'], ["[A] := {", '"""', "{", '"""'], ["[A] -> {B"]):
+            with self.subTest(lines=lines):
+                rules = [d.rule for d in kit.run_lint(frames.autoclose(lines))]
+                self.assertNotIn("SGL122", rules)
 
 
 class BranchLine(unittest.TestCase):
-    def test_a_branch_after_its_parent_on_one_line(self):
-        facts = cf.flow_facts(doc_of("[Log] -> [B]\n[Log] \\-& {Rows}\n"))
-        self.assertEqual(cf.branch_line(facts, "Rows_data"), 2)
+    """The first statement led by a branch marker that names the node — the
+    SGC167 / SGC166 anchor ebd30f9 gave."""
 
-    def test_a_continuation_is_no_branch(self):
+    def test_an_inline_branch_is_not_led_by_a_marker(self):
+        facts = cf.flow_facts(doc_of("[Log] -> [B]\n[Log] \\-& {Rows}\n"))
+        self.assertEqual(cf.branch_line(facts, "Rows_data"), 0)
+
+    def test_a_bare_branch_counts(self):
         facts = cf.flow_facts(doc_of("[Ship]\n    *-> [Bullet]\n"))
-        self.assertEqual(cf.branch_line(facts, "Bullet_service"), 0)
+        self.assertEqual(cf.branch_line(facts, "Bullet_service"), 2)
 
     def test_a_marker_in_a_payload_is_text(self):
         facts = cf.flow_facts(doc_of('[A] -> [B] : "\\-> [C]"\n[A]\n    \\-> [C]\n'))
         self.assertEqual(cf.branch_line(facts, "C_service"), 3)
+
+    def test_a_glyph_of_another_kind_by_the_same_name_counts(self):
+        facts = cf.flow_facts(doc_of("[Pool]\n  \\-> {Worker}\n  \\-* [Worker]\n"))
+        self.assertEqual(cf.branch_line(facts, "Worker_service"), 2)
+
+    def test_a_glyph_in_a_branch_payload_counts(self):
+        facts = cf.flow_facts(doc_of("[Pool]\n  \\-> [A] : f({Worker})\n  \\-* [Worker]\n"))
+        self.assertEqual(cf.branch_line(facts, "Worker_service"), 2)
+
+    def test_a_malformed_marker_still_leads(self):
+        facts = cf.flow_facts(doc_of("[Pool]\n  \\-x [Worker]\n  \\-* [Worker]\n"))
+        self.assertEqual(cf.branch_line(facts, "Worker_service"), 2)
+
+    def test_a_bare_lead_without_a_relation_still_leads(self):
+        for lead in ("(2)-", "*-", "{c}-"):
+            with self.subTest(lead=lead):
+                facts = cf.flow_facts(doc_of(f"[Pool]\n  {lead} [Worker]\n  \\-* [Worker]\n"))
+                self.assertEqual(cf.branch_line(facts, "Worker_service"), 2)
+
+    def test_a_block_strings_body_is_no_branch(self):
+        facts = cf.flow_facts(doc_of('[A] : """\n\\-> [C]\n"""\n[A]\n  \\-> [C]\n'))
+        self.assertEqual(cf.branch_line(facts, "C_service"), 5)
+
+    def test_unbounded_spawn_anchors(self):
+        # SGC167's line as at ebd30f9: an inline branch falls back to the node's
+        # first line; a same-named data branch above takes the anchor.
+        inline = "#!spec\n[Pool] -> [Worker] : run()\n[Pool] \\-* [Worker]\n"
+        stacked = ("#!spec\n[Pool]\n  \\-> {Worker}\n  \\-* [Worker]\n"
+                   "[Pool] -> [Worker] : run()\n")
+        for text, want in ((inline, 2), (stacked, 3)):
+            with self.subTest(text=text):
+                report = ck.check(text)
+                lines = [f.hit.line for f in report.shown if f.rule.id == "SGC167"]
+                self.assertEqual(lines, [want])
 
 
 class InvCode(unittest.TestCase):

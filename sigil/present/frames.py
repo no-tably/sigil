@@ -49,7 +49,7 @@ import unicodedata
 from pathlib import Path
 
 from sigil.core.parse import parse_document
-from sigil.core.tokens import code_line
+from sigil.core.statements import read_document
 from sigil.model import scene
 from sigil.model import sim as simulator
 from sigil.present import app, kit
@@ -67,24 +67,39 @@ WIDE_TAIL = "\0"   # a wide character's second cell (logic.ts's WIDE_TAIL): draw
 # A half-typed document
 # ---------------------------------------------------------------------------
 
+def _open_blocks(text: str):
+    """Core's walk of `text` and how many blocks it leaves open at the end."""
+    walk = read_document(text)
+    return walk, sum(not b.closed for b in walk.blocks)
+
+
+def _closers(text: str) -> int:
+    """How many `}` lines close every block the walk leaves open in `text`.
+    Counted by reading again, not per block: one `}` need not close a block (a
+    body's braces are counted as its definition reads them — `[X] := {` then
+    `"x \\" {"` takes two). None after an unterminated block string (a `}` would
+    be its text), and at most one per `{` in the text; when no count closes all,
+    the fewest that leave the fewest open."""
+    walk, still_open = _open_blocks(text)
+    if not still_open or walk.unterminated is not None:
+        return 0
+    best, fewest = 0, still_open
+    for k in range(1, text.count("{") + 1):
+        _walk, left = _open_blocks(text + "\n" + "\n".join("}" * k))
+        if left < fewest:
+            best, fewest = k, left
+        if not left:
+            break
+    return best
+
+
 def autoclose(lines: list[str]) -> str:
     """The prefix as a document: close any `{` blocks still open, so a half-typed
-    expansion already draws. Each line's code is read as core reads it
-    (tokens.code_line: its comment cut, "…" strings blanked; a `#!` mode line,
-    which the walk never reads as a statement, has none), then each `{` opens a
-    block and each `}` closes one, a `}` with none open read as stray — so
-    `X := {`, `state X {`, `[A] @owns |S| {`, `} @inv …` and `}}` all count, and
-    a balanced `{…}` (a data glyph, a \\-{cond}- relation, a one-line block)
-    nets nothing."""
-    depth = 0
-    for ln in lines:
-        code = "" if ln.lstrip().startswith("#!") else code_line(ln).text
-        for ch in code:
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth = max(depth - 1, 0)
-    return "\n".join(lines + ["}"] * depth) + "\n"
+    expansion already draws. The open blocks are core's walk's (its reading of
+    strings, block strings, comments and mode lines), so a `{` inside a `"…"`
+    string — closed or still being typed — or a block string's body opens
+    nothing, and no `}` is added that the walk would read as stray."""
+    return "\n".join(lines + ["}"] * _closers("\n".join(lines))) + "\n"
 
 
 # ---------------------------------------------------------------------------

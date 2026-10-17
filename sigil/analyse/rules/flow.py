@@ -92,6 +92,7 @@ class Facts:
     declared: Callable               # (principal, store) → modes (Doc.declared_access)
     read_verbs: tuple
     label: Callable                  # node id → glyph text
+    branches: tuple                  # (line, source line) of each branch-led statement
     effects: dict = field(default_factory=dict)
     failures: Optional["Failures"] = None
     spread: Optional[frozenset] = None    # memo of spread_nodes
@@ -127,7 +128,20 @@ def build_facts(doc) -> Facts:
         lines=first_lines(graphs, node_lines), access=doc.access_mode,
         declared=doc.declared_access,
         read_verbs=tuple(doc.read_verbs),
-        label=lambda nid: node_label(nodes[nid]) if nid in nodes else nid)
+        label=lambda nid: node_label(nodes[nid]) if nid in nodes else nid,
+        branches=branch_statements(doc.walk, doc.lines))
+
+
+# A statement led by a composition branch marker: `\\-…`, or a bare `*-…`,
+# `{c}-…`, `(N)-…` (well-formed or not: lint judges the marker).
+_BRANCH_LEAD_RE = re.compile(r"^\s*(?:\\-|\*-|\{[^}]*\}-|\(\d+\)-)")
+
+
+def branch_statements(walk, lines) -> tuple:
+    """(line, source line) of every statement the walk reads at the start of its
+    line whose code (strings masked, comment cut) starts with a branch marker."""
+    return tuple((st.line, lines[st.line - 1]) for st in walk.statements
+                 if not st.shift and _BRANCH_LEAD_RE.match(st.code.text))
 
 
 _INV_HEAD_RE = re.compile(r"\s*([A-Za-z_][\w-]*)")
@@ -2089,10 +2103,12 @@ def single_point_rule(ck):
 # ---------------------------------------------------------------------------
 
 def branch_line(facts: Facts, nid: str) -> int:
-    """The first line the node hangs on a composition tree as a branch (a tree
-    entry with a relation), in any unit's graph; 0 when it hangs nowhere."""
-    return min((t.line for g in _graphs(facts) for t in g.tree
-                if t.node == nid and t.rel is not None and t.line), default=0)
+    """The first branch statement whose line writes the node's name in any
+    glyph's brackets (tree entries carry the line their node is written on,
+    which may be a parent's inline `[P] \\-* [C]`); 0 when none does."""
+    name = facts.nodes[nid].name if nid in facts.nodes else nid
+    named = re.compile(rf"[\[({{|<]{re.escape(name)}[\])}}|>]")
+    return next((n for n, raw in facts.branches if named.search(raw)), 0)
 
 
 class Spawn(NamedTuple):
