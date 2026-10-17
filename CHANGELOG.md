@@ -4,7 +4,7 @@ Each release's notes, newest first. The same text is the GitHub release's descri
 
 ## 0.6.0 — unreleased
 
-One command instead of five scripts, Mermaid as an export with a new chart grouped
+One command instead of seven scripts, Mermaid as an export with a new chart grouped
 by system, the tools rebuilt as one package along the drawing of sigil in sigil
 (`design/sigil.sigil`), and one reading of the text: lint and the parser now read a
 document the same way. What the tools print is unchanged, apart from the messages
@@ -13,10 +13,11 @@ the text" and the fixes listed below.
 
 ### One command
 
-- **`sigil <lint|check|view|export|frames>`** replaces `lint.py`, `check.py`,
-  `view.py`, `export.py` and `render.py`. Run it as `bin/sigil` (Python 3 standard
-  library only) or `python3 -m sigil`; the skill runs `scripts/bin/sigil`, and the
-  plugin commands, the Claude Code mod and the pi extension call it too. Flags are
+- **`sigil <lint|check|view|export|frames|themes>`** replaces `lint.py`, `check.py`,
+  `view.py`, `export.py`, `render.py`, `themes.py` and the Claude Code mod's
+  `pane.py`. Run it as `bin/sigil` (Python 3 standard library only) or
+  `python3 -m sigil`; the skill runs `scripts/bin/sigil`, and the plugin commands,
+  the Claude Code mod and the pi extension call it too. Flags are
   the same as before:
 
   | 0.5 | 0.6 |
@@ -29,8 +30,11 @@ the text" and the fixes listed below.
   | `plugin/claude/scripts/pane.py draw` / `follow` | `sigil frames draw` / `follow` |
   | `themes.py [NAME] [--list]` | `sigil themes [NAME] [--list]` |
 
-  Each subcommand loads only what it needs: `sigil lint` loads neither the checker,
-  the simulator nor the views.
+  `sigil --help` lists them all, `sigil CMD --help` gives each one's flags, and
+  `sigil export --help` shows both of its forms (the folder and `--mermaid`). Each
+  subcommand loads only what it needs: `sigil lint` loads neither the checker, the
+  simulator nor the views, and `sigil lint --deep` and the export gate read the
+  document once for lint and check together.
 - **Messages say `sigil <command>`.** Errors on stderr and usage lines begin with
   the subcommand (`sigil lint: …`, `sigil check: …`, `sigil view: …`,
   `sigil export: …`, the Mermaid chart's too) where 0.5 printed `lint.py: …`,
@@ -72,7 +76,12 @@ was plainly wrong. What changes:
   phantom nodes (and a check finding about one, such as an orphan event).
 - **Modifier arguments in a block header name no node.** `loop @times(2) {` no
   longer draws an actor `(2)`, nor `@inv ordered(Physics, Steering)` an actor
-  `Physics, Steering`.
+  `Physics, Steering`, nor `@enum Mode { fast, slow }` a data node `fast, slow`.
+- **A free modifier argument ends where the next part of the line begins**: an
+  access list, a `^N` bound, the block's `{`, a trailing `×N` or `!`. With `--mods`,
+  `~|Seats| @inv cas(version) @read(…) @write(…)` is labelled
+  `@inv cas(version)`, no longer `@inv cas(version)     …`. Braces inside the
+  argument stay (`@inv status in { open, closed }`).
 - **A `${…}` ref names no data glyph**, outside a payload too:
   `[X] -> |tree| ${out.subtree}` and `loop @each kid of ${out.kids} {` no longer
   draw a phantom data node.
@@ -86,6 +95,12 @@ was plainly wrong. What changes:
   `@read(A, "B, C")` gives one SGL142 for `"B, C"` (before, two).
 - **Block-strings.** A line that closes one `"""` block and opens another reads
   both; before, the parser missed the second and the flows after it.
+- **A tree ended by a plain line is reported.** A plain glyph line at a branch's
+  indent ends its composition tree, so a `\-` branch under it has no parent; the
+  drawing always dropped it, and now SGL111 says so, with the rule in its message
+  ("its parent is the nearest glyph line above at a shallower indent …").
+- **A branch marker inside a `"""` block-string** no longer anchors SGC167; the
+  finding sits on the real branch line.
 - **A continuation under a malformed section header** (`--- L2: [X]` with no closing
   dashes) continues from the glyph that line drew, as the drawing does, so it no
   longer adds SGL130 next to the header's SGL184.
@@ -144,7 +159,12 @@ still found by name next to the repository (`../sigil-<name>/dialect.py`) or on
 | `render_tokenizers()`, `lint_glyph_masks()`, `lint_principal_scanners()` | `tokenizers()` (the signature `render_tokenizers` had): a glyph it reads is a node, a lint endpoint, a definition head and a principal name alike |
 
 A dialect that still defines a 0.5 hook fails to load, with an error naming the
-hook that replaces it. `lint_passes()`, `lint_payload_checks()` (whose `site` adds
+hook that replaces it. A strip that changes a line's length, or a prepass that
+changes the line count, is refused the same way: every command prints
+`sigil <command>: …` naming the hook and exits 2 (before, a traceback or lines
+that silently drifted). With a dialect's `COMMENT_MARKERS` (say `//`), a `#=` after
+the marker is comment text (no SGL188), and an acknowledgement under the marker
+exports its comment text. `lint_passes()`, `lint_payload_checks()` (whose `site` adds
 `branch`, true on a composition-branch statement), `COMMENT_MARKERS` and the data
 and check hooks keep their names. `strip_comment` in `sigil.core.vocab` is now
 string-aware: a `#` inside a `"…"` string starts no comment. `docs/tools.md`

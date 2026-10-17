@@ -48,7 +48,8 @@ A line that starts with an arrow continues from the subject above.
 
 `sigil view shortener.sigil --sim all` runs both paths: `happy`, and
 `Redirect.lookup:fails` — the lookup fails, the run ends on the `!>` route to the
-visitor, and no redirect or click follows.
+visitor, and no redirect or click follows. A third row, `Visitor@0`, starts the
+visitor while the user's episode still runs (an overlap run).
 
 ---
 

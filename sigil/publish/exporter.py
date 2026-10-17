@@ -113,7 +113,7 @@ def gate(text: str, dialect, lint, check) -> tuple:
 
 
 def out_problem(out: Path) -> Optional[str]:
-    """Why export.py may not write into `out` (None: it may): it is a file, or a
+    """Why `sigil export` may not write into `out` (None: it may): it is a file, or a
     folder that is neither empty nor an earlier export."""
     if not out.exists():
         return None

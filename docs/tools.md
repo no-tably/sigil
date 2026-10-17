@@ -8,18 +8,22 @@ repository). Each subcommand takes a file, or `-` for stdin. The
 ## The command
 
 ```
-sigil lint FILE|- [--deep]
-sigil check FILE|- [--mode M] [--k N] [--budget N] [--overlaps …] [--json] [--export]
+sigil lint FILE|- [--deep] [--dialect D]
+sigil check [FILE|-] [--mode M] [--k N] [--budget N] [--overlaps …] [--json] [--export] [--rules]
 sigil view FILE [--once] [--graph|--tree|--flow|--run] [--sim S] …
 sigil export SPEC --out DIR [--json] [--dry-run]
-sigil export FILE --mermaid [--depth N|all] [--composition …] [--spine]
-sigil frames draw FILE … | sigil frames follow CONTROL
+sigil export FILE --mermaid [--depth N|all] [--composition subgraphs|edges|none]
+sigil export FILE --mermaid --spine
+sigil frames draw FILE [--view V] [--depth N|all] [--width N] [--scenario S] …
+sigil frames follow CONTROL
 sigil themes [NAME|PATH] [--list]
 ```
 
-`sigil` with no subcommand prints that list. Each subcommand loads only the parts of
+`sigil` with no subcommand prints that list (exit 2), and `sigil --help` prints it
+too (exit 0); `sigil CMD --help` gives each subcommand's flags. Each subcommand loads only the parts of
 the package it needs, so `sigil lint` never loads the simulator or the views. Every
-subcommand takes `--dialect NAME` (see [Dialects](#dialects)).
+subcommand that reads a document (`lint`, `check`, `view`, `export`) takes
+`--dialect NAME` (see [Dialects](#dialects)).
 
 **The package.** `bin/sigil` puts the package on the path and calls `sigil.cli`.
 The package is `sigil/`, one subpackage per layer, as drawn in
@@ -101,8 +105,9 @@ binding rules errors. The line format and [exit codes](#exit-codes) match lint.
   exhaustive check you run before a spec is final, not on every edit. `--json`
   reports the setting as `limits.overlap_runs`.
 - `--all` also shows hidden findings.
-- `--json` prints one object per run: rule, tier, why, how to satisfy, witness (and
-  `at`, the tick in the witness run where a behavioural finding shows).
+- `--json` prints one JSON object: the mode, `k`, the `limits` and every finding
+  with its rule, tier, why, how to satisfy (`fix`), witness (and `at`, the tick in
+  the witness run where a behavioural finding shows), plus the acknowledged ones.
 - `--export` also runs the export readiness rules, SGC401 `no-home` and SGC402
   `untyped-boundary` (see [`sigil export`](#sigil-export-spec---out-dir)). Without it they never
   run, so no other output changes.
@@ -133,7 +138,7 @@ the top system, named after the spec file's stem. Each component has one **home*
   not make.
 - `--dry-run` prints the delta and writes nothing.
 - `--json` prints the delta as JSON instead of the summary in words.
-- `--dialect NAME` loads a dialect, as every subcommand does.
+- `--dialect NAME` loads a dialect, as `lint`, `check` and `view` do.
 
 Exit codes: 0 exported (or a dry run), 1 the folder could not be written, 2 not
 ready to export or bad input (an unreadable spec, an unknown dialect, a folder
@@ -283,7 +288,7 @@ Options:
 - `--compact` starts without the blank row between top-level units.
 - `--no-triggers` starts with event ⇢ state triggers hidden.
 - `--no-lint` skips lint.
-- `--theme NAME` picks a colour theme (see [themes](#themespy-namepath)); `--color
+- `--theme NAME` picks a colour theme (see [Themes](#themes)); `--color
   auto|always|never` decides when to colour.
 - `--layout auto|wrap|pan` says how a drawing wider than the window is shown. `wrap`
   fits it to the width and lets it grow down; `pan` keeps its natural layout and
@@ -638,8 +643,8 @@ references filled in) as JSON, and `sigil themes --list` lists the themes found.
 
 ## Dialects
 
-Every subcommand loads a dialect (`--dialect NAME` or `SIGIL_DIALECT`) that extends
-the linter, Mermaid and the checker. A dialect module imports the core's vocabulary
+`sigil lint`, `check`, `view` and `export` load a dialect (`--dialect NAME` or
+`SIGIL_DIALECT`) that extends the linter, Mermaid and the checker. A dialect module imports the core's vocabulary
 from `sigil.core.vocab`, the dialect API, and a dialect's own command calls
 `sigil.cli.main(argv, dialect=NAME)`. See "Dialects" in
 [`language.md`](../language.md).

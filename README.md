@@ -79,7 +79,9 @@ the graph, tree, flow and run views live):
                       └─────────┘
 ```
 
-`--sim all` runs both of its paths — the happy one, and a lookup that fails:
+`--sim all` runs both of its paths — the happy one, and a lookup that fails — and
+one run where the two entries overlap (`Visitor@0`, see
+[Runs that overlap](#runs-that-overlap)):
 
 ```sh
 sigil view shortener.sigil --once --sim all
@@ -120,7 +122,7 @@ stdin. Every flag and key is in [`docs/tools.md`](./docs/tools.md).
 | `sigil export SPEC --out DIR` | Exports a ready `#!spec` document as a build skeleton: a folder per system, a file per component, `manifest.json` as the contract. A re-export says which systems changed (see [Export a spec](#export-a-spec)). |
 | `sigil export FILE --mermaid` | Emits a Mermaid `flowchart TD` for docs or review (GitHub, Obsidian, mermaid.live), in any mode. `--spine` groups it by the export's systems, a subgraph each. |
 | `sigil themes [NAME]` | Prints a colour theme from `themes/*.yaml` resolved, as JSON (`--list` lists them); the viewer and the web page share the files. |
-| `--dialect NAME` | Every subcommand loads a dialect that extends the linter, Mermaid and checker. |
+| `--dialect NAME` | `lint`, `check`, `view` and `export` load a dialect that extends the linter, Mermaid and checker. |
 | `highlight/` | Syntax highlighting for bat, nvim, VS Code, Sublime/TextMate. |
 
 ## Install as an agent skill
@@ -451,7 +453,8 @@ the viewer into `frames.json` and turns the theme YAML into CSS variables;
 `.github/workflows/pages.yml` publishes it with GitHub Pages.
 
 The **playground** runs the tools themselves in the browser: the build copies
-the `sigil/` package (less the export layer) into `py/` byte for byte, and
+the `sigil/` package (less the export layer: `sigil/publish/` and the export
+model and rules) into `py/` byte for byte, and
 [Pyodide](https://pyodide.org) runs it when a visitor presses *start*
 (`site/playground.py` is the thin JSON layer the page calls). Write a design, switch
 views (graph, tree, flow, run — `1` `2` `3` `4` or `t` on the drawing, as in the viewer), read
