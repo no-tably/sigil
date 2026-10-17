@@ -256,26 +256,31 @@ def _mod_spans(rx, text: str) -> list:
     argument cut where the next header token starts (_own_length)."""
     spans = []
     quoted = '"' in text
+    block = _HEADER_BLOCK_RE.search(text)
+    limit = block.start() if block else len(text)
     for m in rx.finditer(text):
         if quoted and in_string(text, m.start()):
             continue
-        spans.append((m.start(), m.start() + _own_length(m.group(0))))
+        end = m.end()
+        tok = text[m.start():end] if end <= limit else text[m.start():limit].rstrip()
+        spans.append((m.start(), m.start() + _own_length(tok)))
     return spans
 
 
-# Where a free modifier argument stops at the latest: a span blanked by an earlier
-# capture (a stream bound `^N`, an access list) or a block `{`.
-_ARG_STOP_RE = re.compile(_GAP + "|" + BLOCK_OPEN_RE.pattern)
+# The block `{` that ends a header (`[Y] @owns(|S|) ^4 ! {`): the last thing on the
+# statement. A `{` inside an argument (`@inv status in { open, closed }`) is not one.
+_HEADER_BLOCK_RE = re.compile(r"\{\s*$")
 
 
 def _own_length(tok: str) -> int:
-    """How much of a matched modifier `tok` is the modifier's own. A free argument
-    (`@owns(|S|) ^4 ! {`, `@owns |S| ×3`) ends before a blanked span or a block
-    `{`, and leaves out a trailing run of `×N` / `xN` / `!` — modifiers of their
-    own, read as they would be without it."""
-    stop = _ARG_STOP_RE.search(tok, 1)
-    if stop:
-        tok = tok[:stop.start()].rstrip()
+    """How much of a matched modifier `tok` (cut before the header's block `{`)
+    is the modifier's own. A free argument (`@owns(|S|) ^4 ! {`, `@owns |S| ×3`)
+    ends before a span blanked by an earlier capture (a stream bound `^N`, an
+    access list), and leaves out a trailing run of `×N` / `xN` / `!` — modifiers
+    of their own, read as they would be without it."""
+    stop = tok.find(_GAP, 1)
+    if stop > 0:
+        tok = tok[:stop].rstrip()
     pm = _MOD_PAREN_RE.match(tok)
     if pm:
         close = _close_paren(tok[pm.end() - 1:])

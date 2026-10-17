@@ -188,6 +188,17 @@ class FreeArgumentModifier(unittest.TestCase):
         self.assertEqual(_mods("[Y] @owns(|S|) ×3 ! {"),
                          [("owns", "|S|"), ("×", "3"), ("!", None)])
 
+    def test_a_brace_inside_the_argument_is_kept(self):
+        self.assertEqual(_mods("[A] -> [B] @inv status in { open, closed }"),
+                         [("inv", "status in { open, closed }")])
+        self.assertEqual(_mods("[C] @inv one-of { x, y }"), [("inv", "one-of { x, y }")])
+        self.assertEqual(_mods("[C] @inv x in { a, b } {"), [("inv", "x in { a, b }")])
+
+    def test_a_brace_inside_the_argument_lints_clean(self):
+        from sigil.analyse.lint import lint
+        doc = "#!craft\n[A] -> [B] @inv status in { open, closed }\n[C] @inv one-of { x, y }\n"
+        self.assertEqual(lint(doc).diagnostics, [])
+
     def test_no_argument_carries_a_blank(self):
         for line in ("[Y] @owns(|S|) ^4@drop {", "[Y] @inv x > 0 ^4 -> [Z]",
                      "[Y] @owns |S| @read(A) {"):
