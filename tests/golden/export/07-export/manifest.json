@@ -6,7 +6,7 @@
     "07-export": {
       "path": "07-export",
       "interface": "f418b361e094547a",
-      "body": "23efe2ea06bd3482",
+      "body": "75979ceff2c70e06",
       "components": [
         "(Shopper)",
         "<OrderPlaced>",
@@ -21,7 +21,37 @@
         "Checkout",
         "Fulfilment",
         "Warehouse"
-      ]
+      ],
+      "component_hashes": {
+        "(Shopper)": {
+          "interface": "ae794b82d02eadf6",
+          "body": "3916a92a261599c2"
+        },
+        "<OrderPlaced>": {
+          "interface": "a7319ed807b015dc",
+          "body": "d3943a45aa131429"
+        },
+        "[Catalog]": {
+          "interface": "4cf392a3a90e2218",
+          "body": "ee16c9bc8edacb97"
+        },
+        "[Checkout]": {
+          "interface": "2b82e629da87d1ce",
+          "body": "9be9cfaaa36d5bc2"
+        },
+        "[Fulfilment]": {
+          "interface": "78f9f1e3753a96fd",
+          "body": "70bf22b2d80fc566"
+        },
+        "[Storefront]": {
+          "interface": "c28bff9d6c97ac80",
+          "body": "b3db531878963dd1"
+        },
+        "[Warehouse]": {
+          "interface": "4f53cda18c2baa0c",
+          "body": "130d14af038380f5"
+        }
+      }
     },
     "Catalog": {
       "path": "catalog",
@@ -31,7 +61,17 @@
         "|Listings|",
         "|Prices|"
       ],
-      "depends_on": []
+      "depends_on": [],
+      "component_hashes": {
+        "|Listings|": {
+          "interface": "4f53cda18c2baa0c",
+          "body": "1acf907deae14abe"
+        },
+        "|Prices|": {
+          "interface": "63f084168ed535ce",
+          "body": "a3ba704bdd87dc40"
+        }
+      }
     },
     "Checkout": {
       "path": "checkout",
@@ -44,7 +84,21 @@
       ],
       "depends_on": [
         "07-export"
-      ]
+      ],
+      "component_hashes": {
+        "[Basket]": {
+          "interface": "a3df927977d9b486",
+          "body": "20a52461bf9a8f16"
+        },
+        "[Payments]": {
+          "interface": "d08af6a410352786",
+          "body": "d82dcb2667d54779"
+        },
+        "|Orders|": {
+          "interface": "04fb4fbb7e1b47d3",
+          "body": "a723e5eb3b42fd04"
+        }
+      }
     },
     "Fulfilment": {
       "path": "fulfilment",
@@ -55,7 +109,21 @@
         "[Packer]",
         "[Picker]"
       ],
-      "depends_on": []
+      "depends_on": [],
+      "component_hashes": {
+        "<Shipped>": {
+          "interface": "13ebe7bcadf9c6e1",
+          "body": "076d364a636a3341"
+        },
+        "[Packer]": {
+          "interface": "6a7f711158132765",
+          "body": "43b7520b5040d5a0"
+        },
+        "[Picker]": {
+          "interface": "211d486fee186a3c",
+          "body": "f8892735f8c6200c"
+        }
+      }
     },
     "Warehouse": {
       "path": "warehouse",
@@ -66,7 +134,13 @@
       ],
       "depends_on": [
         "Catalog"
-      ]
+      ],
+      "component_hashes": {
+        "[Stock]": {
+          "interface": "320cea06480e7697",
+          "body": "da1bfd1822bcf097"
+        }
+      }
     }
   }
 }

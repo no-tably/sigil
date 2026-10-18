@@ -3,12 +3,14 @@ sigil.publish.exporter — export a ready Sigil spec as a build skeleton: one fo
 one Markdown file per component, and a manifest that is the contract.
 
 Usage:
-    sigil export <spec.sigil> --out DIR [--dialect D] [--json] [--dry-run]
+    sigil export <spec.sigil> --out DIR [--name NAME] [--dialect D] [--json] [--dry-run]
 
 Options:
     --out DIR    the export folder (made when missing). It must be empty, or hold
                  an earlier export (a manifest.json): `sigil export` never writes over
                  a folder it did not make
+    --name NAME  the top system's name (default: the spec file's stem); no hash
+                 depends on it
     --dialect D  load a dialect (as `sigil lint` and `sigil check` do; default $SIGIL_DIALECT)
     --json       print the delta as JSON instead of the summary in words
     --dry-run    print the delta and write nothing
@@ -23,14 +25,27 @@ The folder (systems, homes and hashes as sigil.model.systems reads them):
 
     DIR/
       manifest.json            the contract, written LAST (temp file + os.replace)
-      delta.json               on a re-export: what changed since the manifest before
+      delta.json               what changed since the manifest before (a first
+                               export: every system added)
       README.md                the index: systems, what each depends on
       <system>/README.md       the system: description, components, boundary, deps
       <system>/<component>.md  kind, description, interface, requirements, lifecycle
       <system>/system.json     the same, machine-readable
 
     manifest.json = {"sigil_export": 1, "spec": <file name>, "spec_hash": …,
-      "systems": {name: {"path", "interface", "body", "components", "depends_on"}}}
+      "dialect"?: {"name", "version"?},
+      "systems": {name: {"path", "interface", "body", "components", "depends_on",
+                         "component_hashes": {glyph: {"interface", "body"}}}}}
+
+    `dialect` only when a dialect is loaded: its NAME, and its VERSION when the
+    dialect module defines one. A system's `components` lists its glyphs (the
+    file names follow from them); `component_hashes` each one's hashes
+    (sigil.publish.systems: what each covers).
+
+A system.json holds the system's normalised form (sigil.publish.systems): its
+components (each with its `hashes`, its `lines` and, from a dialect, its
+`attrs`), its flows (each with its `lines`), its `#&` declarations ({name, body,
+line}), and its hashes. Lines are 1-based lines of the spec; no hash reads them.
 
 Folder and file names are slugs of the names (systems.slugs). Whoever
 builds against the export reads the manifest first: its hashes are the truth.
@@ -56,12 +71,11 @@ compares only the files an earlier export wrote (the names its manifest's
 components give), so any other file in a system folder stays, and a removed
 system's folder stays while it holds one.
 
-Only files whose content changed are written: a system folder is rewritten when
-its files differ from the plan,the index, delta.json and manifest.json when
-theirs do. A spec edit that only reformats or reorders leaves every system
-unchanged and every system file untouched (the spec hash in the index and the
-manifest still moves). A first export writes no delta.json (its delta, printed
-with --json or --dry-run, lists every system as added). The delta is a hint:
+Only files whose content changed are written, each file on its own. A spec
+edit that only reformats or reorders leaves every system unchanged and every
+component file untouched (the spec hash in the index and the manifest still
+moves, and a system.json whose `lines` moved is rewritten). Every export writes
+delta.json; a first export's lists every system as added. The delta is a hint:
 the manifest's hashes stay the truth.
 
 Exit codes: 0 exported (or a dry run) · 1 the folder could not be written · 2 not ready to
@@ -161,17 +175,30 @@ class ExportPlan:
     manifest: dict
 
 
-def plan_export(model, spec_name: str, spec_text: str) -> ExportPlan:
+def plan_export(model, spec_name: str, spec_text: str, dialect=None) -> ExportPlan:
     """What the export of `model` holds (read from the spec file `spec_name`,
-    whose text is `spec_text`): pure, nothing written."""
+    whose text is `spec_text`, with `dialect` loaded or None): pure, nothing
+    written."""
     keys = system_order(model)
     folders = em.slugs(keys)
     forms = {k: em.system_json(model.systems[k], model.components) for k in keys}
     systems = {k: plan_system(k, model.systems[k], forms[k], folders) for k in keys}
     manifest = {"sigil_export": EXPORT_VERSION, "spec": spec_name,
-                "spec_hash": spec_hash(spec_text),
-                "systems": {k: p.entry for k, p in systems.items()}}
+                "spec_hash": spec_hash(spec_text)}
+    if dialect is not None:
+        manifest["dialect"] = dialect_entry(dialect)
+    manifest["systems"] = {k: p.entry for k, p in systems.items()}
     return ExportPlan(systems, index_md(spec_name, manifest, forms), manifest)
+
+
+def dialect_entry(dialect) -> dict:
+    """The manifest's record of the dialect the export was read with: its NAME,
+    and its VERSION (as text) when the module defines one."""
+    out = {"name": str(getattr(dialect, "NAME", "") or "")}
+    version = getattr(dialect, "VERSION", None)
+    if version is not None:
+        out["version"] = str(version)
+    return out
 
 
 def system_order(model) -> list:
@@ -192,10 +219,12 @@ def plan_system(key: str, system, form: dict, folders: dict) -> SystemPlan:
     for c in form.get("components", []):
         files[names[c["glyph"]]] = component_md(c, key, folders[key])
     files[SYSTEM_JSON] = json_text(form)
+    comps = form.get("components", [])
     entry = {"path": folders[key], "interface": system.interface_hash,
              "body": system.body_hash,
-             "components": [c["glyph"] for c in form.get("components", [])],
-             "depends_on": list(system.depends_on)}
+             "components": [c["glyph"] for c in comps],
+             "depends_on": list(system.depends_on),
+             "component_hashes": {c["glyph"]: c["hashes"] for c in comps}}
     return SystemPlan(key, folders[key], files, entry)
 
 
@@ -411,8 +440,8 @@ def write_export(out: Path, plan: ExportPlan, only: Optional[Iterable] = None,
     commit point: a reader never sees a manifest whose files are not there yet).
     `written` ({folder: file names}, from written_files of the earlier manifest)
     names the files an earlier export wrote: the only ones removed when the plan
-    no longer holds them. The index, delta.json and manifest are written only
-    when their content changed. Returns the dropped folders kept because they
+    no longer holds them. Every file is written only when its content changed.
+    Returns the dropped folders kept because they
     hold files `sigil export` did not write."""
     written = written or {}
     wanted = set(plan.systems if only is None else only)
@@ -494,13 +523,13 @@ def write_changed(path: Path, content: str) -> None:
 
 def write_system(folder: Path, files: dict, ours: frozenset) -> None:
     """A system folder holding `files`: a file an earlier export wrote there
-    (named in `ours`) that the plan no longer has is removed; any other file is
-    left as it is."""
+    (named in `ours`) that the plan no longer has is removed; a planned file is
+    written when its content differs; any other file is left as it is."""
     folder.mkdir(parents=True, exist_ok=True)
     for p in stale_files(folder, ours, files):
         p.unlink()
     for name, content in files.items():
-        write_text(folder / name, content)
+        write_changed(folder / name, content)
 
 
 def stale_files(folder: Path, ours: frozenset, files: dict) -> list:
@@ -558,10 +587,12 @@ class Outcome:
 
 
 def run(text: str, spec: Path, out: Path, dialect, as_json: bool = False,
-        dry_run: bool = False, passed: Optional[Gate] = None) -> Outcome:
+        dry_run: bool = False, passed: Optional[Gate] = None,
+        name: Optional[str] = None) -> Outcome:
     """Export `text` (a spec the gate passed, read from `spec`) into `out`, or
     with `dry_run` only say what would change. `passed`: that gate (ready's), whose
-    reading the model is built from; None reads and parses `text` here."""
+    reading the model is built from; None reads and parses `text` here. `name`:
+    the top system's name (None: the spec's stem)."""
     try:
         problem = out_problem(out)
         old = None if problem else read_manifest(out)
@@ -570,8 +601,8 @@ def run(text: str, spec: Path, out: Path, dialect, as_json: bool = False,
     if problem:
         return Outcome(2, problem=problem)
     walk, graph = (passed.walk, passed.graph) if passed else (None, None)
-    model = em.build_model(text, spec.stem, dialect, walk=walk, graph=graph)
-    plan = plan_export(model, spec.name, text)
+    model = em.build_model(text, name or spec.stem, dialect, walk=walk, graph=graph)
+    plan = plan_export(model, spec.name, text, dialect)
     change = delta(old, plan.manifest)
     if dry_run:
         head = [f"sigil export (dry run): nothing written to {out}"]
@@ -580,8 +611,7 @@ def run(text: str, spec: Path, out: Path, dialect, as_json: bool = False,
     try:
         kept = write_export(out, plan, only=changed_systems(out, plan, written),
                             drop=dropped_folders(old, plan.manifest),
-                            change=change if old is not None else None,
-                            written=written)
+                            change=change, written=written)
     except OSError as exc:
         return Outcome(1, problem=f"cannot write {out}: {exc}")
     return Outcome(0, report(change, as_json, done_lines(plan, out)), kept=tuple(kept))

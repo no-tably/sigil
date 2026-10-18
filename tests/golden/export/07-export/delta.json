@@ -1,0 +1,59 @@
+{
+  "sigil_delta": 1,
+  "spec": "07-export.sigil",
+  "from": null,
+  "to": "42c36c489b8429a2",
+  "added": [
+    "07-export",
+    "Catalog",
+    "Checkout",
+    "Fulfilment",
+    "Warehouse"
+  ],
+  "removed": [],
+  "rebuild": [],
+  "recheck": [],
+  "unchanged": [],
+  "systems": {
+    "07-export": {
+      "status": "added",
+      "old": null,
+      "new": {
+        "interface": "f418b361e094547a",
+        "body": "75979ceff2c70e06"
+      }
+    },
+    "Catalog": {
+      "status": "added",
+      "old": null,
+      "new": {
+        "interface": "6ee737df5791f50f",
+        "body": "047fc4d040438706"
+      }
+    },
+    "Checkout": {
+      "status": "added",
+      "old": null,
+      "new": {
+        "interface": "c5e61598f9c8e9b7",
+        "body": "4a4cefe89c2592b6"
+      }
+    },
+    "Fulfilment": {
+      "status": "added",
+      "old": null,
+      "new": {
+        "interface": "f4c9217ea2e53929",
+        "body": "13deb10563612e66"
+      }
+    },
+    "Warehouse": {
+      "status": "added",
+      "old": null,
+      "new": {
+        "interface": "2e16d14892b8eed5",
+        "body": "43fb9956b782789c"
+      }
+    }
+  }
+}

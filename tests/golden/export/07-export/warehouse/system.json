@@ -17,7 +17,10 @@
       "mode": "sync",
       "payload": "reprice({Sku}) => {Ack}",
       "op": "reprice({Sku})",
-      "returns": "{Ack}"
+      "returns": "{Ack}",
+      "lines": [
+        23
+      ]
     }
   ],
   "components": [
@@ -34,9 +37,20 @@
           "mode": "sync",
           "payload": "reprice({Sku}) => {Ack}",
           "op": "reprice({Sku})",
-          "returns": "{Ack}"
+          "returns": "{Ack}",
+          "lines": [
+            23
+          ]
         }
-      ]
+      ],
+      "lines": [
+        22,
+        23
+      ],
+      "hashes": {
+        "interface": "320cea06480e7697",
+        "body": "da1bfd1822bcf097"
+      }
     }
   ],
   "hashes": {

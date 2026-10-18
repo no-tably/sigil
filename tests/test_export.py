@@ -65,6 +65,17 @@ def run(argv) -> tuple:
     return code, out.getvalue(), err.getvalue()
 
 
+def unplaced(text: str):
+    """A system.json without its `lines` (where things are written)."""
+    def drop(obj):
+        if isinstance(obj, dict):
+            return {k: drop(v) for k, v in obj.items() if k not in ("lines", "line")}
+        if isinstance(obj, list):
+            return [drop(v) for v in obj]
+        return obj
+    return drop(json.loads(text))
+
+
 def tree(root: Path) -> dict:
     return {p.relative_to(root).as_posix(): p.read_text(encoding="utf-8")
             for p in sorted(root.rglob("*")) if p.is_file()}
@@ -168,9 +179,14 @@ class TestPlan(unittest.TestCase):
             s = self.model.systems[key]
             with self.subTest(system=key):
                 self.assertEqual(set(e), {"path", "interface", "body", "components",
-                                          "depends_on"})
+                                          "depends_on", "component_hashes"})
                 self.assertEqual(e["interface"], s.interface_hash)
                 self.assertEqual(e["body"], s.body_hash)
+                self.assertEqual(list(e["component_hashes"]), e["components"])
+                for nid in s.members:
+                    c = self.model.components[nid]
+                    self.assertEqual(e["component_hashes"][c.glyph],
+                                     {"interface": c.interface_hash, "body": c.body_hash})
                 self.assertEqual(e["depends_on"], list(s.depends_on))
                 self.assertEqual(sorted(e["components"]),
                                  sorted(self.model.components[c].glyph for c in s.members))
@@ -272,7 +288,7 @@ class TestWrite(Tmp):
         self.assertEqual(code, 0, err)
         files = tree(self.tmp / "out")
         self.assertEqual(set(files), {
-            "manifest.json", "README.md",
+            "manifest.json", "README.md", "delta.json",
             "shop/README.md", "shop/system.json", "shop/user.md", "shop/shop.md",
             "shop/billing.md",
             "shop-2/README.md", "shop-2/system.json", "shop-2/cart.md", "shop-2/db.md",
@@ -298,7 +314,7 @@ class TestWrite(Tmp):
                 mock.patch.object(export.os, "replace", replace):
             self.assertEqual(self.export(READY)[0], 0)
         self.assertEqual(order[-1], ("replace", "manifest.json"))
-        self.assertEqual(order[-2], "README.md")
+        self.assertEqual(order[-3:-1], ["README.md", "delta.json"])
         self.assertNotIn("manifest.json", order[:-1])
 
     def test_failed_manifest_leaves_no_temp_and_no_manifest(self):
@@ -364,7 +380,10 @@ class TestWrite(Tmp):
         a, b = tree(self.tmp / "a"), tree(self.tmp / "b")
         self.assertEqual(set(a), set(b))
         for name in a:
-            if "/" in name:
+            if name.endswith("/system.json"):   # only its lines move
+                with self.subTest(file=name):
+                    self.assertEqual(unplaced(a[name]), unplaced(b[name]))
+            elif "/" in name:
                 with self.subTest(file=name):
                     self.assertEqual(a[name], b[name])
         ma, mb = json.loads(a["manifest.json"]), json.loads(b["manifest.json"])

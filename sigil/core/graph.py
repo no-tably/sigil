@@ -255,6 +255,18 @@ class Graph:
     dropped: list = field(default_factory=list)
     # A state machine's modifiers written after its `}` (see "mods" above).
     mods: list = field(default_factory=list)
+    # The `#&` declarations written at this graph's level (Declared), in order.
+    declarations: list = field(default_factory=list)
+
+
+@dataclass
+class Declared:
+    """A `#& name …` declaration (language.md "Dialects"): its name ("" when it
+    names none), its body as written (statements.declaration_body) and its
+    1-based line. It draws nothing; what it means is a dialect's."""
+    name: str
+    body: str
+    line: int
 
 
 @dataclass

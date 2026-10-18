@@ -14,7 +14,10 @@
       "mode": "sync",
       "payload": "reprice({Sku}) => {Ack}",
       "op": "reprice({Sku})",
-      "returns": "{Ack}"
+      "returns": "{Ack}",
+      "lines": [
+        23
+      ]
     },
     {
       "from": "[Storefront]",
@@ -33,6 +36,9 @@
           "timeout",
           "500ms"
         ]
+      ],
+      "lines": [
+        11
       ]
     }
   ],
@@ -41,7 +47,14 @@
       "name": "Listings",
       "kind": "store",
       "glyph": "|Listings|",
-      "home": "Catalog"
+      "home": "Catalog",
+      "lines": [
+        17
+      ],
+      "hashes": {
+        "interface": "4f53cda18c2baa0c",
+        "body": "1acf907deae14abe"
+      }
     },
     {
       "name": "Prices",
@@ -59,9 +72,20 @@
           "mode": "sync",
           "payload": "reprice({Sku}) => {Ack}",
           "op": "reprice({Sku})",
-          "returns": "{Ack}"
+          "returns": "{Ack}",
+          "lines": [
+            23
+          ]
         }
-      ]
+      ],
+      "lines": [
+        18,
+        23
+      ],
+      "hashes": {
+        "interface": "63f084168ed535ce",
+        "body": "a3ba704bdd87dc40"
+      }
     }
   ],
   "hashes": {

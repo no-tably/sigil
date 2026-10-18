@@ -4,7 +4,7 @@ The top level of the spec: every component no expansion or tree holds.
 
 a small shop, locked as a spec and ready to export: each expansion and each composition tree becomes a system of its own (try sigil export FILE --out DIR)
 
-Interface hash `f418b361e094547a` · body hash `23efe2ea06bd3482`.
+Interface hash `f418b361e094547a` · body hash `75979ceff2c70e06`.
 
 ## Components
 

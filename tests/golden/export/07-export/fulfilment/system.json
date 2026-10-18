@@ -8,7 +8,10 @@
       "from": "<OrderPlaced>",
       "to": "[Fulfilment]",
       "arrow": "*>",
-      "mode": "async"
+      "mode": "async",
+      "lines": [
+        32
+      ]
     }
   ],
   "flows": [
@@ -19,13 +22,19 @@
       "mode": "sync",
       "payload": "pack({Order}) => {Parcel}",
       "op": "pack({Order})",
-      "returns": "{Parcel}"
+      "returns": "{Parcel}",
+      "lines": [
+        36
+      ]
     },
     {
       "from": "[Packer]",
       "to": "<Shipped>",
       "arrow": "~>",
-      "mode": "async"
+      "mode": "async",
+      "lines": [
+        37
+      ]
     }
   ],
   "components": [
@@ -39,9 +48,19 @@
           "dir": "in",
           "peer": "[Packer]",
           "arrow": "~>",
-          "mode": "async"
+          "mode": "async",
+          "lines": [
+            37
+          ]
         }
-      ]
+      ],
+      "lines": [
+        37
+      ],
+      "hashes": {
+        "interface": "13ebe7bcadf9c6e1",
+        "body": "076d364a636a3341"
+      }
     },
     {
       "name": "Packer",
@@ -59,13 +78,19 @@
           "mode": "sync",
           "payload": "pack({Order}) => {Parcel}",
           "op": "pack({Order})",
-          "returns": "{Parcel}"
+          "returns": "{Parcel}",
+          "lines": [
+            36
+          ]
         },
         {
           "dir": "out",
           "peer": "<Shipped>",
           "arrow": "~>",
-          "mode": "async"
+          "mode": "async",
+          "lines": [
+            37
+          ]
         }
       ],
       "requirements": {
@@ -111,6 +136,15 @@
             "on": "<OrderPlaced>"
           }
         ]
+      },
+      "lines": [
+        36,
+        37,
+        38
+      ],
+      "hashes": {
+        "interface": "6a7f711158132765",
+        "body": "43b7520b5040d5a0"
       }
     },
     {
@@ -129,9 +163,19 @@
           "mode": "sync",
           "payload": "pack({Order}) => {Parcel}",
           "op": "pack({Order})",
-          "returns": "{Parcel}"
+          "returns": "{Parcel}",
+          "lines": [
+            36
+          ]
         }
-      ]
+      ],
+      "lines": [
+        36
+      ],
+      "hashes": {
+        "interface": "211d486fee186a3c",
+        "body": "f8892735f8c6200c"
+      }
     }
   ],
   "hashes": {

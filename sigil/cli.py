@@ -3,9 +3,9 @@
     sigil lint FILE|- [--deep] [--dialect D]
     sigil check [FILE|-] [--mode M] [--k N] [--budget N] [--overlaps …] [--json] [--export] [--rules]
     sigil view FILE [--once] [--graph|--tree|--flow|--run] [--sim S] …
-    sigil export SPEC --out DIR [--json] [--dry-run]
+    sigil export SPEC --out DIR [--name NAME] [--json] [--dry-run]
     sigil export FILE --mermaid [--depth N|all] [--composition subgraphs|edges|none]
-    sigil export FILE --mermaid --spine
+    sigil export FILE --mermaid --spine [--name NAME]
     sigil frames draw FILE [--view V] [--depth N|all] [--width N] [--scenario S] …
     sigil frames follow CONTROL
     sigil themes [NAME|PATH] [--list]
@@ -63,6 +63,11 @@ def cannot_read(path: str, exc: OSError) -> str:
     return f"cannot read {path}: {exc.strerror or exc}"
 
 
+def _name_flag(ap: argparse.ArgumentParser, where: str = "") -> None:
+    ap.add_argument("--name", metavar="NAME", type=name_arg,
+                    help="the top system's name (default: the file's stem)" + where)
+
+
 def _dialect_flag(ap: argparse.ArgumentParser, dialect) -> None:
     ap.add_argument("--dialect", default=dialect,
                     help="dialect name or path (default: $SIGIL_DIALECT)")
@@ -71,6 +76,13 @@ def _dialect_flag(ap: argparse.ArgumentParser, dialect) -> None:
 # ---------------------------------------------------------------------------
 # Flag types
 # ---------------------------------------------------------------------------
+
+def name_arg(value: str) -> str:
+    """--name: the top system's name, not blank."""
+    if not value.strip():
+        raise argparse.ArgumentTypeError("the top system's name may not be blank")
+    return value
+
 
 def depth_arg(value: str) -> int:
     """--depth: a non-negative number, or `all` (the views and the Mermaid export)."""
@@ -447,6 +459,7 @@ def _export_folder(argv: list, dialect) -> int:
     ap.add_argument("spec", help="a .sigil file whose mode line is #!spec")
     ap.add_argument("--out", required=True, metavar="DIR",
                     help="the export folder (empty, or an earlier export)")
+    _name_flag(ap)
     _dialect_flag(ap, dialect)
     ap.add_argument("--json", action="store_true",
                     help="print the delta (what changed since the export in DIR) as JSON")
@@ -471,7 +484,7 @@ def _export_folder(argv: list, dialect) -> int:
         say("export", f"{spec.name} is not ready to export: {len(passed.blocking)} "
                       "blocking line(s); nothing written")
         return 2
-    done = exporter.run(text, spec, out, loaded, a.json, a.dry_run, passed)
+    done = exporter.run(text, spec, out, loaded, a.json, a.dry_run, passed, name=a.name)
     if done.problem:
         say("export", done.problem)
     for name in done.kept:
@@ -503,6 +516,7 @@ def _mermaid(argv: list, dialect) -> int:
                          "relation edges, or not at all")
     ap.add_argument("--spine", action="store_true",
                     help="group the chart by the export's systems (a subgraph per system)")
+    _name_flag(ap, " (with --spine)")
     _dialect_flag(ap, dialect)
     a = ap.parse_args(argv)
     try:
@@ -517,7 +531,7 @@ def _mermaid(argv: list, dialect) -> int:
         return 2
     if a.spine:
         from sigil.publish.spine import spine
-        print(spine(text, stem_of(a.file), dialect=loaded))
+        print(spine(text, a.name or stem_of(a.file), dialect=loaded))
     else:
         from sigil.publish import mermaid
         print(mermaid.render(text, depth=a.depth, dialect=loaded, composition=a.composition))

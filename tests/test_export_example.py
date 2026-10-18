@@ -100,7 +100,8 @@ class TestEditDelta(unittest.TestCase):
         self.assertEqual(self.lists(change), self.EXPECTED)
         self.assertEqual(change["from"], self.first["spec_hash"])
         self.assertNotEqual(change["to"], change["from"])
-        self.assertFalse((self.out / export_delta.DELTA).exists())
+        first = json.loads((self.out / export_delta.DELTA).read_text(encoding="utf-8"))
+        self.assertIsNone(first["from"])        # the first export's, untouched
 
     def test_recheck_names_the_changed_interfaces(self):
         _, out, _ = run([str(self.spec), "--out", str(self.out), "--dry-run", "--json"])

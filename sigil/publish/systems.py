@@ -6,14 +6,21 @@ adds what sigil export writes.
 
     model = build_model(text, stem="shop")
     model.systems["shop"].interface_hash, model.systems["shop"].body_hash
+    model.components["Api_service"].interface_hash      # and body_hash
     to_json(model)          # the normalised, JSON-able form
 
 HASHES
 
   sha256 of canonical JSON (sorted keys, compact separators), first 16 hex.
-  interface_hash covers the system's boundary flows; body_hash everything in it
-  (interface, members, internal flows, control blocks, descriptions). No line
-  numbers, whitespace or order from the source enter either.
+  A system's interface_hash covers its boundary flows; its body_hash everything
+  in it (interface, members, internal flows, control blocks, descriptions, its
+  `#&` declarations). A component's interface_hash covers its flows in and out
+  (with their modifiers); its body_hash everything about it (kind, home,
+  description, interface, requirements, lifecycle, a dialect's attrs). No line
+  numbers (`lines`, a declaration's `line`), whitespace or order from the source
+  enter either, nor the top system's name (the file stem or `--name`): renaming
+  the spec moves no hash. A component's hashes enter no system's hash (they are
+  read off the same form).
 """
 
 from __future__ import annotations
@@ -51,9 +58,12 @@ def build_model(text: str, stem: str, dialect=None, walk=None, graph=None) -> Mo
 
 
 def model_of(graph, stem: str, accepts: Iterable[systems.Accepted] = ()) -> Model:
-    """sigil.model.systems.model_of with each system's interface and body hash."""
+    """sigil.model.systems.model_of with each component's and each system's
+    interface and body hash."""
     m = systems.model_of(graph, stem, accepts)
-    return replace(m, systems={k: with_hashes(s, m.components) for k, s in m.systems.items()})
+    comps = {nid: component_hashed(c, m.components, m.top) for nid, c in m.components.items()}
+    return replace(m, components=comps,
+                   systems={k: with_hashes(s, comps, m.top) for k, s in m.systems.items()})
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +85,8 @@ def flow_json(f: Flow, components: dict, side: Optional[str] = None) -> dict:
         **ends, "arrow": f.arrow, "mode": ARROW_MODE.get(f.arrow, "flow"),
         "payload": f.payload, "text": f.text, "op": f.op, "returns": f.returns,
         "external": f.external, "mods": [list(m) for m in f.mods], "card": f.card,
-        "implied": f.implied, "from_path": f.paths[0], "to_path": f.paths[1]})
+        "implied": f.implied, "from_path": f.paths[0], "to_path": f.paths[1],
+        "lines": [f.line] if f.line else None})
 
 
 def component_json(c: Component, components: dict) -> dict:
@@ -83,6 +94,7 @@ def component_json(c: Component, components: dict) -> dict:
     return _compact({
         "name": c.name, "kind": c.kind, "glyph": c.glyph, "home": c.home,
         "also_in": sorted(s for s in c.systems if s != c.home),
+        "attrs": plain(c.attrs),
         "description": list(c.description),
         "interface": _sorted([flow_json(f, components, c.id) for f in c.flows]),
         "requirements": _compact({
@@ -94,7 +106,10 @@ def component_json(c: Component, components: dict) -> dict:
             "terminal": list(lc.terminal),
             "transitions": [_compact({"from": a, "to": b, "on": on,
                                       "mods": [list(m) for m in mods]})
-                            for a, b, on, mods in lc.transitions]}})
+                            for a, b, on, mods in lc.transitions]},
+        "lines": list(c.lines),
+        "hashes": {"interface": c.interface_hash, "body": c.body_hash}
+        if c.body_hash else None})
 
 
 def system_json(s: System, components: dict) -> dict:
@@ -111,26 +126,53 @@ def system_json(s: System, components: dict) -> dict:
         "components": sorted((component_json(components[m], components) for m in s.members),
                              key=lambda c: (c["glyph"], c["kind"])),
         "accepts": sorted(s.accepts),
+        "declarations": [{"name": d.name, "body": d.body, "line": d.line}
+                         for d in s.declarations],
         "hashes": {"interface": s.interface_hash, "body": s.body_hash}
         if s.body_hash else None})
 
 
-def with_hashes(s: System, components: dict) -> System:
-    body = system_json(s, components)
-    iface = body.get("interface", [])
-    for k in ("parent", "depends_on"):
+def component_hashed(c: Component, components: dict, top: str) -> Component:
+    """c with its interface hash (its flows in and out) and body hash (its whole
+    form); `top`: the top system's key, which enters neither."""
+    body = hash_form(component_json(c, components), top)
+    return replace(c, interface_hash=digest(body.get("interface", [])),
+                   body_hash=digest(body))
+
+
+def with_hashes(s: System, components: dict, top: str) -> System:
+    """s with its interface and body hash; `top`: the top system's key, which
+    enters neither (the top system's own name is left out of its body)."""
+    body = hash_form(system_json(s, components), top)
+    for k in ("parent", "depends_on") + (("name",) if s.kind == "top" else ()):
         body.pop(k, None)
-    return replace(s, interface_hash=digest(iface), body_hash=digest(hash_form(body)))
+    return replace(s, interface_hash=digest(body.get("interface", [])),
+                   body_hash=digest(body))
 
 
-def hash_form(obj):
-    """obj with every `description` list sorted, so moving a commented statement
-    changes no hash (the descriptions' order is the source's)."""
+UNHASHED = frozenset({"lines", "line", "hashes"})   # where it is written, and hashes
+TOP = ""                                # the top system's key, as the hashes read it
+
+
+def hash_form(obj, top: str):
+    """obj as the hashes read it: no line numbers and no hashes (UNHASHED keys),
+    every `description` and `declarations` list sorted (their order is the
+    source's, so moving a statement changes no hash), and the top system's key
+    `top` as TOP wherever a component names its systems (`home`, `also_in`), so
+    the top's name (the file stem, or `--name`) changes no hash."""
     if isinstance(obj, dict):
-        return {k: sorted(v) if k == "description" and isinstance(v, list)
-                else hash_form(v) for k, v in obj.items()}
+        out = {k: hash_form(v, top) for k, v in obj.items() if k not in UNHASHED}
+        if isinstance(out.get("description"), list):
+            out["description"] = sorted(out["description"])
+        if "declarations" in out:
+            out["declarations"] = sorted(out["declarations"], key=canonical)
+        if out.get("home") == top:
+            out["home"] = TOP
+        if "also_in" in out:
+            out["also_in"] = sorted(TOP if k == top else k for k in out["also_in"])
+        return out
     if isinstance(obj, list):
-        return [hash_form(v) for v in obj]
+        return [hash_form(v, top) for v in obj]
     return obj
 
 
@@ -183,8 +225,25 @@ def slugs(names: Iterable) -> dict:
     return out
 
 
+def plain(value):
+    """A dialect's attribute value as JSON can hold it: dicts (keys as text,
+    sorted), lists, text, numbers, booleans and null as they are; a tuple or set
+    as a list (a set sorted); anything else as its text."""
+    if isinstance(value, dict):
+        return {str(k): plain(value[k]) for k in sorted(value, key=str)}
+    if isinstance(value, (set, frozenset)):
+        return sorted((plain(v) for v in value), key=canonical)
+    if isinstance(value, (list, tuple)):
+        return [plain(v) for v in value]
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
+
+
 def _sorted(items: list) -> list:
-    return sorted(items, key=canonical)
+    """Normalised items in an order the source cannot change: by their form as
+    the hashes read it (no lines), then by their lines."""
+    return sorted(items, key=lambda x: (canonical(hash_form(x, TOP)), canonical(x)))
 
 
 def _compact(d: dict) -> dict:

@@ -330,7 +330,9 @@ class TestNormalisedForm(unittest.TestCase):
         self.assertEqual(shop["hashes"], {"interface": m.systems["Shop"].interface_hash,
                                           "body": m.systems["Shop"].body_hash})
         self.assertEqual(shop["face"], "[Shop]")
-        self.assertNotIn("line", json.dumps(data))
+        # lines are where it is written: in the form, never in a hash's input
+        self.assertTrue(all(c["lines"] for c in shop["components"]))
+        self.assertNotIn("line", em.canonical(em.hash_form(data, m.top)))
 
     def test_every_example_and_fixture(self):
         files = sorted((_DIR / "site" / "examples").glob("*.sigil")) \

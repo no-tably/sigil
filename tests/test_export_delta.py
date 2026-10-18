@@ -206,6 +206,10 @@ class Tmp(unittest.TestCase):
         return {p.relative_to(self.out).as_posix() for p in self.out.rglob("*")
                 if p.is_file() and p.stat().st_mtime != OLD_MTIME}
 
+    def system_jsons(self) -> set:
+        """Every system.json (its `lines` move when the spec's lines do)."""
+        return {p.relative_to(self.out).as_posix() for p in self.out.glob("*/system.json")}
+
     def files(self) -> dict:
         return {p.relative_to(self.out).as_posix(): p.read_bytes()
                 for p in sorted(self.out.rglob("*")) if p.is_file()}
@@ -230,9 +234,9 @@ class TestWrittenFiles(unittest.TestCase):
 
 
 class TestFirstExport(Tmp):
-    def test_no_delta_file_but_json_lists_every_system_added(self):
+    def test_delta_file_lists_every_system_added(self):
         d = json.loads(self.exported(READY, "--json"))
-        self.assertFalse((self.out / "delta.json").exists())
+        self.assertEqual(self.delta_json(), d)
         self.assertTrue((self.out / "manifest.json").exists())
         self.assertIsNone(d["from"])
         self.assertEqual(sorted(d["added"]), ["Billing", "Shop", "shop"])
@@ -250,8 +254,10 @@ class TestReexport(Tmp):
         for status in ("added", "removed", "rebuild", "recheck"):
             self.assertEqual(d[status], [])
         self.assertNotEqual(d["from"], d["to"])
-        # the spec hash lives in the index and the manifest; nothing else moves
-        self.assertEqual(self.rewritten(), {"README.md", "delta.json", "manifest.json"})
+        # the spec hash lives in the index and the manifest, lines in system.json;
+        # nothing else moves
+        self.assertEqual(self.rewritten() - self.system_jsons(),
+                         {"README.md", "delta.json", "manifest.json"})
         self.assertEqual(self.delta_json(), d)
 
     def test_the_same_spec_again_writes_nothing(self):
@@ -272,7 +278,8 @@ class TestReexport(Tmp):
         self.assertIn("Shop", d["systems"]["Billing"]["because"])
         self.assertIn("recheck    Billing (interface changed:", out)
         rewritten = self.rewritten()
-        self.assertFalse([f for f in rewritten if f.startswith("billing/")])
+        self.assertFalse([f for f in rewritten - self.system_jsons()
+                          if f.startswith("billing/")])
         self.assertIn("shop-2/system.json", rewritten)
         self.assertIn("shop/system.json", rewritten)
         manifest = json.loads((self.out / "manifest.json").read_text(encoding="utf-8"))
@@ -308,7 +315,8 @@ class TestReexport(Tmp):
         d = json.loads(self.exported(READY, "--json"))
         self.assertEqual(d["rebuild"], [])
         after = self.files()
-        self.assertTrue(after.pop("delta.json"))
+        self.assertEqual(json.loads(after.pop("delta.json")), d)
+        self.assertEqual(json.loads(before.pop("delta.json"))["from"], None)
         self.assertEqual(after, before)
 
     def test_a_builders_files_survive_a_reexport(self):
@@ -322,7 +330,8 @@ class TestReexport(Tmp):
         self.assertEqual(d["unchanged"], [])
         self.assertIn("shop", d["rebuild"])           # a rebuilt system (folder shop/)
         self.assertEqual(d["recheck"], ["Billing"])   # its files are not rewritten
-        self.assertFalse([f for f in self.rewritten() if f.startswith("billing/")])
+        self.assertFalse([f for f in self.rewritten() - self.system_jsons()
+                          if f.startswith("billing/")])
         self.assertIn("shop/system.json", self.rewritten())
         for name, text in mine.items():
             with self.subTest(file=name):
@@ -334,7 +343,8 @@ class TestReexport(Tmp):
         self.age()
         d = json.loads(self.exported(REORDERED, "--json"))
         self.assertEqual(sorted(d["unchanged"]), ["Billing", "Shop", "shop"])
-        self.assertEqual(self.rewritten(), {"README.md", "delta.json", "manifest.json"})
+        self.assertEqual(self.rewritten() - self.system_jsons(),
+                         {"README.md", "delta.json", "manifest.json"})
         self.assertTrue((self.out / "billing" / "NOTES.md").exists())
 
     def test_a_removed_systems_folder_keeps_a_builders_markdown(self):

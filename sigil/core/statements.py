@@ -32,7 +32,7 @@ from sigil.core.lex import (
     ALIAS_RE, ANY_GLYPH_RE, ARM_RE, ARROW_RE, BARE_BRANCH_RE, BLOCK_OPEN_RE,
     BRANCH_ANY_RE, BRANCH_PARENT_RE, BRANCH_RE, DEFINE_RE, DIALECT_COL, EXPANSION_OPEN_RE,
     CLOSERS, GLYPH_PREFIXES, GLYPH_RE, LOOP_HEAD_RE, OPENERS, SCOPE_HEAD_RE, SECTION_RE,
-    DECLARATION_MARK, STATE_HEAD_RE, STATE_OPEN_RE, close_at, comment_start,
+    DECLARATION_MARK, DECLARATION_RE, STATE_HEAD_RE, STATE_OPEN_RE, close_at, comment_start,
     declaration_name, fold_block_strings, in_string, is_mode_line, mask_strings, net_braces)
 from sigil.core.tokens import (
     NO_DIALECT, Code, Lexicon, Tok, code_line, lexicon, tokenize_statement)
@@ -168,9 +168,12 @@ class Blank(NamedTuple):
 class Declaration(NamedTuple):
     """A declaration: a line-leading `#& name …` (lex.declaration_name; `name` its
     name) or the opener of a dialect's DECLARATION_BLOCKS (`name` None). It draws
-    nothing; a `{ … }` block it opens is its body, consumed."""
+    nothing; a `{ … }` block it opens is its body, consumed. `body`: a `#&`
+    declaration's body text as written (declaration_body; "" for a dialect's
+    opener, and for a block never closed)."""
     line: int
     name: Optional[str] = None
+    body: str = ""
 
 
 class SectionHead(NamedTuple):
@@ -330,6 +333,30 @@ def collect_comments(lines: list, marker) -> dict:
 # The reading
 # ---------------------------------------------------------------------------
 
+def declaration_body(lines: list) -> str:
+    """The body of a `#&` declaration written on the source `lines` (its opener
+    first, and the line that closes its block last when it opens one): the lines
+    between the opener and that closing line, verbatim, with the text after the
+    opener's `{` and before the closing `}` when they hold any (a one-line block:
+    the text between its braces, trimmed). With no block, the text after the
+    name, trimmed: `#& header a b` → `a b`."""
+    opener = lines[0]
+    at = mask_strings(opener).find("{")
+    if at < 0:
+        lead = opener.strip()
+        return lead[DECLARATION_RE.match(lead).end():].strip()
+    after = opener[at + 1:]
+    if len(lines) == 1:
+        cut = close_at(after, 1)
+        return (after if cut is None else after[:cut]).strip()
+    depth = 1 + net_braces(after) + sum(net_braces(ln) for ln in lines[1:-1])
+    cut = close_at(lines[-1], depth)
+    last = lines[-1] if cut is None else lines[-1][:cut]
+    body = ([after.strip()] if after.strip() else []) + list(lines[1:-1]) \
+        + ([last.rstrip()] if last.strip() else [])
+    return "\n".join(body)
+
+
 def read_document(text: str, dialect=None, result=None) -> Walk:
     """Read a document once (see the module notes)."""
     return read_lines(text.splitlines(), dialect, result)
@@ -338,6 +365,7 @@ def read_document(text: str, dialect=None, result=None) -> Walk:
 def read_lines(lines: list, dialect=None, result=None) -> Walk:
     """read_document of a document's lines."""
     lx = lexicon(dialect)
+    source = tuple(lines)               # as written: a declaration's body is read here
     bodies: dict = {}
     folded = fold_block_strings(list(lines), bodies)
     lines = folded.lines
@@ -359,7 +387,7 @@ def read_lines(lines: list, dialect=None, result=None) -> Walk:
     codes = tuple(code_line(raw, lx) for raw in lines)
     w = _Walker(lines, codes, comments, inner, lx,
                 keywords=set(_hook(dialect, "BLOCK_KEYWORDS", set())),
-                decl_blocks=list(_hook(dialect, "DECLARATION_BLOCKS")))
+                decl_blocks=list(_hook(dialect, "DECLARATION_BLOCKS")), source=source)
     return w.finish(w.read(), tuple(lines), comments, bodies, folded)
 
 
@@ -404,8 +432,10 @@ class _Walker:
     """What every document level of one reading shares: the lines, their Codes
     and comments, the dialect's reading, and lint's records."""
 
-    def __init__(self, lines, codes, comments, inner, lx, keywords=(), decl_blocks=()):
+    def __init__(self, lines, codes, comments, inner, lx, keywords=(), decl_blocks=(),
+                 source=None):
         self.lines, self.codes, self.lx = lines, codes, lx
+        self.source = lines if source is None else source   # the lines as written
         self.leads = [line.strip() for line in lines]       # each line stripped
         self.heads = [code.raw.strip() for code in codes]   # each line's code stripped
         self.comments, self.inner = comments, inner
@@ -684,6 +714,7 @@ class _DocReader:
         self.state: Optional[_State] = None
         self.decl = None               # [on_raw, depth] of an open declaration block
         self.decl_line = 0
+        self.decl_item = None          # index of its Declaration among the items
         self.texts: dict = {}
         self.subject = False           # a flow above that a continuation line takes
         self.blank = False             # a blank line since the last statement
@@ -776,6 +807,7 @@ class _DocReader:
             if self.decl[1] <= 0:
                 self.decl = None
                 self.w.spans.append((self.decl_line + 1, k + 1))
+                self._declared_body(k)
             return True
         if not (self.w.decl_blocks or DECLARATION_MARK in raw_lead):
             return False
@@ -784,11 +816,21 @@ class _DocReader:
             return False
         depth = net_braces(raw_lead if on_raw else line)
         self.decl = [on_raw, depth] if depth > 0 else None
-        self.decl_line = k
+        self.decl_line, self.decl_item = k, len(self.items)
         self.w.declared.add(k)
         self.items.append(Declaration(k, declaration_name(raw_lead)))
+        if self.decl is None:
+            self._declared_body(k)
         self.subject = False
         return True
+
+    def _declared_body(self, end: int):
+        """The `#&` declaration opened on decl_line is read up to line `end`: its
+        item takes its body (declaration_body of its source lines)."""
+        it = self.items[self.decl_item]
+        if it.name is not None:
+            lines = self.w.source[self.decl_line:end + 1]
+            self.items[self.decl_item] = it._replace(body=declaration_body(lines))
 
     def _section(self, k: int, line: str, code: Code) -> bool:
         sec = SECTION_RE.match(line) if line.startswith("--") else None

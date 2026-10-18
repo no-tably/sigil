@@ -20,19 +20,28 @@
           "timeout",
           "5s"
         ]
+      ],
+      "lines": [
+        12
       ]
     },
     {
       "from": "[Basket]",
       "to": "<OrderPlaced>",
       "arrow": "~>",
-      "mode": "async"
+      "mode": "async",
+      "lines": [
+        29
+      ]
     },
     {
       "from": "[Checkout]",
       "to": "<OrderPlaced>",
       "arrow": "~>",
-      "mode": "async"
+      "mode": "async",
+      "lines": [
+        32
+      ]
     }
   ],
   "flows": [
@@ -57,6 +66,9 @@
           "×",
           "3"
         ]
+      ],
+      "lines": [
+        27
       ]
     },
     {
@@ -66,7 +78,10 @@
       "mode": "sync",
       "payload": "save({Order}) => {Ack}",
       "op": "save({Order})",
-      "returns": "{Ack}"
+      "returns": "{Ack}",
+      "lines": [
+        28
+      ]
     }
   ],
   "components": [
@@ -100,6 +115,9 @@
               "×",
               "3"
             ]
+          ],
+          "lines": [
+            27
           ]
         },
         {
@@ -109,15 +127,30 @@
           "mode": "sync",
           "payload": "save({Order}) => {Ack}",
           "op": "save({Order})",
-          "returns": "{Ack}"
+          "returns": "{Ack}",
+          "lines": [
+            28
+          ]
         },
         {
           "dir": "out",
           "peer": "<OrderPlaced>",
           "arrow": "~>",
-          "mode": "async"
+          "mode": "async",
+          "lines": [
+            29
+          ]
         }
-      ]
+      ],
+      "lines": [
+        27,
+        28,
+        29
+      ],
+      "hashes": {
+        "interface": "a3df927977d9b486",
+        "body": "20a52461bf9a8f16"
+      }
     },
     {
       "name": "Payments",
@@ -146,9 +179,19 @@
               "×",
               "3"
             ]
+          ],
+          "lines": [
+            27
           ]
         }
-      ]
+      ],
+      "lines": [
+        27
+      ],
+      "hashes": {
+        "interface": "d08af6a410352786",
+        "body": "d82dcb2667d54779"
+      }
     },
     {
       "name": "Orders",
@@ -163,9 +206,19 @@
           "mode": "sync",
           "payload": "save({Order}) => {Ack}",
           "op": "save({Order})",
-          "returns": "{Ack}"
+          "returns": "{Ack}",
+          "lines": [
+            28
+          ]
         }
-      ]
+      ],
+      "lines": [
+        28
+      ],
+      "hashes": {
+        "interface": "04fb4fbb7e1b47d3",
+        "body": "a723e5eb3b42fd04"
+      }
     }
   ],
   "hashes": {

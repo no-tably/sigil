@@ -4,16 +4,19 @@ interface, requirements and a lifecycle. Pure functions: a parsed Graph in, a
 Model out; nothing here reads or writes a file.
 
 Check's export rules read its facts (SGC401, SGC402); sigil.publish.systems
-adds the per-system interface and body hashes, the normalised JSON and the
-folder slugs that export writes (its model_of / build_model fill the hashes; a
-Model from here leaves them "").
+adds the per-system and per-component interface and body hashes, the
+normalised JSON and the folder slugs that export writes (its model_of /
+build_model fill the hashes; a Model from here leaves them "").
 
     model = model_of(graph, stem="shop", accepts=accepted(acks, comments))
+
+`stem` is the top system's name: the spec file's stem, or the name the caller
+gives (`sigil export --name`).
     model.shared, model.untyped
 
 SYSTEMS (inferred, no syntax of their own)
 
-  top        the document, named after the given stem
+  top        the document, named after the given stem (or name)
   expansion  every `X := { … }` (or `[X] := expr`) expansion: a system named X
              holding the nodes of its body. A nested expansion is a system of
              its own; its parent depends on it. An alias body (`name := …`) is
@@ -57,6 +60,17 @@ COMPONENTS
                 tree root, a `\\-` branch; never a glyph inside a payload or
                 an op's arguments)
   lifecycle     its state machine (states, initial, terminal, transitions)
+  attrs         the metadata a dialect's tokenizer put on its node (Node.attrs;
+                core leaves it empty), its instances' merged, the first written
+                first
+  lines         the lines it is written on (as for its acknowledgements)
+
+DECLARATIONS
+
+  A `#& name …` declaration (Graph.declarations) belongs to the system whose
+  scope holds it: one at the top level (or in an alias body there) to the top
+  system, one inside an expansion's body to that expansion's system. A tree
+  holds none (its statements are written in the enclosing system's scope).
 
 BOUNDARIES AND DEPENDENCIES
 
@@ -134,6 +148,9 @@ class Component:
     accepts: tuple                      # `accepts: …` comment texts, verbatim
     lifecycle: Optional[Lifecycle]
     lines: tuple                        # the lines it is written on
+    attrs: dict = field(default_factory=dict)   # a dialect's Node.attrs, merged
+    interface_hash: str = ""
+    body_hash: str = ""
 
 
 @dataclass(frozen=True)
@@ -150,6 +167,7 @@ class System:
     blocks: tuple                       # (kind, header, mods) of its control blocks
     depends_on: tuple
     accepts: tuple = ()                 # document-wide acknowledgements (top only)
+    declarations: tuple = ()            # graph.Declared in its scope, document order
     interface_hash: str = ""
     body_hash: str = ""
 
@@ -459,7 +477,18 @@ def make_component(nid: str, insts: list, lines: tuple, facts: Facts) -> Compone
         accepts=tuple(a.text for a in facts.accepts
                       if not a.document and set(lines) & a.span),
         lifecycle=lifecycle(lay.machines.get(nid)),
-        lines=lines)
+        lines=lines,
+        attrs=merged_attrs(insts))
+
+
+def merged_attrs(insts: list) -> dict:
+    """The dialect metadata of a node's instances as one dict: an attribute two
+    instances give keeps the first one's value."""
+    out: dict = {}
+    for n in insts:
+        for k, v in n.attrs.items():
+            out.setdefault(k, v)
+    return out
 
 
 def description(graph, nid: str) -> tuple:
@@ -646,7 +675,8 @@ def make_systems(facts: Facts, components: dict, inside: dict) -> dict:
                            if key in inside[f.src] and key in inside[f.dst]),
             blocks=system_blocks(graph, lay, key),
             depends_on=tuple(sorted(deps.get(key, ()))),
-            accepts=doc_accepts if kind == "top" else ())
+            accepts=doc_accepts if kind == "top" else (),
+            declarations=system_declarations(graph, lay, key))
         out[key] = sysm
     return out
 
@@ -685,6 +715,12 @@ def system_description(graph, lay: Layout, key: str, face: Optional[str]) -> tup
     if face is not None:
         texts += description(graph, face)
     return _dedup(ws(t) for t in texts if not is_ack_text(t))
+
+
+def system_declarations(graph, lay: Layout, key: str) -> tuple:
+    """The `#&` declarations written in system `key`'s scope, by line."""
+    return tuple(sorted((d for g in walk(graph) if lay.graph_system.get(id(g)) == key
+                         for d in g.declarations), key=lambda d: d.line))
 
 
 def system_blocks(graph, lay: Layout, key: str) -> tuple:

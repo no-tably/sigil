@@ -20,7 +20,7 @@ from sigil.core.lex import (  # noqa: F401  (also read as parse.<name> by the mo
     ALIAS_REF, BLOCK_SENTINEL, BRANCH_RE, GLYPH_BRACKETS, GLYPH_RE, OP_TARGET_RE,
     OPEN_TO_KIND, strip_comment)
 from sigil.core.graph import (  # noqa: F401  (also read as parse.<name>)
-    Access, Block, Dropped, Edge, Graph, Join, Node, Note, Section, TreeEntry, Trigger,
+    Access, Block, Declared, Dropped, Edge, Graph, Join, Node, Note, Section, TreeEntry, Trigger,
     mk_id, walk_depth)
 from sigil.core.statements import (
     BlockClose, BlockMods, BlockOpen, Blank, Declaration, Definition, Doc, Flow,
@@ -656,6 +656,9 @@ class _Builder:
             elif isinstance(it, Declaration):
                 self.last_src = None
                 self.seen = True
+                if it.name is not None:
+                    self.graph.declarations.append(
+                        Declared(it.name, it.body, self.ln(it.line)))
             elif isinstance(it, SectionHead):
                 self._section(it)
             elif isinstance(it, Definition):
