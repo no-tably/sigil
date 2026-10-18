@@ -26,18 +26,31 @@ else that the tools print changes.
   interface or component hash changes. A dialect's settings reach whoever builds
   without reading the spec.
 - **`sigil export SPEC --out DIR --name NAME`** names the top system (default: the
-  file's stem, as before); `--mermaid --spine` takes `--name` too, and a blank name
-  is refused. The top system's name no longer enters any hash, so renaming the spec
-  moves none. This changes the top system's body hash of every existing export once
-  (07-export's: `23efe2ea06bd3482` → `75979ceff2c70e06`); the other systems' hashes
-  are unchanged.
+  file's stem, as before); `--mermaid --spine` takes `--name` too. A blank name, or
+  `--name` on plain `--mermaid` (which draws no top system), is refused. The top
+  system's name no longer enters any hash, so renaming the spec moves none. This
+  changes the top system's body hash of every existing export once (07-export's:
+  `23efe2ea06bd3482` → `75979ceff2c70e06`); the other systems' hashes are unchanged.
+- **The top yields a shared name.** A top named like one of the spec's systems
+  (by `--name` or the stem) is keyed `NAME (top)`; the system keeps its name, key,
+  folder and hashes. Before, the system was renamed `NAME (service)` and its body
+  hash moved.
+- **A renamed top is no change.** `manifest.json` records the top system's key as
+  `top`. Re-exported under a new name (another `--name`, or a renamed spec without
+  one), the top's key and folder follow the name, and `delta.json` says
+  `renamed: {from, to}` (else `null`) and compares the top with its old entry: no
+  system is added, removed or rechecked for the rename alone.
+- **A dialect's glyphs keep their brackets.** A component of a dialect's node kind
+  is written with its `NODE_KINDS` `open`/`close` (`[[Ledger]]`, not `Ledger`) in
+  `components`, `component_hashes`, `glyph` and the flows' ends, so two kinds
+  sharing a name stay two components.
 - **`delta.json` on every export.** A first export writes one too, with
   `"from": null` and every system `added`, so a reader always finds one. Its shape
   and the delta's printed lines are unchanged.
 - **The dialect is recorded.** With a dialect loaded, `manifest.json` gains
   `dialect: {name, version}` (between `spec_hash` and `systems`); `version` is the
   dialect module's `VERSION` as text, left out when it defines none. With no
-  dialect the key is absent, so a core export's manifest keeps its shape.
+  dialect the key is absent.
 - **Source lines.** Every component and every flow in `system.json` (the system's
   interface, the flows inside it, each component's interface) carries `lines`, the
   1-based spec lines that write it. No hash reads them.
@@ -58,10 +71,8 @@ else that the tools print changes.
   (--limit frames=N)` (depth, spawns, … likewise), where it said `run with larger
   limits` or `run with a larger spawns limit`; when
   a check runs out of runs it says `run with a larger budget (--budget N), or a
-  smaller --k`. `sigil check --limit NAME=N` (there since 0.6.0) reaches every run
-  check makes and the scenario list it draws them from: failure scenarios are
-  listed at any limits, and overlap scenarios appear once the happy run is allowed
-  to reach their start.
+  smaller --k`. (`sigil check --limit NAME=N` itself has been there since 0.6.0;
+  this release only names it in the fix, and `sigil --help` now lists it.)
 
 ### Viewer plugins
 

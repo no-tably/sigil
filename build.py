@@ -398,7 +398,8 @@ def build_pi(out: Path, meta: dict) -> list[Path]:
           "~/.config/sigil/viewer.json; `--sigil-display` or `SIGIL_DISPLAY` wins for a\n"
           "session); auto takes the split inside a multiplexer. `/sigil-pane layout\n"
           "auto|wrap|pan` says how a drawing wider than the widget fits (`--sigil-layout`,\n"
-          "`SIGIL_LAYOUT`).\n")
+          "`SIGIL_LAYOUT`). `/sigil-pane placement split|tab` says whether multiplex opens\n"
+          "a split or a tab (`--sigil-placement`, `SIGIL_PLACEMENT`).\n")
     return [root]
 
 

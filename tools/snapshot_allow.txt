@@ -48,7 +48,19 @@ lint-deep/tests/fixtures/cjk.sigil
 # C1: stderr prefix 'export.py:' -> 'sigil export:' (14 cases: examples.md blocks 02 03 05 12 13 16
 # 20 24, language.md block-28, checks/export-no-home, export-untyped-boundary,
 # flow-timeout-budget-block, cjk, executions)
-export-dry/*
+export-dry/examples.md/block-02.sigil
+export-dry/examples.md/block-03.sigil
+export-dry/examples.md/block-05.sigil
+export-dry/examples.md/block-12.sigil
+export-dry/examples.md/block-13.sigil
+export-dry/examples.md/block-16.sigil
+export-dry/examples.md/block-20.sigil
+export-dry/examples.md/block-24.sigil
+export-dry/language.md/block-28.sigil
+export-dry/tests/fixtures/checks/export-no-home.sigil
+export-dry/tests/fixtures/checks/export-untyped-boundary.sigil
+export-dry/tests/fixtures/checks/flow-timeout-budget-block.sigil
+export-dry/tests/fixtures/executions.sigil
 
 # D4: '\-' inside grammar quotes after prose is text, not a branch (SGL110 @66 @67 gone, 27 -> 25 issues)
 lint/language.md/block-38.sigil
@@ -102,3 +114,18 @@ check/tests/fixtures/checks/trace-090-bound.sigil
 check/tests/fixtures/checks/trace-090-spawn.sigil
 lint-deep/tests/fixtures/checks/trace-090-bound.sigil
 lint-deep/tests/fixtures/checks/trace-090-spawn.sigil
+
+# patch-0.6.1 follow-up: export-dry (a first export's delta) gains "renamed": null, and the top
+# system's body hash moves once (S3: its name is out of every hash); one body line per case
+export-dry/examples.md/block-15.sigil
+export-dry/examples.md/block-21.sigil
+export-dry/examples.md/block-22.sigil
+export-dry/examples.md/block-23.sigil
+export-dry/examples.md/block-25.sigil
+export-dry/site/examples/07-export.sigil
+export-dry/tests/fixtures/checks/export-no-home-fixed.sigil
+export-dry/tests/fixtures/checks/export-untyped-boundary-declared.sigil
+export-dry/tests/fixtures/checks/export-untyped-boundary-fixed.sigil
+export-dry/tests/fixtures/checks/flow-timeout-budget-block-declared.sigil
+export-dry/tests/fixtures/export-edit.sigil
+export-dry/tests/fixtures/overlap.sigil

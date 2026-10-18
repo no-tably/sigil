@@ -113,7 +113,7 @@ the browser — write a design, switch views, step through a simulation.
 One command, `sigil`, Python 3 standard library only: run `bin/sigil` (or
 `python3 -m sigil` from the repository). `lint`, `check` and `export --mermaid`
 take `-` for stdin; `view` needs a file, since it redraws on save, and so does the
-folder export, since the file's stem names the top system. Every flag and key is in [`docs/tools.md`](./docs/tools.md).
+folder export, since the manifest names the spec file. Every flag and key is in [`docs/tools.md`](./docs/tools.md).
 
 | Command | Does |
 | --- | --- |
@@ -159,7 +159,9 @@ is the plugin's `display` option:
   narrower, the agent's reply says the pane is waiting. `/sigil-pane [FILE]` opens
   it at any width.
 - `multiplex` opens a herdr, tmux or zellij split that runs `sigil view` live, and
-  the agent's later calls update it. Nothing draws in Claude Code.
+  the agent's later calls update it. Nothing draws in Claude Code. With the
+  `placement` option set to `tab` (`/sigil-pane placement tab`), it opens a tab
+  (a tmux window) labelled `sigil view` instead of a split.
 - `auto` (the default) picks `multiplex` when `HERDR_ENV`, `TMUX` or `ZELLIJ` is
   set, and `mod` otherwise.
 
@@ -193,7 +195,8 @@ Provides the `sigil` skill and the `/sigil-view` and `/sigil-lint` prompts.
 The pi package also carries a viewer extension, which works like the Claude Code
 mod. The agent gets a `sigil_view` tool, and you get a `/sigil-pane` command. With
 `mod` display it draws in a widget above the editor, and a widget you didn't ask
-for needs 144 columns. With `multiplex` it opens a herdr, tmux or zellij split.
+for needs 144 columns. With `multiplex` it opens a herdr, tmux or zellij split, or
+a tab with `/sigil-pane placement tab` (`--sigil-placement`, `SIGIL_PLACEMENT`).
 `auto` picks between them the same way. Choose with `/sigil-pane display
 mod|multiplex|auto`, which saves it to `~/.config/sigil/viewer.json`; for one
 session, `pi --sigil-display …` or `SIGIL_DISPLAY` wins over that.
@@ -416,7 +419,9 @@ build/
 
 Each system, and each component in it, has two hashes: the **interface** (the
 flows that cross its boundary, with their payloads and returns) and the **body**
-(everything in it). Reformatting, reordering or renaming the spec moves neither;
+(everything in it). Reformatting, reordering or renaming the spec moves neither (a
+rename moves the top system's key and folder, which `delta.json` reports as
+`renamed`, with no system to rebuild);
 `system.json` also gives every component and flow its spec `lines`. Export again into the same folder after an
 edit, and `sigil export` compares with the manifest already there, rewrites only what
 changed and writes `delta.json`. Here `[Stock]`'s reprice call now returns a

@@ -4,7 +4,7 @@ Every tool is a subcommand of one command, `sigil`, with no dependencies beyond
 the Python 3 standard library: run `bin/sigil` (or `python3 -m sigil` from the
 repository). `lint`, `check` and `export --mermaid` take `-` for stdin; `view`
 needs a file, since it redraws on save, and the folder export needs one too, since
-the file's stem names the top system. The [README](../README.md) has the overview.
+the manifest names the spec file (and its stem is the top system's default name). The [README](../README.md) has the overview.
 
 ## The command
 
@@ -147,8 +147,10 @@ one **home**.
   not make.
 - `--name NAME` names the top system (and its folder) instead of the file's stem. No
   hash depends on the top system's name, so renaming the spec, or exporting it under
-  another name, moves no hash; the systems' keys in the manifest and the delta do
-  follow it. A blank name is refused (exit 2). `--mermaid --spine` takes it too.
+  another name, moves no hash; the top's key and folder follow it, and the delta
+  reports the move as `renamed`. A top named like one of the spec's systems is keyed
+  `NAME (top)`, and that system keeps its name. A blank name is refused (exit 2).
+  `--mermaid --spine` takes it too; plain `--mermaid` refuses it.
 - `--dry-run` prints the delta and writes nothing.
 - `--json` prints the delta as JSON instead of the summary in words.
 - `--dialect NAME` loads a dialect, as `lint`, `check` and `view` do.
@@ -181,13 +183,14 @@ state machine, when it has one). No target-language types.
 **`manifest.json`**:
 
 ```
-{"sigil_export": 1, "spec": <file name>, "spec_hash": …,
+{"sigil_export": 1, "spec": <file name>, "spec_hash": …, "top": <key>,
  "dialect": {"name": …, "version": …},
  "systems": {name: {"path", "interface", "body", "components", "depends_on",
                     "component_hashes": {glyph: {"interface", "body"}}}}}
 ```
 
 `spec_hash` is the hash of the spec file's text as written (so a reformat moves it).
+`top` is the top system's key (the first of `systems`).
 `dialect` is there only when a dialect was loaded: its `NAME`, and its `VERSION`
 (as text) when the dialect module defines one; with no dialect the key is absent.
 `path` is the system's folder, `components` its glyphs, `depends_on` the systems
@@ -212,12 +215,32 @@ last, it is what marks a finished export.
 `expansion` or `tree`), `face` (the glyph the system is named after), `parent`,
 `depends_on`, `description`, `interface` and `flows` (the flows inside), `blocks`,
 `components`, `accepts` (the acknowledgements on it), `declarations` and `hashes`
-(`{"interface", "body"}`). Keys with no value are left out. A flow holds `from` and
-`to` (in a component's `interface`: `dir` `out`/`in`/`self` and `peer`), `arrow`,
-`mode` (`sync`, `async`, …), `payload`, `op`, `returns`, `mods` and the rest as the
-spec writes them, and `lines`. A component holds `name`, `kind`, `glyph`, `home`,
-`also_in`, `attrs`, `description`, `interface`, `requirements`, `lifecycle`,
-`lines` and `hashes`.
+(`{"interface", "body"}`). Keys with no value are left out. `blocks` are the
+control blocks written in it, `[{"kind", "header", "mods"}]`.
+
+A flow holds:
+
+| Key | Holds |
+| --- | --- |
+| `from`, `to` | its two glyphs; in a component's `interface` instead `dir` (`out`, `in` or `self`) and `peer`, the glyph at the other end |
+| `arrow` | the arrow as written (`->`, `~>`, `=>`, …) |
+| `mode` | `sync`, `async`, `return`, `failure`, `optional`, or `flow` (a dialect's arrow) |
+| `payload` | the `: payload` text, tightened |
+| `text` | the body of a `"""…"""` payload |
+| `op`, `returns` | the call's verb with its arguments, and what `=>` it returns |
+| `external` | `true` for an external `op ns.verb` call |
+| `mods` | the call's modifiers (its policy), each `[name, arg]` (`arg` null when bare) |
+| `card` | the destination's cardinality written on the flow (`×N`): `"N"`, `"4"` |
+| `implied` | `"return"` or `"alert"` for a flow the notation implies without an arrow |
+| `from_path`, `to_path` | a qualified-path end (`[Bullet]/{Transform}`), as written |
+| `lines` | the spec lines that write it |
+
+A component holds `name`, `kind`, `glyph` (as written, a dialect kind in its own
+brackets), `home`, `also_in` (the other systems it is written in), `attrs`,
+`description` (its comment lines), `interface` (flows, as above), `requirements`
+(`{"modifiers": [[name, arg]…], "access": [[store, mode]…], "accepts": [text…]}`),
+`lifecycle` (`{"states", "initial", "terminal", "transitions": [{"from", "to", "on",
+"mods"}]}`), `lines` and `hashes`.
 
 - `lines` are the 1-based lines of the spec that write a flow or a component, to
   jump back to the source. No hash reads them.
@@ -244,10 +267,12 @@ in DIR and sorts every system into one list:
 | `unchanged` | neither |
 
 `delta.json`: `{"sigil_delta": 1, "spec", "from": <old spec_hash>, "to": <new
-spec_hash>, "added", "removed", "rebuild", "recheck", "unchanged", "systems": {name:
-{"status", "old", "new", "because"?}}}`, where `old` / `new` are `{"interface",
-"body"}` (or null) and `because` lists, for a recheck, the systems whose interface
-changed. Each file is written only when its content changed, so an unchanged
+spec_hash>, "renamed", "added", "removed", "rebuild", "recheck", "unchanged",
+"systems": {name: {"status", "old", "new", "because"?}}}`, where `old` / `new` are
+`{"interface", "body"}` (or null) and `because` lists, for a recheck, the systems
+whose interface changed. `renamed` is `{"from", "to"}` when the top system's key
+moved (another `--name`, or the spec renamed), else null: the top is then compared
+with its old entry, so the rename alone adds, removes or rechecks nothing. Each file is written only when its content changed, so an unchanged
 system's files are left alone, and in a changed system only the files that differ
 are rewritten. A reformat that moves lines rewrites the `system.json` files whose
 `lines` moved (with the index `README.md`, `manifest.json` and `delta.json`), and no
