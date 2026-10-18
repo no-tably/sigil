@@ -2,7 +2,7 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
-## 0.6.0 — unreleased
+## 0.6.0 — 2026-10-18
 
 One command instead of seven scripts, Mermaid as an export with a new chart grouped
 by system, the tools rebuilt as one package along the drawing of sigil in sigil
