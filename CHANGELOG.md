@@ -2,7 +2,7 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
-## 0.6.1 — unreleased
+## 0.6.1 — 2026-10-18
 
 The export carries what a consumer needs to build and track work without reading
 the spec again: hashes per component, the dialect's declarations and version, and
