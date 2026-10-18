@@ -85,3 +85,20 @@ mermaid-subgraphs/tests/fixtures/checks/state-shared-data-order-declared.sigil
 
 # No corpus case from D1 (string-aware header modifiers), D12 (payload token), D18 (${...} outside a
 # payload: dialect corpus only, merlang Mermaid phantom out_subtree_data nodes gone).
+
+# patch-0.6.1
+# S10: SGC090 fix text names the flag that raises the limit ("run with a larger depth|spawns limit
+# (--limit NAME=N)"; budget hint "(--budget N)"), so a reader cut by a limit knows how to raise it
+check-json/tests/fixtures/checks/state-unbounded-recursion-declared.sigil
+check-json/tests/fixtures/checks/state-unbounded-recursion-expansion.sigil
+check-json/tests/fixtures/checks/trace-090-bound.sigil
+check-json/tests/fixtures/checks/trace-090-spawn.sigil
+check-spec/language.md/block-16.sigil
+check-spec/tests/fixtures/checks/state-unbounded-recursion-declared.sigil
+check-spec/tests/fixtures/checks/state-unbounded-recursion-expansion.sigil
+check-spec/tests/fixtures/checks/trace-090-bound.sigil
+check-spec/tests/fixtures/checks/trace-090-spawn.sigil
+check/tests/fixtures/checks/trace-090-bound.sigil
+check/tests/fixtures/checks/trace-090-spawn.sigil
+lint-deep/tests/fixtures/checks/trace-090-bound.sigil
+lint-deep/tests/fixtures/checks/trace-090-spawn.sigil
