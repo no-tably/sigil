@@ -269,6 +269,19 @@ class Attrs(Tmp):
         self.assertEqual(other.interface_hash, c.interface_hash)
         self.assertNotEqual(other.body_hash, c.body_hash)
 
+    def test_an_attr_named_like_an_export_key_moves_the_body_hash(self):
+        # `lines` (and `home`) are the dialect's own data inside attrs
+        model = em.build_model(SPEC, "shop", dialects.load(str(PROBE)))
+        c = model.components["Ledger_ref"]
+        one, two = (em.component_hashed(dataclasses.replace(c, attrs=a),
+                                        model.components, model.top)
+                    for a in ({"lines": [1, 2]}, {"lines": [9]}))
+        self.assertNotEqual(one.body_hash, two.body_hash)
+        here, there = (em.component_hashed(dataclasses.replace(c, attrs={"home": h}),
+                                           model.components, model.top)
+                       for h in (model.top, "Elsewhere"))
+        self.assertNotEqual(here.body_hash, there.body_hash)
+
     def test_plain(self):
         self.assertEqual(em.plain({2: {"b", "a"}, "x": (1, None), "o": object}),
                          {"2": ["a", "b"], "o": str(object), "x": [1, None]})

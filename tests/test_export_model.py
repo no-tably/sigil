@@ -334,6 +334,18 @@ class TestNormalisedForm(unittest.TestCase):
         self.assertTrue(all(c["lines"] for c in shop["components"]))
         self.assertNotIn("line", em.canonical(em.hash_form(data, m.top)))
 
+    def test_dialect_attrs_enter_the_hash_as_they_are(self):
+        # an attribute named like an export key (lines, home, description) is
+        # the dialect's own data: every change to it moves the hash
+        def h(attrs):
+            return em.digest(em.hash_form({"attrs": attrs}, "Top"))
+        self.assertNotEqual(h({"lines": [1, 2]}), h({"lines": [9]}))
+        self.assertNotEqual(h({"hashes": "a"}), h({"hashes": "b"}))
+        self.assertNotEqual(h({"home": "Top"}), h({"home": "Other"}))
+        self.assertNotEqual(h({"description": ["b", "a"]}), h({"description": ["a", "b"]}))
+        self.assertEqual(em.hash_form({"attrs": {"home": "Top", "lines": [1]}}, "Top"),
+                         {"attrs": {"home": "Top", "lines": [1]}})
+
     def test_every_example_and_fixture(self):
         files = sorted((_DIR / "site" / "examples").glob("*.sigil")) \
             + sorted((_DIR / "tests" / "fixtures").rglob("*.sigil"))

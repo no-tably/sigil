@@ -159,9 +159,12 @@ def hash_form(obj, top: str):
     every `description` and `declarations` list sorted (their order is the
     source's, so moving a statement changes no hash), and the top system's key
     `top` as TOP wherever a component names its systems (`home`, `also_in`), so
-    the top's name (the file stem, or `--name`) changes no hash."""
+    the top's name (the file stem, or `--name`) changes no hash. A dialect's
+    `attrs` are copied as they are (already JSON-safe): these rules read the
+    export form's own keys, so an attribute named `lines` or `home` still counts."""
     if isinstance(obj, dict):
-        out = {k: hash_form(v, top) for k, v in obj.items() if k not in UNHASHED}
+        out = {k: v if k == "attrs" else hash_form(v, top)
+               for k, v in obj.items() if k not in UNHASHED}
         if isinstance(out.get("description"), list):
             out["description"] = sorted(out["description"])
         if "declarations" in out:
