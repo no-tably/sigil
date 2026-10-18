@@ -9,6 +9,10 @@ Every system sorts into one of STATUSES:
                interface (its calls into that system need a second look)
     unchanged  neither
 
+The top system renamed (the spec renamed, or another --name) is the same system
+under its new key: `renamed` gives {from, to} (else null), and the top is
+compared with its old entry, so a rename alone marks nothing.
+
 delta(old, new) is delta.json's content; manifest_problem says why a parsed
 manifest.json is none an export wrote; dropped_folders, delta_lines and
 delta_note are what the exporter deletes and prints.
@@ -54,15 +58,36 @@ def delta(old: Optional[dict], new: dict) -> dict:
     is added) to the manifest `new`: a list per status and, per system, its status
     with its old and new hashes."""
     olds, news = (old or {}).get("systems", {}), new["systems"]
+    moved = top_renamed(old, new)
+    if moved:
+        olds = {(moved["to"] if k == moved["from"] else k): e for k, e in olds.items()}
     systems = {k: system_delta(k, olds, news) for k in news}
     systems.update({k: {"status": "removed", "old": hashes(olds[k]), "new": None}
                     for k in sorted(olds) if k not in news})
     out = {"sigil_delta": DELTA_VERSION, "spec": new["spec"],
-           "from": old.get("spec_hash") if old else None, "to": new["spec_hash"]}
+           "from": old.get("spec_hash") if old else None, "to": new["spec_hash"],
+           "renamed": moved}
     for status in STATUSES:
         out[status] = [k for k, d in systems.items() if d["status"] == status]
     out["systems"] = systems
     return out
+
+
+def top_key(manifest: dict) -> Optional[str]:
+    """The top system's key: the manifest's `top`, or (an export before 0.6.1)
+    its first system, which the exporter always writes first."""
+    return manifest.get("top") or next(iter(manifest.get("systems", {})), None)
+
+
+def top_renamed(old: Optional[dict], new: dict) -> Optional[dict]:
+    """{from, to} when the top system's key moved and neither key names another
+    system of the other export (None: no rename)."""
+    if not old:
+        return None
+    was, now = top_key(old), top_key(new)
+    if was is None or now is None or was == now or was in new["systems"] or now in old.get("systems", {}):
+        return None
+    return {"from": was, "to": now}
 
 
 def system_delta(key: str, olds: dict, news: dict) -> dict:
@@ -107,6 +132,8 @@ def delta_lines(change: dict) -> list:
         return [f"first export: {len(change['added'])} system(s) added"]
     counts = ", ".join(f"{len(change[s])} {s}" for s in STATUSES if change[s])
     out = [f"since spec {change['from']}: {counts or 'no systems'}"]
+    if change.get("renamed"):
+        out.append(f"  {'renamed':<9}  {change['renamed']['from']} → {change['renamed']['to']}")
     for status in STATUSES[:-1]:
         for key in change[status]:
             out.append(f"  {status:<9}  {key}{delta_note(change['systems'][key])}")

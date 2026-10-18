@@ -135,7 +135,8 @@ class TestSystems(unittest.TestCase):
 
     def test_system_named_like_the_stem_keeps_both(self):
         m = model("[shop] := {\n  [A] -> [B] : {X}\n}\n")
-        self.assertEqual(list(m.systems), ["shop", "shop (service)"])
+        self.assertEqual(list(m.systems), ["shop (top)", "shop"])
+        self.assertEqual(m.top, "shop (top)")
 
 
     def test_same_named_systems_keyed_by_kind_not_order(self):

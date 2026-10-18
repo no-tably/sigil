@@ -33,7 +33,7 @@ The folder (systems, homes and hashes as sigil.model.systems reads them):
       <system>/system.json     the same, machine-readable
 
     manifest.json = {"sigil_export": 1, "spec": <file name>, "spec_hash": …,
-      "dialect"?: {"name", "version"?},
+      "top": <the top system's key>, "dialect"?: {"name", "version"?},
       "systems": {name: {"path", "interface", "body", "components", "depends_on",
                          "component_hashes": {glyph: {"interface", "body"}}}}}
 
@@ -184,7 +184,7 @@ def plan_export(model, spec_name: str, spec_text: str, dialect=None) -> ExportPl
     forms = {k: em.system_json(model.systems[k], model.components) for k in keys}
     systems = {k: plan_system(k, model.systems[k], forms[k], folders) for k in keys}
     manifest = {"sigil_export": EXPORT_VERSION, "spec": spec_name,
-                "spec_hash": spec_hash(spec_text)}
+                "spec_hash": spec_hash(spec_text), "top": model.top}
     if dialect is not None:
         manifest["dialect"] = dialect_entry(dialect)
     manifest["systems"] = {k: p.entry for k, p in systems.items()}

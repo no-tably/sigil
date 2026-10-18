@@ -39,10 +39,11 @@ HOMES
   (a member of two sibling expansions, of two trees) the node has no one home:
   it is listed in Model.shared (SGC401) and lives in its first candidate.
 
-  A system's KEY is its name; systems sharing a name (or the stem) get a
-  ` (kind)` suffix by a stable rule — their face's node kind (a service keeps
-  the plain name before a store, actor, event, data or a dialect's kind), then
-  its id — never by which comes first in the source.
+  A system's KEY is its name; systems sharing a name get a ` (kind)` suffix by
+  a stable rule — their face's node kind (a service keeps the plain name before
+  a store, actor, event, data or a dialect's kind), then its id — never by which
+  comes first in the source. The top yields: named like a system of the spec,
+  it is keyed `NAME (top)`, so the top's name never renames another system.
 
 COMPONENTS
 
@@ -226,16 +227,18 @@ def accepted(acks: Iterable, comments: Mapping) -> tuple:
                  for a in acks)
 
 
-def model_of(graph, stem: str, accepts: Iterable[Accepted] = ()) -> Model:
+def model_of(graph, stem: str, accepts: Iterable[Accepted] = (),
+             kinds: Mapping = {}) -> Model:
     """The model of a parsed document; `accepts`: its acknowledgements, each with
-    its text (accepted(acks, comments))."""
+    its text (accepted(acks, comments)); `kinds`: the dialect's NODE_KINDS, whose
+    brackets its glyphs are written in."""
     layout = lay_out(graph, stem)
     homes, shared_at = resolve_homes(layout)
     nodes = component_nodes(graph)
     flows = collect_flows(graph, nodes)
     facts = Facts(graph, layout, homes, flows,
-                  {nid: glyph([n]) for g in walk(graph) for nid, n in g.nodes.items()},
-                  tuple(accepts))
+                  {nid: glyph([n], kinds) for g in walk(graph) for nid, n in g.nodes.items()},
+                  tuple(accepts), kinds)
     appears = merged(graph_lines(graph, nodes), head_lines(graph, nodes))
     components = {nid: make_component(nid, insts, appears[nid], facts)
                   for nid, insts in nodes.items()}
@@ -255,6 +258,7 @@ class Facts(NamedTuple):
     flows: list                         # Flows, document order
     glyphs: dict                        # node id → glyph, every node
     accepts: tuple                      # Accepted, document order
+    kinds: Mapping = {}                 # the dialect's NODE_KINDS
 
 
 # ---------------------------------------------------------------------------
@@ -357,10 +361,11 @@ KEY_KINDS = ("service", "store", "actor", "event", "data")   # who keeps a share
 
 def named_keys(lay: Layout) -> dict:
     """{provisional key: system key}: a system is keyed by its name; systems that
-    share a name (or the top's) are told apart by a stable rule — by their face's
-    node kind (KEY_KINDS order, a dialect's kinds after), then its node id —
-    never by which comes first in the source."""
-    names, taken = {lay.top: lay.top}, {lay.top}
+    share a name are told apart by a stable rule — by their face's node kind
+    (KEY_KINDS order, a dialect's kinds after), then its node id — never by which
+    comes first in the source. The top yields its name to a system of the spec
+    (`NAME (top)`), so the name given to the top never renames one of them."""
+    names, taken = {}, set()
 
     def rank(k):
         name, _kind, face, _parent = lay.systems[k]
@@ -373,6 +378,7 @@ def named_keys(lay: Layout) -> dict:
         name, face = lay.systems[k][0], lay.systems[k][2]
         names[k] = unique_key(name, lay.face_kinds[face], taken)
         taken.add(names[k])
+    names[lay.top] = unique_key(lay.top, "top", taken)
     return names
 
 
@@ -380,6 +386,7 @@ def renamed(lay: Layout, names: dict) -> Layout:
     """lay with every system key mapped through `names` (order kept)."""
     return replace(
         lay,
+        top=names[lay.top],
         systems={names[k]: (n, kd, f, names.get(p) if p is not None else None)
                  for k, (n, kd, f, p) in lay.systems.items()},
         by_face={f: names[k] for f, k in lay.by_face.items()},
@@ -453,12 +460,15 @@ def component_nodes(graph) -> dict:
     return out
 
 
-def glyph(insts: list) -> str:
+def glyph(insts: list, kinds: Mapping = {}) -> str:
+    """A node as written: its brackets (a dialect kind's from its NODE_KINDS
+    `open`/`close`), with `~` / `*` when any instance is mutable / a stream."""
     n = insts[0]
     lead = ("~" if any(i.is_mutable for i in insts) else "") + \
            ("*" if any(i.is_stream for i in insts) else "")
-    br = GLYPH_BRACKETS.get(n.kind)
-    return f"{lead}{br[0]}{n.name}{br[1]}" if br else f"{lead}{n.name}"
+    spec = kinds.get(n.kind) or {}
+    br = GLYPH_BRACKETS.get(n.kind) or (spec.get("open", ""), spec.get("close", ""))
+    return f"{lead}{br[0]}{n.name}{br[1]}"
 
 
 def make_component(nid: str, insts: list, lines: tuple, facts: Facts) -> Component:
@@ -466,7 +476,7 @@ def make_component(nid: str, insts: list, lines: tuple, facts: Facts) -> Compone
     `lines`: the lines it is written on)."""
     n, lay = insts[0], facts.lay
     return Component(
-        id=nid, name=n.name, kind=n.kind, glyph=glyph(insts),
+        id=nid, name=n.name, kind=n.kind, glyph=glyph(insts, facts.kinds),
         home=facts.homes.get(nid, lay.top),
         systems=tuple(lay.candidates.get(nid, (lay.top,))),
         description=description(facts.graph, nid),

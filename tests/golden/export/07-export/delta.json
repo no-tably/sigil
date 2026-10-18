@@ -3,6 +3,7 @@
   "spec": "07-export.sigil",
   "from": null,
   "to": "42c36c489b8429a2",
+  "renamed": null,
   "added": [
     "07-export",
     "Catalog",

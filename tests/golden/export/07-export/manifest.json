@@ -2,6 +2,7 @@
   "sigil_export": 1,
   "spec": "07-export.sigil",
   "spec_hash": "42c36c489b8429a2",
+  "top": "07-export",
   "systems": {
     "07-export": {
       "path": "07-export",

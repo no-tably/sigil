@@ -29,7 +29,7 @@ import hashlib
 import json
 import re
 from dataclasses import replace
-from typing import Iterable, Optional
+from typing import Iterable, Mapping, Optional
 
 from sigil.core import parse
 from sigil.core.comments import read_acks, walk_layout
@@ -54,13 +54,15 @@ def build_model(text: str, stem: str, dialect=None, walk=None, graph=None) -> Mo
         graph = parse.parse_document(text, dialect=dialect, walk=walk)
     comments = {k + 1: v for k, v in walk.comments.items()}
     acks = read_acks(comments, walk_layout(walk), frozenset(CORE_NAMES.values()))
-    return model_of(graph, stem, systems.accepted(acks, comments))
+    return model_of(graph, stem, systems.accepted(acks, comments),
+                    getattr(dialect, "NODE_KINDS", None) or {})
 
 
-def model_of(graph, stem: str, accepts: Iterable[systems.Accepted] = ()) -> Model:
+def model_of(graph, stem: str, accepts: Iterable[systems.Accepted] = (),
+             kinds: Mapping = {}) -> Model:
     """sigil.model.systems.model_of with each component's and each system's
     interface and body hash."""
-    m = systems.model_of(graph, stem, accepts)
+    m = systems.model_of(graph, stem, accepts, kinds)
     comps = {nid: component_hashed(c, m.components, m.top) for nid, c in m.components.items()}
     return replace(m, components=comps,
                    systems={k: with_hashes(s, comps, m.top) for k, s in m.systems.items()})

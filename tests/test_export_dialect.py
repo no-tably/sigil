@@ -12,12 +12,16 @@ Covers:
     system), the body verbatim (statements.declaration_body), in the body hash
     and not the interface hash; a line move changes no hash;
   - `--name NAME` names the top system (folder and `--mermaid --spine`), the
-    stem by default; no hash depends on it; an empty name is refused;
-  - delta.json on every export, a first one listing every system as added;
+    stem by default; no hash depends on it; a name like a system's leaves that
+    system be (the top is `NAME (top)`); an empty name, or one without
+    --spine on --mermaid, is refused;
+  - delta.json on every export, a first one listing every system as added; a
+    renamed top (--name or the stem) is `renamed`, not added and removed;
   - manifest `dialect`: {name, version} with a dialect (version only when the
     module defines VERSION), absent without one;
   - `lines` (1-based) per component and per flow;
-  - a dialect tokenizer's Node.attrs as `attrs` (none on a core component).
+  - a dialect tokenizer's Node.attrs as `attrs` (none on a core component);
+    a dialect glyph written in its NODE_KINDS brackets.
 
 Run:  python3 -m unittest discover tests
 """
@@ -114,7 +118,7 @@ class ComponentHashes(Tmp):
     def test_a_flow_modifier_moves_both_ends_interface(self):
         a = self.components(self.export(out="a"))
         b = self.components(self.export(text=SPEC.replace("@at(src/api)", "@at(src/x)"), out="b"))
-        for glyph in ("[Api]", "Ledger"):
+        for glyph in ("[Api]", "[[Ledger]]"):
             with self.subTest(glyph=glyph):
                 self.assertNotEqual(a[glyph]["hashes"]["interface"],
                                     b[glyph]["hashes"]["interface"])
@@ -205,12 +209,39 @@ class Name(Tmp):
         self.assertEqual(code, 0, err)
         _code, plain, _err = run("export", str(spec), "--mermaid", "--spine",
                                  "--dialect", str(PROBE))
-        # the top system takes the name, so the expansion's key steps aside
-        self.assertIn('"Api (service)"', out)
-        self.assertNotIn("(service)", plain)
+        # the expansion keeps its name; the top named like it steps aside
+        self.assertEqual(out, plain)
+        self.assertIn('subgraph system__api["Api"]', out)
+
+
+    def test_a_name_like_a_system_renames_no_system(self):
+        def api(out):           # its hashes and folder (depends_on names the top's key)
+            e = read_json(out / "manifest.json")["systems"]["Api"]
+            return e["path"], e["interface"], e["body"], e["component_hashes"]
+        a = self.export(out="a")
+        b = self.export("--name", "Api", out="b")
+        self.assertEqual(api(a), api(b))
+        self.assertEqual(read_json(b / "manifest.json")["top"], "Api (top)")
+
+    def test_mermaid_without_spine_refuses_it(self):
+        spec = self.tmp / "shop.sigil"
+        spec.write_text(SPEC, encoding="utf-8")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as stop:
+            cli.main(["export", str(spec), "--mermaid", "--name", "x"])
+        self.assertEqual(stop.exception.code, 2)
+        self.assertIn("--spine", err.getvalue())
 
 
 class Delta(Tmp):
+    def test_a_renamed_top_is_the_same_system(self):
+        self.export(out="o")
+        for flags, stem in ((("--name", "store"), "shop"), ((), "renamed")):
+            with self.subTest(flags=flags, stem=stem):
+                d = read_json(self.export(*flags, stem=stem, out="o") / "delta.json")
+                self.assertEqual(d["renamed"]["to"], flags[1] if flags else stem)
+                self.assertEqual(d["added"] + d["removed"] + d["rebuild"] + d["recheck"], [])
+
     def test_a_first_export_writes_every_system_added(self):
         out = self.export()
         d = read_json(out / "delta.json")
@@ -224,7 +255,7 @@ class Dialect(Tmp):
     def test_name_and_version(self):
         manifest = read_json(self.export() / "manifest.json")
         self.assertEqual(manifest["dialect"], {"name": "export-probe", "version": "1.2"})
-        self.assertEqual(list(manifest)[:4], ["sigil_export", "spec", "spec_hash", "dialect"])
+        self.assertEqual(list(manifest)[:5], ["sigil_export", "spec", "spec_hash", "top", "dialect"])
 
     def test_no_version_and_no_dialect(self):
         model = em.build_model("#!spec\n[A] -> [B] : {X}\n", "s")
@@ -243,22 +274,26 @@ class Lines(Tmp):
         forms = self.systems(self.export())
         comps = self.components(self.export(out="again"))
         self.assertEqual(comps["(Shopper)"]["lines"], [7])
-        self.assertEqual(comps["Ledger"]["lines"], [8])
+        self.assertEqual(comps["[[Ledger]]"]["lines"], [8])
         self.assertEqual(comps["[Front]"]["lines"], [12])
         flows = {(f["from"], f["to"]): f["lines"] for s in forms.values()
                  for f in s.get("flows", []) + s.get("interface", [])}
         self.assertEqual(flows[("(Shopper)", "[Api]")], [7])
-        self.assertEqual(flows[("[Api]", "Ledger")], [8])
+        self.assertEqual(flows[("[Api]", "[[Ledger]]")], [8])
         self.assertEqual(flows[("[Front]", "[Back]")], [12])
         for f in comps["[Api]"]["interface"]:
             self.assertTrue(f["lines"])
 
 
 class Attrs(Tmp):
+    def test_a_dialect_glyph_keeps_its_brackets(self):
+        model = em.build_model(SPEC, "shop", dialects.load(str(PROBE)))
+        self.assertEqual(model.components["Ledger_ref"].glyph, "[[Ledger]]")
+
     def test_a_dialect_glyphs_attrs(self):
         comps = self.components(self.export())
-        self.assertEqual(comps["Ledger"]["kind"], "ref")
-        self.assertEqual(comps["Ledger"]["attrs"], {"pinned": True, "tags": ["a", "b"]})
+        self.assertEqual(comps["[[Ledger]]"]["kind"], "ref")
+        self.assertEqual(comps["[[Ledger]]"]["attrs"], {"pinned": True, "tags": ["a", "b"]})
         self.assertNotIn("attrs", comps["[Api]"])
 
     def test_attrs_are_in_the_body_hash(self):

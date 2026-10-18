@@ -1,7 +1,7 @@
 """The `sigil` command: one entry point, a subcommand per tool.
 
     sigil lint FILE|- [--deep] [--dialect D]
-    sigil check [FILE|-] [--mode M] [--k N] [--budget N] [--overlaps …] [--json] [--export] [--rules]
+    sigil check [FILE|-] [--mode M] [--k N] [--budget N] [--limit NAME=N] [--overlaps …] [--json] [--export] [--rules]
     sigil view FILE [--once] [--graph|--tree|--flow|--run] [--sim S] …
     sigil export SPEC --out DIR [--name NAME] [--json] [--dry-run]
     sigil export FILE --mermaid [--depth N|all] [--composition subgraphs|edges|none]
@@ -519,6 +519,8 @@ def _mermaid(argv: list, dialect) -> int:
     _name_flag(ap, " (with --spine)")
     _dialect_flag(ap, dialect)
     a = ap.parse_args(argv)
+    if a.name is not None and not a.spine:
+        ap.error("--name names the top system of --spine; plain --mermaid has none")
     try:
         loaded = load_dialect(a.dialect)
     except ValueError as exc:
