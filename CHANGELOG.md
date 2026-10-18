@@ -2,6 +2,89 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
+## 0.6.1 — unreleased
+
+The export carries what a consumer needs to build and track work without reading
+the spec again: hashes per component, the dialect's declarations and version, and
+the spec lines behind every component and flow. The multiplex viewer can open in a
+tab, and a check cut short by a simulator limit says which flag raises it. Nothing
+else that the tools print changes.
+
+### Export
+
+- **Hashes per component.** Every component in `system.json` has
+  `hashes: {interface, body}`: the interface covers its flows in and out with their
+  modifiers, the body its whole form (kind, home, the other systems it is written
+  in, description, interface, requirements, lifecycle, a dialect's attributes).
+  Every system in `manifest.json` gains `component_hashes: {glyph: {interface,
+  body}}`, in the order of its `components`. A component is the unit a builder works
+  on, so it is the unit that goes stale.
+- **`#&` declarations are exported.** Each system's `system.json` lists the
+  `#& name …` declarations of its scope as `declarations: [{name, body, line}]`
+  (top level and alias bodies on the top system, an expansion's body on that
+  system), the body as written. The body is part of the system's body hash; no
+  interface or component hash changes. A dialect's settings reach whoever builds
+  without reading the spec.
+- **`sigil export SPEC --out DIR --name NAME`** names the top system (default: the
+  file's stem, as before); `--mermaid --spine` takes `--name` too, and a blank name
+  is refused. The top system's name no longer enters any hash, so renaming the spec
+  moves none. This changes the top system's body hash of every existing export once
+  (07-export's: `23efe2ea06bd3482` → `75979ceff2c70e06`); the other systems' hashes
+  are unchanged.
+- **`delta.json` on every export.** A first export writes one too, with
+  `"from": null` and every system `added`, so a reader always finds one. Its shape
+  and the delta's printed lines are unchanged.
+- **The dialect is recorded.** With a dialect loaded, `manifest.json` gains
+  `dialect: {name, version}` (between `spec_hash` and `systems`); `version` is the
+  dialect module's `VERSION` as text, left out when it defines none. With no
+  dialect the key is absent, so a core export's manifest keeps its shape.
+- **Source lines.** Every component and every flow in `system.json` (the system's
+  interface, the flows inside it, each component's interface) carries `lines`, the
+  1-based spec lines that write it. No hash reads them.
+- **A dialect's node attributes.** What a dialect's tokenizer puts in `Node.attrs`
+  is exported as the component's `attrs` (JSON-safe: a tuple as a list, a set as a
+  sorted list, anything else as its text), and enters its body hash. Core glyphs
+  carry none.
+- **Only differing files are written.** Each export file is written only when its
+  content differs, inside a changed system folder too (before, a changed system's
+  folder was rewritten whole). A reformat that moves lines now rewrites the
+  `system.json` files whose `lines` moved (with the index, the manifest and
+  `delta.json`, as before) and no component file.
+
+### Check
+
+- **SGC090 names the flag.** When a run is cut by a simulator limit, or stops
+  spawning or looping at one, the fix reads `run with a larger frames limit
+  (--limit frames=N)` (depth, spawns, … likewise), where it said `run with larger
+  limits` or `run with a larger spawns limit`; when
+  a check runs out of runs it says `run with a larger budget (--budget N), or a
+  smaller --k`. `sigil check --limit NAME=N` (there since 0.6.0) reaches every run
+  check makes and the scenario list it draws them from: failure scenarios are
+  listed at any limits, and overlap scenarios appear once the happy run is allowed
+  to reach their start.
+
+### Viewer plugins
+
+- **`placement`: `split` or `tab`.** A new plugin option says where the multiplex
+  display opens `sigil view`: `split` (the default, a split to the right, as
+  before) or `tab`, a tab of its own labelled `sigil view` that does not take the
+  focus where the multiplexer allows (a herdr tab in the session's workspace, a
+  tmux window, a zellij tab). `/sigil-pane placement [split|tab]` says or sets it
+  (Claude Code: the `/config sigil.placement` row; pi: `viewer.json`, or
+  `--sigil-placement` / `SIGIL_PLACEMENT` for one session). Multiplex replies name
+  the placement (`Opened a herdr tab running sigil view live …`); for `split` they
+  read as before. An open view is reused only while its placement matches.
+
+### Docs
+
+- `language.md` "Ready to export" says how descriptions are read: a header comment
+  with no blank line after it describes the first statement's node, not the
+  document. It also lists what the export records.
+- `docs/tools.md` gives the full `manifest.json` and `system.json` schema and the
+  `--name` flag, and `sigil/core/dialects.py` documents `VERSION`, `Node.attrs` as
+  exported, and that `KNOWN_MODIFIERS` / `DEFERRED_MODIFIERS` entries are written
+  with their `@` (`{"@at"}`).
+
 ## 0.6.0 — 2026-10-18
 
 One command instead of seven scripts, Mermaid as an export with a new chart grouped

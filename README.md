@@ -391,10 +391,10 @@ Once a design is final, `sigil export` hands it to whoever builds it: a folder p
 system, a Markdown file per component (kind, description, interface, requirements,
 lifecycle), and `manifest.json`, the contract. Systems come from the design itself,
 no new syntax: each `X := { … }` expansion, each composition-tree root, and the top
-level (named after the file). Only a ready spec exports: its mode line is `#!spec`,
-lint finds no error, and `sigil check --export` leaves no error or warning
-unacknowledged. Otherwise `sigil export` prints what blocks it, exits 2 and writes
-nothing. Here the shop in
+level (named after the file, or `--name NAME`). Only a ready spec exports: its mode
+line is `#!spec`, lint finds no error, and `sigil check --export` leaves no error or
+warning unacknowledged. Otherwise `sigil export` prints what blocks it, exits 2 and
+writes nothing. Here the shop in
 [`examples/export.sigil`](https://no-tably.github.io/sigil/examples/export.sigil),
 saved as `shop.sigil`:
 
@@ -404,7 +404,8 @@ sigil export shop.sigil --out build
 
 ```
 build/
-  manifest.json      per system: interface hash, body hash, components, depends_on
+  manifest.json      per system: interface hash, body hash, components (each with its two hashes), depends_on
+  delta.json         what changed since the last export (the first: every system added)
   README.md          the index: systems and what each depends on
   shop/              the top level: (Shopper), [Storefront], <OrderPlaced>, …
   catalog/           the [Catalog] tree: README.md, listings.md, prices.md, system.json
@@ -413,9 +414,10 @@ build/
   warehouse/
 ```
 
-Each system has two hashes: the **interface** (the flows that cross its boundary,
-with their payloads and returns) and the **body** (everything in it). Reformatting
-or reordering the spec moves neither. Export again into the same folder after an
+Each system, and each component in it, has two hashes: the **interface** (the
+flows that cross its boundary, with their payloads and returns) and the **body**
+(everything in it). Reformatting, reordering or renaming the spec moves neither;
+`system.json` also gives every component and flow its spec `lines`. Export again into the same folder after an
 edit, and `sigil export` compares with the manifest already there, rewrites only what
 changed and writes `delta.json`. Here `[Stock]`'s reprice call now returns a
 `{Price}`:

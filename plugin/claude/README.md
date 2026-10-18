@@ -13,8 +13,8 @@ the engine refuses the hooks module.
 
 ```
 hooks/hooks.json     names the hooks module
-hooks/sigil.tsx      the tool, /sigil-pane, the pane, the file watch, playback, the split
-hooks/logic.ts       the pure half: requests, argv, the display and layout choices, cell packing
+hooks/sigil.tsx      the tool, /sigil-pane, the pane, the file watch, playback, the split or tab
+hooks/logic.ts       the pure half: requests, argv, the display, layout and placement choices, cell packing
 types/index.d.ts     the session state the pane draws from (PluginState)
 tests/*.test.ts      run by `claude plugin test`
 ```
@@ -29,10 +29,15 @@ too. Writing the glyph as `?` would keep the Raster but lose the character, so
 those rows stay text until the engine's Raster takes wide cells.
 
 `/sigil` is the skill's own command, so the mod's command is `/sigil-pane`.
-`/sigil-pane display [mod|multiplex|auto]` says or sets where it draws, and
-`/sigil-pane layout [auto|wrap|pan]` how a wide drawing fits: each writes the
-plugin's own `/config` row (`<plugin>.display`, `<plugin>.layout`) with
-`$.config.set`, which reloads the module with the new option. It follows the
+`/sigil-pane display [mod|multiplex|auto]` says or sets where it draws,
+`/sigil-pane layout [auto|wrap|pan]` how a wide drawing fits, and
+`/sigil-pane placement [split|tab]` whether `multiplex` opens the view in a split
+to the right (`split`, the default) or in a tab of its own labelled `sigil view`
+(`tab`: a herdr tab in the session's workspace, a tmux window, a zellij tab, opened
+without taking the focus where the multiplexer allows). Each writes the plugin's
+own `/config` row (`<plugin>.display`, `<plugin>.layout`, `<plugin>.placement`)
+with `$.config.set`, which reloads the module with the new option. An open split
+or tab is reused only while its placement matches the option. It follows the
 [viewer plugin contract](../../docs/tools.md#the-viewer-plugin-contract).
 
 ## Develop

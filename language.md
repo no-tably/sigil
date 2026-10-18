@@ -1064,7 +1064,8 @@ systems are read off the document; there is no syntax for them:
   body is no system, and a `state` machine is its owner's lifecycle, not a system;
 - every composition-tree root (a glyph with `\-` branches) is a system holding its
   tree;
-- every other node is in the **top** system, named after the file.
+- every other node is in the **top** system, named after the file (`--name NAME`
+  names it otherwise; no hash depends on that name, so renaming the spec moves none).
 
 The node a system is named after (the expansion's owner, the tree's root) stands for
 the system where it is written: a flow into `[Checkout]` at the top level is a flow
@@ -1073,6 +1074,25 @@ the systems it is written in, the one that encloses all the others (written at t
 top level and in an expansion, it lives at the top level). A system's **boundary**
 is the flows with exactly one end in it; its **interface** is those flows, with their
 payloads and returns. System A depends on B when a flow leaves A for B.
+
+**Descriptions** are the document's `#` comments, read as the drawing reads its
+notes:
+
+- a comment on the lines right above a statement, with no blank line between,
+  describes that statement's first node. At the top of the document this is easy to
+  miss: a header comment with no blank line after it describes the first statement's
+  node, not the document;
+- a header comment followed by a blank line describes the top system;
+- a comment at the end of a line describes that line's first node;
+- a comment above an expansion `X := {` describes both the node `X` and the
+  system `X`; a comment set apart by blank lines elsewhere describes nothing.
+
+So in a spec that opens `# one storefront, one checkout`, a blank line,
+`# the browser's door`, then `[Web] -> [Api] : get({Id}) => {Page}   # read-only`,
+the top system's description is "one storefront, one checkout" and `[Web]`'s is
+"the browser's door" and "read-only". Without the blank line, the two comments
+above `[Web]` run together as one description of `[Web]`, and the top system has
+none.
 
 ```
 [Shop] -> [Billing] : charge({Order}) => {Receipt}   # crosses into Billing: a typed contract
@@ -1098,6 +1118,21 @@ other check output changes:
 Both are resolved like any finding: declare it, or acknowledge it
 (`# accepts: untyped-boundary — a status code only, no body`). Exporting also needs
 lint clean and no other error or warning left unacknowledged.
+
+**What the export records.** Each system and each component has two hashes: an
+**interface** hash (a system's boundary flows; a component's flows in and out, with
+their modifiers) and a **body** hash (everything in it: for a component its kind,
+home, description, interface, requirements, lifecycle and a dialect's attributes).
+Line numbers, whitespace, statement order and the top system's name enter neither, so
+reformatting, reordering or renaming the spec moves no hash; a changed payload,
+modifier, description or state does. Every component and every flow also carries
+`lines`, the spec lines that write it, for jumping back to the source. A `#& name …`
+declaration (see "Dialects") goes to the system whose scope holds it, the top system
+for one at the top level or in an alias body, an expansion's system for one in its
+body, as `{name, body, line}`, its body in that system's body hash; a dialect's own
+node attributes (`Node.attrs`) go on their component as `attrs`; and the manifest
+names the dialect the spec was read with (its name, and its version when it gives
+one). The field-by-field schema is in [`docs/tools.md`](./docs/tools.md).
 
 ---
 
@@ -1172,7 +1207,8 @@ no rule reads and the model does not draw. What the name means is the dialect's:
 it lists the names it declares (the `DECLARATIONS` hook), and lint warns
 (`SGL189`) on a `#&` name no loaded dialect declares. Like `#=` (see "Checks"),
 the marker is reserved by the core; a `#&` after code on a line is erased like a
-comment and makes no note.
+comment and makes no note. `sigil export` hands each declaration on, its body as
+written, in the system whose scope holds it (see "Ready to export").
 
 The dialect's own document is the authority on its vocabulary; it names the core
 sections it extends. A dialect's grammar is an **addendum** to the core formal

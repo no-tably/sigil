@@ -66,7 +66,7 @@ library only. Write the document to a file (e.g. `/tmp/doc.sigil`) first; `sigil
 | Walk one pathway | `python3 scripts/bin/sigil view FILE --once --tree --sim SCENARIO` | the run's last frame over the drawing (`✕` failed, `◉` a machine's state, wires taken vs never taken), then `sim NAME (label): ok\|failed\|cut · N frames` and the run in plain words, one `tNNN …` line per step (`[API] calls [Payments] with charge(total) — attempt 2 of 4`, `[API] routes the failure to <PaymentFailed>`); exit 2 for an unknown scenario, listing the known ones. `--sim SCENARIO --json` (no drawing): the run's facts, `steps` [{frame, tick, text}] and the raw `log` |
 | Mark the findings | `python3 scripts/bin/sigil view FILE --once --checks [--tree]` | the check findings marked on the drawing, a checks legend, then each finding's question after lint |
 | Show it to the user | the plugin's viewer tool — Claude Code: `view` (`mcp__sigil__view`); pi: `sigil_view` — with `file`, `view` graph\|tree\|flow\|run, `depth`, `scenario`, `frame` N\|last, `play` | a live viewer the user watches (a pane or widget, or a herdr / tmux / zellij split) that redraws on every save; the reply gives the summary, lint and the run's step at that frame (`now:` the narration line, `path:` the hops so far, by branch), never the drawing. See **Showing the user** |
-| Export a ready spec | `python3 scripts/bin/sigil export FILE --out DIR [--dry-run] [--json]` | a `#!spec` document that lints and checks clean (with `--export`) written as a build skeleton: a folder per system, a `.md` per component, `manifest.json` (per system: interface and body hash, components, depends_on); a re-export prints and writes the delta (`added` / `removed` / `rebuild` / `recheck` / `unchanged`); not ready → the blocking lines, exit 2, nothing written. See **export** |
+| Export a ready spec | `python3 scripts/bin/sigil export FILE --out DIR [--name NAME] [--dry-run] [--json]` | a `#!spec` document that lints and checks clean (with `--export`) written as a build skeleton: a folder per system, a `.md` per component, `manifest.json` (per system: interface and body hash, components, each component's two hashes, depends_on; the dialect, when one is loaded); `--name` names the top system (default: the file's stem); every export writes `delta.json`, and a re-export prints the delta (`added` / `removed` / `rebuild` / `recheck` / `unchanged`); not ready → the blocking lines, exit 2, nothing written. See **export** |
 | Mermaid diagram | `python3 scripts/bin/sigil export FILE --mermaid [--depth N\|all] [--composition subgraphs\|edges\|none] [--spine]` | `flowchart TD` source, in any mode (no gate; for docs or review); present it in a fenced `mermaid` block. Composition trees draw as subgraphs by default; `--spine` draws a subgraph per system the export would make |
 
 `--depth 0` shows the top level only, `1` (default) opens direct `:=` expansions,
@@ -317,8 +317,10 @@ unacknowledged. The tool enforces that gate itself.
    system boundary with no payload, or a call across one with no `=> return`).
    Resolve them as any finding — ask the user, then declare or acknowledge; never
    reshape. Systems are each `X := { … }` expansion, each composition-tree root,
-   and the top level (named after the file); "Ready to export" in
-   `references/language.md` has the rules.
+   and the top level (named after the file, or `--name NAME`); "Ready to export" in
+   `references/language.md` has the rules. Descriptions come from the `#` comments:
+   a header comment needs a blank line after it to describe the top system, or it
+   describes the first statement's node.
 2. `python3 scripts/bin/sigil export FILE --out DIR`. If it exits 2 it prints what blocks
    it (lint errors, findings, a non-spec mode line) and writes nothing; take those
    back to the user like any finding.
@@ -326,10 +328,15 @@ unacknowledged. The tool enforces that gate itself.
    description, interface, requirements, lifecycle, as the spec states them —
    no target-language types), `system.json` the same as data, `README.md` the
    index. **`manifest.json` is the contract**: per system its interface hash (the
-   flows across its boundary), body hash (everything in it), components and
-   depends_on. It is written last, so a folder without it is no finished export.
+   flows across its boundary), body hash (everything in it), components, each
+   component's interface and body hash, and depends_on; with a dialect loaded, the
+   dialect's name and version. `system.json` adds each component's and flow's spec
+   `lines` and the system's `#&` declarations. No hash reads line numbers or the
+   top system's name. The manifest is written last, so a folder without it is no
+   finished export.
 4. After the spec changes, export again into the same DIR (`--dry-run` first to
-   preview). The delta (printed, and in `delta.json`; `--json` for data) is the work
+   preview). The delta (printed, and in `delta.json`, which every export writes; a
+   first export lists every system as `added`; `--json` for data) is the work
    to redo: `rebuild` systems changed inside; `recheck` systems are unchanged but
    depend on one whose interface moved, so their calls into it need a second look;
    `added` / `removed` are new or gone; `unchanged` need nothing. Reformatting or

@@ -10,11 +10,11 @@ the file's stem names the top system. The [README](../README.md) has the overvie
 
 ```
 sigil lint FILE|- [--deep] [--dialect D]
-sigil check [FILE|-] [--mode M] [--k N] [--budget N] [--overlaps …] [--json] [--export] [--rules]
+sigil check [FILE|-] [--mode M] [--k N] [--budget N] [--limit NAME=N] [--overlaps …] [--json] [--export] [--rules]
 sigil view FILE [--once] [--graph|--tree|--flow|--run] [--sim S] …
-sigil export SPEC --out DIR [--json] [--dry-run]
+sigil export SPEC --out DIR [--name NAME] [--json] [--dry-run]
 sigil export FILE --mermaid [--depth N|all] [--composition subgraphs|edges|none]
-sigil export FILE --mermaid --spine
+sigil export FILE --mermaid --spine [--name NAME]
 sigil frames draw FILE [--view V] [--depth N|all] [--width N] [--scenario S] …
 sigil frames follow CONTROL
 sigil themes [NAME|PATH] [--list]
@@ -98,7 +98,14 @@ binding rules errors. The line format and [exit codes](#exit-codes) match lint.
   entry's episode; see [Runs that overlap](../README.md#runs-that-overlap)), so a
   race between two entries is found and its witness names the `Entry@t` run.
   `--limit NAME=N` raises one simulator limit (repeatable, e.g. `depth=5`;
-  `window=N` the start ticks tried per pair of entries, 64).
+  `window=N` the start ticks tried per pair of entries, 64), as `sigil view
+  --limit` does: every run check makes, and the scenario list it draws them from,
+  use the raised limits. When a run is cut short by a limit, SGC090's fix names the
+  flag (`run with a larger frames limit (--limit frames=N)`), and a check that ran
+  out of budget names `--budget N`. Failure scenarios come from the design alone and
+  are listed at any limits; an overlap scenario needs the happy run to reach its
+  start tick, so a long happy run cut at the default `frames` lists its overlaps only
+  with `--limit frames=N` raised.
 - `--overlaps off|listed|all|N` says which overlap runs to make. `off` makes none,
   and `listed` makes the listed `Entry@t` runs, alone and with each failure. `all`
   makes those, then every start tick, and `N` is `all` but at most N runs. The
@@ -132,11 +139,16 @@ no error and no warning unacknowledged; info findings are fine. Otherwise
 export" in [`language.md`](../language.md)): every `X := { … }` expansion is a
 system named `X` (a nested one is its own system, and its parent depends on it),
 every composition-tree root is a system holding its tree, and every other node is in
-the top system, named after the spec file's stem. Each component has one **home**.
+the top system, named after the spec file's stem (or `--name`). Each component has
+one **home**.
 
 - `--out DIR` the export folder, made when missing. It must be empty or hold an
   earlier export (a `manifest.json`); `sigil export` never writes over a folder it did
   not make.
+- `--name NAME` names the top system (and its folder) instead of the file's stem. No
+  hash depends on the top system's name, so renaming the spec, or exporting it under
+  another name, moves no hash; the systems' keys in the manifest and the delta do
+  follow it. A blank name is refused (exit 2). `--mermaid --spine` takes it too.
 - `--dry-run` prints the delta and writes nothing.
 - `--json` prints the delta as JSON instead of the summary in words.
 - `--dialect NAME` loads a dialect, as `lint`, `check` and `view` do.
@@ -150,7 +162,8 @@ ready to export or bad input (an unreadable spec, an unknown dialect, a folder
 ```
 DIR/
   manifest.json            the contract, written last (temp file, then renamed)
-  delta.json               on a re-export: what changed since the manifest before
+  delta.json               what changed since the manifest before (on a first
+                           export: every system added)
   README.md                the index: systems, what each depends on
   <system>/README.md       the system: description, components, boundary, deps
   <system>/<component>.md  kind, description, interface, requirements, lifecycle
@@ -165,15 +178,59 @@ call's policy); its **requirements** (the modifiers on it, the access it is gran
 and every `# accepts:` acknowledgement covering it, verbatim); its **lifecycle** (its
 state machine, when it has one). No target-language types.
 
-**`manifest.json`**: `{"sigil_export": 1, "spec": <file name>, "spec_hash": …,
-"systems": {name: {"path", "interface", "body", "components", "depends_on"}}}`.
+**`manifest.json`**:
+
+```
+{"sigil_export": 1, "spec": <file name>, "spec_hash": …,
+ "dialect": {"name": …, "version": …},
+ "systems": {name: {"path", "interface", "body", "components", "depends_on",
+                    "component_hashes": {glyph: {"interface", "body"}}}}}
+```
+
+`spec_hash` is the hash of the spec file's text as written (so a reformat moves it).
+`dialect` is there only when a dialect was loaded: its `NAME`, and its `VERSION`
+(as text) when the dialect module defines one; with no dialect the key is absent.
 `path` is the system's folder, `components` its glyphs, `depends_on` the systems
-its flows reach (and the ones nested in it). `interface` is the hash of the flows
-that cross the system's boundary, with their payloads and returns; `body` the hash
-of everything in it, interface included. Both are sha256 over a normalised JSON
-form, first 16 hex digits: reformatting or reordering the spec changes neither;
-changing a payload, a modifier, a description or a state does. The manifest's
-hashes are the truth; written last, it is what marks a finished export.
+its flows reach (and the ones nested in it), `component_hashes` each component's
+two hashes, in the order of `components`.
+
+**The hashes.** A system's `interface` is the hash of the flows that cross its
+boundary, with their payloads and returns; its `body` the hash of everything in it:
+interface, members, internal flows, control blocks, descriptions and its `#&`
+declarations. A component's `interface` covers its flows in and out, with their
+modifiers; its `body` its whole form: kind, home, the other systems it is written
+in, a dialect's `attrs`, description, interface, requirements and lifecycle. A
+component's hashes enter no system's hash (both are read off the same form). All
+are sha256 over a normalised JSON form, first 16 hex digits. No line number,
+whitespace, statement order or top system name enters any of them, so reformatting,
+reordering or renaming the spec changes none; changing a payload, a modifier, a
+description, a state or a declaration's body does (a declaration's body is kept as
+written, so even its spacing counts). The manifest's hashes are the truth; written
+last, it is what marks a finished export.
+
+**`system.json`** is the system's normalised form: `name`, `kind` (`top`,
+`expansion` or `tree`), `face` (the glyph the system is named after), `parent`,
+`depends_on`, `description`, `interface` and `flows` (the flows inside), `blocks`,
+`components`, `accepts` (the acknowledgements on it), `declarations` and `hashes`
+(`{"interface", "body"}`). Keys with no value are left out. A flow holds `from` and
+`to` (in a component's `interface`: `dir` `out`/`in`/`self` and `peer`), `arrow`,
+`mode` (`sync`, `async`, …), `payload`, `op`, `returns`, `mods` and the rest as the
+spec writes them, and `lines`. A component holds `name`, `kind`, `glyph`, `home`,
+`also_in`, `attrs`, `description`, `interface`, `requirements`, `lifecycle`,
+`lines` and `hashes`.
+
+- `lines` are the 1-based lines of the spec that write a flow or a component, to
+  jump back to the source. No hash reads them.
+- `declarations` are the `#& name …` lines (see "Dialects" in
+  [`language.md`](../language.md)) of the system's scope, as `{"name", "body",
+  "line"}`: one at the top level or in an alias body goes to the top system, one in
+  an expansion's body to that system. `body` is the text as written: the inner
+  lines of a `{ … }` block, the text between the braces of a one-line block, or the
+  text after the name when there is no block. A dialect's `DECLARATION_BLOCKS`
+  openers are not exported.
+- `attrs` is what a dialect's tokenizer put on the glyph's node (`Node.attrs`),
+  only when there is some: values as JSON holds them (a tuple as a list, a set as a
+  sorted list, anything else as its text). Core glyphs never carry any.
 
 **Re-export and the delta.** Before writing, `sigil export` reads the manifest already
 in DIR and sorts every system into one list:
@@ -190,12 +247,15 @@ in DIR and sorts every system into one list:
 spec_hash>, "added", "removed", "rebuild", "recheck", "unchanged", "systems": {name:
 {"status", "old", "new", "because"?}}}`, where `old` / `new` are `{"interface",
 "body"}` (or null) and `because` lists, for a recheck, the systems whose interface
-changed. Only files whose content changed are written, so an unchanged system's
-files are left alone. A system folder may also hold a builder's own files:
+changed. Each file is written only when its content changed, so an unchanged
+system's files are left alone, and in a changed system only the files that differ
+are rewritten. A reformat that moves lines rewrites the `system.json` files whose
+`lines` moved (with the index `README.md`, `manifest.json` and `delta.json`), and no
+component file. A system folder may also hold a builder's own files:
 `sigil export` deletes or compares only the files an earlier export wrote (the names
-in its manifest), and a removed system's folder stays while it holds others. A first
-export writes no `delta.json`; `--json` and `--dry-run` then list every system as
-`added`. The delta is a hint; the manifest's hashes stay the truth.
+in its manifest), and a removed system's folder stays while it holds others. Every
+export writes `delta.json`; a first export's has `"from": null` and lists every
+system as `added`. The delta is a hint; the manifest's hashes stay the truth.
 
 ## `sigil view FILE`
 
@@ -469,8 +529,9 @@ outcome, and the scenario names. It never returns the drawing:
 `/sigil-pane` takes the same fields as words, in any order: `FILE`, a view name,
 `depth N|all`, `sim SCENARIO`, `frame N|last`, `play` and `payloads`. With no
 words it reopens the pane. `/sigil-pane display [mod|multiplex|auto]` says or sets
-where it draws, and `/sigil-pane layout [auto|wrap|pan]` how a drawing wider than
-the pane fits (see [the viewer plugin contract](#the-viewer-plugin-contract)).
+where it draws, `/sigil-pane layout [auto|wrap|pan]` how a drawing wider than
+the pane fits, and `/sigil-pane placement [split|tab]` whether a multiplexer opens
+it in a split or a tab (see [the viewer plugin contract](#the-viewer-plugin-contract)).
 `layout` is the plugin option of that name, a `/config` row as `display` is; in a
 split it is `sigil view`'s `--layout`. Panned, a drawing wider than the pane shows its
 `h` and `l` keys (`◀` `▶`), which move it half a pane across.
@@ -499,7 +560,15 @@ the new value and the next view draws there.
 - `multiplex` opens a split to the right in herdr, tmux or zellij, running
   `sigil frames follow CONTROL`. That loop runs `sigil view` live with the flags in the
   control file and restarts it each time the agent's next call rewrites the file.
-  Pressing `q` in the split closes it. A run starts where the agent asked: the
+  Pressing `q` in the split closes it. With the plugin option `placement` set to
+  `tab` (`/sigil-pane placement tab`, or `/config sigil.placement=tab`) it opens in
+  a tab of its own instead, labelled `sigil view`, without taking the focus where the
+  multiplexer allows: a herdr tab in this session's workspace (`herdr tab create
+  --no-focus`, then the follow line run in its pane), a tmux window (`new-window
+  -d`) or a zellij tab (`action new-tab` with a layout of one pane running the follow
+  line, closed when it exits). `split`, the default, is the split to the right. An
+  open view is reused only while the multiplexer and the placement are the same, so
+  after switching, the next view opens the new way. A run starts where the agent asked: the
   file's flags carry `frame` and `play` as `sigil view`'s `--frame` and `--play` (a run
   with neither starts on its last frame, as in the pane), and the reply reads the
   run at that frame. From there the split's own keys drive it.
@@ -526,12 +595,15 @@ Claude Code, with these differences:
   as the viewer's keys, shown in the status line), `left` and `right`, which pan a
   panned drawing half a widget across, and `close`. With no words it
   reopens the widget.
-- `multiplex` opens the same split, running `sigil frames follow`.
-- pi has no plugin settings, so `/sigil-pane display VALUE` and `/sigil-pane layout
-  VALUE` save to the shared settings file (`~/.config/sigil/viewer.json`). For one
-  session, `pi --sigil-display auto|mod|multiplex` or the `SIGIL_DISPLAY`
-  environment variable wins over the file (`--sigil-layout`, `SIGIL_LAYOUT` for the
-  layout); with none of them set it's `auto`.
+- `multiplex` opens the same split (or, with `placement` `tab`, the same tab),
+  running `sigil frames follow`.
+- pi has no plugin settings, so `/sigil-pane display VALUE`, `/sigil-pane layout
+  VALUE` and `/sigil-pane placement VALUE` save to the shared settings file
+  (`~/.config/sigil/viewer.json`). For one session, `pi --sigil-display
+  auto|mod|multiplex` or the `SIGIL_DISPLAY` environment variable wins over the file
+  (`--sigil-layout`, `SIGIL_LAYOUT` for the layout; `--sigil-placement split|tab`,
+  `SIGIL_PLACEMENT` for the placement); with none of them set it's `auto` (`split`
+  for the placement).
 - In print and json modes (`-p`, `--mode json`) there's no UI. The `mod` reply
   says so and points to `sigil view --once`. In RPC mode (stdout is pi's JSON
   channel, not a terminal) pi sends clients only plain-text widgets, so the widget
@@ -557,19 +629,24 @@ finds the same command and the same words.
   the viewer's columns and rows). The reply says what the drawing shown was laid
   out as under `auto`. `layout` is never read as a file name either. A split
   passes it to `sigil view` as `--layout`.
+- **`/sigil-pane placement`** and **`/sigil-pane placement VALUE`** do the same for
+  where `multiplex` opens the view: `split` (the default) a split to the right of
+  the session, `tab` a tab of its own labelled `sigil view` (a herdr tab, a tmux
+  window, a zellij tab). It changes nothing for `mod`.
 - **The values**: `mod` draws inside the agent's own UI (a pane, a widget),
   `multiplex` opens a split to the right running `sigil view` live (through
   `sigil frames follow`), and `auto` picks `multiplex` when `HERDR_ENV`, `TMUX` or
   `ZELLIJ` is set, and `mod` otherwise. `resolveDisplay` in
   `plugin/claude/hooks/logic.ts` is the rule; a plugin in TypeScript imports it.
 - **Where it's kept**: in the host's own settings when it has them (Claude
-  Code: the plugin's `userConfig` fields `display` and `layout`, `/config`
-  rows). A host without them uses the shared file
+  Code: the plugin's `userConfig` fields `display`, `layout` and `placement`,
+  `/config` rows). A host without them uses the shared file
   `$XDG_CONFIG_HOME/sigil/viewer.json` (`~/.config/sigil/viewer.json` when that's
-  unset), holding `{"display": "mod", "layout": "wrap"}`. It's read on each use,
-  and writing it keeps any other keys. A flag or environment variable the host
-  offers for one session (`--sigil-display`, `SIGIL_DISPLAY`; `--sigil-layout`,
-  `SIGIL_LAYOUT`) wins over the file, in that order.
+  unset), holding `{"display": "mod", "layout": "wrap", "placement": "tab"}`. It's
+  read on each use, and writing it keeps any other keys. A flag or environment
+  variable the host offers for one session (`--sigil-display`, `SIGIL_DISPLAY`;
+  `--sigil-layout`, `SIGIL_LAYOUT`; `--sigil-placement`, `SIGIL_PLACEMENT`) wins
+  over the file, in that order.
 - **The reply** (`displayReport` in `logic.ts`), one line:
 
   ```
@@ -585,6 +662,17 @@ finds the same command and the same words.
   layout: auto → pan (the drawing shown) · from /config sigil.layout
   layout: wrap · from SIGIL_LAYOUT
   ```
+
+  So is the placement reply (`placementReport`); after a change its second line
+  says how the next view in a multiplexer opens:
+
+  ```
+  placement: tab · from /config sigil.placement
+  The next view in a multiplexer opens in a tab of its own.
+  ```
+
+  A multiplex reply names the placement: `Opened a herdr tab running sigil view
+  live …`, `Shown in the tmux split …`.
 
 ## OpenCode
 
@@ -666,6 +754,12 @@ The other hooks keep their names: `lint_passes()`, `lint_payload_checks()` (its
 `site` also says `branch`, true on a composition-branch statement), the data hooks
 (`KNOWN_MODIFIERS`, `DECLARATION_BLOCKS`, `BLOCK_KEYWORDS`, `COMPOSITION_RELATIONS`,
 …) and the check hooks; a `#&` declaration needs no `DECLARATION_BLOCKS` entry.
+`KNOWN_MODIFIERS` and `DEFERRED_MODIFIERS` entries are written with their `@`
+(`{"@at"}` for `@at(…)`); a bare `"at"` matches nothing, and `@at` still draws
+SGL040. Two more attributes reach `sigil export`: an optional `VERSION`, recorded
+as the manifest's `dialect.version` (as text), and the `Node.attrs` a tokenizer puts
+on a glyph, written as its component's `attrs` (so keep them JSON-like; anything
+else is written as its text).
 The 0.5 hooks are refused by name: a dialect that still defines `lint_prepasses` or `render_prepasses` (now `prepasses`),
 `render_line_strips` (now `strips`), `render_tokenizers`, `lint_glyph_masks` or
 `lint_principal_scanners` (now `tokenizers`) fails to load with an error naming the

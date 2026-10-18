@@ -56,6 +56,10 @@ upper-case attributes are data.
 
   NAME: str
       The dialect's name (defaults to the name it was loaded by).
+  VERSION: str (or anything with a str())
+      The dialect's own version, optional. `sigil export` records it, as text,
+      in the manifest's `dialect` entry ({"name": NAME, "version": VERSION});
+      without it the entry holds the name alone.
 
   -- the reading (one hook set: the statement walk, its tokenizer, the parser
      and lint all read through these) ------------------------------------
@@ -88,7 +92,12 @@ upper-case attributes are data.
       and its name (generics and inputs dropped, the part before a `.`) a
       principal an `@read` / `@write` list may name. Its columns show as
       DIALECT_COL in a statement's Code, so text-reading rules never read its
-      brackets. Dialect-specific node metadata goes in `Node.attrs`.
+      brackets. Dialect-specific node metadata goes in `Node.attrs`; `sigil
+      export` writes it as the component's `attrs` (in its body hash), so keep
+      it JSON-like: str, int, float, bool, None, lists, tuples (written as
+      lists), sets (sorted lists) and dicts of those (keys as text); any other
+      value is written as its str(). When two instances of one glyph give the
+      same attribute, the first instance's value is kept.
   COMMENT_MARKERS: list[str]
       Extra comment markers (regex sources) besides core `#`, matched at line
       start or after whitespace and never inside a `"…"` string. A marker ends
@@ -98,12 +107,14 @@ upper-case attributes are data.
 
   -- lint ------------------------------------------------------------------
   KNOWN_MODIFIERS: set[str]
-      Modifiers added to the core allowlist. They are accepted silently and are
-      offered by the unknown-modifier diagnostic (SGL040) as a "Did you mean" or
-      "Known:" hint.
+      Modifiers added to the core allowlist, each written WITH its `@`
+      ({"@at"} for `@at(…)`; a bare "at" matches nothing, so `@at` still draws
+      SGL040). They are accepted silently and are offered by the
+      unknown-modifier diagnostic (SGL040) as a "Did you mean" or "Known:" hint.
   DEFERRED_MODIFIERS: set[str]
-      Modifiers the dialect validates ITSELF (placement rules etc.): the core
-      allowlist never reports them as unknown, and does not list them as known.
+      Modifiers the dialect validates ITSELF (placement rules etc.), written
+      with their `@` too ({"@owner"}): the core allowlist never reports them as
+      unknown, and does not list them as known.
   lint_passes() -> [fn(lines, result) -> None]
       Extra rules, run after the core rules on the document's lines (block
       strings folded, prepasses run).
