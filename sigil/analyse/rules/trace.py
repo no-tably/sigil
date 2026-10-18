@@ -1005,6 +1005,11 @@ def limits_text(limits, names: tuple) -> str:
     return "limits: " + ", ".join(f"{n}={getattr(limits, n)}" for n in names)
 
 
+def limit_fix(name: str) -> str:
+    """The fix for a run stopped at limit `name`: the flag that raises it."""
+    return f"run with a larger {name} limit (--limit {name}=N)"
+
+
 def first_line(doc) -> int:
     return doc.layout.first or 1
 
@@ -1043,7 +1048,7 @@ def budget_cause(ck):
                          f"The exploration budget left {short_unrun(ex)} unrun. "
                          "Is what it ran enough evidence?",
                          anchor=("document", "budget"),
-                         fix="run with a larger budget, or a smaller --k")
+                         fix="run with a larger budget (--budget N), or a smaller --k")
     return match
 
 
@@ -1078,7 +1083,7 @@ def cut_cause(ck):
                                 f"The simulator stopped {in_run(run)} at its {e['name']} "
                                 "limit. Is what it ran enough evidence?",
                                 anchor=("limit", e["name"]), at=e["t"],
-                                fix="run with larger limits")
+                                fix=limit_fix(e["name"]))
     return match
 
 
@@ -1098,7 +1103,7 @@ def spawn_cause(ck):
                                     f"The simulator stopped spawning `{g}` at its ceiling. "
                                     "Are that many instances enough evidence?",
                                     anchor=("node", e["node"]), at=e["t"],
-                                    fix="run with a larger spawns limit")
+                                    fix=limit_fix("spawns"))
     return match
 
 
@@ -1141,7 +1146,7 @@ def bound_cause(ck):
                                     f"The simulator ran `{g}` to {limit} {sim_n} of its "
                                     f"declared {n}. Is that enough evidence?",
                                     anchor=("node", e["node"]), at=e["t"],
-                                    fix=f"run with a larger {limit} limit")
+                                    fix=limit_fix(limit))
     return match
 
 
