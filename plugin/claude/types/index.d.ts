@@ -47,8 +47,9 @@ export type Drawing = {
 /** The run's playback: the frame of the run shown (the viewer's numbering) and whether it plays. */
 export type Playback = { at: number; isPlaying: boolean }
 
-/** The multiplexer split the mod drives, by the control file it writes. */
-export type Split = { mux: Mux; control: string; pane?: string }
+/** The multiplexer split (or tab: `placement`, left out for a split) the mod
+ * drives, by the control file it writes. */
+export type Split = { mux: Mux; control: string; pane?: string; placement?: 'split' | 'tab' }
 
 export type Mux = 'herdr' | 'tmux' | 'zellij'
 

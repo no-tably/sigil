@@ -1,8 +1,8 @@
 // The Sigil viewer inside pi: a `sigil_view` tool the agent calls and a
 // /sigil-pane command, drawing a document in a widget above the editor (`sigil frames`'
 // theme-coloured rows as truecolour text, redrawn on every save, a simulated
-// run stepped or played) or, in a multiplexer, in a split running `sigil view`
-// live. The display rule, the requests and the split commands are the Claude
+// run stepped or played) or, in a multiplexer, in a split (or tab) running
+// `sigil view` live. The display rule, the requests and the split commands are the Claude
 // Code mod's (logic.ts, copied beside this file by build.py). Nothing here
 // imports pi itself, so it loads in any pi that has extensions; the
 // repository's plugin/pi/README.md has the layout.
@@ -15,13 +15,14 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
-  DEFAULT_WIDTH, DISPLAYS, LAYOUTS, START_SPEED, SUPERSEDED, UNASKED_COLUMNS, VIEWS,
-  aheadFrom, askedFrame, cellWidth, cropRows, cutCells, glyphs, heldBy, detectMux, displayReport, drawArgv, drawnFrame, followArgv, frameIndex, frameMs, herdrPaneOf, herdrReadyArgv,
-  lastFrame, layoutReport, nextSpeed, panTo, parseCommandArgs, parseDisplayArgs, parseDrawing, parseLayoutArgs, parseRequest,
-  pickDisplay, pickLayout, playbackFor, playTick, replyText, resolveDisplay, runLines, shellQuote, slot, splitArgv,
-  splitStart, statusLine, viewArgv, windowFor, windowStart,
+  DEFAULT_WIDTH, DISPLAYS, LAYOUTS, PLACEMENTS, START_SPEED, SUPERSEDED, UNASKED_COLUMNS, VIEWS,
+  aheadFrom, askedFrame, cellWidth, cropRows, cutCells, glyphs, heldBy, detectMux, displayReport, drawArgv, drawnFrame, followArgv, frameIndex, frameMs,
+  herdrPaneGetArgv, herdrPaneOf, herdrReadyArgv, herdrWorkspaceOf,
+  lastFrame, layoutReport, nextSpeed, panTo, parseCommandArgs, parseDisplayArgs, parseDrawing, parseLayoutArgs, parsePlacementArgs, parseRequest,
+  pickDisplay, pickLayout, pickPlacement, placementReport, playbackFor, playTick, replyText, resolveDisplay, runLines, shellQuote, slot, splitArgv,
+  splitStart, statusLine, tabArgv, viewArgv, windowFor, windowStart, zellijLayout, zellijLayoutPath,
 } from './logic.ts'
-import type { Ahead, Asked, Display, DisplayChoice, LayoutChoice } from './logic.ts'
+import type { Ahead, Asked, Display, DisplayChoice, LayoutChoice, Placement } from './logic.ts'
 
 // The shapes this file uses (types/index.d.ts in plugin/claude has them all).
 type ViewRequest = { file: string; view: 'graph' | 'tree' | 'flow' | 'run'; depth: number; scenario?: string; payloads?: boolean }
@@ -35,7 +36,8 @@ type Drawing = {
   first?: number; last?: number // a run is drawn a window at a time: its frames first … first + frames.length - 1
 }
 type Playback = { at: number; isPlaying: boolean }
-type Split = { mux: 'herdr' | 'tmux' | 'zellij'; control: string; pane?: string }
+type Mux = 'herdr' | 'tmux' | 'zellij'
+type Split = { mux: Mux; control: string; pane?: string; placement: Placement }
 
 // The part of pi's extension API this uses, as its docs describe it.
 type ExecResult = { stdout: string; stderr: string; code: number }
@@ -65,11 +67,12 @@ export const COMMAND = 'sigil-pane' // matches the Claude Code mod, where /sigil
 export const WIDGET = 'sigil'
 export const FLAG = 'sigil-display'
 export const LAYOUT_FLAG = 'sigil-layout'
+export const PLACEMENT_FLAG = 'sigil-placement'
 const WATCH_MS = 1000 // how often the shown file is looked at
 const ALIVE_MS = 3000 // a split whose follow loop touched its file this recently is up
 const CHROME_ROWS = 14 // the editor, footer and some conversation the widget leaves room for
 const MIN_BODY_ROWS = 10
-const HINT = `/${COMMAND} graph|tree|flow|run · depth N|all · sim NAME · play · pause · back · next · - + speed · close · display · layout`
+const HINT = `/${COMMAND} graph|tree|flow|run · depth N|all · sim NAME · play · pause · back · next · - + speed · close · display · layout · placement`
 const PAN_HINT = `/${COMMAND} left · right: pan the drawing`   // while a panned one is wider than the widget
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -120,7 +123,7 @@ export function settingsPath(env: Record<string, string | undefined> = process.e
   return join(base, 'sigil', 'viewer.json')
 }
 
-/** A setting in the settings file (`display`, `layout`), or undefined (no
+/** A setting in the settings file (`display`, `layout`, `placement`), or undefined (no
  * file, not JSON, unset). */
 export function savedSetting(path: string, key: string): string | undefined {
   try {
@@ -298,6 +301,13 @@ export default function sigil(pi: Pi): void {
     ['SIGIL_LAYOUT', process.env.SIGIL_LAYOUT],
     [settingsPath(), savedSetting(settingsPath(), 'layout')],
   ], 'the default')
+  /** The placement setting by the same precedence: --sigil-placement,
+   * SIGIL_PLACEMENT, the settings file, else split. */
+  const placementSetting = () => pickPlacement([
+    [`--${PLACEMENT_FLAG}`, pi.getFlag(PLACEMENT_FLAG)],
+    ['SIGIL_PLACEMENT', process.env.SIGIL_PLACEMENT],
+    [settingsPath(), savedSetting(settingsPath(), 'placement')],
+  ], 'the default')
   /** What a redraw at `width` is for: the request, the layout, and (auto only)
    * the rows it picks by. */
   const drawKey = (req: ViewRequest, width: number) => {
@@ -318,6 +328,20 @@ export default function sigil(pi: Pi): void {
     }
     if (request !== null && tui !== null) await redraw(request, drawing?.width ?? columns())
     return `${said}\nThe next drawing is laid out ${choice === 'auto' ? 'as fits the widget best' : `to ${choice}`}.`
+  }
+
+  /** `/sigil-pane placement [VALUE]`: the setting in words, or saved to the file. */
+  async function placementCommand(choice: Placement | undefined): Promise<string> {
+    const now = placementSetting()
+    if (choice === undefined) return placementReport(now.choice, now.source)
+    const path = settingsPath()
+    await saveSetting(path, 'placement', choice)
+    const after = placementSetting()
+    const said = placementReport(choice, path)
+    if (after.source !== path) {
+      return `${said}\nBut ${after.source} (${after.choice}) wins in this session; the file applies once it is unset.`
+    }
+    return `${said}\nThe next view in a multiplexer opens ${choice === 'tab' ? 'in a tab of its own' : 'in a split beside this one'}.`
   }
 
   /** `/sigil-pane display [VALUE]`: the setting in words, or saved to the file. */
@@ -550,7 +574,21 @@ export default function sigil(pi: Pi): void {
     return replyText(got as never, at, start.play && at < last, where)
   }
 
-  /** Writes the split's control file, opening the split first when none is up. */
+  /** The command that opens the view's split or tab (`placement`) running
+   * `follow`; a zellij tab's layout file is written first, a herdr tab opens
+   * in this session's workspace (`herdr pane get`). */
+  async function openArgv(ctx: Ctx, mux: Mux, placement: Placement, follow: readonly string[], control: string): Promise<string[]> {
+    const herdrPane = mux === 'herdr' ? process.env.HERDR_PANE_ID : undefined
+    if (placement === 'split') return splitArgv(mux, follow, herdrPane)
+    const layoutFile = zellijLayoutPath(control)
+    if (mux === 'zellij') await writeFile(layoutFile, zellijLayout(follow))
+    const get = herdrPane ? herdrPaneGetArgv(herdrPane) : undefined
+    const got = get ? await pi.exec(get[0] ?? 'herdr', get.slice(1), { timeout: 10000 }).catch(() => undefined) : undefined
+    const workspace = got?.code === 0 ? herdrWorkspaceOf(got.stdout) : undefined
+    return tabArgv(mux, follow, { cwd: ctx.cwd, layout: layoutFile, ...(workspace ? { workspace } : {}) })
+  }
+
+  /** Writes the split's control file, opening the split (or tab) first when none is up. */
   async function showInSplit(ctx: Ctx, asked: Asked): Promise<string> {
     const path = await located(ctx.cwd, asked.request.file)
     if (typeof path !== 'string') return `sigil: ${path.error}`
@@ -561,21 +599,22 @@ export default function sigil(pi: Pi): void {
       return `sigil: display is multiplex, but no herdr, tmux or zellij session was found; /${COMMAND} display mod draws in the widget.`
     }
     const layout = layoutSetting().choice
+    const placement = placementSetting().choice
     const live = viewArgv(req, layout, splitStart(asked))
     const control = JSON.stringify({ argv: live })
-    if (split !== null && split.mux === mux && (await isAlive(split))) {
+    if (split !== null && split.mux === mux && split.placement === placement && (await isAlive(split))) {
       await writeFile(split.control, control)
-      return about(req, asked, `Shown in the ${mux} split running sigil view live: ${shellQuote(live)}.`)
+      return about(req, asked, `Shown in the ${mux} ${placement} running sigil view live: ${shellQuote(live)}.`)
     }
-    const opened: Split = { mux, control: join(tmpdir(), `sigil-view-${randomUUID()}.json`) }
+    const opened: Split = { mux, placement, control: join(tmpdir(), `sigil-view-${randomUUID()}.json`) }
     await writeFile(opened.control, control)
     const follow = followArgv(SIGIL, opened.control)
-    const argv = splitArgv(mux, follow, mux === 'herdr' ? process.env.HERDR_PANE_ID : undefined)
+    const argv = await openArgv(ctx, mux, placement, follow, opened.control)
     const ran = await pi.exec(argv[0] ?? mux, argv.slice(1), { timeout: 30000 })
-    if (ran.code !== 0) return `sigil: could not open a ${mux} split: ${ran.stderr.trim()}`
+    if (ran.code !== 0) return `sigil: could not open a ${mux} ${placement}: ${ran.stderr.trim()}`
     if (mux === 'herdr') {
       const pane = herdrPaneOf(ran.stdout)
-      if (pane === undefined) return 'sigil: herdr split gave no pane id'
+      if (pane === undefined) return `sigil: herdr ${placement} gave no pane id`
       opened.pane = pane
       const ready = herdrReadyArgv(pane)
       await pi.exec(ready[0], ready.slice(1), { timeout: 10000 }).catch(() => undefined)
@@ -584,7 +623,7 @@ export default function sigil(pi: Pi): void {
       opened.pane = ran.stdout.trim()
     }
     split = opened
-    return about(req, asked, `Opened a ${mux} split running sigil view live (it redraws on every save; `
+    return about(req, asked, `Opened a ${mux} ${placement} running sigil view live (it redraws on every save; `
       + `q closes it): ${shellQuote(live)}.`)
   }
 
@@ -610,6 +649,12 @@ export default function sigil(pi: Pi): void {
       + `Unset: SIGIL_LAYOUT, then ${settingsPath()} (/${COMMAND} layout sets it), then auto.`,
     type: 'string',
   })
+  pi.registerFlag(PLACEMENT_FLAG, {
+    description: 'Where the multiplex display opens sigil view: split (a pane beside this session, to the right) '
+      + 'or tab (a tab of its own: herdr tab, tmux window, zellij tab). '
+      + `Unset: SIGIL_PLACEMENT, then ${settingsPath()} (/${COMMAND} placement sets it), then split.`,
+    type: 'string',
+  })
 
   pi.registerTool({
     name: TOOL,
@@ -626,7 +671,8 @@ export default function sigil(pi: Pi): void {
 
   pi.registerCommand(COMMAND, {
     description: 'Show a Sigil file in the viewer widget (any width), step or play its run, pan it, close it, '
-      + `or set where it draws (display ${DISPLAYS.join('|')}) or how a wide drawing fits (layout ${LAYOUTS.join('|')})`,
+      + `or set where it draws (display ${DISPLAYS.join('|')}), how a wide drawing fits (layout ${LAYOUTS.join('|')}) `
+      + `or whether a multiplexer opens it in a split or a tab (placement ${PLACEMENTS.join('|')})`,
     async handler(args, ctx) {
       const asked = parseDisplayArgs(args)
       if (asked !== null) {
@@ -640,6 +686,13 @@ export default function sigil(pi: Pi): void {
         if ('error' in laid) return ctx.ui.notify(`sigil: ${laid.error}`, 'error')
         const text = await layoutCommand(laid.choice)
           .catch((err: unknown) => `sigil: could not save the layout setting (${String(err)})`)
+        return ctx.ui.notify(text, text.startsWith('sigil:') ? 'error' : 'info')
+      }
+      const placed = parsePlacementArgs(args)
+      if (placed !== null) {
+        if ('error' in placed) return ctx.ui.notify(`sigil: ${placed.error}`, 'error')
+        const text = await placementCommand(placed.choice)
+          .catch((err: unknown) => `sigil: could not save the placement setting (${String(err)})`)
         return ctx.ui.notify(text, text.startsWith('sigil:') ? 'error' : 'info')
       }
       const { action, input } = commandWords(args)

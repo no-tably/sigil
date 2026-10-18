@@ -1,22 +1,24 @@
 // The Sigil viewer inside Claude Code: a tool the agent calls and a
 // /sigil-pane command (/sigil is the skill's), drawing a document in a pane
 // (theme-coloured cells from `sigil frames`, redrawn on every save, a simulated run
-// stepped or played) or, in a multiplexer, in a split running `sigil view` live.
+// stepped or played) or, in a multiplexer, in a split (or tab) running `sigil view` live.
 // The repository's plugin/claude/README.md has the layout.
 
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, UiOpenResult } from 'claude-code'
 
-import type { Drawing, Playback, Split, ViewRequest } from '../types'
+import type { Drawing, Mux, Playback, Split, ViewRequest } from '../types'
 import {
   COMMAND, DEFAULT_WIDTH, PANE, VIEWS, RASTER_COLUMNS, START_SPEED, SUPERSEDED, TOOL, UNASKED_COLUMNS,
-  aheadFrom, askedFrame, cropRows, detectMux, glyphs, heldBy, holdsWide, displayReport, drawArgv, drawnFrame, followArgv, frameIndex, frameMs, herdrPaneOf, herdrReadyArgv,
+  aheadFrom, askedFrame, cropRows, detectMux, glyphs, heldBy, holdsWide, displayReport, drawArgv, drawnFrame, followArgv, frameIndex, frameMs,
+  herdrPaneGetArgv, herdrPaneOf, herdrReadyArgv, herdrWorkspaceOf,
   isDisplayChoice, lastFrame, layoutOf, layoutReport, nextDepth, nextSpeed, nextView, panTo, parseCommandArgs,
-  parseDisplayArgs, parseDrawing, parseLayoutArgs, parseRequest, playbackFor, playTick, rasterCells, replyText,
-  resolveDisplay, rowsWidth, runLines, shellQuote, slices, slot, splitArgv, splitStart, statusLine, viewArgv,
-  windowFor, windowStart,
+  parseDisplayArgs, parseDrawing, parseLayoutArgs, parsePlacementArgs, parseRequest, placementOf, placementReport,
+  playbackFor, playTick, rasterCells, replyText,
+  resolveDisplay, rowsWidth, runLines, shellQuote, slices, slot, splitArgv, splitStart, statusLine, tabArgv, viewArgv,
+  windowFor, windowStart, zellijLayout, zellijLayoutPath,
 } from './logic'
-import type { Ahead, Asked, Display, DisplayChoice, LayoutChoice } from './logic'
+import type { Ahead, Asked, Display, DisplayChoice, LayoutChoice, Placement } from './logic'
 
 const request = atom({ plugin: 'sigil', key: 'request' } as const, null)
 const drawing = atom({ plugin: 'sigil', key: 'drawing' } as const, null)
@@ -75,6 +77,7 @@ let seenMtime = 0
 let columns = DEFAULT_WIDTH // the pane body's width as last drawn
 let paneRows = 0 // the pane body's rows as last drawn (auto's layout picks by them; 0: unknown)
 let layout: LayoutChoice = 'auto' // the plugin's `layout` option, set when the module loads
+let placement: Placement = 'split' // the plugin's `placement` option (a split or a tab), set so too
 let drawingFor = '' // the request + size the latest redraw is for ('' once it drew; kept when it failed)
 let drawSeq = 0 // counts redraws: only the latest stores what it drew
 let isWindowing = false // a run window is being drawn (fetchWindow asks for one at a time)
@@ -249,7 +252,21 @@ async function showInPane($: $, asked: Asked, isAsked: boolean): Promise<string>
   return replyText(got, frameIndex(got, now), now.isPlaying, where)
 }
 
-/** Writes the split's control file, opening the split first when none is up. */
+/** The command that opens the view's split or tab (`placement`) running
+ * `follow`; a zellij tab's layout file is written first, a herdr tab opens in
+ * this session's workspace (`herdr pane get`). */
+async function openArgv($: $, mux: Mux, placement: Placement, follow: readonly string[], control: string): Promise<string[]> {
+  const herdrPane = mux === 'herdr' ? await $.env.get('HERDR_PANE_ID') : undefined
+  if (placement === 'split') return splitArgv(mux, follow, herdrPane)
+  const layoutFile = zellijLayoutPath(control)
+  if (mux === 'zellij') await $.fs.write(layoutFile, zellijLayout(follow))
+  const got = herdrPane ? await $.process.run(herdrPaneGetArgv(herdrPane), { timeoutMs: 10000 }).catch(() => undefined) : undefined
+  const workspace = got?.exitCode === 0 ? herdrWorkspaceOf(got.stdout) : undefined
+  const cwd = await $.session.cwd().catch(async () => (await $.env.get('PWD')) ?? '.')
+  return tabArgv(mux, follow, { cwd, layout: layoutFile, ...(workspace ? { workspace } : {}) })
+}
+
+/** Writes the split's control file, opening the split (or tab) first when none is up. */
 async function showInSplit($: $, asked: Asked): Promise<string> {
   const path = await located($, asked.request.file)
   if (typeof path !== 'string') return `sigil: ${path.error}`
@@ -262,19 +279,19 @@ async function showInSplit($: $, asked: Asked): Promise<string> {
   const live = viewArgv(req, layout, splitStart(asked))
   const control = JSON.stringify({ argv: live })
   const held = await read($, split)
-  if (held !== null && held.mux === mux && (await isAlive($, held))) {
+  if (held !== null && held.mux === mux && (held.placement ?? 'split') === placement && (await isAlive($, held))) {
     await $.fs.write(held.control, control)
-    return about($, req, asked, `Shown in the ${mux} split running sigil view live: ${shellQuote(live)}.`)
+    return about($, req, asked, `Shown in the ${mux} ${placement} running sigil view live: ${shellQuote(live)}.`)
   }
   const tmp = (await $.env.get('TMPDIR')) ?? '/tmp'
-  const opened: Split = { mux, control: `${tmp.replace(/\/$/, '')}/sigil-view-${crypto.randomUUID()}.json` }
+  const opened: Split = { mux, placement, control: `${tmp.replace(/\/$/, '')}/sigil-view-${crypto.randomUUID()}.json` }
   await $.fs.write(opened.control, control)
   const follow = followArgv(await scriptPath($), opened.control)
-  const ran = await $.process.run(splitArgv(mux, follow, mux === 'herdr' ? await $.env.get('HERDR_PANE_ID') : undefined))
-  if (ran.exitCode !== 0) return `sigil: could not open a ${mux} split: ${ran.stderr.trim()}`
+  const ran = await $.process.run(await openArgv($, mux, placement, follow, opened.control))
+  if (ran.exitCode !== 0) return `sigil: could not open a ${mux} ${placement}: ${ran.stderr.trim()}`
   if (mux === 'herdr') {
     const pane = herdrPaneOf(ran.stdout)
-    if (pane === undefined) return 'sigil: herdr split gave no pane id'
+    if (pane === undefined) return `sigil: herdr ${placement} gave no pane id`
     opened.pane = pane
     await $.process.run(herdrReadyArgv(pane), { timeoutMs: 10000 }).catch(() => undefined)
     await $.process.run(['herdr', 'pane', 'run', pane, shellQuote(follow)])
@@ -282,7 +299,7 @@ async function showInSplit($: $, asked: Asked): Promise<string> {
     opened.pane = ran.stdout.trim()
   }
   await update($, split, () => opened)
-  return about($, req, asked, `Opened a ${mux} split running sigil view live (it redraws on every save; `
+  return about($, req, asked, `Opened a ${mux} ${placement} running sigil view live (it redraws on every save; `
     + `q closes it): ${shellQuote(live)}.`)
 }
 
@@ -315,7 +332,7 @@ async function show($: $, input: Record<string, unknown>, display: Display, isAs
   return display === 'multiplex' ? showInSplit($, asked) : showInPane($, asked, isAsked)
 }
 
-/** The plugin's own row in /config for an option (`display`, `layout`):
+/** The plugin's own row in /config for an option (`display`, `layout`, `placement`):
  * `<plugin>.<option>` as the menu lists it (an inline or marketplace plugin may
  * carry a suffix). */
 async function optionKey($: $, option: string): Promise<string> {
@@ -356,6 +373,20 @@ async function layoutCommand($: $, current: unknown, choice: LayoutChoice | unde
   return `${layoutReport(choice, source)}\nThe next drawing is laid out ${choice === 'auto' ? 'as fits the pane best' : `to ${choice}`}.`
 }
 
+/** `/sigil-pane placement [VALUE]`: the setting in words, or the row changed
+ * (the module reloads with it, as for display; the next view a multiplexer
+ * opens, opens so). */
+async function placementCommand($: $, current: unknown, choice: Placement | undefined): Promise<string> {
+  const key = await optionKey($, 'placement')
+  const source = `/config ${key}`
+  if (choice === undefined) return placementReport(placementOf(current), source)
+  if (choice === current) return `${placementReport(choice, source)} (unchanged)`
+  const set = await $.config.set({ key, value: choice })
+    .catch((err: unknown) => ({ deny: err instanceof Error ? err.message : String(err) }))
+  if (set.deny !== undefined) return `sigil: placement stays ${placementOf(current)}: ${set.deny}`
+  return `${placementReport(choice, source)}\nThe next view in a multiplexer opens ${choice === 'tab' ? 'in a tab of its own' : 'in a split beside this one'}.`
+}
+
 /** A key of the pane's: a new request redrawn, or a playback step. */
 async function press($: $, change: (req: ViewRequest) => ViewRequest): Promise<void> {
   const req = await read($, request)
@@ -368,13 +399,14 @@ async function press($: $, change: (req: ViewRequest) => ViewRequest): Promise<v
 
 export const register: Register = (on, options) => {
   layout = layoutOf(options.layout)
+  placement = placementOf(options.placement)
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     await $.tool.register({ name: 'view', description: TOOL_DESCRIPTION, inputSchema: TOOL_SCHEMA })
     await $.command.register({
       name: 'sigil-pane',
-      description: 'Show a Sigil file in the viewer pane (any width), reopen the last one, or set where it draws (display) or how a wide drawing fits (layout)',
-      argumentHint: '[FILE] [graph|tree|flow|run] [depth N|all] [sim SCENARIO] [frame N|last] [play] | display [mod|multiplex|auto] | layout [auto|wrap|pan]',
+      description: 'Show a Sigil file in the viewer pane (any width), reopen the last one, or set where it draws (display), how a wide drawing fits (layout) or whether a multiplexer opens it in a split or a tab (placement)',
+      argumentHint: '[FILE] [graph|tree|flow|run] [depth N|all] [sim SCENARIO] [frame N|last] [play] | display [mod|multiplex|auto] | layout [auto|wrap|pan] | placement [split|tab]',
     })
     return started
   })
@@ -390,6 +422,10 @@ export const register: Register = (on, options) => {
     if (asked !== null) return { text: 'error' in asked ? `sigil: ${asked.error}` : await displayCommand($, options.display, asked.choice) }
     const laid = parseLayoutArgs(e.args)
     if (laid !== null) return { text: 'error' in laid ? `sigil: ${laid.error}` : await layoutCommand($, options.layout, laid.choice) }
+    const placed = parsePlacementArgs(e.args)
+    if (placed !== null) {
+      return { text: 'error' in placed ? `sigil: ${placed.error}` : await placementCommand($, options.placement, placed.choice) }
+    }
     const display = resolveDisplay(options.display, await muxEnv($))
     const input = parseCommandArgs(e.args)
     if (Object.keys(input).length === 0 && display === 'mod' && (await read($, request)) !== null) {

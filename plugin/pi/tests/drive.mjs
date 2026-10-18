@@ -7,8 +7,9 @@
 // loaded by pi's own loader (jiti), so the API it gets is pi's; without it,
 // node imports it directly (type stripping) and gets a stand-in API whose
 // exec runs the command. The UI is always a stand-in: setWidget keeps the
-// factory and the script renders it at a chosen width. The multiplexer step
-// expects a fake `tmux` on PATH that records its argv; the display steps
+// factory and the script renders it at a chosen width. The multiplexer steps
+// expect a fake `tmux` on PATH that writes its argv to $FAKE_TMUX_LOG (each
+// step keeps what that file holds after it, as `tmux`); the display steps
 // write the settings file under $XDG_CONFIG_HOME (the test's own folder). The
 // script's stdout is a pipe, so a terminal is claimed (process.stdout.isTTY)
 // except for the RPC steps, where text widgets (string arrays) are recorded.
@@ -21,6 +22,7 @@
 // API every child process is counted (node:child_process's spawn, wrapped
 // before pi loads; syncBuiltinESMExports hands the wrapper to its import).
 
+import { readFileSync } from 'node:fs'
 import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { join } from 'node:path'
 
@@ -36,7 +38,7 @@ childProcess.spawn = function counted(...args) {
   return child
 }
 syncBuiltinESMExports()
-for (const k of ['HERDR_ENV', 'TMUX', 'ZELLIJ', 'SIGIL_DISPLAY', 'SIGIL_LAYOUT']) delete process.env[k]
+for (const k of ['HERDR_ENV', 'TMUX', 'ZELLIJ', 'SIGIL_DISPLAY', 'SIGIL_LAYOUT', 'SIGIL_PLACEMENT']) delete process.env[k]
 
 async function load() {
   if (piDir) {
@@ -119,6 +121,9 @@ if (out.errors.length === 0) {
   const settle = () => until(() => hooks.busy === 0, 'the draws to finish')
   const strip = s => s.replace(/\x1b\[[0-9;]*m/g, '')
   const lines = width => (rendered ? rendered.render(width) : null)
+  const tmuxLog = () => {
+    try { return readFileSync(process.env.FAKE_TMUX_LOG ?? '', 'utf8') } catch { return null }
+  }
 
   async function step(name, run, width = 120) {
     const reply = await run()
@@ -128,7 +133,7 @@ if (out.errors.length === 0) {
       name, reply: reply ?? null, widget: factory !== null,
       lines: drawn && drawn.map(strip), coloured: drawn !== null && drawn.some(l => /\x1b\[[0-9;]*38;2;/.test(l)),
       widest: drawn ? Math.max(...drawn.map(l => [...strip(l)].length)) : 0, notes: notes.splice(0),
-      texts: texts.splice(0),
+      texts: texts.splice(0), tmux: tmuxLog(),
     })
   }
   const call = input => tool.execute('call-1', input, undefined, undefined, ctx).then(r => r.content[0].text)
@@ -159,6 +164,12 @@ if (out.errors.length === 0) {
   process.env.TMUX = '/tmp/fake,1,0'
   await step('multiplex', () => call({ file, view: 'tree' }))
   await step('multiplex run', () => call({ scenario: 'happy', frame: '2', play: true }))
+  // /sigil-pane placement: said, saved to the settings file; a tab is a tmux window
+  await step('placement default', () => command.handler('placement', ctx))
+  await step('placement set tab', () => command.handler('placement tab', ctx))
+  await step('multiplex tab', () => call({ file, view: 'tree' }))
+  await step('placement bad', () => command.handler('placement side', ctx))
+  await step('placement set split', () => command.handler('placement split', ctx))
   // /sigil-pane display: the flag, SIGIL_DISPLAY, the settings file, auto
   await step('display default', () => command.handler('display', ctx))
   await step('display set mod', () => command.handler('display mod', ctx))

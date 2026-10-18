@@ -217,9 +217,9 @@ class DriveMixin:
         self.assertEqual(self.out["errors"], [])
         self.assertEqual(self.out["tools"], ["sigil_view"])
         self.assertEqual(self.out["commands"], ["sigil-pane"])
-        self.assertEqual(self.out["flags"], ["sigil-display", "sigil-layout"])
-        # no default: an unset flag leaves SIGIL_DISPLAY / SIGIL_LAYOUT and the file to speak
-        self.assertEqual(self.out["flagDefaults"], {"sigil-display": None, "sigil-layout": None})
+        self.assertEqual(self.out["flags"], ["sigil-display", "sigil-layout", "sigil-placement"])
+        # no default: an unset flag leaves SIGIL_DISPLAY / SIGIL_LAYOUT / SIGIL_PLACEMENT and the file to speak
+        self.assertEqual(self.out["flagDefaults"], {"sigil-display": None, "sigil-layout": None, "sigil-placement": None})
 
     def test_an_unasked_widget_waits_below_144_columns(self):
         s = self.steps["narrow tool call"]
@@ -288,7 +288,7 @@ class DriveMixin:
         self.assertFalse(s["widget"])
         self.assertIn("Opened a tmux split", s["reply"])
         self.assertIn("--tree", s["reply"])
-        argv = self.tmux_log.read_text().split("\n")
+        argv = s["tmux"].split("\n")
         self.assertEqual(argv[:3], ["split-window", "-h", "-d"])
         self.assertIn("follow", argv)
         self.assertEqual(argv[argv.index("follow") - 1], "frames")
@@ -299,9 +299,23 @@ class DriveMixin:
         self.assertIn("--sim happy --frame 2 --play", s["reply"])
         self.assertIn("playing ", s["reply"])
         self.assertIn("(frame 3 of", s["reply"])
-        argv = self.tmux_log.read_text().split("\n")
+        argv = s["tmux"].split("\n")
         control = json.loads(Path(argv[argv.index("follow") + 1]).read_text())
         self.assertEqual(control["argv"][-5:], ["--sim", "happy", "--frame", "2", "--play"])
+
+    def test_placement_is_said_saved_and_a_tab_is_a_tmux_window(self):
+        self.assertEqual(self.note("placement default"), ["info", "placement: split · from the default"])
+        level, text = self.note("placement set tab")
+        self.assertEqual(text, f"placement: tab · from {self.settings}\n"
+                               "The next view in a multiplexer opens in a tab of its own.")
+        s = self.steps["multiplex tab"]
+        self.assertIn("Opened a tmux tab", s["reply"])
+        argv = s["tmux"].split("\n")
+        self.assertEqual(argv[:8], ["new-window", "-d", "-P", "-F", "#{pane_id}", "-n", "sigil view", "-c"])
+        self.assertEqual(argv[argv.index("follow") - 1], "frames")
+        self.assertEqual(self.note("placement bad"),
+                         ["error", 'sigil: placement must be one of split, tab (got "side")'])
+        self.assertTrue(self.note("placement set split")[1].startswith(f"placement: split · from {self.settings}"))
 
     def note(self, name: str) -> list:
         notes = self.steps[name]["notes"]
@@ -326,8 +340,8 @@ class DriveMixin:
         after = self.steps["a call after the file says mod"]
         self.assertIn("Shown in the sigil widget", after["reply"])   # tmux is set, the file says mod
         self.assertTrue(after["widget"])
-        # the last writes (display auto under the flag, layout pan) are what the file holds
-        self.assertEqual(json.loads(self.settings.read_text()), {"display": "auto", "layout": "pan"})
+        # the last writes (placement split, display auto under the flag, layout pan) are what the file holds
+        self.assertEqual(json.loads(self.settings.read_text()), {"placement": "split", "display": "auto", "layout": "pan"})
 
     def test_display_under_a_flag_says_the_flag_wins_and_bad_values_are_named(self):
         level, text = self.note("display set under the flag")

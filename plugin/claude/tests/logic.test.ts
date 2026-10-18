@@ -2,10 +2,11 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import {
   WIDE_TAIL, WINDOW, WINDOW_BACK, aheadFrom, askedFrame, cellWidth, charCells, colourOf, cropRows, cutCells, displayReport, drawArgv, drawnFrame, followArgv, frameIndex,
-  herdrPaneOf, herdrReadyArgv, holds, layoutOf, layoutReport, nextView, nextSpeed, panTo, parseCommandArgs, parseDisplayArgs,
-  glyphs, heldBy, holdsWide, parseDrawing, parseLayoutArgs, parseRequest, pickDisplay, pickLayout, playbackFor, playTick, rasterCells, replyText,
-  resolveDisplay, runLines, shellQuote, slices, slot, speedText, splitArgv, splitStart, statusLine, viewArgv, windowFor,
-  windowStart,
+  herdrPaneGetArgv, herdrPaneOf, herdrReadyArgv, herdrWorkspaceOf, holds, layoutOf, layoutReport, nextView, nextSpeed, panTo, parseCommandArgs, parseDisplayArgs,
+  glyphs, heldBy, holdsWide, parseDrawing, parseLayoutArgs, parsePlacementArgs, parseRequest, pickDisplay, pickLayout, pickPlacement,
+  placementOf, placementReport, playbackFor, playTick, rasterCells, replyText,
+  resolveDisplay, runLines, shellQuote, slices, slot, speedText, splitArgv, splitStart, statusLine, tabArgv, viewArgv, windowFor,
+  windowStart, zellijLayout, zellijLayoutPath,
 } from '../hooks/logic'
 import type { Drawing } from '../types'
 
@@ -138,6 +139,43 @@ describe('commands', () => {
     expect(herdrPaneOf('nope')).toBeUndefined()
     expect(herdrReadyArgv('w6:p2')).toEqual(['herdr', 'pane', 'wait-output', 'w6:p2', '--regex', '\\S', '--source', 'visible'])
     expect(shellQuote(['python3', "/a b/it's.py"])).toBe(`python3 '/a b/it'\\''s.py'`)
+  })
+  test('a tab per multiplexer, keeping this session in front where it can', () => {
+    const follow = followArgv('/s/bin/sigil', '/tmp/c.json')
+    const place = { cwd: '/w', workspace: 'w6', layout: '/tmp/c.kdl' }
+    expect(tabArgv('tmux', follow, place)).toEqual(
+      ['tmux', 'new-window', '-d', '-P', '-F', '#{pane_id}', '-n', 'sigil view', '-c', '/w', '--', ...follow])
+    expect(tabArgv('zellij', follow, place)).toEqual(
+      ['zellij', 'action', 'new-tab', '--name', 'sigil view', '--cwd', '/w', '--layout', '/tmp/c.kdl'])
+    expect(tabArgv('herdr', follow, place)).toEqual(
+      ['herdr', 'tab', 'create', '--workspace', 'w6', '--cwd', '/w', '--label', 'sigil view', '--no-focus'])
+    expect(tabArgv('herdr', follow, { cwd: '/w', layout: '' })).not.toContain('--workspace')
+    expect(zellijLayoutPath('/tmp/sigil-view-1.json')).toBe('/tmp/sigil-view-1.kdl')
+    expect(zellijLayout(['python3', '/a "b"/sigil', 'frames'])).toBe(
+      'layout {\n    pane name="sigil" command="python3" close_on_exit=true {\n        args "/a \\"b\\"/sigil" "frames"\n    }\n}\n')
+    expect(herdrPaneGetArgv('w6:p1')).toEqual(['herdr', 'pane', 'get', 'w6:p1'])
+    expect(herdrWorkspaceOf('{"result":{"pane":{"pane_id":"w6:p1","workspace_id":"w6"}}}')).toBe('w6')
+    expect(herdrWorkspaceOf('nope')).toBeUndefined()
+    expect(herdrPaneOf('{"result":{"root_pane":{"pane_id":"w6:pY"},"tab":{"tab_id":"w6:tK"}}}')).toBe('w6:pY')
+  })
+})
+
+describe('the placement command', () => {
+  test('placement and its value are words of their own; anything but tab is a split', () => {
+    expect(parsePlacementArgs('placement')).toEqual({})
+    expect(parsePlacementArgs(' placement tab ')).toEqual({ choice: 'tab' })
+    expect(parsePlacementArgs('placement side')).toEqual({ error: 'placement must be one of split, tab (got "side")' })
+    expect(parsePlacementArgs('placement tab tree')).toEqual({ error: 'placement takes one value: split, tab' })
+    expect(parsePlacementArgs('layout pan')).toBeNull()
+    expect(parseCommandArgs('a.sigil placement tree')).toEqual({ file: 'a.sigil', placement: '', view: 'tree' })
+    expect(parseCommandArgs('placement tab')).toEqual({ placement: 'tab' })
+    expect(placementOf('tab')).toBe('tab')
+    expect(placementOf(undefined)).toBe('split')
+    expect(placementOf('window')).toBe('split')
+    expect(pickPlacement([['--sigil-placement', undefined], ['SIGIL_PLACEMENT', 'tab']], 'default'))
+      .toEqual({ choice: 'tab', source: 'SIGIL_PLACEMENT' })
+    expect(pickPlacement([], 'default')).toEqual({ choice: 'split', source: 'default' })
+    expect(placementReport('tab', 'X')).toBe('placement: tab · from X')
   })
 })
 

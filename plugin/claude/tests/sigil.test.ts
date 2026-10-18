@@ -48,6 +48,7 @@ function world(on: On, opts: { isPlaced: boolean; env?: Record<string, string>; 
   mock.env(on, opts.env ?? {})
   const seen: World = { runs: [], writes: [], opens: 0, focused: [], clock: mock.clock(on, { now: 10_000 }) }
   on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: '/w' }))
   on('tool.register', ($, e) => ({ value: { tool: `mcp__sigil__${e.name}` } }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
   on('fs.exists', () => ({ value: true }))
@@ -309,6 +310,80 @@ describe('multiplex display', () => {
     expect(String(result)).toContain('--frame 0 --play')
     expect(String(result)).toContain('playing sim happy · start (frame 1 of 2)')
     expect(String(result)).not.toContain('starts paused')
+  })
+})
+
+describe('multiplex display in a tab', () => {
+  test('herdr: a tab in this session\'s workspace, waited for, then run; the reply names the tab', { options: { placement: 'tab' } }, async ($, on) => {
+    const seen = world(on, { isPlaced: true, env: { HERDR_ENV: '1', HERDR_PANE_ID: 'w1:p1' },
+      stdout: argv => (argv[2] === 'get' ? '{"result":{"pane":{"pane_id":"w1:p1","workspace_id":"w1"}}}'
+        : argv[1] === 'tab' ? '{"result":{"root_pane":{"pane_id":"w1:p9"},"tab":{"tab_id":"w1:tb"}}}' : '') })
+    await $.session.start(START)
+    const { result } = await $.tool.call({ tool: 'mcp__sigil__view', file: 'shop.sigil' })
+    const herdr = seen.runs.filter(argv => argv[0] === 'herdr')
+    expect(herdr.map(argv => argv.slice(0, 4))).toEqual([
+      ['herdr', 'pane', 'get', 'w1:p1'], ['herdr', 'tab', 'create', '--workspace'],
+      ['herdr', 'pane', 'wait-output', 'w1:p9'], ['herdr', 'pane', 'run', 'w1:p9']])
+    expect(herdr[1]).toEqual(['herdr', 'tab', 'create', '--workspace', 'w1', '--cwd', '/w', '--label', 'sigil view', '--no-focus'])
+    expect(herdr[3]?.[4]).toContain('frames follow')
+    expect(String(result)).toContain('Opened a herdr tab running sigil view live')
+    const again = await $.tool.call({ tool: 'mcp__sigil__view', view: 'tree' })
+    expect(String(again.result)).toContain('Shown in the herdr tab')
+    expect(seen.runs.filter(argv => argv[0] === 'herdr').length).toBe(4)   // a tab still up is reused
+  })
+
+  test('tmux: a window, left in the background', { options: { placement: 'tab' } }, async ($, on) => {
+    const seen = world(on, { isPlaced: true, env: { TMUX: 'x', TMPDIR: '/t' } })
+    await $.session.start(START)
+    const { result } = await $.tool.call({ tool: 'mcp__sigil__view', file: 'shop.sigil' })
+    const tab = seen.runs.find(argv => argv[0] === 'tmux')
+    expect(tab?.slice(0, 11)).toEqual(['tmux', 'new-window', '-d', '-P', '-F', '#{pane_id}', '-n', 'sigil view', '-c', '/w', '--'])
+    expect(tab?.slice(13, 15)).toEqual(['frames', 'follow'])
+    expect(String(result)).toContain('Opened a tmux tab')
+  })
+
+  test('zellij: a tab whose layout runs the follow line', { options: { placement: 'tab' } }, async ($, on) => {
+    const seen = world(on, { isPlaced: true, env: { ZELLIJ: '0', TMPDIR: '/t' } })
+    await $.session.start(START)
+    await $.tool.call({ tool: 'mcp__sigil__view', file: 'shop.sigil' })
+    const tab = seen.runs.find(argv => argv[0] === 'zellij') ?? []
+    const layout = tab[tab.length - 1] ?? ''
+    expect(tab.slice(0, 8)).toEqual(['zellij', 'action', 'new-tab', '--name', 'sigil view', '--cwd', '/w', '--layout'])
+    expect(layout).toMatch(/^\/t\/sigil-view-.*\.kdl$/)
+    const written = seen.writes.find(w => w.path === layout)?.text ?? ''
+    expect(written).toContain('"frames" "follow"')
+    expect(written).toContain(`"${layout.replace(/\.kdl$/, '.json')}"`)
+  })
+
+  test('a split is still the default', async ($, on) => {
+    const seen = world(on, { isPlaced: true, env: { TMUX: 'x', TMPDIR: '/t' } })
+    await $.session.start(START)
+    await $.tool.call({ tool: 'mcp__sigil__view', file: 'shop.sigil' })
+    expect(seen.runs.find(argv => argv[0] === 'tmux')?.[1]).toBe('split-window')
+  })
+})
+
+describe('/sigil-pane placement', () => {
+  const run = { origin: { kind: 'composer' as const }, presentation: { isFullscreen: true, columns: 90 } }
+
+  test("it says the setting, and a value writes the plugin's own /config row", { options: { placement: 'split' } }, async ($, on) => {
+    const seen = world(on, { isPlaced: true })
+    const sets: { key: string; value: unknown }[] = []
+    on('config.set', ($, e) => {
+      sets.push({ key: e.key, value: e.value })
+      return { value: e.value }
+    })
+    await $.session.start(START)
+    expect((await $.command.run({ command: 'sigil-pane', args: 'placement', ...run })).text)
+      .toBe('placement: split · from /config sigil.placement')
+    const { text } = await $.command.run({ command: 'sigil-pane', args: 'placement tab', ...run })
+    expect(sets).toEqual([{ key: 'sigil.placement', value: 'tab' }])
+    expect(text).toBe('placement: tab · from /config sigil.placement\nThe next view in a multiplexer opens in a tab of its own.')
+    const same = await $.command.run({ command: 'sigil-pane', args: 'placement split', ...run })
+    expect(same.text).toContain('(unchanged)')
+    const bad = await $.command.run({ command: 'sigil-pane', args: 'placement side', ...run })
+    expect(bad.text).toBe('sigil: placement must be one of split, tab (got "side")')
+    expect(seen.runs).toEqual([])
   })
 })
 

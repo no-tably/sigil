@@ -52,12 +52,34 @@ export function isDisplayChoice(value: unknown): value is DisplayChoice {
 
 /** Where a display setting stands: the first source that holds a value, by
  * precedence (a value that is not a display choice counts as `auto`). */
-export function pickDisplay(sources: readonly (readonly [source: string, value: unknown])[], fallback: string):
-  { choice: DisplayChoice; source: string } {
+export function pickDisplay(sources: Sources, fallback: string): { choice: DisplayChoice; source: string } {
+  return pickChoice(sources, fallback, v => (isDisplayChoice(v) ? v : 'auto'), 'auto')
+}
+
+/** A setting's sources by precedence: [where it is set, the value there]. */
+export type Sources = readonly (readonly [source: string, value: unknown])[]
+
+/** Where a setting stands: the first source that holds a value (`of` reads
+ * it as a choice), else `unset` from `fallback`. */
+function pickChoice<T>(sources: Sources, fallback: string, of: (value: string) => T, unset: T): { choice: T; source: string } {
   for (const [source, value] of sources) {
-    if (typeof value === 'string' && value !== '') return { choice: isDisplayChoice(value) ? value : 'auto', source }
+    if (typeof value === 'string' && value !== '') return { choice: of(value), source }
   }
-  return { choice: 'auto', source: fallback }
+  return { choice: unset, source: fallback }
+}
+
+/** `/sigil-pane OPTION [VALUE]` for an option taking one of `values`: null when
+ * the words are not that command; `{}` asks for the setting, `{ choice }` sets
+ * it; a bad value is named. */
+function choiceArgs<T extends string>(option: string, values: readonly T[], args: string):
+  { choice?: T } | { error: string } | null {
+  const words = args.trim().split(/\s+/).filter(w => w !== '')
+  if (words[0] !== option) return null
+  if (words.length > 2) return { error: `${option} takes one value: ${values.join(', ')}` }
+  const value = words[1]
+  if (value === undefined) return {}
+  if (!(values as readonly string[]).includes(value)) return { error: `${option} must be one of ${values.join(', ')} (got "${value}")` }
+  return { choice: value as T }
 }
 
 /** What auto resolves to here, in words: `multiplex (herdr detected)`. */
@@ -78,13 +100,7 @@ export function displayReport(choice: DisplayChoice, source: string, env: MuxEnv
 /** `/sigil-pane display [VALUE]`: null when the words are not that command;
  * `{}` asks for the setting, `{ choice }` sets it; a bad value is named. */
 export function parseDisplayArgs(args: string): { choice?: DisplayChoice } | { error: string } | null {
-  const words = args.trim().split(/\s+/).filter(w => w !== '')
-  if (words[0] !== 'display') return null
-  if (words.length > 2) return { error: `display takes one value: ${DISPLAYS.join(', ')}` }
-  const value = words[1]
-  if (value === undefined) return {}
-  if (!isDisplayChoice(value)) return { error: `display must be one of ${DISPLAYS.join(', ')} (got "${value}")` }
-  return { choice: value }
+  return choiceArgs('display', DISPLAYS, args)
 }
 
 /** The `layout` values a person sets (the viewer's --layout): wrap fits the
@@ -103,12 +119,8 @@ export function layoutOf(option: unknown): LayoutChoice {
 }
 
 /** Where a layout setting stands, as pickDisplay does for display. */
-export function pickLayout(sources: readonly (readonly [source: string, value: unknown])[], fallback: string):
-  { choice: LayoutChoice; source: string } {
-  for (const [source, value] of sources) {
-    if (typeof value === 'string' && value !== '') return { choice: layoutOf(value), source }
-  }
-  return { choice: 'auto', source: fallback }
+export function pickLayout(sources: Sources, fallback: string): { choice: LayoutChoice; source: string } {
+  return pickChoice(sources, fallback, layoutOf, 'auto')
 }
 
 /** The layout reply every viewer plugin gives (docs/tools.md, the viewer plugin
@@ -123,13 +135,36 @@ export function layoutReport(choice: LayoutChoice, source: string, shown?: strin
 /** `/sigil-pane layout [VALUE]`: null when the words are not that command;
  * `{}` asks for the setting, `{ choice }` sets it; a bad value is named. */
 export function parseLayoutArgs(args: string): { choice?: LayoutChoice } | { error: string } | null {
-  const words = args.trim().split(/\s+/).filter(w => w !== '')
-  if (words[0] !== 'layout') return null
-  if (words.length > 2) return { error: `layout takes one value: ${LAYOUTS.join(', ')}` }
-  const value = words[1]
-  if (value === undefined) return {}
-  if (!isLayoutChoice(value)) return { error: `layout must be one of ${LAYOUTS.join(', ')} (got "${value}")` }
-  return { choice: value }
+  return choiceArgs('layout', LAYOUTS, args)
+}
+
+/** The `placement` values a person sets: where the multiplex display opens
+ * `sigil view` — a split beside this session (the default) or a tab of its own. */
+export const PLACEMENTS = ['split', 'tab'] as const
+export type Placement = (typeof PLACEMENTS)[number]
+
+export function isPlacement(value: unknown): value is Placement {
+  return typeof value === 'string' && (PLACEMENTS as readonly string[]).includes(value)
+}
+
+/** The `placement` option as it applies: a placement as set, anything else split. */
+export function placementOf(option: unknown): Placement {
+  return isPlacement(option) ? option : 'split'
+}
+
+/** Where a placement setting stands, as pickDisplay does for display. */
+export function pickPlacement(sources: Sources, fallback: string): { choice: Placement; source: string } {
+  return pickChoice(sources, fallback, placementOf, 'split')
+}
+
+/** The placement reply: `placement: tab · from SOURCE`. */
+export function placementReport(choice: Placement, source: string): string {
+  return `placement: ${choice} · from ${source}`
+}
+
+/** `/sigil-pane placement [VALUE]`, as parseDisplayArgs. */
+export function parsePlacementArgs(args: string): { choice?: Placement } | { error: string } | null {
+  return choiceArgs('placement', PLACEMENTS, args)
 }
 
 /** frame: a frame of the run (the viewer's numbering, -1: the last). */
@@ -173,8 +208,8 @@ export function parseRequest(input: Record<string, unknown>, previous: ViewReque
 
 /** /sigil's words as tool input: `FILE`, a view name, `depth N|all`,
  * `sim SCENARIO`, `frame N|last`, `play`, `payloads`, in any order. `display
- * [VALUE]` and `layout [VALUE]` are commands of their own (parseDisplayArgs,
- * parseLayoutArgs), never a file name. */
+ * [VALUE]`, `layout [VALUE]` and `placement [VALUE]` are commands of their own
+ * (parseDisplayArgs, parseLayoutArgs, parsePlacementArgs), never a file name. */
 export function parseCommandArgs(args: string): Record<string, unknown> {
   const words = args.trim().split(/\s+/).filter(w => w !== '')
   const out: Record<string, unknown> = {}
@@ -191,6 +226,10 @@ export function parseCommandArgs(args: string): Record<string, unknown> {
     else if (word === 'layout') {
       out.layout = isLayoutChoice(value) ? value : ''
       if (isLayoutChoice(value)) i++
+    }
+    else if (word === 'placement') {
+      out.placement = isPlacement(value) ? value : ''
+      if (isPlacement(value)) i++
     }
     else if ((word === 'depth' || word === 'sim' || word === 'frame') && value !== undefined) {
       out[word === 'sim' ? 'scenario' : word] = value
@@ -282,16 +321,63 @@ export function splitArgv(mux: Mux, follow: readonly string[], herdrPane?: strin
   return ['herdr', 'pane', 'split', ...(herdrPane ? [herdrPane] : ['--current']), '--direction', 'right', '--no-focus']
 }
 
+/** The label a view's tab gets in every multiplexer. */
+export const TAB_LABEL = 'sigil view'
+
+/** Where a tab opens: the session's directory, herdr's workspace (the session's
+ * own, herdrWorkspaceOf; left out, herdr picks), and the zellij layout file
+ * that runs the follow line (zellijLayout, written beside the control file). */
+export type TabPlace = { cwd: string; workspace?: string; layout: string }
+
+/** The command that opens a tab of its own running `follow`, keeping this
+ * session's tab in front where the multiplexer can (herdr: the tab alone; the
+ * follow line is then run in the pane it names, as for a split). */
+export function tabArgv(mux: Mux, follow: readonly string[], place: TabPlace): string[] {
+  if (mux === 'tmux') return ['tmux', 'new-window', '-d', '-P', '-F', '#{pane_id}', '-n', TAB_LABEL, '-c', place.cwd, '--', ...follow]
+  if (mux === 'zellij') return ['zellij', 'action', 'new-tab', '--name', TAB_LABEL, '--cwd', place.cwd, '--layout', place.layout]
+  const workspace = place.workspace ? ['--workspace', place.workspace] : []
+  return ['herdr', 'tab', 'create', ...workspace, '--cwd', place.cwd, '--label', TAB_LABEL, '--no-focus']
+}
+
+/** The zellij layout a view's tab opens with: one pane running `follow`,
+ * closed when it exits (as the split's `--close-on-exit`). */
+export function zellijLayout(follow: readonly string[]): string {
+  const [command = '', ...args] = follow.map(a => `"${a.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`)
+  return `layout {\n    pane name="sigil" command=${command} close_on_exit=true {\n        args ${args.join(' ')}\n    }\n}\n`
+}
+
+/** The zellij layout file for a control file: beside it, `.kdl` for `.json`. */
+export function zellijLayoutPath(control: string): string {
+  return control.replace(/\.json$/, '') + '.kdl'
+}
+
+/** `herdr pane get PANE`: the session's pane, whose workspace a tab opens in. */
+export function herdrPaneGetArgv(pane: string): string[] {
+  return ['herdr', 'pane', 'get', pane]
+}
+
+/** The workspace in `herdr pane get`'s JSON reply. */
+export function herdrWorkspaceOf(stdout: string): string | undefined {
+  try {
+    const id = JSON.parse(stdout)?.result?.pane?.workspace_id
+    return typeof id === 'string' ? id : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** Waits until a new herdr pane's shell has drawn anything (its prompt): a
  * command sent by `herdr pane run` before then is lost. */
 export function herdrReadyArgv(pane: string): [string, ...string[]] {
   return ['herdr', 'pane', 'wait-output', pane, '--regex', '\\S', '--source', 'visible']
 }
 
-/** The new pane's id in `herdr pane split`'s JSON reply. */
+/** The new pane's id in `herdr pane split`'s JSON reply, or `herdr tab
+ * create`'s (its root pane). */
 export function herdrPaneOf(stdout: string): string | undefined {
   try {
-    const id = JSON.parse(stdout)?.result?.pane?.pane_id
+    const result = JSON.parse(stdout)?.result
+    const id = (result?.pane ?? result?.root_pane)?.pane_id
     return typeof id === 'string' ? id : undefined
   } catch {
     return undefined

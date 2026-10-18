@@ -23,6 +23,16 @@
         "pan"
       ],
       "default": "auto"
+    },
+    "placement": {
+      "type": "string",
+      "title": "Viewer placement",
+      "description": "Where the multiplex display opens sigil view: split (a pane beside this session, to the right) or tab (a tab of its own: herdr tab, tmux window, zellij tab).",
+      "options": [
+        "split",
+        "tab"
+      ],
+      "default": "split"
     }
   }
 }
