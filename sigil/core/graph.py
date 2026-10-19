@@ -10,6 +10,7 @@ of it every layer above shares. No drawing here.
                     (use_dialect_kinds) that node_label reads
     walks           walk_depth(g): (graph, owner, level) depth-first;
                     walk_breadth(g): g, then its expansions, breadth-first;
+                    header_only(g, nid): g writes nid only on its `:=` header;
                     occurrences / matching_occurrences of the composition tree
     where things    node_lines (first line a node is written on), section_of,
                     edge_blocks (the control block an edge is drawn in)
@@ -475,6 +476,21 @@ def walk_depth(g, owner=None, level=0):
         yield g, owner, level
         if g.expansions:
             todo.extend((sub, nid, level + 1) for nid, sub in reversed(g.expansions.items()))
+
+
+def header_only(g, nid: str) -> bool:
+    """g writes node `nid` only on the header of its own expansion (`[X] := { … }`):
+    no flow, branch or other statement of g names it. Such a header places no
+    node at g's level: the expansion is the inside of the X written elsewhere
+    (the export model nests its system there; check's SGC172 holds no node of
+    g for it)."""
+    sub = g.expansions.get(nid)
+    node = g.nodes.get(nid)
+    if sub is None or node is None or sub.role == "state" or node.kind == "alias":
+        return False
+    if any(nid in (e.src, e.dst) for e in g.edges) or any(t.node == nid for t in g.tree):
+        return False
+    return sum(1 for _line, h in g.heads if h == nid) <= 1
 
 
 def occurrences(graph: Graph) -> list:

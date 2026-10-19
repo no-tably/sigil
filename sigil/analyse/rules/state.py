@@ -49,6 +49,7 @@ from functools import cached_property
 from typing import NamedTuple, Optional
 
 from sigil.core import graph as core_graph
+from sigil.core.graph import header_only
 from sigil.core.lex import GLYPH_BRACKETS, GLYPH_PATTERNS, PREFIXES_CLASS
 
 
@@ -1551,20 +1552,6 @@ def composed_under(g, owner: str, nid: str) -> bool:
                 return True
             p = tree[p].parent
     return False
-
-
-def header_only(g, nid: str) -> bool:
-    """g writes node `nid` only on the header of its own expansion (`[X] := { … }`):
-    no flow, branch or other statement of g names it. The same test as
-    sigil.model.systems.header_only (the playground ships no export model, so this
-    module cannot import it)."""
-    sub = g.expansions.get(nid)
-    node = g.nodes.get(nid)
-    if sub is None or node is None or sub.role == "state" or node.kind == "alias":
-        return False
-    if any(nid in (e.src, e.dst) for e in g.edges) or any(t.node == nid for t in g.tree):
-        return False
-    return sum(1 for _line, h in g.heads if h == nid) <= 1
 
 
 def find_expansion_escape(ck, f: Facts):

@@ -359,7 +359,10 @@ class TestHeaderOnlyOwners(unittest.TestCase):
 
     def test_the_check_rule_reads_headers_the_same_way(self):
         from sigil.analyse.rules import state
+        from sigil.core import graph as core_graph
         from sigil.core.parse import parse_document
+        self.assertIs(state.header_only, core_graph.header_only)        # one copy
+        self.assertIs(model_systems.header_only, core_graph.header_only)
         texts = (self.CORE, self.CORE + "[A] @sla(p99 < 5ms)\n",
                  self.CORE + "[A] -> |Log| : put({X}) => {Ok}\n", SHOP,
                  "walk := [Node] -> walk(.children)\n[Api] -> [Node] : {Tree}\n")

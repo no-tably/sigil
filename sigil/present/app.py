@@ -90,6 +90,14 @@ Options:
                      with --once, the findings marked on the drawing, the checks
                      legend, then the findings list (each finding's question) after
                      lint. Live: start with the overlay on (key c).
+    --structure      No drawing: the design read as units (sigil.model.structure) —
+                     each unit's kind, parent, members, internal flows and what it
+                     depends on (calls / nests); cycles between units and flows
+                     into an enclosing unit; the parts that call an actor; reach
+                     per component (what it can drive and be driven by), largest
+                     first; pass-throughs; units over 9 members; a name declared
+                     in two units; writers per store. --json: the same as data.
+                     Any mode, exit status 0.
 
 Keys (live view):
     d  cycle depth (0 → 1 → all)   p  payloads   m  modifiers   a  access
@@ -1122,6 +1130,87 @@ def sim_batch(path: Path, mode: str, dialect=None, as_json: bool = False,
         text = (json.dumps({"scenarios": facts, "summary": sim_summary(facts)}, indent=2,
                            ensure_ascii=False) if as_json else "\n".join(sim_table(facts)))
     print(text)
+    return 0
+
+
+# -- the structure reading (--structure): the design as units and the reach of its
+#    parts, for refining it (sigil.model.structure reads it; the text is here). --
+
+
+def structure_text(s, width: int = SIM_WIDTH) -> list[str]:
+    """--structure: the reading as text, a section per part, `(none)` under an
+    empty one, then the summary. Written order, fixed columns: a diff between two
+    versions of a design shows what changed."""
+    from sigil.model import structure     # the export model: not in the playground
+    out = []
+
+    def section(title: str, lines: list):
+        out.extend([title] + (lines or ["  (none)"]) + [""])
+
+    def unit_line(u) -> list:
+        where = f" in {u.parent}" if u.parent is not None else ""
+        lines = [f"  {u.key}  {u.kind}{where} · {structure.count(len(u.members), 'member')} · "
+                 f"{structure.count(len(u.internal), 'internal flow')}"]
+        lines += _fact_lines("  members", list(u.members), width) if u.members else []
+        lines += _fact_lines("  calls", list(u.calls), width) if u.calls else []
+        lines += _fact_lines("  nests", list(u.nests), width) if u.nests else []
+        return lines
+
+    def link_lines(k) -> list:
+        return [f"  {k.src} → {k.dst}"] + [f"      {f.text}  (line {f.line})" for f in k.flows]
+
+    section("units", [ln for u in s.units for ln in unit_line(u)])
+    section("cycles (units whose flows depend on one another)",
+            [ln for n, c in enumerate(s.cycles, 1)
+             for ln in [f"  cycle {n}: {' · '.join(c.units)}"]
+             + [x for k in c.links for x in link_lines(k)]])
+    section("up (a unit's flows into a unit enclosing it)",
+            [ln for k in s.up for ln in link_lines(k)])
+    section("edge (parts that call an actor)",
+            [f"  {e.component} in {e.unit} → {' '.join(e.actors)}" for e in s.edge])
+    pad = min(max((kit.cell_width(r.component) for r in s.reach), default=0), SIM_NAME) + 2
+    section("reach (what each part can drive / be driven by, largest first)",
+            [_reach_line(r, pad) for r in s.reach if r.out or r.into
+             or r.out_actors or r.in_actors])
+    section("pass-throughs (one caller, one callee, no actor)",
+            [f"  {p.component} in {p.unit}: {p.caller} → {p.component} → {p.callee}"
+             for p in s.pass_throughs])
+    section(f"units over {structure.LARGE} members",
+            [f"  {u.key}  {len(u.members)} members" for u in s.large])
+    section("a name declared in two units (one name, one entity)",
+            [f"  {r.component}: {' · '.join(r.units)}" for r in s.repeated])
+    section("writers per store",
+            [_writers_line(w) for w in s.writers])
+    return out + [structure.summary(s)]
+
+
+def _reach_line(r, pad: int) -> str:
+    line = (f"  {kit.ljust_cells(r.component, pad)}out {len(r.out):>3}  "
+            f"in {len(r.into):>3}  {r.unit}")
+    if r.out_actors:
+        line += f"  → {' '.join(r.out_actors)}"
+    if r.in_actors:
+        line += f"  ← {' '.join(r.in_actors)}"
+    return line
+
+
+def _writers_line(w) -> str:
+    who = " · ".join(f"{p} ({', '.join(how)})" for p, how in w.writers) or "no writer"
+    return f"  {w.store} in {w.unit}  {len(w.writers)}: {who}"
+
+
+def structure_reading(path: Path, dialect=None, as_json: bool = False) -> int:
+    """--structure: print the structure reading of `path` (text or JSON); no
+    drawing, no lint, any mode. Exit status 0."""
+    from sigil.model import structure
+    kit.use_dialect(dialect)
+    g = kit._call(parse.parse_document, path.read_text(), dialect)
+    s = structure.structure_of(
+        g, path.stem, kinds=getattr(dialect, "NODE_KINDS", None) or {},
+        read_verbs=scene.READ_VERBS + tuple(sorted(
+            v for v in getattr(dialect, "READ_VERBS", None) or () if v not in scene.READ_VERBS)))
+    print(json.dumps(structure.as_json(s), indent=2, ensure_ascii=False) if as_json
+          else "\n".join(structure_text(s)))
     return 0
 
 
@@ -2278,6 +2367,8 @@ def run(args, dialect, limits, output: Output) -> int:
     shows it and plays `happy`)."""
     a = args
     view = next((v for v in VIEWS if getattr(a, v)), DEFAULT_VIEW)   # --graph/--tree/…
+    if getattr(a, "structure", False):    # never drawn: the same live or --once
+        return structure_reading(a.file, dialect, a.json)
     if a.sim in SIM_BATCH:                 # never drawn: the same live or --once
         return sim_batch(a.file, a.sim, dialect, a.json, limits)
     if a.json:                             # one run, no drawing: the same live or --once

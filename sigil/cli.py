@@ -3,6 +3,7 @@
     sigil lint FILE|- [--deep] [--dialect D]
     sigil check [FILE|-] [--mode M] [--k N] [--budget N] [--limit NAME=N] [--overlaps …] [--json] [--export] [--rules]
     sigil view FILE [--once] [--graph|--tree|--flow|--run] [--sim S] …
+    sigil view FILE --structure [--json]
     sigil export SPEC --out DIR [--name NAME] [--limit NAME=N] [--json] [--dry-run]
     sigil export FILE --mermaid [--depth N|all] [--composition subgraphs|edges|none]
     sigil export FILE --mermaid --spine [--name NAME]
@@ -373,6 +374,12 @@ def _view_parser(dialect, app) -> argparse.ArgumentParser:
                          "scenarios / every run's facts; with --sim SCENARIO: its facts, "
                          "the run in plain words and its log; with --run: the run's "
                          "timeline (lanes, spans, moves, marks)")
+    ap.add_argument("--structure", action="store_true",
+                    help="no drawing: the design read as units — each unit's members, "
+                         "internal flows and dependencies, cycles, the parts that call "
+                         "an actor, each part's reach, pass-throughs, units over 9 "
+                         "members, a name declared in two units, writers per store "
+                         "(with --json: as data); any mode, exit status 0")
     ap.add_argument("--checks", action="store_true",
                     help="mark the composition checks' findings (sigil check) on the drawing "
                          "and list them with their questions (live: key c toggles it)")
@@ -387,8 +394,10 @@ def _view_parser(dialect, app) -> argparse.ArgumentParser:
 
 def _flag_problem(a, sim_batch: tuple) -> str | None:
     """Why the parsed view flags can't go together (None: they can)."""
-    if a.json and a.sim is None and not a.run:
-        return "--json needs --sim (list, all or a scenario) or --run"
+    if a.structure and (a.sim is not None or a.run or a.frame is not None or a.play):
+        return "--structure is a reading of its own: no --sim, --run, --frame or --play"
+    if a.json and a.sim is None and not a.run and not a.structure:
+        return "--json needs --sim (list, all or a scenario), --run or --structure"
     if (a.frame is not None or a.play) and (a.sim is None or a.sim in sim_batch):
         return "--frame and --play need --sim SCENARIO"
     return None
@@ -424,7 +433,8 @@ def _view(argv: list, dialect) -> int:
         once=a.once or not tty_out or not sys.stdin.isatty(),
         colour=a.color == "always" or (a.color == "auto" and tty_out),
         width=a.width or (shutil.get_terminal_size().columns if tty_out else app.ONCE_WIDTH))
-    if (output.once or a.json or a.sim in app.SIM_BATCH) and not _readable(a.file):
+    if (output.once or a.json or a.structure or a.sim in app.SIM_BATCH) \
+            and not _readable(a.file):
         return 2
     try:
         return app.run(a, loaded, limits, output)

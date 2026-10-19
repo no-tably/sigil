@@ -99,7 +99,7 @@ import re
 from dataclasses import dataclass, field, replace
 from typing import Iterable, Mapping, NamedTuple, Optional
 
-from sigil.core.graph import walk_depth
+from sigil.core.graph import header_only, walk_depth
 from sigil.core.lex import BLOCK_SENTINEL, GLYPH_BRACKETS
 
 
@@ -300,19 +300,6 @@ def lay_out(graph, stem: str) -> Layout:
     _lay_graph(graph, stem, lay)
     nest_headers(lay)
     return renamed(lay, named_keys(lay))
-
-
-def header_only(g, nid: str) -> bool:
-    """g writes node `nid` only on the header of its own expansion (`[X] := { … }`):
-    no flow, branch or other statement of g names it. Such a header places no
-    node at g's level: the expansion is the inside of the X written elsewhere."""
-    sub = g.expansions.get(nid)
-    node = g.nodes.get(nid)
-    if sub is None or node is None or sub.role == "state" or node.kind == "alias":
-        return False
-    if any(nid in (e.src, e.dst) for e in g.edges) or any(t.node == nid for t in g.tree):
-        return False
-    return sum(1 for _line, h in g.heads if h == nid) <= 1
 
 
 def nest_headers(lay: Layout):
