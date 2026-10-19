@@ -64,6 +64,7 @@ library only. Write the document to a file (e.g. `/tmp/doc.sigil`) first; `sigil
 | Live view for a human | `python3 scripts/bin/sigil view FILE` | full-screen view that redraws on every save (tell the user to run it in their own terminal); keys: `1` `2` `3` `4` graph / tree / flow / run, `t` the next view, `x` sim mode (in it: space play / pause, `,` `.` a frame, `<` `>` an event, `[` `]` scenario, `-` `+` speed, `w` follow), `n` notes (in the run view: run notes / the design's / none), `u` the run view's folding, `e` triggers, `v` events (where they land / as nodes), `s` spacing, `o` layout (auto / wrap: fit the width, grow down / pan: natural, pan across; `f` flips wrap and pan; `--layout` to start in one), `c` checks overlay, `d` depth, `p` payloads, `m` modifiers, `a` access, `l` lint, arrows / `h j k L` or mouse drag / wheel pan, `z` centre, `g` home, `r` reload, `q` quit |
 | Run every pathway | `python3 scripts/bin/sigil view FILE --sim all [--json]` | no drawing: per scenario `NAME outcome N frames label`, then indented facts — `states:` each machine's end state, `failed:` what failed (`↩ fallback`, `critical`), `routes:` failure routes taken, `ignored:` events a state had no transition for, `waiting:` nodes left blocked, `open:` joins left open, `bounds:` a base case, visit limit, spawn cap, loop at the cap or cut — then `N scenarios: a ok, b failed, c cut`; always exit 0. `--sim list`: the scenario names and labels |
 | Walk one pathway | `python3 scripts/bin/sigil view FILE --once --tree --sim SCENARIO` | the run's last frame over the drawing (`✕` failed, `◉` a machine's state, wires taken vs never taken), then `sim NAME (label): ok\|failed\|cut · N frames` and the run in plain words, one `tNNN …` line per step (`[API] calls [Payments] with charge(total) — attempt 2 of 4`, `[API] routes the failure to <PaymentFailed>`); exit 2 for an unknown scenario, listing the known ones. `--sim SCENARIO --json` (no drawing): the run's facts, `steps` [{frame, tick, text}] and the raw `log` |
+| Read the structure | `python3 scripts/bin/sigil view FILE --structure [--json]` | no drawing: per unit its members (actors apart), flows, the units it calls and holds; then cycles between sibling units with their flows, *up* links, the edge (parts that call an actor), each part's reach out and in, pass-throughs, units over 9 members, parts with no home, writers per store; any mode, exit 0. See **refine** |
 | Mark the findings | `python3 scripts/bin/sigil view FILE --once --checks [--tree]` | the check findings marked on the drawing, a checks legend, then each finding's question after lint |
 | Show it to the user | the plugin's viewer tool — Claude Code: `view` (`mcp__sigil__view`); pi: `sigil_view` — with `file`, `view` graph\|tree\|flow\|run, `depth`, `scenario`, `frame` N\|last, `play` | a live viewer the user watches (a pane or widget, or a herdr / tmux / zellij split) that redraws on every save; the reply gives the summary, lint and the run's step at that frame (`now:` the narration line, `path:` the hops so far, by branch), never the drawing. See **Showing the user** |
 | Export a ready spec | `python3 scripts/bin/sigil export FILE --out DIR [--name NAME] [--dry-run] [--json]` | a `#!spec` document that lints and checks clean (with `--export`) written as a build skeleton: a folder per system, a `.md` per component, `manifest.json` (per system: interface and body hash, components, each component's two hashes, depends_on; the dialect, when one is loaded); `--name` names the top system (default: the file's stem); every export writes `delta.json`, and a re-export prints the delta (`added` / `removed` / `rebuild` / `recheck` / `unchanged`); not ready → the blocking lines, exit 2, nothing written. See **export** |
@@ -217,46 +218,94 @@ spec is final and the user wants it built, see **export**.
 Refining is a loop, run after every feature added in **craft**, until the design is
 the simplest acyclic, composable structure that meets its goal. It is not tied to
 any domain or language.
-1. **Read the design from each angle below.** Note what each reading shows.
-2. **Propose each change** to the user: the change, the pass that found it, and what
-   it costs. Apply only what the user takes.
-3. **Re-measure.** Run lint, check and `--sim all` again, and compare the happy run's
-   frames, the failure rows and the unit sizes with the last round.
-4. **Stop** when a full round finds nothing the user wants to change.
+1. **Fix the limits first.** Run `--sim all` and raise `--limit frames=N` (and
+   `activations=N`) until no row is `cut`. Keep the same limits for every round. A
+   cut run measures nothing, and in spec mode it is a warning that blocks export.
+2. **Read the design from each angle below.** Note what each reading shows.
+3. **Propose each change** to the user: the change, the pass that found it, and what
+   it costs (measured, if you tried it on a copy). Apply only what the user takes.
+4. **Re-measure.**
+   - **After each change:** `lint FILE --deep`, `view FILE --sim all` and `view FILE
+     --structure`, all at the same limits.
+   - **Once per round:** `check FILE --mode spec`, which runs every overlap run and
+     takes much longer.
+   - Compare the happy run's frames, the failure rows and the structure summary
+     with the last round.
+5. **Stop** when a full round finds nothing the user wants to change.
+
+`python3 scripts/bin/sigil view FILE --structure [--json]` is the main reading for
+several of the passes. For each unit (each `X := { … }`, tree root, and the top) it
+lists:
+- its members, kept apart from its actors;
+- its internal flows;
+- the units it calls and the units it holds;
+- cycles between sibling units, with the flows that make them;
+- *up* links: a unit's flows into a unit that encloses it, such as a layer using a
+  store written at the top. These are normal, not cycles;
+- the *edge*: the parts that call an actor;
+- each part's reach, out and in: what it can drive and what can drive it;
+- pass-throughs;
+- units over 9 members;
+- parts with no home (written in two units, neither enclosing the other);
+- writers per store.
 
 | Pass | Ask | Read it with |
 | --- | --- | --- |
 | purpose | does every part serve the goal? | `--depth 0`; `check` *unreached*; the run view |
-| names | one concern per name, the simplest true name, the right kind? | `--tree`; a name used in two units is **one** entity (it merges silently) |
-| dependencies | acyclic, and pointing toward the stable and pure? | `export --mermaid --spine` (systems); `check` *expansion-escape*; which units call an actor (those are the edge) |
-| blast radius | if a part failed or were hostile, how far could it reach, and who can drive it? | each failure row's `failed:` line in `--sim all` (everything it reaches); `--access` (writers per store); every outside sender drawn as an actor |
-| complexity | the least structure that does the job? | members per expansion (more than ~9 does not scan); pass-throughs; modes split from their thing |
-| composability | can each unit be used and tested alone? | what each unit calls; a call that only fetches configuration |
+| names | one concern per name, the simplest true name, the right kind? | `--tree`; a name used twice is **one** entity (it merges silently); `--structure` parts with no home |
+| dependencies | acyclic, and pointing toward the stable and pure? | `--structure` cycles and *up* links; `check` *unit-cycle*, *expansion-escape* |
+| blast radius | if a part failed or were hostile, how far could it reach, and who can drive it? | `--structure` reach, edge and writers per store; each failure row's `failed:` line in `--sim all`; every outside sender drawn as an actor |
+| complexity | the least structure that does the job? | `--structure` units over 9 and pass-throughs (`check` *large-unit*); modes split from their thing |
+| composability | can each unit be used and tested alone? | `--structure` calls per unit; a call that only fetches configuration |
 | efficiency | does the work per run fit the goal? | the happy run's frames, compared between versions only; `--run` waits; retries |
 | behaviour | does it still do what the user said? | `--sim all` against the expected outcomes; `check --mode spec` (worth reading even on a sketch: it finds unhandled failures) |
 
 The usual changes, in the design's own terms:
-- **Break cycles** by moving what both sides share down into a value both read.
+- **Break a cycle between siblings** by moving what both sides share down into a
+  value both read, or into a unit both depend on. An *up* link that hurts (a layer
+  using its parent's part) is fixed by making that part a sibling unit.
 - **Pass configuration** (a clock, sizes, capabilities, a theme) in as data, not as a call.
 - **Keep the edge small:** only the parts that touch the outside world talk to
-  actors, and each caller points at the part it uses, not at a whole package. A
-  coarse edge pulls every failure behind it into the caller's runs.
+  actors.
+- **Wire narrowly, but within the home rules.** From an outer level, including an
+  actor's entry line, point at the inner part it uses: a coarse edge to a whole unit
+  pulls every failure behind it into the caller's runs. Between sibling units, call
+  the unit itself. Naming a sibling's part makes that part homeless (*no-home*
+  under `--export`).
 - **Contain the blast radius:**
-  - draw every trust boundary as an actor with what it sends;
+  - draw every trust boundary as an actor with what it sends (an entry at the top
+    pointing at the part it reaches);
   - give each device or store one writer;
   - decode untrusted input into the design's own values, and never forward it raw;
-  - put the powerful parts (spawning, writing, the network) at the edge, with the
-    least reach;
-  - make every failure end in a fallback or a named error its caller handles.
+  - put the powerful parts (spawning, loading code, writing, the network) at the
+    edge, with the least reach;
+  - make every failure end in a fallback or a named error its caller handles. No
+    failure rows in `--sim all` means the design draws no failures: draw the ones
+    the system handles.
 - **Shrink:** fold a mode into its owner, merge two parts doing one concern, group
   a large unit into families, and delete a layer that isolates nothing.
 
-A refinement is a structural change the user agrees to, made for a reason a pass
-gave. It is not a way to quiet a check finding (see **check**). A library-shaped
-design will trip rules written for services: *unreached*, *capacity-mismatch*, an
-error event nobody consumes (a library returns its errors to the caller), and
-*saga-uncompensated* over pure parts. Acknowledge those once, document-wide, with
-the reason.
+**What to apply and what to propose:**
+- **A refinement** is a structural change the user agrees to, made for a reason a
+  pass gave. It is not a way to quiet a check finding (see **check**).
+- **A notation fix that only restates what the document already says** (its
+  comments call a send conditional, so it becomes `?>`) is applied. The findings it
+  uncovers go to the user as questions.
+- **A truer relation kind** (`\-_` one of, `\-*->` spawns) may raise new questions.
+  Ask them; don't fall back to a vaguer kind.
+- **With no user to ask** (a delegated run), apply only changes that make the design
+  match what is already known: the code, the stated decisions, the comments. List
+  the rest as proposals, each with its reason and measured cost.
+
+**A library-shaped design** trips rules written for services: *unreached*,
+*capacity-mismatch*, an error event nobody consumes (a library returns its errors
+to the caller), and *saga-uncompensated* over pure parts. These are facts about the
+shape, not risks: acknowledge them once, document-wide, with the reason, and tell
+the user which you added. **A design that uses a library** names the library's
+parts as op calls (`: op cure.paint(view)`), not as components: a component would
+be exported as something to build, and would merge with any part of the same name.
+Acknowledge the op calls' missing timeouts document-wide, as in-process library
+calls.
 
 ### lint — validate
 Run `python3 scripts/bin/sigil lint FILE`. Report each diagnostic with a suggested fix
@@ -277,6 +326,11 @@ are errors); in sketch they are hidden (`--all` shows them).
 2. Put each finding to the user **as its question** (craft prints it; in spec turn
    the statement into one), in the design's own terms, and let the user answer.
    A finding marked `(guessed: …)` rests on a guess about a name — say so.
+   In spec mode a run the simulator cut at its limits is a warning
+   (*exploration-incomplete*): raise `--limit frames=N` on `check` (and `export`)
+   until nothing is cut before trusting the rest; the defaults already grow with
+   the document's size. A `#&` declaration whose dialect is not available leaves
+   an SGL189 warning until it is; say so rather than removing the declaration.
    A behavioural finding names its witness run; one named `Entry@t` (`race: … in
    the Bob@0 run`) is two entries running at once — replay it with
    `sigil view FILE --once --run --sim Bob@0` and show the user where they meet.
@@ -368,7 +422,9 @@ unacknowledged. The tool enforces that gate itself.
    and the top level (named after the file, or `--name NAME`); "Ready to export" in
    `references/language.md` has the rules. Descriptions come from the `#` comments:
    a header comment needs a blank line after it to describe the top system, or it
-   describes the first statement's node.
+   describes the first statement's node. A trailing comment describes its line's
+   first node, and a comment-only line aligned under it continues it. `# accepts:`
+   lines show under the component's Requirements.
 2. `python3 scripts/bin/sigil export FILE --out DIR`. If it exits 2 it prints what blocks
    it (lint errors, findings, a non-spec mode line) and writes nothing; take those
    back to the user like any finding.
@@ -414,7 +470,11 @@ saying which and why. When the user wants a diagram for docs, run
   invented keywords or modifiers.
 - One name is one entity everywhere in a document: a component named the same in
   two expansions is a single component, wired into both.
-- Wire a caller to the part it uses, not to a whole package or layer: the
-  simulator runs everything behind a coarse edge.
+- Wire a caller to the part it uses from an outer level, but call a sibling unit,
+  not its part: the simulator runs everything behind a coarse edge, and a part
+  named in two sibling units has no home.
+- A send that happens only sometimes is `?>`, not `~>`. Every plain send fires in
+  the happy run, so a happy run where alternatives all fire is not the system's
+  happy path (an order both built and pruned).
 - Sigil models wiring, not algorithms or data-structure internals — keep a
   component's internals opaque and point to prose or code for them.
