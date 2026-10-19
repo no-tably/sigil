@@ -11,6 +11,6 @@ Exported from `07-export.sigil` (spec hash `42c36c489b8429a2`) by sigil export.
 
 - `07-export` (top) — [07-export/](07-export/README.md) — depends on `Catalog`, `Checkout`, `Fulfilment`, `Warehouse`
 - `Catalog` (tree) — [catalog/](catalog/README.md) — depends on nothing
-- `Checkout` (expansion) — [checkout/](checkout/README.md) — depends on `07-export`
+- `Checkout` (expansion) — [checkout/](checkout/README.md) — depends on `Fulfilment`
 - `Fulfilment` (expansion) — [fulfilment/](fulfilment/README.md) — depends on nothing
 - `Warehouse` (tree) — [warehouse/](warehouse/README.md) — depends on `Catalog`

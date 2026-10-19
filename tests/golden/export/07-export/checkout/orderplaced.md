@@ -1,6 +1,6 @@
 # <OrderPlaced>
 
-Kind: event. Lives in system `07-export` (folder `07-export/`). Also written in: `Checkout`.
+Kind: event. Lives in system `Checkout` (folder `checkout/`). Also written in: `07-export`.
 
 ## Interface
 

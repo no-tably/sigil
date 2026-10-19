@@ -12,12 +12,21 @@
   ],
   "interface": [
     {
-      "from": "[Basket]",
+      "from": "<OrderPlaced>",
+      "to": "[Fulfilment]",
+      "arrow": "*>",
+      "mode": "async",
+      "lines": [
+        32
+      ]
+    },
+    {
+      "from": "[Checkout]",
       "to": "<OrderPlaced>",
       "arrow": "~>",
       "mode": "async",
       "lines": [
-        29
+        32
       ]
     }
   ],
@@ -30,15 +39,6 @@
       "payload": "<Declined>",
       "lines": [
         13
-      ]
-    },
-    {
-      "from": "<OrderPlaced>",
-      "to": "[Fulfilment]",
-      "arrow": "*>",
-      "mode": "async",
-      "lines": [
-        32
       ]
     },
     {
@@ -104,15 +104,6 @@
       "lines": [
         12
       ]
-    },
-    {
-      "from": "[Checkout]",
-      "to": "<OrderPlaced>",
-      "arrow": "~>",
-      "mode": "async",
-      "lines": [
-        32
-      ]
     }
   ],
   "components": [
@@ -169,52 +160,6 @@
       "hashes": {
         "interface": "ae794b82d02eadf6",
         "body": "3916a92a261599c2"
-      }
-    },
-    {
-      "name": "OrderPlaced",
-      "kind": "event",
-      "glyph": "<OrderPlaced>",
-      "home": "07-export",
-      "also_in": [
-        "Checkout"
-      ],
-      "interface": [
-        {
-          "dir": "out",
-          "peer": "[Fulfilment]",
-          "arrow": "*>",
-          "mode": "async",
-          "lines": [
-            32
-          ]
-        },
-        {
-          "dir": "in",
-          "peer": "[Basket]",
-          "arrow": "~>",
-          "mode": "async",
-          "lines": [
-            29
-          ]
-        },
-        {
-          "dir": "in",
-          "peer": "[Checkout]",
-          "arrow": "~>",
-          "mode": "async",
-          "lines": [
-            32
-          ]
-        }
-      ],
-      "lines": [
-        29,
-        32
-      ],
-      "hashes": {
-        "interface": "a7319ed807b015dc",
-        "body": "d3943a45aa131429"
       }
     },
     {
@@ -447,7 +392,7 @@
     }
   ],
   "hashes": {
-    "interface": "f418b361e094547a",
-    "body": "75979ceff2c70e06"
+    "interface": "1468c8fefdc59fa0",
+    "body": "91b43631411f44b9"
   }
 }

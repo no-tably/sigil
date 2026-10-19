@@ -98,10 +98,12 @@ class TestSystems(unittest.TestCase):
         self.assertEqual(self.m.systems["Payments"].parent, "Shop")
 
     def test_members_and_homes(self):
-        self.assertEqual(glyphs(self.m, "Shop"), ["[Cart]", "[Checkout]", "[Payments]"])
+        self.assertEqual(glyphs(self.m, "Shop"),
+                         ["<OrderPlaced>", "[Cart]", "[Checkout]", "[Payments]"])
         self.assertEqual(glyphs(self.m, "Payments"), ["[Gateway]", "[Risk]"])
-        # written at the top level and in [Shop]: shared at the top level
-        self.assertEqual(self.m.components["OrderPlaced_event"].home, "shop")
+        # the top level writes it only as an end of its flows, [Shop] writes it
+        # too: the top's flow is a reference into Shop, its home
+        self.assertEqual(self.m.components["OrderPlaced_event"].home, "Shop")
         # the face lives where it is written, not in its own system
         self.assertEqual(self.m.components["Shop_service"].home, "shop")
         self.assertEqual(self.m.shared, ())
@@ -110,13 +112,13 @@ class TestSystems(unittest.TestCase):
         iface = {(self.m.components[f.src].glyph, self.m.components[f.dst].glyph)
                  for f in self.m.systems["Shop"].interface}
         self.assertEqual(iface, {("[Edge]", "[Shop]"), ("[Shop]", "|Catalog|"),
-                                 ("[Shop]", "<OrderPlaced>"),
-                                 ("[Checkout]", "<OrderPlaced>")})
+                                 ("<OrderPlaced>", "[Fulfilment]"),
+                                 ("<OrderPlaced>", "|Ledger|")})
         internal = {(f.src, f.dst) for f in self.m.systems["Shop"].internal}
         self.assertIn(("Checkout_service", "Payments_service"), internal)
 
     def test_dependencies(self):
-        self.assertEqual(self.m.systems["Shop"].depends_on, ("Payments", "shop"))
+        self.assertEqual(self.m.systems["Shop"].depends_on, ("Fulfilment", "Payments", "shop"))
         self.assertIn("Fulfilment", self.m.systems["shop"].depends_on)
         self.assertEqual(self.m.systems["Fulfilment"].depends_on, ())
 
@@ -306,10 +308,10 @@ class TestReadinessFacts(unittest.TestCase):
                 "[Core] := {\n  [Router] -> [Handler]\n  [Handler] -> |Db| : put(k)\n}\n")
         m = model(text, "t")
         found = {(u.src, u.dst, u.missing, u.systems) for u in m.untyped}
-        self.assertEqual(found, {("[Core]", "|Db|", "return", ("Core",)),
-                                 ("[Handler]", "|Db|", "return", ("Core", "t"))})
-        # [Api] -> [Log] is untyped but crosses no boundary; ~> is async; the
-        # inner [Router] -> [Handler] crosses none either
+        self.assertEqual(found, {("[Core]", "|Db|", "return", ("t",))})
+        # |Db| is Core's (the top's flow refers into Core), so the inner
+        # [Handler] -> |Db| crosses no boundary; [Api] -> [Log] is untyped but
+        # crosses none either; ~> is async
 
 
     def test_failure_and_optional_calls_need_a_payload_only(self):
@@ -346,11 +348,15 @@ class TestHeaderOnlyOwners(unittest.TestCase):
         self.assertEqual(m.systems["A"].parent, "t")
         self.assertEqual(m.components["A_service"].home, "t")
 
-    def test_an_owner_also_wired_at_the_top_stays_there(self):
+    def test_an_owner_wired_at_the_top_lives_where_it_is_declared(self):
+        # the top writes [A] only as a flow end and on its header: a reference
+        # into Core, which declares it (the home rule, 0.6.2)
         text = self.CORE + "[A] -> |Log| : put({X}) => {Ok}\n"
         m = model(text, "t")
-        self.assertEqual(m.components["A_service"].home, "t")
-        self.assertEqual(m.systems["A"].parent, "t")
+        self.assertEqual(m.components["A_service"].home, "Core")
+        self.assertEqual(m.systems["A"].parent, "Core")
+        self.assertEqual(m.components["A_service"].systems, ("t", "Core"))
+        self.assertEqual(m.shared, ())
 
     def test_an_owner_also_declared_at_the_top_stays_there(self):
         m = model(self.CORE + "[A] @sla(p99 < 5ms)\n", "t")
@@ -379,6 +385,83 @@ class TestHeaderOnlyOwners(unittest.TestCase):
         m = model(text, "t")
         chain = [m.systems["A"].parent, m.systems["B"].parent]
         self.assertIn("t", chain)                     # no cycle up to the top
+
+
+class TestHomeRule(unittest.TestCase):
+    """A level that writes a part only as an end of its flows refers to the
+    unit nested under it that writes the part too: it is no home for it."""
+
+    REMOTE = ("(Client) -> [Transport] : connect({Hello}) => {Diffs}\n"
+              "[Remote] := {\n  [Server] -> [Transport] : accept({Hello}) => {Client}\n"
+              "  [Transport] -> [Protocol] : frame({Changes}) => {Message}\n}\n")
+
+    def test_an_actor_s_entry_into_an_inner_part(self):
+        m = model(self.REMOTE, "t")
+        self.assertEqual(m.components["Transport_service"].home, "Remote")
+        self.assertEqual(m.components["Transport_service"].systems, ("t", "Remote"))
+        self.assertEqual(m.components["Client_actor"].home, "t")
+        self.assertEqual(glyphs(m, "Remote"), ["[Protocol]", "[Server]", "[Transport]"])
+        self.assertEqual(m.systems["t"].depends_on, ("Remote",))
+        self.assertEqual(m.systems["Remote"].depends_on, ())      # no flow up to t
+        self.assertEqual(m.shared, ())
+
+    def test_a_part_declared_at_the_top_stays_there(self):
+        m = model("[Transport]\n" + self.REMOTE, "t")
+        self.assertEqual(m.components["Transport_service"].home, "t")
+        self.assertEqual(m.systems["Remote"].depends_on, ("t",))
+
+    def test_a_top_flow_between_parts_of_two_units(self):
+        text = ("[P] -> [Q] : ask({Req}) => {Res}\n"
+                "[A] := {\n  [P]\n  [R] -> [P] : go({X}) => {Y}\n}\n"
+                "[B] := {\n  [Q]\n}\n")
+        m = model(text, "t")
+        self.assertEqual(m.components["P_service"].home, "A")
+        self.assertEqual(m.components["Q_service"].home, "B")
+        self.assertEqual(m.systems["A"].depends_on, ("B",))
+        self.assertEqual([(f.src, f.dst) for f in m.systems["B"].interface],
+                         [("P_service", "Q_service")])
+        self.assertEqual(m.shared, ())
+
+    def test_a_part_of_two_sibling_units_referred_to_from_the_top_stays_there(self):
+        # dropping the top would leave two siblings and no home: the top stays
+        text = ("[Api] -> [X] : get({K}) => {V}\n"
+                "[A] := {\n  [X]\n}\n[B] := {\n  [X] -> |Db| : put({K}) => {Ok}\n}\n")
+        m = model(text, "t")
+        self.assertEqual(m.shared, ())
+        self.assertEqual(m.components["X_service"].home, "t")
+
+    def test_data_used_in_two_sibling_units_and_at_the_top_stays_there(self):
+        text = ("[Shop] -> {Order} : make({Cart})\n"
+                "[A] := {\n  [P] -> {Order} : put({K})\n}\n"
+                "[B] := {\n  {Order} -> [Q] : take({K})\n}\n")
+        m = model(text, "t")
+        self.assertEqual(m.shared, ())
+        self.assertEqual(m.components["Order_data"].home, "t")
+
+    def test_a_part_of_two_sibling_units_alone_is_still_shared(self):
+        text = "[A] := {\n  [X]\n}\n[B] := {\n  [X] -> |Db| : put({K}) => {Ok}\n}\n"
+        self.assertEqual([(s.glyph, s.systems) for s in model(text, "t").shared],
+                         [("[X]", ("A", "B"))])
+
+    def test_a_layer_called_from_inside_another_stays_at_the_top(self):
+        # [Present] heads its own flows and its expansion at the top; [Cli]
+        # only calls it: a reference back out, not a declaration
+        text = ("[Cli] := {\n  [ViewCmd] -> [Present] : draw({Text}) => {Drawing}\n}\n"
+                "[Cli] -> [Present] : draw({Text}) => {Drawing}\n"
+                "[Present] -> [Core] : parse({Text}) => {Doc}\n"
+                "[Present] := {\n  [App] -> [Kit] : paint({Rows}) => {Frame}\n}\n")
+        m = model(text, "t")
+        self.assertEqual(m.components["Present_service"].home, "t")
+        self.assertEqual(m.systems["Present"].parent, "t")
+        self.assertEqual(m.systems["Cli"].depends_on, ("Present",))
+
+    def test_a_reference_chain_goes_to_the_innermost_unit(self):
+        text = ("(U) -> [Leaf] : use({X}) => {Y}\n"
+                "[Outer] := {\n  [Inner]\n  [Inner] -> [Leaf] : use({X}) => {Y}\n}\n"
+                "[Inner] := {\n  [Leaf] -> [Db] : get({K}) => {V}\n}\n")
+        m = model(text, "t")
+        self.assertEqual(m.systems["Inner"].parent, "Outer")
+        self.assertEqual(m.components["Leaf_service"].home, "Inner")
 
 
 class TestActors(unittest.TestCase):

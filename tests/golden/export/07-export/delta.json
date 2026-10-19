@@ -20,8 +20,8 @@
       "status": "added",
       "old": null,
       "new": {
-        "interface": "f418b361e094547a",
-        "body": "75979ceff2c70e06"
+        "interface": "1468c8fefdc59fa0",
+        "body": "91b43631411f44b9"
       }
     },
     "Catalog": {
@@ -36,8 +36,8 @@
       "status": "added",
       "old": null,
       "new": {
-        "interface": "c5e61598f9c8e9b7",
-        "body": "4a4cefe89c2592b6"
+        "interface": "fffc59f5459c4cb1",
+        "body": "d0693387d15a8f92"
       }
     },
     "Fulfilment": {

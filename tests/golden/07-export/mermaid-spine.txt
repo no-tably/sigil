@@ -4,7 +4,6 @@ flowchart TD
     Catalog_service["Catalog"]
     Checkout_service["Checkout"]
     Warehouse_service["Warehouse"]
-    OrderPlaced_event>"OrderPlaced"]
     Fulfilment_service["Fulfilment"]
     subgraph system__catalog["Catalog"]
         direction TB
@@ -17,6 +16,7 @@ flowchart TD
     end
     subgraph system__checkout["Checkout"]
         direction TB
+        OrderPlaced_event>"OrderPlaced"]
         Basket_service["Basket"]
         Payments_service["Payments"]
         Orders_store[("Orders")]

@@ -6,11 +6,10 @@
   "systems": {
     "07-export": {
       "path": "07-export",
-      "interface": "f418b361e094547a",
-      "body": "75979ceff2c70e06",
+      "interface": "1468c8fefdc59fa0",
+      "body": "91b43631411f44b9",
       "components": [
         "(Shopper)",
-        "<OrderPlaced>",
         "[Catalog]",
         "[Checkout]",
         "[Fulfilment]",
@@ -27,10 +26,6 @@
         "(Shopper)": {
           "interface": "ae794b82d02eadf6",
           "body": "3916a92a261599c2"
-        },
-        "<OrderPlaced>": {
-          "interface": "a7319ed807b015dc",
-          "body": "d3943a45aa131429"
         },
         "[Catalog]": {
           "interface": "4cf392a3a90e2218",
@@ -76,17 +71,22 @@
     },
     "Checkout": {
       "path": "checkout",
-      "interface": "c5e61598f9c8e9b7",
-      "body": "4a4cefe89c2592b6",
+      "interface": "fffc59f5459c4cb1",
+      "body": "d0693387d15a8f92",
       "components": [
+        "<OrderPlaced>",
         "[Basket]",
         "[Payments]",
         "|Orders|"
       ],
       "depends_on": [
-        "07-export"
+        "Fulfilment"
       ],
       "component_hashes": {
+        "<OrderPlaced>": {
+          "interface": "a7319ed807b015dc",
+          "body": "541b7be3956792d7"
+        },
         "[Basket]": {
           "interface": "a3df927977d9b486",
           "body": "20a52461bf9a8f16"

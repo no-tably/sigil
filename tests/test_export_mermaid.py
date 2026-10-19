@@ -163,6 +163,7 @@ class FaceDependencyTest(unittest.TestCase):
 
     def test_a_member_at_the_top_is_still_a_dependency(self):
         model = export_systems.build_model(doc("""
+            |Db|
             [A] := {
               [W] -> |Db| : put({X}) => {Ack}
             }

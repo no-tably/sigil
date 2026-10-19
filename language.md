@@ -1070,8 +1070,19 @@ systems are read off the document; there is no syntax for them:
 The node a system is named after (the expansion's owner, the tree's root) stands for
 the system where it is written: a flow into `[Checkout]` at the top level is a flow
 into the Checkout system. A component's **home** is the one system it lives in: of
-the systems it is written in, the one that encloses all the others (written at the
-top level and in an expansion, it lives at the top level). A system's **boundary**
+the systems it is written in, the one that encloses all the others (declared at the
+top level, on a line of its own or in a tree, and written in an expansion, it lives
+at the top level). A level that writes a part only as an end of its flows refers into
+the unit nested under it that writes the part too, and is no home for it:
+`(Client) -> [Transport]` at the top level, with `[Transport]` written inside
+`[Remote] := { … }`, leaves `[Transport]` in Remote, and a top-level flow between
+parts of two units leaves each in its unit (the caller's system then depends on the
+callee's through it). When the level also writes the part's own expansion header
+(`[Buffer] := { … }` at the top), the part moves only into a unit that declares it;
+a unit that only calls it calls out. The rule never leaves a part homeless: a part
+two sibling units write, referred to from above (`{Order}` used at the top level and
+in two units), still lives in the level above, as before. An actor's entry line is no
+such reference. A system's **boundary**
 is the flows with exactly one end in it; its **interface** is those flows, with their
 payloads and returns. System A depends on B when a flow leaves A for B.
 

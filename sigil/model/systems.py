@@ -40,11 +40,28 @@ SYSTEMS (inferred, no syntax of their own)
 HOMES
 
   A node's candidate systems are the systems it is written in (in a tree, the
-  tree's system; elsewhere the system of the graph). Its HOME is the candidate
-  that encloses all the others (a node written in the top level and in an
-  expansion is shared at the top level). When no candidate encloses the rest
-  (a member of two sibling expansions, of two trees) the node has no one home:
-  it is listed in Model.shared (SGC401) and lives in its first candidate. An
+  tree's system; elsewhere the system of the graph). A level that writes a node
+  only as an end of its own flows is a REFERENCE into a system nested under it
+  that writes the node too (declared there, in a tree there, or an end of that
+  system's own flows), and is no home candidate — unless the systems left have
+  none enclosing the others (siblings): the rule never makes a node homeless,
+  so then the outer level stays and homes it (a {Order} used at the top and in
+  two sibling units lives at the top, as before): `(Client) -> [Transport]` at
+  the top level with [Transport] written inside [Remote] homes it in Remote. A
+  level that also writes the `X := {` header of the node's own expansion
+  refers so only to a nested system that declares the node (a line of its own,
+  a tree): the header is then only where the inside is written, and the
+  expansion nests under the node's home, as a header-only one does; a nested
+  system writing it only as flow ends refers back to the level instead (a
+  layer `[Present] := { … }` at the top, called from inside [Cli]). An actor
+  is never referred to so (its entry line stands where it is written).
+
+  Its HOME is the remaining candidate that encloses all the others (a node
+  declared at the top level and written in an expansion is shared at the top
+  level). When no candidate encloses the rest (a member of two sibling
+  expansions, of two trees, with no level above writing it) the node has no
+  one home: it is listed in Model.shared (SGC401) and lives in its first
+  candidate. An
   actor is not built, so it is never shared: it lives in the nearest system
   enclosing all its candidates.
 
@@ -291,6 +308,14 @@ class Layout:
     headers: list = field(default_factory=list)      # (face id, system key) of each
                                         # expansion whose owner its level writes only
                                         # on the `X := {` header (see header_only)
+    refs: dict = field(default_factory=dict)         # (node id, system key) → "flow"
+                                        # | "owner" where that level writes the node only
+                                        # as an end of its flows (see reference_only)
+    strong: set = field(default_factory=set)         # (node id, system key) where a
+                                        # graph of that level writes it otherwise
+    follow: list = field(default_factory=list)       # expansion owners written as
+                                        # such a reference where their header is: their
+                                        # system nests under their home
 
 
 def lay_out(graph, stem: str) -> Layout:
@@ -303,26 +328,75 @@ def lay_out(graph, stem: str) -> Layout:
 
 
 def nest_headers(lay: Layout):
-    """Settle the expansions whose owner their level writes only on the header:
-    such an owner is written where its other statements are, and its system nests
-    under that home (`[Core] := { [A] … }` with `[A] := { … }` at the top level:
-    A's system is inside Core). An owner written nowhere else is written where its
-    header is. A home inside the system itself (a cycle) leaves the parent as is."""
+    """Settle the expansions whose owner their level writes only on the header
+    (or only on the header and as a reference into a unit nested there, see
+    reference_only): such an owner is written where its other statements are,
+    and its system nests under that home (`[Core] := { [A] … }` with `[A] := { … }` at the top level: A's system
+    is inside Core). An owner written nowhere else is written where its header
+    is. A home inside the system itself (a cycle) leaves the parent as is."""
     for nid, key in lay.headers:
         if not lay.candidates.get(nid):
             lay.candidates[nid] = [key]
-    for _ in range(len(lay.headers)):
+    inward = set(lay.follow)            # these move only into a unit under the header
+    owners = [nid for nid, _key in lay.headers] + lay.follow
+    for _ in range(len(owners)):
         changed = False
-        for nid, _key in lay.headers:
+        for nid in owners:
             own = lay.by_face[nid]
-            home = home_of(lay.candidates[nid], lay.systems)
+            home = home_of(home_candidates(lay, nid), lay.systems)
             name, kind, face, parent = lay.systems[own]
             if home is None or home == parent or own in ancestors(home, lay.systems):
+                continue
+            if nid in inward and parent not in ancestors(home, lay.systems):
                 continue
             lay.systems[own] = (name, kind, face, home)
             changed = True
         if not changed:
             break
+
+
+def reference_only(g, nid: str) -> Optional[str]:
+    """How g writes node `nid` when it writes it only as an end of g's own flows:
+    "flow" when nothing else of g names it, "owner" when g also writes the
+    `X := {` header of its own expansion; None when g heads another statement
+    with it (a declaration or modifier line) or places it in a tree, and for an
+    actor (its entry line stands where it is written). Where a system nested
+    under g writes the node too, such a flow is a reference into that system and
+    g is no home candidate for it (home_candidates)."""
+    if g.nodes[nid].kind == "actor" or any(t.node == nid for t in g.tree):
+        return None
+    flow_lines = {ln for e in g.edges if nid in (e.src, e.dst) for ln in (e.line, e.cont) if ln}
+    if not flow_lines:
+        return None
+    sub, node = g.expansions.get(nid), g.nodes[nid]
+    owner = sub is not None and sub.role != "state" and node.kind != "alias"
+    others = sum(1 for line, h in g.heads if h == nid and line not in flow_lines)
+    if others > int(owner):
+        return None
+    return "owner" if owner else "flow"
+
+
+def home_candidates(lay: Layout, nid: str) -> list:
+    """The candidates a node's home is chosen from: its candidates less each level
+    that writes it only as a reference into a system nested under it — a level
+    writing it only as flow ends, when a candidate nested under it writes it too;
+    a level writing it as flow ends and the header of its expansion, when a
+    candidate nested under it declares it (a line, a tree: the header there is
+    only where the inside is written, as for a header-only expansion). The rule
+    never makes a node homeless: when the rest has no candidate enclosing the
+    others (siblings), every candidate stays, so the outer level homes it."""
+    cands = lay.candidates.get(nid, [])
+
+    def reference(c):
+        how = lay.refs.get((nid, c))
+        return how is not None and any(
+            o != c and c in ancestors(o, lay.systems)
+            and (how == "flow" or (nid, o) not in lay.refs) for o in cands)
+
+    kept = [c for c in cands if not reference(c)]
+    if kept and home_of(kept, lay.systems) is not None:
+        return kept
+    return list(cands)          # no home left: the outer levels stay (no new SGC401)
 
 
 def _lay_graph(g, key: str, lay: Layout):
@@ -342,12 +416,23 @@ def _lay_graph(g, key: str, lay: Layout):
             if header_only(g, nid):
                 lay.headers.append((nid, key))
                 continue
+            ref = reference_only(g, nid)
+            if ref is None:
+                lay.strong.add((nid, key))
+                lay.refs.pop((nid, key), None)
+            elif (nid, key) not in lay.strong:
+                was = lay.refs.get((nid, key))
+                lay.refs[(nid, key)] = "owner" if "owner" in (ref, was) else ref
+            if ref == "owner" and nid not in lay.follow:
+                lay.follow.append(nid)
             _add(lay.candidates, nid, key)
             _tree_face(g, nid, key, roots, lay)
     for nid, root_nodes in member.items():
         keys = [_system_for(lay, root, "tree", None) for root in root_nodes]
         for k in keys:
             _add(lay.candidates, nid, k)
+            lay.strong.add((nid, k))
+            lay.refs.pop((nid, k), None)
         local[nid] = keys[0]
         _tree_face(g, nid, keys[0], roots, lay)
     for owner, sub in g.expansions.items():
@@ -432,6 +517,8 @@ def renamed(lay: Layout, names: dict) -> Layout:
                  for k, (n, kd, f, p) in lay.systems.items()},
         by_face={f: names[k] for f, k in lay.by_face.items()},
         candidates={nid: [names[k] for k in ks] for nid, ks in lay.candidates.items()},
+        refs={(nid, names[k]): v for (nid, k), v in lay.refs.items()},
+        strong={(nid, names[k]) for nid, k in lay.strong},
         graph_system={g: names[k] for g, k in lay.graph_system.items()})
 
 
@@ -467,10 +554,13 @@ def home_of(cands: list, systems: dict) -> Optional[str]:
 
 def resolve_homes(lay: Layout, actors: frozenset = frozenset()) -> tuple:
     """({node id: home}, {node id: candidates} for the nodes with no one home).
+    A node with no one home lives in its first candidate.
     An actor is not built, so it has no owner to share: written in systems none
-    of which encloses the rest, it lives in the nearest system enclosing them all."""
+    of which encloses the rest, it lives in the nearest system enclosing them all
+    (and no level refers to it into a nested one, see reference_only)."""
     homes, shared = {}, {}
-    for nid, cands in lay.candidates.items():
+    for nid in lay.candidates:
+        cands = home_candidates(lay, nid)
         home = home_of(cands, lay.systems)
         if home is None and nid in actors:
             home = enclosing(cands, lay.systems)

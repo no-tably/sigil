@@ -4,9 +4,18 @@
   "face": "[Checkout]",
   "parent": "07-export",
   "depends_on": [
-    "07-export"
+    "Fulfilment"
   ],
   "interface": [
+    {
+      "from": "<OrderPlaced>",
+      "to": "[Fulfilment]",
+      "arrow": "*>",
+      "mode": "async",
+      "lines": [
+        32
+      ]
+    },
     {
       "from": "[Storefront]",
       "to": "[Checkout]",
@@ -23,24 +32,6 @@
       ],
       "lines": [
         12
-      ]
-    },
-    {
-      "from": "[Basket]",
-      "to": "<OrderPlaced>",
-      "arrow": "~>",
-      "mode": "async",
-      "lines": [
-        29
-      ]
-    },
-    {
-      "from": "[Checkout]",
-      "to": "<OrderPlaced>",
-      "arrow": "~>",
-      "mode": "async",
-      "lines": [
-        32
       ]
     }
   ],
@@ -82,9 +73,73 @@
       "lines": [
         28
       ]
+    },
+    {
+      "from": "[Basket]",
+      "to": "<OrderPlaced>",
+      "arrow": "~>",
+      "mode": "async",
+      "lines": [
+        29
+      ]
+    },
+    {
+      "from": "[Checkout]",
+      "to": "<OrderPlaced>",
+      "arrow": "~>",
+      "mode": "async",
+      "lines": [
+        32
+      ]
     }
   ],
   "components": [
+    {
+      "name": "OrderPlaced",
+      "kind": "event",
+      "glyph": "<OrderPlaced>",
+      "home": "Checkout",
+      "also_in": [
+        "07-export"
+      ],
+      "interface": [
+        {
+          "dir": "out",
+          "peer": "[Fulfilment]",
+          "arrow": "*>",
+          "mode": "async",
+          "lines": [
+            32
+          ]
+        },
+        {
+          "dir": "in",
+          "peer": "[Basket]",
+          "arrow": "~>",
+          "mode": "async",
+          "lines": [
+            29
+          ]
+        },
+        {
+          "dir": "in",
+          "peer": "[Checkout]",
+          "arrow": "~>",
+          "mode": "async",
+          "lines": [
+            32
+          ]
+        }
+      ],
+      "lines": [
+        29,
+        32
+      ],
+      "hashes": {
+        "interface": "a7319ed807b015dc",
+        "body": "541b7be3956792d7"
+      }
+    },
     {
       "name": "Basket",
       "kind": "service",
@@ -222,7 +277,7 @@
     }
   ],
   "hashes": {
-    "interface": "c5e61598f9c8e9b7",
-    "body": "4a4cefe89c2592b6"
+    "interface": "fffc59f5459c4cb1",
+    "body": "d0693387d15a8f92"
   }
 }

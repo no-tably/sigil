@@ -3,11 +3,11 @@ flowchart TD
     Edge_service["Edge"]
     Shop_service["Shop"]
     Catalog_store[("Catalog")]
-    OrderPlaced_event>"OrderPlaced"]
     Fulfilment_service["Fulfilment"]
     Ledger_store[("Ledger")]
     subgraph system__shop["Shop"]
         direction TB
+        OrderPlaced_event>"OrderPlaced"]
         Cart_service["Cart"]
         Checkout_service["Checkout"]
         Payments_service["Payments"]
