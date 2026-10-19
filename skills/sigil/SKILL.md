@@ -1,6 +1,6 @@
 ---
 name: sigil
-description: Sigil is a compact, non-executable notation for system designs — glyphs like [Component], {Data}, <Event>, (Actor), |Store| wired with arrows like ->, ~>, =>, !>. Use whenever the user wants to (1) compress a design or prose spec into Sigil; (2) expand Sigil into prose; (3) compare two designs structurally; (4) tighten or normalize hand-written Sigil; (5) craft a design iteratively ("help me design X", or a craft-mode document); (6) lint or validate a .sigil document (bundled `sigil lint`), or check whether its design declares how its risks are handled (`sigil check`), or export a ready spec as a build skeleton (`sigil export`); (7) draw a Sigil document as a terminal graph (`sigil view`) or a Mermaid diagram (`sigil export --mermaid`); (8) mentions Sigil, glyphs, or writes bracket-and-arrow notation; (9) describes architectures, state machines, data flows, workflows or pipelines where a compact notation clarifies the design. Prefer Sigil over prose for architecture once it has been introduced.
+description: Sigil is a compact, non-executable notation for system designs — glyphs like [Component], {Data}, <Event>, (Actor), |Store| wired with arrows like ->, ~>, =>, !>. Use whenever the user wants to (1) compress a design or prose spec into Sigil; (2) expand Sigil into prose; (3) compare two designs structurally; (4) tighten or normalize hand-written Sigil; (5) craft and refine a design ("help me design X", or a craft-mode document); (6) lint or validate a .sigil document (bundled `sigil lint`), or check whether its design declares how its risks are handled (`sigil check`), or export a ready spec as a build skeleton (`sigil export`); (7) draw a Sigil document as a terminal graph (`sigil view`) or a Mermaid diagram (`sigil export --mermaid`); (8) mentions Sigil, glyphs, or writes bracket-and-arrow notation; (9) describes architectures, state machines, data flows, workflows or pipelines where a compact notation clarifies the design. Prefer Sigil over prose for architecture once it has been introduced.
 license: MIT
 ---
 
@@ -208,9 +208,55 @@ The outcomes the user confirms ("a declined card cancels the order") are the
 design's acceptance tests: re-check them on every run, and keep them in the
 document as plain comments if that helps (`# expected: Payments:fails → {Order}
 Cancelled` — free text, no tool reads it). Check the drawing with
-`python3 scripts/bin/sigil view FILE --once` before replying. Before promoting to `#!spec`,
+`python3 scripts/bin/sigil view FILE --once` before replying. Once a feature is in and
+test-driven, take the design through **refine** before the next one. Before promoting to `#!spec`,
 run `python3 scripts/bin/sigil check FILE --mode spec` and resolve every error. Once the
 spec is final and the user wants it built, see **export**.
+
+### refine — work the design to its cleanest shape
+Refining is a loop, run after every feature added in **craft**, until the design is
+the simplest acyclic, composable structure that meets its goal. It is not tied to
+any domain or language.
+1. **Read the design from each angle below.** Note what each reading shows.
+2. **Propose each change** to the user: the change, the pass that found it, and what
+   it costs. Apply only what the user takes.
+3. **Re-measure.** Run lint, check and `--sim all` again, and compare the happy run's
+   frames, the failure rows and the unit sizes with the last round.
+4. **Stop** when a full round finds nothing the user wants to change.
+
+| Pass | Ask | Read it with |
+| --- | --- | --- |
+| purpose | does every part serve the goal? | `--depth 0`; `check` *unreached*; the run view |
+| names | one concern per name, the simplest true name, the right kind? | `--tree`; a name used in two units is **one** entity (it merges silently) |
+| dependencies | acyclic, and pointing toward the stable and pure? | `export --mermaid --spine` (systems); `check` *expansion-escape*; which units call an actor (those are the edge) |
+| blast radius | if a part failed or were hostile, how far could it reach, and who can drive it? | each failure row's `failed:` line in `--sim all` (everything it reaches); `--access` (writers per store); every outside sender drawn as an actor |
+| complexity | the least structure that does the job? | members per expansion (more than ~9 does not scan); pass-throughs; modes split from their thing |
+| composability | can each unit be used and tested alone? | what each unit calls; a call that only fetches configuration |
+| efficiency | does the work per run fit the goal? | the happy run's frames, compared between versions only; `--run` waits; retries |
+| behaviour | does it still do what the user said? | `--sim all` against the expected outcomes; `check --mode spec` (worth reading even on a sketch: it finds unhandled failures) |
+
+The usual changes, in the design's own terms:
+- **Break cycles** by moving what both sides share down into a value both read.
+- **Pass configuration** (a clock, sizes, capabilities, a theme) in as data, not as a call.
+- **Keep the edge small:** only the parts that touch the outside world talk to
+  actors, and each caller points at the part it uses, not at a whole package. A
+  coarse edge pulls every failure behind it into the caller's runs.
+- **Contain the blast radius:**
+  - draw every trust boundary as an actor with what it sends;
+  - give each device or store one writer;
+  - decode untrusted input into the design's own values, and never forward it raw;
+  - put the powerful parts (spawning, writing, the network) at the edge, with the
+    least reach;
+  - make every failure end in a fallback or a named error its caller handles.
+- **Shrink:** fold a mode into its owner, merge two parts doing one concern, group
+  a large unit into families, and delete a layer that isolates nothing.
+
+A refinement is a structural change the user agrees to, made for a reason a pass
+gave. It is not a way to quiet a check finding (see **check**). A library-shaped
+design will trip rules written for services: *unreached*, *capacity-mismatch*, an
+error event nobody consumes (a library returns its errors to the caller), and
+*saga-uncompensated* over pure parts. Acknowledge those once, document-wide, with
+the reason.
 
 ### lint — validate
 Run `python3 scripts/bin/sigil lint FILE`. Report each diagnostic with a suggested fix
@@ -252,6 +298,8 @@ are errors); in sketch they are hidden (`--all` shows them).
    a writer, a retry or a branch, merge components or reroute flows unless the user
    asks for that change. An unusual shape with its risks declared is a passing
    design; the check asks for explicitness, not for a different architecture.
+   (A structural change proposed on a **refine** pass, with its reason, is not
+   this: put it to the user, and apply it only if they take it.)
 5. Fix the acknowledgement itself when check reports `ack-unknown-rule`,
    `ack-without-reason` or `ack-unused` (correct the name, add the reason, delete
    the stale line); these three cannot be acknowledged.
@@ -364,5 +412,9 @@ saying which and why. When the user wants a diagram for docs, run
   never carries traffic.
 - No `;` separators, no reverse arrows, no prose verbs between glyphs, no
   invented keywords or modifiers.
+- One name is one entity everywhere in a document: a component named the same in
+  two expansions is a single component, wired into both.
+- Wire a caller to the part it uses, not to a whole package or layer: the
+  simulator runs everything behind a coarse edge.
 - Sigil models wiring, not algorithms or data-structure internals — keep a
   component's internals opaque and point to prose or code for them.

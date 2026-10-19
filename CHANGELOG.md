@@ -2,6 +2,17 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
+## 0.6.2 — unreleased
+
+- The skill has a new **refine** step: a loop the agent runs after each feature it
+  adds with you. It reads the design from eight angles: purpose, names,
+  dependencies, blast radius, complexity, composability, efficiency and behaviour.
+  It proposes each structural change with its reason and re-measures with lint,
+  check and the simulator, until a full round finds nothing you want changed.
+  Craft hands over to it after each feature. A refinement you agree to is kept
+  apart from check findings, which are still resolved only by declaring or
+  acknowledging them.
+
 ## 0.6.1 — 2026-10-18
 
 The export carries what a consumer needs to build and track work without reading
