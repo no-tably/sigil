@@ -2,7 +2,7 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
-## 0.6.2 — unreleased
+## 0.6.2 — 2026-10-20
 
 Sigil can now judge a design's structure, not only its flows. A new structure
 reading and two new checks measure units, dependencies, reach and size. The skill
