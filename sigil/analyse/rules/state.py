@@ -1553,11 +1553,27 @@ def composed_under(g, owner: str, nid: str) -> bool:
     return False
 
 
+def header_only(g, nid: str) -> bool:
+    """g writes node `nid` only on the header of its own expansion (`[X] := { … }`):
+    no flow, branch or other statement of g names it. The same test as
+    sigil.model.systems.header_only (the playground ships no export model, so this
+    module cannot import it)."""
+    sub = g.expansions.get(nid)
+    node = g.nodes.get(nid)
+    if sub is None or node is None or sub.role == "state" or node.kind == "alias":
+        return False
+    if any(nid in (e.src, e.dst) for e in g.edges) or any(t.node == nid for t in g.tree):
+        return False
+    return sum(1 for _line, h in g.heads if h == nid) <= 1
+
+
 def find_expansion_escape(ck, f: Facts):
     """SGC172: a wire inside `[O] := { … }` reaches a node of an outer level other
-    than O, and the outer levels never connect O with it."""
+    than O, and the outer levels never connect O with it. An outer level that
+    writes the node only on its own expansion's header (`[A] := { … }`) does not
+    hold it: that A is a member written inside, its expansion nested there."""
     for sub, owner, ancestors in expansion_units(f):
-        outer = {nid for g in ancestors for nid in wired_ids(g)}
+        outer = {nid for g in ancestors for nid in wired_ids(g) if not header_only(g, nid)}
         connected = {(e.src, e.dst) for g in ancestors for e in g.edges}
         for e in sub.edges:
             d = e.dst

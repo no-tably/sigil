@@ -25,6 +25,13 @@ SYSTEMS (inferred, no syntax of their own)
   tree       every composition-tree root (a glyph with `\\-` branches) is a
              system holding every node of its tree below it.
 
+  An expansion whose owner its level writes only on the `X := {` header (no
+  flow, branch or other statement there names X) is the inside of the X written
+  elsewhere: X is written where its other statements are, and the system nests
+  under X's home (`[Core] := { [A] … }` with `[A] := { … }` at the top level:
+  A's system is inside Core). An owner written nowhere else is written where
+  its header is.
+
   A system's FACE is the node it is named after (the expansion's owner, the
   tree's root). The face is no member of its own system: it lives where it is
   written, and stands for the system there (a flow into [Shop] at the top
@@ -37,7 +44,9 @@ HOMES
   that encloses all the others (a node written in the top level and in an
   expansion is shared at the top level). When no candidate encloses the rest
   (a member of two sibling expansions, of two trees) the node has no one home:
-  it is listed in Model.shared (SGC401) and lives in its first candidate.
+  it is listed in Model.shared (SGC401) and lives in its first candidate. An
+  actor is not built, so it is never shared: it lives in the nearest system
+  enclosing all its candidates.
 
   A system's KEY is its name; systems sharing a name get a ` (kind)` suffix by
   a stable rule — their face's node kind (a service keeps the plain name before
@@ -78,7 +87,8 @@ BOUNDARIES AND DEPENDENCIES
   A node is IN a system when it is homed there or is its face. A flow crosses a
   system's boundary when exactly one end is in it; the system's interface is
   those flows. System A depends on B when a flow leaves a node in A for a node
-  in B (`<->` both ways), and on every system nested in it. A boundary flow
+  in B (`<->` both ways), and on every system nested in it. A flow to or from
+  an actor makes no system depend on another. A boundary flow
   with no payload (neither end a data or event glyph either) or a synchronous
   call with no `=> return` is listed in Model.untyped (SGC402).
 """
@@ -233,8 +243,9 @@ def model_of(graph, stem: str, accepts: Iterable[Accepted] = (),
     its text (accepted(acks, comments)); `kinds`: the dialect's NODE_KINDS, whose
     brackets its glyphs are written in."""
     layout = lay_out(graph, stem)
-    homes, shared_at = resolve_homes(layout)
     nodes = component_nodes(graph)
+    actors = frozenset(nid for nid, insts in nodes.items() if insts[0].kind == "actor")
+    homes, shared_at = resolve_homes(layout, actors)
     flows = collect_flows(graph, nodes)
     facts = Facts(graph, layout, homes, flows,
                   {nid: glyph([n], kinds) for g in walk(graph) for nid, n in g.nodes.items()},
@@ -277,6 +288,9 @@ class Layout:
     graph_system: dict                  # id(graph) → system key
     machines: dict                      # owner node id → state Graph
     face_kinds: dict = field(default_factory=dict)   # face node id → its node kind
+    headers: list = field(default_factory=list)      # (face id, system key) of each
+                                        # expansion whose owner its level writes only
+                                        # on the `X := {` header (see header_only)
 
 
 def lay_out(graph, stem: str) -> Layout:
@@ -284,7 +298,44 @@ def lay_out(graph, stem: str) -> Layout:
     renamed to their names (see named_keys), so no key depends on source order."""
     lay = Layout(stem, {stem: (stem, "top", None, None)}, {}, {}, {}, {})
     _lay_graph(graph, stem, lay)
+    nest_headers(lay)
     return renamed(lay, named_keys(lay))
+
+
+def header_only(g, nid: str) -> bool:
+    """g writes node `nid` only on the header of its own expansion (`[X] := { … }`):
+    no flow, branch or other statement of g names it. Such a header places no
+    node at g's level: the expansion is the inside of the X written elsewhere."""
+    sub = g.expansions.get(nid)
+    node = g.nodes.get(nid)
+    if sub is None or node is None or sub.role == "state" or node.kind == "alias":
+        return False
+    if any(nid in (e.src, e.dst) for e in g.edges) or any(t.node == nid for t in g.tree):
+        return False
+    return sum(1 for _line, h in g.heads if h == nid) <= 1
+
+
+def nest_headers(lay: Layout):
+    """Settle the expansions whose owner their level writes only on the header:
+    such an owner is written where its other statements are, and its system nests
+    under that home (`[Core] := { [A] … }` with `[A] := { … }` at the top level:
+    A's system is inside Core). An owner written nowhere else is written where its
+    header is. A home inside the system itself (a cycle) leaves the parent as is."""
+    for nid, key in lay.headers:
+        if not lay.candidates.get(nid):
+            lay.candidates[nid] = [key]
+    for _ in range(len(lay.headers)):
+        changed = False
+        for nid, _key in lay.headers:
+            own = lay.by_face[nid]
+            home = home_of(lay.candidates[nid], lay.systems)
+            name, kind, face, parent = lay.systems[own]
+            if home is None or home == parent or own in ancestors(home, lay.systems):
+                continue
+            lay.systems[own] = (name, kind, face, home)
+            changed = True
+        if not changed:
+            break
 
 
 def _lay_graph(g, key: str, lay: Layout):
@@ -301,6 +352,9 @@ def _lay_graph(g, key: str, lay: Layout):
     for nid in g.nodes:
         if nid not in member:
             local[nid] = key
+            if header_only(g, nid):
+                lay.headers.append((nid, key))
+                continue
             _add(lay.candidates, nid, key)
             _tree_face(g, nid, key, roots, lay)
     for nid, root_nodes in member.items():
@@ -419,17 +473,31 @@ def ancestors(key: str, systems: dict) -> list:
     return out
 
 
-def resolve_homes(lay: Layout) -> tuple:
-    """({node id: home}, {node id: candidates} for the nodes with no one home)."""
+def home_of(cands: list, systems: dict) -> Optional[str]:
+    """The candidate that encloses all the others, or None."""
+    return next((c for c in cands if all(c in ancestors(o, systems) for o in cands)), None)
+
+
+def resolve_homes(lay: Layout, actors: frozenset = frozenset()) -> tuple:
+    """({node id: home}, {node id: candidates} for the nodes with no one home).
+    An actor is not built, so it has no owner to share: written in systems none
+    of which encloses the rest, it lives in the nearest system enclosing them all."""
     homes, shared = {}, {}
     for nid, cands in lay.candidates.items():
-        home = next((c for c in cands
-                     if all(c in ancestors(o, lay.systems) for o in cands)), None)
+        home = home_of(cands, lay.systems)
+        if home is None and nid in actors:
+            home = enclosing(cands, lay.systems)
         if home is None:
             shared[nid] = tuple(cands)
             home = cands[0]
         homes[nid] = home
     return homes, shared
+
+
+def enclosing(keys: list, systems: dict) -> Optional[str]:
+    """The nearest system that is (or encloses) every one of keys."""
+    chains = [ancestors(k, systems) for k in keys]
+    return next((k for k in chains[0] if all(k in c for c in chains[1:])), None)
 
 
 def in_systems(components: dict, lay: Layout) -> dict:
@@ -671,7 +739,8 @@ def make_systems(facts: Facts, components: dict, inside: dict) -> dict:
     document-wide acknowledgements."""
     lay, flows, graph = facts.lay, facts.flows, facts.graph
     doc_accepts = tuple(a.text for a in facts.accepts if a.document)
-    deps = dependencies(lay, flows, inside)
+    deps = dependencies(lay, flows, inside,
+                        frozenset(nid for nid, c in components.items() if c.kind == "actor"))
     out = {}
     for key, (name, kind, face, parent) in lay.systems.items():
         sysm = System(
@@ -691,14 +760,18 @@ def make_systems(facts: Facts, components: dict, inside: dict) -> dict:
     return out
 
 
-def dependencies(lay: Layout, flows: list, inside: dict) -> dict:
+def dependencies(lay: Layout, flows: list, inside: dict,
+                 actors: frozenset = frozenset()) -> dict:
     """{system: {systems it depends on}}: the systems its flows reach, and the
-    systems nested in it."""
+    systems nested in it. A flow to or from an actor is no dependency: an actor
+    is not built, so no system waits on another for it."""
     deps = {}
     for key, (_n, _k, _f, parent) in lay.systems.items():
         if parent is not None and parent != key:
             _add(deps, parent, key)
     for f in flows:
+        if f.src in actors or f.dst in actors:
+            continue
         pairs = [(f.src, f.dst)] + ([(f.dst, f.src)] if f.arrow == "<->" else [])
         for a, b in pairs:
             for sa in inside[a]:

@@ -843,5 +843,37 @@ class ExampleQ(unittest.TestCase):
         self.assertEqual(triples(rep.findings), self.RISKY - {(7, "lost-update", "warn")})
 
 
+class ExpansionEscapeHeaderOnly(unittest.TestCase):
+    """SGC172: a member whose own expansion is written at the top level (`[A] :=
+    { … }` and nothing else about [A] there) is no outer node: a wire to it from
+    inside the expansion that holds it is no escape."""
+
+    CORE = """
+        #!sketch
+        (U) -> [Core] : use({X}) => {Y}
+
+        [Core] := {
+          [A]
+          [B]
+          [B] -> [A] : get({X}) => {Y}
+        }
+
+        [A] := {
+          [P] -> [Q] : go({X}) => {Y}
+        }
+        """
+
+    def test_a_member_expanded_at_the_top_is_no_escape(self):
+        self.assertEqual(found(run(self.CORE), "SGC172"), [])
+
+    def test_a_member_also_wired_at_the_top_still_escapes(self):
+        text = self.CORE + "        [A] -> |Log| : put({X}) => {Ok}\n"
+        self.assertEqual(found(run(text), "SGC172"), [(7, "SGC172")])
+
+    def test_an_outer_node_reached_from_inside_still_escapes(self):
+        text = self.CORE.replace("[B] -> [A]", "[B] -> [Far]") + "        [Far] -> |Log| : put({X}) => {Ok}\n"
+        self.assertEqual(found(run(text), "SGC172"), [(7, "SGC172")])
+
+
 if __name__ == "__main__":
     unittest.main()

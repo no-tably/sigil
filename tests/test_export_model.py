@@ -323,6 +323,94 @@ class TestReadinessFacts(unittest.TestCase):
                                  ("[Core]", "[Audit]", "payload")})
 
 
+class TestHeaderOnlyOwners(unittest.TestCase):
+    """An expansion whose owner its level writes only on the `[X] := {` header
+    nests under the system the owner is written in."""
+
+    CORE = ("(U) -> [Core] : use({X}) => {Y}\n"
+            "[Core] := {\n  [A]\n  [B]\n  [B] -> [A] : get({X}) => {Y}\n}\n"
+            "[A] := {\n  [P] -> [Q] : go({X}) => {Y}\n}\n")
+
+    def test_the_expansion_nests_under_the_member_s_system(self):
+        m = model(self.CORE, "t")
+        self.assertEqual(m.systems["A"].parent, "Core")
+        self.assertEqual(m.components["A_service"].home, "Core")
+        self.assertEqual(m.components["A_service"].systems, ("Core",))
+        self.assertEqual(glyphs(m, "Core"), ["[A]", "[B]"])
+        self.assertEqual(m.systems["t"].depends_on, ("Core",))
+        self.assertEqual(m.systems["Core"].depends_on, ("A",))
+        self.assertEqual(m.shared, ())
+
+    def test_an_owner_written_only_on_its_header_lives_there(self):
+        m = model("[A] := {\n  [P] -> [Q] : go({X}) => {Y}\n}\n", "t")
+        self.assertEqual(m.systems["A"].parent, "t")
+        self.assertEqual(m.components["A_service"].home, "t")
+
+    def test_an_owner_also_wired_at_the_top_stays_there(self):
+        text = self.CORE + "[A] -> |Log| : put({X}) => {Ok}\n"
+        m = model(text, "t")
+        self.assertEqual(m.components["A_service"].home, "t")
+        self.assertEqual(m.systems["A"].parent, "t")
+
+    def test_an_owner_also_declared_at_the_top_stays_there(self):
+        m = model(self.CORE + "[A] @sla(p99 < 5ms)\n", "t")
+        self.assertEqual(m.components["A_service"].home, "t")
+        self.assertEqual(m.systems["A"].parent, "t")
+
+    def test_the_check_rule_reads_headers_the_same_way(self):
+        from sigil.analyse.rules import state
+        from sigil.core.parse import parse_document
+        texts = (self.CORE, self.CORE + "[A] @sla(p99 < 5ms)\n",
+                 self.CORE + "[A] -> |Log| : put({X}) => {Ok}\n", SHOP,
+                 "walk := [Node] -> walk(.children)\n[Api] -> [Node] : {Tree}\n")
+        for text in texts:
+            for g in model_systems.walk(parse_document(text)):
+                for nid in g.nodes:
+                    with self.subTest(text=text[:20], node=nid):
+                        self.assertEqual(state.header_only(g, nid),
+                                         model_systems.header_only(g, nid))
+
+    def test_two_owners_inside_each_other_keep_a_parent(self):
+        text = ("[A] := {\n  [B] -> [P] : go({X}) => {Y}\n}\n"
+                "[B] := {\n  [A] -> [Q] : go({X}) => {Y}\n}\n")
+        m = model(text, "t")
+        chain = [m.systems["A"].parent, m.systems["B"].parent]
+        self.assertIn("t", chain)                     # no cycle up to the top
+
+
+class TestActors(unittest.TestCase):
+    """An actor is not built: it makes no system depend on another, and one
+    written in two sibling systems is homed where they meet, not shared."""
+
+    TEXT = ("(U) -> [Files] : run({Cmd}) => {Out}\n"
+            "(U) -> [Clock] : run({Cmd}) => {Out}\n"
+            "[Files] := {\n  [Themes] -> (Os) : read({Path}) => {Bytes}\n}\n"
+            "[Clock] := {\n  [Wait] -> (Os) : sleep({Ms}) => {Done}\n}\n")
+
+    def test_no_dependency_through_an_actor(self):
+        m = model(self.TEXT, "t")
+        self.assertEqual(m.systems["Files"].depends_on, ())
+        self.assertEqual(m.systems["Clock"].depends_on, ())
+        self.assertEqual(m.systems["t"].depends_on, ("Clock", "Files"))
+
+    def test_an_actor_in_two_siblings_lives_where_they_meet(self):
+        m = model(self.TEXT, "t")
+        self.assertEqual(m.shared, ())
+        self.assertEqual(m.components["Os_actor"].home, "t")
+        self.assertEqual(m.components["Os_actor"].systems, ("Files", "Clock"))
+
+    def test_each_system_s_interface_holds_only_its_own_call(self):
+        m = model(self.TEXT, "t")
+        iface = {k: sorted((f.src, f.dst) for f in m.systems[k].interface
+                           if "Os_actor" in (f.src, f.dst)) for k in ("Files", "Clock")}
+        self.assertEqual(iface, {"Files": [("Themes_service", "Os_actor")],
+                                 "Clock": [("Wait_service", "Os_actor")]})
+
+    def test_a_store_in_two_siblings_is_still_shared(self):
+        m = model(self.TEXT.replace("(Os)", "|Os|"), "t")
+        self.assertEqual([s.glyph for s in m.shared], ["|Os|"])
+
+
 class TestNormalisedForm(unittest.TestCase):
     def test_to_json_is_json(self):
         m = model()
