@@ -74,6 +74,9 @@ whole registered list with its own additions to rules other modules register
 load the same way, but only for a check asked for export readiness (`--export`,
 `check(…, export=True)`); their names (EXPORT_NAMES) are known either way, so an
 acknowledgement of one is no unknown rule, and never stale, in a plain check.
+The modules in STRUCTURE_MODULES (the structure rules, SGC176-SGC177) load with
+RULE_MODULES wherever they ship; the playground leaves them out, and its check
+runs without them the same way (their names stay in CORE_NAMES).
 A loaded dialect's rule pack (sigil.core.dialects,
 `check_rules`, `READ_VERBS`, `policy_words`) joins the registry and the Doc. The
 registry, the finding record, tiers × modes, acknowledgements and folding live
@@ -136,6 +139,7 @@ CORE_NAMES = {
     "SGC166": "single-point-of-failure", "SGC167": "unbounded-spawn",
     "SGC171": "dependency-cycle", "SGC172": "expansion-escape",
     "SGC173": "lock-order-cycle", "SGC174": "optional-callee", "SGC175": "unreached",
+    "SGC176": "unit-cycle", "SGC177": "large-unit",
     "SGC201": "unhandled-failure", "SGC202": "dead-failure-route",
     "SGC203": "event-ignored", "SGC204": "race", "SGC205": "ordering-unstated",
     "SGC206": "stalled-join",
@@ -147,6 +151,10 @@ RETIRED_IDS = frozenset({"SGC105", "SGC164", "SGC305"})
 # when a check is asked for export readiness (EXPORT_MODULES).
 EXPORT_NAMES = {"SGC401": "no-home", "SGC402": "untyped-boundary"}
 CATALOG = {**CORE_NAMES, **EXPORT_NAMES}
+# The structure rules (rules.structure, STRUCTURE_MODULES): core rules every check
+# runs where their module ships; the playground ships neither it nor the reading it
+# reads, and its check runs without them (see idle_ids).
+STRUCTURE_NAMES = {"SGC176": "unit-cycle", "SGC177": "large-unit"}
 # Core id spaces: lint codes are SGL…, check ids SGC…. `sigil lint` keeps no table
 # of its codes, so the core reserves both prefixes whole: a dialect's rule id or
 # lint code may start with neither (registry_problem, dialect_pack).
@@ -736,6 +744,7 @@ def core_rules() -> list:
 # ---------------------------------------------------------------------------
 
 RULE_MODULES = ("flow", "state", "trace", "inv")      # modules of sigil.analyse.rules
+STRUCTURE_MODULES = ("structure",)  # every check, where the module ships (not the playground)
 EXPORT_MODULES = ("export",)        # only for a check asked for export readiness
 
 
@@ -845,7 +854,8 @@ def default_registry(extra: Iterable = (), export: bool = False) -> dict:
     """The core rules, every rule module beside this file and `extra` (a dialect
     pack's rules); with `export`, the readiness rules (EXPORT_MODULES) too."""
     readiness = module_rules(API, names=EXPORT_MODULES) if export else []
-    return build_registry(core_rules() + module_rules(API) + readiness + list(extra))
+    return build_registry(core_rules() + module_rules(API, RULE_MODULES + STRUCTURE_MODULES)
+                          + readiness + list(extra))
 
 
 def core_names():
@@ -985,14 +995,16 @@ def run_rules(doc: Doc, rules: list) -> list:
 
 
 def idle_ids(registry: dict) -> frozenset:
-    """The readiness rule ids (EXPORT_NAMES) this registry does not run."""
-    return frozenset(EXPORT_NAMES) - {r.id for r in registry.values()}
+    """The rule ids loaded on demand (the readiness rules, EXPORT_NAMES, and the
+    structure rules, STRUCTURE_NAMES) this registry does not run."""
+    return (frozenset(EXPORT_NAMES) | frozenset(STRUCTURE_NAMES)) - {r.id for r in registry.values()}
 
 
 def about_idle_rule(f: Finding, idle: frozenset) -> bool:
     """An SGC003 (ack-unused) finding about a rule that did not run (`idle`: rule
-    ids): an acknowledgement of a readiness rule is for the export check, and no
-    plain check judges it stale."""
+    ids): an acknowledgement of a readiness rule is for the export check (of a
+    structure rule, for a check where its module ships), and no check without
+    the rule judges it stale."""
     return f.rule.id == "SGC003" and f.hit.about in idle
 
 

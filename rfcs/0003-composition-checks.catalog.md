@@ -81,6 +81,8 @@ number. "Example n" means language.md's worked example n.
 | SGC173 | lock-order-cycle | static | binding | P2 (declared order P4) | probe only |
 | SGC174 | optional-callee | static | hint | P2 | coverage:63 |
 | SGC175 | unreached | static | hint | P3 (after B4, fixed in P3) | coverage:82, 194–197 |
+| SGC176 | unit-cycle | static | advisory (info in craft) | 0.6.2 | — (none in the corpus) |
+| SGC177 | large-unit | static | advisory (info in craft and spec) | 0.6.2 | coverage:5 (the top level, 99 members) |
 | SGC201 | unhandled-failure | static (+trace witness) | binding | P2 / P3 | examples.md:497–498 (satisfied at P2), executions:41 |
 | SGC202 | dead-failure-route | static (+trace witness) | binding | P2 / P3 | probe only (seed: executions E11 before d29e6b7) |
 | SGC203 | event-ignored | trace + static diamond | binding | P3 | **coverage:119–121**, examples.md:388–412 |
@@ -93,7 +95,7 @@ number. "Example n" means language.md's worked example n.
 | SGC304 | layer-inversion | invariant | binding | P4 | — (needs `@inv layers`) |
 | SGC306 | timeout-below-sla | invariant | advisory | P4 | — |
 
-There are 55 core rules: 5 meta, 39 structural, 6 behavioural and 5
+There are 57 core rules: 5 meta, 41 structural, 6 behavioural and 5
 declared-invariant rules. Ids **SGC105** (`unbroken-dependency`) and **SGC164**
 (`shared-pool`) left core for a dialect rule pack (§11), and **SGC305**
 (`lock-order-violated`) merged into SGC173. Those three ids are retired, never
@@ -1716,6 +1718,58 @@ purpose" (NG7, §7.8).
   purge := [Api] -> |Cache| : evict()
   ```
 - **Phase.** P3 (after B4, fixed in P3).
+
+#### SGC176 `unit-cycle`
+- **Risk.** Sibling units (systems neither of which encloses the other: expansions,
+  tree roots) whose flows depend on one another round cannot be built, tested or
+  replaced apart; neither is the other's foundation.
+- **Principle.** Acyclic dependencies between packages. Sources: Martin, ADP (2002).
+- **Query.** The structure reading's units (`sigil.model.structure.units_of`: the
+  export model's systems and the dependencies flows make, actors aside). Each flow
+  dependency is lifted to the two units under the nearest unit enclosing both (a
+  flow from a part of `A`'s nested unit into `B` is `A`'s dependency on `B`); one
+  finding per strongly connected set of two or more siblings, on the header of its
+  first unit in the model's order. Not a finding: a flow from a unit into one
+  enclosing it (`up` in `sigil view --structure`; a face standing for its unit at
+  the enclosing level makes one in most layered designs), the enclosing unit
+  reaching into its own nesting, and a flow to or from a part with no one home
+  (SGC401's, under `--export`). `sigil view --structure` lists exactly these cycles.
+- **Declare.** An acknowledgement on a unit's header (`[A] := {   # accepts:
+  unit-cycle — …`, or the line above it); a document-wide one does not cover it.
+- **Tier.** advisory; info in sketch (hidden) and craft, warn in spec. Ask:
+  "`A` and `B` depend on one another in a cycle (…). Are they one part, built and
+  changed together?"
+- **False positives.** Low once `up` links are left out; without that the rule fired
+  on most layered designs (02-shop, the meta model).
+- **Evidence.** None in the corpus.
+- **Example.** Flagged:
+  ```
+  [Root]
+    \-> [A]
+    \-> [B]
+  [A] := {
+    [P] -> [B] : go({X}) => {Y}
+  }
+  [B] := {
+    [Q] -> [A] : go({X}) => {Y}
+  }
+  ```
+  Declared: `[A] := {   # accepts: unit-cycle — built and shipped together`.
+- **Phase.** 0.6.2.
+
+#### SGC177 `large-unit`
+- **Risk.** A unit past a handful of parts no longer reads at a glance: a reader
+  holds its whole membership to follow one flow.
+- **Principle.** Span of attention; information hiding (Parnas, 1972).
+- **Query.** A unit (the structure reading's) with more than `structure.LARGE` (9)
+  members, counting built parts only (services, stores, events, data and a dialect's
+  kinds), never actors. On the unit's header; the top level on its first statement.
+  `sigil view --structure` lists the same units under "units over 9 members".
+- **Declare.** An acknowledgement, on the header or document-wide.
+- **Tier.** advisory, said as info in craft and spec, hidden in sketch. Ask: "`A` has
+  12 members. Do some of them form a unit of their own?"
+- **Evidence.** coverage:5 (a fixture of unrelated snippets at the top level).
+- **Phase.** 0.6.2.
 
 ---
 

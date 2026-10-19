@@ -34,7 +34,7 @@ READY = """\
   [Cart] -> |Db| : save({Order}) => {Ack}
 }
 
-[Billing] := {
+[Billing] := {   # accepts: unit-cycle — the ledger records into the shop it bills for
   [Ledger] -> [Shop] : record({Order}) => {Ack}
 }
 """
@@ -44,7 +44,7 @@ REORDERED = """\
 #!spec
 # a shop and its billing
 
-[Billing] := {
+[Billing] := {   # accepts: unit-cycle — the ledger records into the shop it bills for
   [Ledger]   ->   [Shop] : record({Order}) => {Ack}
 }
 

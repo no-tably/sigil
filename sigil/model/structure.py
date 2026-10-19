@@ -10,18 +10,33 @@ export never disagree. It runs in any mode (no gate) and is deterministic.
     s.units, s.cycles, s.up, s.edge, s.reach, s.pass_throughs, s.large, s.repeated, s.writers
     as_json(s)                         # the same as plain data
 
+    u = units_of(graph, stem="shop")   # just the units, their links and cycles:
+    sibling_cycles(u), large_units(u)  # what `sigil check`'s structure rules read
+
 UNITS        every system of the model (top, expansions, trees), in the model's
-             order: kind, parent, members (the components homed there), its
-             internal flows, and depends_on split into `calls` (units its flows
-             reach) and `nests` (the units nested in it); calls ∪ nests is the
-             model's depends_on. A flow to or from an actor makes no dependency.
-CYCLES       each set of units whose flows depend on one another round (a
-             strongly connected set of `calls`), with every link inside it and
-             the flows that make it.
+             order: kind, parent, members (the built components homed there:
+             services, stores, events, data — an actor is not built, so the
+             actors homed there are listed apart), its internal flows, and
+             depends_on split into `calls` (units its flows reach) and `nests`
+             (the units nested in it); calls ∪ nests is the model's depends_on.
+             A flow to or from an actor makes no dependency. `line`: the unit's
+             header (`X := {`, a tree's root line; None for the top).
+CYCLES       each set of sibling units — units neither of which encloses the
+             other — whose flows depend on one another round, with every link
+             inside it and the flows that make it. A link is lifted to the two
+             units under the nearest unit enclosing both (a flow from a part of
+             A's nested unit into B is A's dependency on B); a flow between a
+             unit and one enclosing it is no part of a cycle (it is UP, or the
+             enclosing unit reaching into its own nesting), and neither is a
+             flow to or from a part with no one home (REPEATED: its home is a
+             placeholder). `sigil check`'s SGC176 unit-cycle is one finding per
+             cycle.
 UP           a unit whose flows reach a unit enclosing it (its parent, …, the
-             top): with the nesting that unit's depends_on holds, that too is a
+             top): with the nesting that unit's depends_on holds, that is a
              cycle of the export's depends_on — a part of an enclosing level
-             (a store, a component first written there) the unit leans on.
+             (a store, a component first written there) the unit leans on. It
+             is listed here only, never a check finding (most layered designs
+             have it).
 EDGE         the components that call an actor: the parts that touch the
              outside world, with the actors each calls.
 REACH        per component: what it can drive (out) and what can drive it (in),
@@ -37,14 +52,14 @@ PASS-THROUGHS a component (no data, event, store or actor, no unit's face) with
              exactly one caller and one callee, neither an actor, touching no
              actor: a layer that may isolate nothing.
 LARGE        the units with more than LARGE members (a unit past it does not
-             scan at a glance), largest first.
-REPEATED     a component (no actor) declared as a member of two or more units:
-             one name is one entity, so the two merge silently. Declared in a
-             unit: a statement of the unit's own level it heads that is no flow
-             of its and no tree's root (`[Text]`, `[Api] @sla(…)`; its own
-             `[X] := {` header aside),
-             or a `\\-` branch's child (in the tree's unit). Naming a part of
-             another unit in a flow is a reference, not a declaration.
+             scan at a glance), largest first. Members are built parts only, so
+             actors never make a unit large. `sigil check`'s SGC177 large-unit
+             reads the same list.
+REPEATED     a component written in two or more units neither of which
+             encloses the others — declared there or named by one of its flows:
+             one name is one entity, so it has no one home. The export model's
+             test (Model.shared), which `sigil check --export` calls SGC401
+             no-home; an actor is never one.
 WRITERS      per store, who writes it, as `sigil check` counts it
              (scene.all_writers over the simulator's canonical scene): a flow
              into it with a write-like reading (`->` / `~>` whose verb is no read
@@ -55,7 +70,7 @@ WRITERS      per store, who writes it, as `sigil check` counts it
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping, Optional
+from typing import Mapping, NamedTuple, Optional
 
 from sigil.core.graph import walk_depth
 from sigil.model import systems
@@ -89,11 +104,13 @@ class Unit:
     name: str
     kind: str                    # "top" | "expansion" | "tree"
     parent: Optional[str]
-    members: tuple               # glyphs of the components homed here, written order
+    members: tuple               # glyphs of the built components homed here, written order
     internal: tuple              # FlowRefs with both ends in the unit
     calls: tuple                 # unit keys its flows depend on, sorted
     nests: tuple                 # unit keys nested in it, sorted
     depends_on: tuple            # the model's: calls ∪ nests, sorted
+    actors: tuple = ()           # glyphs of the actors homed here (not members)
+    line: Optional[int] = None   # its header line (`X := {`, a tree's root); None: top
 
 
 @dataclass(frozen=True)
@@ -148,6 +165,16 @@ class Writers:
     writers: tuple               # (principal glyph or name, (how, …)), sorted
 
 
+class Units(NamedTuple):
+    """The units of a document and what links them (units_of): the export model,
+    the units in its order, the flow dependencies {(unit, unit): [Flow]} and every
+    component's glyph by node id."""
+    model: object                # systems.Model
+    units: tuple
+    links: dict
+    glyphs: dict
+
+
 @dataclass(frozen=True)
 class Structure:
     stem: str
@@ -172,30 +199,58 @@ def structure_of(graph, stem: str, kinds: Mapping = {},
     """The structure reading of a parsed document. `stem`: the top unit's name;
     `kinds`: the dialect's NODE_KINDS (its glyphs' brackets); `read_verbs`: the
     verbs whose flows into a store read it (None: the core's, scene.READ_VERBS)."""
+    u = units_of(graph, stem, kinds)
+    model, units, links, g = u
+    comps = model.components
+    flows = systems.collect_flows(graph, comps)
+    actors = actor_ids(comps)
+    faces = faces_of(model)
+    calls = call_edges(flows)
+    return Structure(
+        stem=model.stem, top=model.top, units=units,
+        cycles=sibling_cycles(u),
+        up=up_links(units, links, g),
+        edge=edge_parts(comps, calls, actors),
+        reach=reach(comps, calls, expansion_entries(graph, comps), actors),
+        pass_throughs=pass_throughs(comps, calls, flows, faces, actors),
+        large=large_units(u),
+        repeated=repeated(model),
+        writers=store_writers(graph, comps, read_verbs))
+
+
+def units_of(graph, stem: str, kinds: Mapping = {}) -> Units:
+    """The units of a parsed document and their flow dependencies: the part of
+    the reading the structure checks need (no reach, no writers)."""
     model = systems.model_of(graph, stem, kinds=kinds)
     comps = model.components
     flows = systems.collect_flows(graph, comps)
-    actors = frozenset(nid for nid, c in comps.items() if c.kind == "actor")
-    g = {nid: c.glyph for nid, c in comps.items()}
-    faces = {s.face: key for key, s in model.systems.items() if s.face is not None}
+    actors = actor_ids(comps)
+    faces = faces_of(model)
     links = flow_links(flows, comps, faces, actors)
     children: dict = {}
     for key, sysm in model.systems.items():
         if sysm.parent is not None and sysm.parent != key:
             children.setdefault(sysm.parent, set()).add(key)
-    units = tuple(make_unit(s, comps, links, children) for s in model.systems.values())
-    calls = call_edges(flows)
-    return Structure(
-        stem=model.stem, top=model.top, units=units,
-        cycles=cycles(units, links, g),
-        up=up_links(units, links, g),
-        edge=edge_parts(comps, calls, actors),
-        reach=reach(comps, calls, expansion_entries(graph, comps), actors),
-        pass_throughs=pass_throughs(comps, calls, flows, faces, actors),
-        large=tuple(sorted((u for u in units if len(u.members) > LARGE),
-                           key=lambda u: (-len(u.members), u.key))),
-        repeated=repeated(graph, model, actors),
-        writers=store_writers(graph, comps, read_verbs))
+    lines = header_lines(graph, model)
+    units = tuple(make_unit(s, comps, links, children, lines.get(s.key))
+                  for s in model.systems.values())
+    return Units(model, units, links, {nid: c.glyph for nid, c in comps.items()})
+
+
+def actor_ids(comps: dict) -> frozenset:
+    return frozenset(nid for nid, c in comps.items() if c.kind == "actor")
+
+
+def faces_of(model) -> dict:
+    """{face node id: the unit it stands for}."""
+    return {s.face: key for key, s in model.systems.items() if s.face is not None}
+
+
+def large_units(u: Units) -> tuple:
+    """The units with more than LARGE members (built parts; actors aside),
+    largest first."""
+    return tuple(sorted((x for x in u.units if len(x.members) > LARGE),
+                        key=lambda x: (-len(x.members), x.key)))
 
 
 # ---------------------------------------------------------------------------
@@ -226,35 +281,102 @@ def flow_links(flows: list, comps: dict, faces: dict, actors: frozenset) -> dict
     return out
 
 
-def make_unit(s, comps: dict, links: dict, children: dict) -> Unit:
+def make_unit(s, comps: dict, links: dict, children: dict,
+              line: Optional[int] = None) -> Unit:
     """A system of the model as a unit: `links` the flow dependencies
-    (flow_links), `children` {unit: the units whose parent it is}."""
+    (flow_links), `children` {unit: the units whose parent it is}, `line` its
+    header line (header_lines)."""
     return Unit(key=s.key, name=s.name, kind=s.kind, parent=s.parent,
-                members=tuple(comps[nid].glyph for nid in s.members),
+                members=tuple(comps[nid].glyph for nid in s.members
+                              if comps[nid].kind != "actor"),
                 internal=tuple(ref(f, comps) for f in s.internal),
                 calls=tuple(sorted({b for (a, b) in links if a == s.key})),
                 nests=tuple(sorted(children.get(s.key, ()))),
-                depends_on=tuple(s.depends_on))
+                depends_on=tuple(s.depends_on),
+                actors=tuple(comps[nid].glyph for nid in s.members
+                             if comps[nid].kind == "actor"),
+                line=line)
+
+
+def header_lines(graph, model) -> dict:
+    """{unit key: its header line}: an expansion's `X := {` line (the last line
+    its owner heads in the graph holding the expansion, at or before the body's
+    first statement), a tree's root line (its first entry with branches). The
+    first such header in document order (depth first) when there are several."""
+    faces = faces_of(model)
+    out: dict = {}
+    for g in systems.walk(graph):
+        for nid, sub in g.expansions.items():
+            key, node = faces.get(nid), g.nodes.get(nid)
+            if key is None or key in out or sub.role == "state" or node is None \
+                    or node.kind == "alias":
+                continue
+            first = min([ln for ln, _h in sub.heads] + [e.line for e in sub.edges],
+                        default=None)
+            own = [ln for ln, h in g.heads if h == nid and (first is None or ln <= first)]
+            if own:
+                out[key] = max(own)
+        roots = systems.tree_roots(g.tree)
+        for i, t in enumerate(g.tree):
+            key = faces.get(t.node)
+            if key is not None and key not in out and roots[i] == i \
+                    and model.systems[key].kind == "tree" \
+                    and any(e.parent == i for e in g.tree):
+                out[key] = t.line
+    return out
 
 
 def ref(f, comps: dict) -> FlowRef:
     return FlowRef(comps[f.src].glyph, f.arrow, comps[f.dst].glyph, f.line)
 
 
-def cycles(units: tuple, links: dict, glyphs: dict) -> tuple:
-    """Each strongly connected set of two or more units over their flow
-    dependencies (`calls`), with the links inside it."""
-    order = [u.key for u in units]
-    deps = {u.key: set(u.calls) for u in units}
+def sibling_links(u: Units) -> dict:
+    """{(a, b): [Flow]}: the flow dependencies lifted to sibling units — for a
+    link from unit x to unit y, the units under the nearest unit enclosing both
+    (x's and y's ancestors there). A link between a unit and one enclosing it
+    lifts to nothing. A flow to or from a part with no one home (REPEATED) makes
+    no link: its home is a placeholder until it is written in one unit (SGC401's
+    finding, not a cycle's). Flows keep their order, each once."""
+    parent = {x.key: x.parent for x in u.units}
+    homeless = frozenset(sh.component for sh in u.model.shared)
+
+    def chain(k):
+        out = []
+        while k is not None and k not in out:
+            out.append(k)
+            k = parent.get(k)
+        return out
+
+    out: dict = {}
+    for (x, y), flows in u.links.items():
+        cx, cy = chain(x), chain(y)
+        flows = [f for f in flows if f.src not in homeless and f.dst not in homeless]
+        if x in cy or y in cx or not flows:
+            continue
+        common = next((k for k in cx if k in cy), None)
+        a = cx[cx.index(common) - 1] if common is not None else cx[-1]
+        b = cy[cy.index(common) - 1] if common is not None else cy[-1]
+        found = out.setdefault((a, b), [])
+        found += [f for f in flows if f not in found]
+    return out
+
+
+def sibling_cycles(u: Units) -> tuple:
+    """Each strongly connected set of two or more sibling units over their
+    lifted flow dependencies (sibling_links), with the links inside it; the
+    units in the model's order, the sets by their first unit."""
+    order = [x.key for x in u.units]
+    lifted = sibling_links(u)
+    deps: dict = {}
+    for a, b in lifted:
+        deps.setdefault(a, set()).add(b)
     out = []
     for comp in strongly_connected(order, deps):
         if len(comp) < 2:
             continue
         members = set(comp)
-        found = []
-        for a in comp:
-            for b in sorted(deps[a] & members, key=order.index):
-                found.append(link(a, b, links, glyphs))
+        found = [link(a, b, lifted, u.glyphs)
+                 for a in comp for b in sorted(deps.get(a, set()) & members, key=order.index)]
         out.append(Cycle(tuple(comp), tuple(found)))
     return tuple(out)
 
@@ -439,53 +561,11 @@ def pass_throughs(comps: dict, calls: list, flows: list, faces: dict,
 # Names and stores
 # ---------------------------------------------------------------------------
 
-def repeated(graph, model, actors: frozenset) -> tuple:
-    comps = model.components
-    found = declared_in(graph, model.stem)
-    return tuple(sorted((Repeated(comps[nid].glyph, tuple(units))
-                         for nid, units in found.items()
-                         if nid in comps and nid not in actors and len(units) > 1),
+def repeated(model) -> tuple:
+    """The components written in units neither of which encloses the others
+    (the export model's Model.shared, SGC401's test), by glyph."""
+    return tuple(sorted((Repeated(sh.glyph, tuple(sh.systems)) for sh in model.shared),
                         key=lambda r: r.component))
-
-
-def declared_in(graph, stem: str) -> dict:
-    """{node id: [unit keys it is declared a member of]}, first declared first:
-    a statement of a unit's level the node heads that is no flow from it, no
-    branch and no tree's root (a tree's face, or the tree continued where its
-    root was a branch; one
-    head of a node expanded at that level is its `X := {` header, so it needs a
-    second), and a `\\-` branch's child, in its tree's unit."""
-    lay = systems.lay_out(graph, stem)
-    out: dict = {}
-    for g in systems.walk(graph):
-        key = lay.graph_system.get(id(g))
-        if key is None:
-            continue
-        flows = {(e.line, e.src) for e in g.edges}
-        parents = {t.parent for t in g.tree}
-        flows |= {(t.line, t.node) for i, t in enumerate(g.tree)
-                  if t.parent is not None or i in parents}
-        heads: dict = {}
-        for line, nid in g.heads:
-            if (line, nid) not in flows:
-                heads[nid] = heads.get(nid, 0) + 1
-        for nid, n in heads.items():
-            sub = g.expansions.get(nid)
-            defined = sub is not None and sub.role != "state"
-            if n > (1 if defined else 0):
-                _add(out, nid, key)
-        roots = systems.tree_roots(g.tree)
-        for i, t in enumerate(g.tree):
-            if t.parent is not None:
-                root = g.tree[roots[i]].node
-                _add(out, t.node, lay.by_face.get(root, key))
-    return out
-
-
-def _add(index: dict, k, value):
-    vals = index.setdefault(k, [])
-    if value not in vals:
-        vals.append(value)
 
 
 def store_writers(graph, comps: dict, read_verbs: Optional[tuple]) -> tuple:
@@ -522,7 +602,7 @@ def as_json(s: Structure) -> dict:
     return {
         "top": s.top,
         "units": [{"key": u.key, "name": u.name, "kind": u.kind, "parent": u.parent,
-                   "members": list(u.members),
+                   "line": u.line, "members": list(u.members), "actors": list(u.actors),
                    "internal": [flow_json(f) for f in u.internal],
                    "calls": list(u.calls), "nests": list(u.nests),
                    "depends_on": list(u.depends_on)} for u in s.units],

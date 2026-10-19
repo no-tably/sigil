@@ -58,6 +58,13 @@ def _load(name: str, path: Path):
 
 
 site = _load("sigil_build_site_t", SITE / "build_site.py")
+
+
+def playground_registry() -> dict:
+    """The registry a playground check runs: the default one without the
+    structure rules, whose module the playground does not ship."""
+    return {rid: r for rid, r in checker.default_registry().items()
+            if rid not in checker.STRUCTURE_NAMES}
 YAML_CASES = json.loads((_DIR / "tests" / "fixtures" / "yaml_cases.json").read_text(encoding="utf-8"))
 VAR_RE = re.compile(r"var\(--([\w-]+)")
 
@@ -218,6 +225,8 @@ class TestBuild(unittest.TestCase):
         self.assertIn("sigil/publish/exporter.py", left_out)
         self.assertIn("sigil/model/systems.py", left_out)
         self.assertIn("sigil/analyse/rules/export.py", left_out)
+        self.assertIn("sigil/model/structure.py", left_out)
+        self.assertIn("sigil/analyse/rules/structure.py", left_out)
         self.assertIn("sigil/present/frames.py", site.PY_TOOLS)
 
     def test_in_playground(self):
@@ -258,7 +267,8 @@ class TestBuild(unittest.TestCase):
                 with self.subTest(example=path.name, mode=mode):
                     self.assertNotIn("error", r)
                     self.assertEqual(r["k"], 1)
-                    want = checker.check(text, mode=mode, k=1)
+                    want = checker.check(text, mode=mode, k=1,
+                                         registry=playground_registry())
                     self.assertEqual(r["mode"], want.mode)
                     self.assertEqual([(f["line"], f["rule"], f["severity"], f["message"])
                                       for f in r["findings"]],
@@ -280,6 +290,33 @@ class TestBuild(unittest.TestCase):
         self.assertEqual([(f["line"], f["rule"], f["message"]) for f in r["findings"]],
                          [(f.line, f.rule.id, f.message) for f in want.shown])
         self.assertTrue(any(f["rule"] == "SGC090" for f in r["findings"]))
+
+    def test_playground_check_runs_without_the_structure_rules(self):
+        # The structure rules read the export model, which the playground leaves
+        # out: its check runs without them, and an acknowledgement of one is
+        # neither an unknown rule (SGC001) nor a stale one (SGC003) there.
+        text = ("#!spec\n[Root]\n  \\-> [A]\n  \\-> [B]\n"
+                "[A] := {   # accepts: unit-cycle — built and shipped together\n"
+                "  [P] -> [B] : go({X}) => {Y} @timeout(1s)\n}\n"
+                "[B] := {\n  [Q] -> [A] : go({X}) => {Y} @timeout(1s)\n}\n")
+        full = checker.check(text)
+        self.assertEqual([f.rule.id for f in full.acknowledged], ["SGC176"])
+        code = ("import json, sys; sys.path.insert(0, '.'); import playground as p\n"
+                "r = json.loads(p.check(json.dumps({'text': sys.stdin.read()})))\n"
+                "print(json.dumps([r, sorted(m for m in sys.modules if m.startswith('sigil'))]))")
+        with tempfile.TemporaryDirectory() as tmp:
+            run = subprocess.run([sys.executable, "-I", "-c", code], cwd=self._manifest_dir(tmp),
+                                 input=text, capture_output=True, text=True, timeout=300)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        r, mods = json.loads(run.stdout)
+        self.assertNotIn("error", r)
+        rules = [f["rule"] for f in r["findings"]]
+        for rid in ("SGC176", "SGC001", "SGC003"):
+            self.assertNotIn(rid, rules)
+        self.assertNotIn("sigil.model.structure", mods)
+        self.assertNotIn("sigil.analyse.rules.structure", mods)
+        want = checker.check(text, registry=playground_registry())
+        self.assertEqual(rules, [f.rule.id for f in want.shown])
 
     def test_playground_check_reports_a_bad_mode(self):
         pg = _load("sigil_playground_t2", SITE / "playground.py")

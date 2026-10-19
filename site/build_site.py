@@ -73,9 +73,13 @@ class BuildError(Exception):
 # the package build.py ships, then playground.py — the browser runs these files,
 # never a port of them. The export layer stays out: the playground draws, lints,
 # checks and runs, it never exports (and check loads its export rules only for a
-# check asked for export readiness). A path ending in / leaves out its folder.
+# check asked for export readiness). The structure reading reads the export model,
+# so it stays out too, with check's structure rules (check loads a rule module
+# only where it ships). A path ending in / leaves out its folder.
 NOT_IN_PLAYGROUND = frozenset({"sigil/publish/", "sigil/model/systems.py",
-                               "sigil/analyse/rules/export.py"})
+                               "sigil/model/structure.py",
+                               "sigil/analyse/rules/export.py",
+                               "sigil/analyse/rules/structure.py"})
 
 
 def in_playground(rel: str) -> bool:

@@ -184,6 +184,10 @@ store's races.
   noted — hint: an unrecognised @inv is listed as taken on trust, never failed (catalog SGC301)
 - examples.md · inv-unchecked · info · `{Entity}  @inv lifecycle-transitions-explicit`
   noted — hint: an unrecognised @inv is listed as taken on trust, never failed (catalog SGC301)
+- examples.md · large-unit · info · `--- agent-memory ---`
+  noted — info: a flat example, every part written at the top level (more than nine built parts); said on the first statement, since the top level has no header (catalog SGC177)
+- examples.md · large-unit · info · `--- judge-loop ---`
+  noted — info: a flat example, every part written at the top level (more than nine built parts); said on the first statement, since the top level has no header (catalog SGC177)
 - examples.md · capacity-mismatch · info · `(User)×N -> [Booking] : book({Seat})`
   shown — Example Q's risky half raises it on purpose; its declared twin `--- booking-declared ---` declares the risk and gives no finding (ExampleQ in tests/test_check_state.py)
 - examples.md · lost-update · warn · `[Booking] -> ~|Seats| : ${state.Seats} - 1`

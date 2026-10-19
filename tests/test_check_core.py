@@ -669,7 +669,8 @@ class Registry(unittest.TestCase):
         reg = ck.default_registry()
         for rid in ("SGC001", "SGC002", "SGC004"):
             self.assertEqual(reg[rid].name, ck.CORE_NAMES[rid])
-        self.assertEqual(len(ck.CORE_NAMES), 55)
+        self.assertEqual(len(ck.CORE_NAMES), 57)
+        self.assertLessEqual(ck.STRUCTURE_NAMES.items(), ck.CORE_NAMES.items())
         self.assertFalse(ck.RETIRED_IDS & set(ck.CORE_NAMES))
         self.assertEqual(reg["SGC001"].layer, "meta")
 
@@ -708,7 +709,7 @@ class Registry(unittest.TestCase):
 
     def test_rules_listing(self):
         listing = ck.registry_lines(ck.default_registry())
-        self.assertEqual(len(listing), 55)
+        self.assertEqual(len(listing), 57)
         self.assertTrue(listing[0].startswith("SGC001  ack-unknown-rule"))
 
 
@@ -916,7 +917,8 @@ class Packaging(unittest.TestCase):
         import test_core as core
         rules_dir = ROOT / "sigil" / "analyse" / "rules"
         on_disk = {p.stem for p in rules_dir.glob("*.py") if p.stem != "__init__"}
-        self.assertEqual(on_disk, set(ck.RULE_MODULES) | set(ck.EXPORT_MODULES))
+        self.assertEqual(on_disk, set(ck.RULE_MODULES) | set(ck.STRUCTURE_MODULES)
+                         | set(ck.EXPORT_MODULES))
         for name in sorted(on_disk):
             with self.subTest(name):
                 self.assertIn(f"sigil/analyse/rules/{name}.py", core._CORE_FILES)

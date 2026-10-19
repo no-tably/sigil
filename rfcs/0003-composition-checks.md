@@ -284,6 +284,8 @@ same design with the risk declared) — are in [0003-composition-checks.catalog.
 | SGC173 | lock-order-cycle | structural | P2 (declared order P4) |
 | SGC174 | optional-callee | structural | P2 |
 | SGC175 | unreached | structural | P3 |
+| SGC176 | unit-cycle | structural | 0.6.2 |
+| SGC177 | large-unit | structural | 0.6.2 |
 | SGC201 | unhandled-failure | behavioural (static, exact) | P2 / P3 |
 | SGC202 | dead-failure-route | behavioural (static, exact) | P2 / P3 |
 | SGC203 | event-ignored | behavioural | P3 |
@@ -296,7 +298,7 @@ same design with the risk declared) — are in [0003-composition-checks.catalog.
 | SGC304 | layer-inversion | invariant | P4 |
 | SGC306 | timeout-below-sla | invariant | P4 |
 
-55 core rules. SGC105 (`unbroken-dependency`) and SGC164 (`shared-pool`) are
+57 core rules. SGC105 (`unbroken-dependency`) and SGC164 (`shared-pool`) are
 retired from core and offered as an example dialect pack; SGC305 merged into
 SGC173. Retired ids are never reused.
 

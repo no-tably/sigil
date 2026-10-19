@@ -74,18 +74,27 @@ class TestUnits(unittest.TestCase):
 
 
 class TestCycles(unittest.TestCase):
-    def test_two_siblings_calling_each_other(self):
-        s = read("[A] := {\n  [P] -> [Q] : go({X}) => {Y}\n}\n"
-                 "[B] := {\n  [R] -> [P] : go({X}) => {Y}\n}\n"
-                 "[Q] -> [R] : go({X}) => {Y}\n")
-        # [Q] is written at the top too, so it is homed there; P is shared
-        self.assertTrue(s.cycles)
-        for c in s.cycles:
-            self.assertGreaterEqual(len(c.units), 2)
-            for k in c.links:
-                self.assertIn(k.src, c.units)
-                self.assertIn(k.dst, c.units)
-                self.assertTrue(k.flows)
+    def test_a_round_through_an_enclosing_level_is_no_cycle(self):
+        s = read("[Hub]\n[Hub] -> [R] : go({X}) => {Y}\n"
+                 "[A] := {\n  [P] -> [Hub] : go({X}) => {Y}\n}\n"
+                 "[B] := {\n  [R] -> [P] : go({X}) => {Y}\n}\n")
+        # [Hub] is declared at the top only, so it is homed there: A leans on the
+        # top (up), the top reaches into B (its own nesting), B on A — no sibling cycle
+        self.assertEqual(s.cycles, ())
+        self.assertEqual([(k.src, k.dst) for k in s.up], [("A", "t")])
+
+    def test_a_nested_units_flow_is_its_enclosing_siblings(self):
+        text = ("[Root]\n  \\-> [A]\n  \\-> [B]\n"
+                "[A] := {\n  [N] -> [M] : go({X}) => {Y}\n"
+                "  [N] := {\n    [P] -> [B] : go({X}) => {Y}\n  }\n}\n"
+                "[B] := {\n  [Q] -> [A] : go({X}) => {Y}\n}\n")
+        s = read(text)
+        (c,) = s.cycles
+        self.assertEqual(c.units, ("A", "B"))
+        self.assertEqual({(k.src, k.dst, tuple(f.text for f in k.flows)) for k in c.links},
+                         {("A", "B", ("[P] -> [B]",)), ("B", "A", ("[Q] -> [A]",))})
+        self.assertEqual(structure.sibling_cycles(
+            structure.units_of(parse_document(text), "t")), s.cycles)
 
     def test_sibling_cycle_with_its_flows(self):
         text = ("[Root]\n  \\-> [A]\n  \\-> [B]\n"
@@ -105,13 +114,12 @@ class TestCycles(unittest.TestCase):
         self.assertEqual(read(text).cycles, ())
 
     def test_a_flow_into_an_enclosing_unit_is_up(self):
-        s = read("[Api] := {\n  [A] -> |Log| : put({X}) => {Ok}\n}\n"
+        s = read("|Log|\n[Api] := {\n  [A] -> |Log| : put({X}) => {Ok}\n}\n"
                  "[Edge] -> |Log| : put({X}) => {Ok}\n[Edge] -> [Api] : go({X}) => {Y}\n")
         (k,) = s.up
         self.assertEqual((k.src, k.dst), ("Api", "t"))
         self.assertEqual([f.text for f in k.flows], ["[A] -> |Log|"])
-        (c,) = s.cycles                                   # top → Api by [Edge] -> [Api]
-        self.assertEqual(set(c.units), {"t", "Api"})
+        self.assertEqual(s.cycles, ())     # top → Api by [Edge] -> [Api]: no sibling cycle
 
     def test_strongly_connected(self):
         order = ["a", "b", "c", "d"]
@@ -182,17 +190,44 @@ class TestShape(unittest.TestCase):
         s = read(f"[Big] := {{\n{body}}}\n[Small] := {{\n  [P]\n}}\n")
         self.assertEqual([(u.key, len(u.members)) for u in s.large], [("Big", 10)])
 
+    def test_actors_are_no_members(self):
+        body = "".join(f"  [M{i}]\n" for i in range(8)) + "  (U) -> [M0] : go({X}) => {Y}\n" \
+            + "  [M1] -> (Os) : call({X}) => {Y}\n  {D} -> [M2]\n"
+        s = read(f"[Big] := {{\n{body}}}\n")
+        big = unit(s, "Big")
+        self.assertEqual(big.actors, ("(U)", "(Os)"))
+        self.assertEqual(len(big.members), 9)            # 8 parts and {D}: not over 9
+        self.assertEqual(s.large, ())
+        self.assertEqual(structure.large_units(structure.units_of(
+            parse_document(f"[Big] := {{\n{body}  |S|\n}}\n"), "t"))[0].key, "Big")
+
+    def test_header_lines(self):
+        s = read("[Root]\n  \\-> [A]\n[A] -> [B] : go({X}) => {Y}\n\n"
+                 "[A] := {\n  [P] -> [Q] : go({X}) => {Y}\n}\n")
+        self.assertEqual({u.key: u.line for u in s.units}, {"t": None, "Root": 1, "A": 5})
+
     def test_a_name_declared_in_two_units(self):
         s = read("[A] := {\n  [X]\n  [P] -> [Q] : go({X}) => {Y}\n}\n"
                  "[B] := {\n  [X] @sla(p99 < 5ms)\n}\n")
         self.assertEqual([(r.component, r.units) for r in s.repeated], [("[X]", ("A", "B"))])
 
-    def test_a_reference_header_or_continued_tree_is_no_declaration(self):
+    def test_a_header_or_continued_tree_is_no_second_unit(self):
         text = ("[Core] := {\n  [Text]\n  [B] -> [Text] : get({X}) => {Y}\n}\n"
                 "[Text] := {\n  [W] -> [V] : go({X}) => {Y}\n}\n"
-                "[Api] := {\n  [Q] -> [W] : get({X}) => {Y}\n}\n"
                 "[Ui] := {\n  [Panes]\n    \\-> [Tab]\n  [Tab]\n    \\-> [Pane]\n}\n")
         self.assertEqual(read(text).repeated, ())
+
+    def test_a_name_named_in_two_units_follows_no_home(self):
+        # one rule with SGC401 no-home (sigil check --export): a part a second
+        # unit only names in a flow has no one home either
+        text = ("#!spec\n[A] := {\n  [P] -> [Q] : go({X}) => {Y}\n}\n"
+                "[B] := {\n  [R] -> [P] : go({X}) => {Y}\n}\n")
+        self.assertEqual([(r.component, r.units) for r in read(text).repeated],
+                         [("[P]", ("A", "B"))])
+        from sigil.analyse import check
+        rep = check.check(text, export=True)
+        (f,) = [f for f in rep.findings if f.rule.id == "SGC401"]
+        self.assertTrue(f.message.startswith("`[P]` is written in `A` and `B`"), f.message)
 
     def test_writers_as_check_counts_them(self):
         text = ("[A] -> |S| : save({X})\n"                  # `=> …` back: a read, as check reads it
@@ -224,7 +259,7 @@ class TestText(unittest.TestCase):
     def test_summary_counts(self):
         self.assertEqual(
             structure.summary(read(TestEdgeAndReach.TEXT)),
-            "1 unit: 0 cycles, 0 up, 1 edge part, 0 pass-throughs, 1 over 9 members, "
+            "1 unit: 0 cycles, 0 up, 1 edge part, 0 pass-throughs, 0 over 9 members, "
             "0 names in two units, 0 stores with two or more writers")
 
 
