@@ -213,3 +213,73 @@ class FreeArgumentModifier(unittest.TestCase):
         g = parse.parse_document("[Y] @owns(|S|) ^4 ! {\n  [Y] -> |S|\n}\n")
         self.assertEqual(g.nodes["Y_service"].mods, [("owns", "|S|"), ("^", "4"), ("!", None)])
         self.assertEqual(g.blocks[0].modifiers, [("owns", "|S|"), ("^", "4"), ("!", None)])
+
+
+class ContinuedTrailingComment(unittest.TestCase):
+    """A comment-only line whose `#` sits at the column of the trailing comment
+    above it continues that comment: it is about the line above, not the next."""
+
+    DOC = ("#!sketch\n"
+           "(U) -> [A] : go({X}) => {Y}    # first part of the note\n"
+           "                               # second part, aligned\n"
+           "[C] -> [D] : run({X}) => {Y}\n")
+
+    def notes(self, text):
+        from sigil.core.comments import note_index
+        g = parse.parse_document(text)
+        return {k: [e[1] for e in v] for k, v in note_index(g).items()}
+
+    def acks(self, text):
+        from sigil.core.comments import read_acks, walk_layout
+        w = walk(text)
+        comments = {k + 1: v for k, v in w.comments.items()}
+        return read_acks(comments, walk_layout(w), frozenset({"retry-unbounded"}))
+
+    def test_the_walk_joins_it_to_the_trailing_comment(self):
+        w = walk(self.DOC)
+        self.assertEqual(w.comments, {1: ("first part of the note second part, aligned", False)})
+
+    def test_the_note_belongs_to_the_line_above(self):
+        self.assertEqual(self.notes(self.DOC),
+                         {"U_actor": ["first part of the note second part, aligned"]})
+
+    def test_a_chain_of_lines_continues_it(self):
+        text = self.DOC.replace("[C]", "                               # third\n[C]", 1)
+        self.assertEqual(self.notes(text)["U_actor"],
+                         ["first part of the note second part, aligned third"])
+        self.assertNotIn("C_service", self.notes(text))
+
+    def test_another_column_is_a_note_on_the_next_statement(self):
+        text = self.DOC.replace("                               # second", "  # second")
+        self.assertEqual(self.notes(text)["C_service"], ["second part, aligned"])
+
+    def test_a_blank_line_ends_the_continuation(self):
+        text = self.DOC.replace("    # first part of the note\n",
+                                "    # first part of the note\n\n")
+        self.assertEqual(self.notes(text)["C_service"], ["second part, aligned"])
+
+    def test_below_an_own_line_comment_nothing_continues(self):
+        text = ("#!sketch\n[A] -> [B]\n# about C\n# still about C\n[C] -> [D]\n")
+        self.assertEqual(self.notes(text)["C_service"], ["about C still about C"])
+
+    def test_inside_a_definition_body(self):
+        text = ("#!sketch\n[S] := {\n  [A] -> [B]   # first\n               # second\n"
+                "  [C] -> [D]\n}\n")
+        notes = self.notes(text)
+        self.assertEqual(notes["A_service"], ["first second"])
+        self.assertNotIn("C_service", notes)
+
+    def test_an_acknowledgement_is_never_a_continuation(self):
+        text = self.DOC.replace("# second part, aligned",
+                                "# accepts: retry-unbounded — the queue drains")
+        (ack,) = self.acks(text)
+        self.assertEqual((ack.line, ack.names, ack.span), (3, ("retry-unbounded",),
+                                                          frozenset({4})))
+        self.assertEqual(self.notes(text)["U_actor"], ["first part of the note"])
+
+    def test_the_export_describes_the_line_above(self):
+        from sigil.publish import systems as em
+        m = em.build_model(self.DOC, "doc")
+        desc = {nid: list(c.description) for nid, c in m.components.items()}
+        self.assertEqual(desc["C_service"], [])
+        self.assertEqual(desc["U_actor"], ["first part of the note second part, aligned"])

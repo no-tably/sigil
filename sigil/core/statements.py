@@ -307,6 +307,12 @@ def comment_of(line: str, marker) -> Optional[tuple]:
     (not the `#!` mode line, nor a `#&` — a declaration when it leads the line,
     see lex.COMMENT_START_RE); a dialect's markers (`marker`, one pattern) too. A
     marker inside a `"…"` string starts no comment."""
+    c = _comment_at(line, marker)
+    return c[1:] if c else None
+
+
+def _comment_at(line: str, marker) -> Optional[tuple]:
+    """comment_of with the column its marker starts at: (column, text, own_line)."""
     if marker is None and "#" not in line:
         return None
     if is_mode_line(line) or declaration_name(line) is not None:
@@ -320,13 +326,33 @@ def comment_of(line: str, marker) -> Optional[tuple]:
     if m is None:
         return None
     text = line[m.end():].strip()
-    return (text, not line[:m.start()].strip()) if text else None
+    return (m.start(), text, not line[:m.start()].strip()) if text else None
+
+
+# An acknowledgement (sigil.core.comments.parse_ack) is never a continuation.
+_ACK_LEAD_RE = re.compile(r"^accepts:")
 
 
 def collect_comments(lines: list, marker) -> dict:
     """{line index: (text, own_line)} for every comment (comment_of; `marker`
-    a dialect's comment markers, or None)."""
-    return {k: c for k, line in enumerate(lines) if (c := comment_of(line, marker))}
+    a dialect's comment markers, or None). A continued trailing comment is one
+    comment: a comment-only line right below a trailing comment (or below a line
+    that continues one) whose marker sits at the same column continues it — its
+    text joins that trailing comment's, on the trailing comment's line, and the
+    line holds no comment of its own. A `# accepts:` line never continues one."""
+    out, root, col = {}, None, None     # the trailing comment being continued
+    for k, line in enumerate(lines):
+        c = _comment_at(line, marker)
+        if c is None:
+            root = None
+            continue
+        at, text, own = c
+        if own and root is not None and at == col and not _ACK_LEAD_RE.match(text):
+            out[root] = (f"{out[root][0]} {text}", False)
+            continue
+        out[k] = (text, own)
+        root, col = (None, None) if own else (k, at)
+    return out
 
 
 # ---------------------------------------------------------------------------
