@@ -9,7 +9,8 @@ to `doc.k` deviations at once, then the overlap runs — the listed overlap
 starts (sim.overlaps), then those with each deviated run's choices, then each
 later entry started at every tick of each earlier entry's busy window
 (sim.overlap_runs), round-robin over the windows — at most
-`doc.budget` runs in all (default BUDGET), each under `doc.limits`) and reports a
+`doc.budget` runs in all (default BUDGET), the overlap runs also stopping once
+their frames reach the work cap (work_cap), each under `doc.limits`) and reports a
 candidate as a trace Hit: its witness is the scenario that shows it (`B@t`, or
 `dev+B@t`, for an overlap run), `k` the deviations that scenario takes
 (rfcs/0003-composition-checks.catalog.md §3).
@@ -77,6 +78,21 @@ BOUNDING_MODS = ("timeout", "fallback")
 # Runs one exploration may make, the happy run aside (sim.combinations' budget).
 BUDGET = 256
 
+# Frames of overlap runs one exploration may simulate, per run of the budget (at
+# least BUDGET's): the sweep is bounded by work as well as by runs, since a large
+# design's runs are long (its frames limit grows with it, sim.sized) and the sweep
+# would make every one of them. 400 × 256 keeps every overlap run of a small
+# document (the corpus's most, tests/fixtures/coverage.sigil, is about 70k frames)
+# and stops a large one's after a few dozen seconds.
+WORK_PER_RUN = 400
+
+
+def work_cap(budget: int) -> int:
+    """The frames the overlap runs of an exploration with `budget` may make in
+    all: WORK_PER_RUN per run of the budget, a budget below BUDGET counting as
+    BUDGET (a larger --budget raises it, a smaller one never lowers it)."""
+    return WORK_PER_RUN * max(budget, BUDGET)
+
 # The simulator fixes (catalog §6 "Prerequisite tool fixes"; the keys are its ids) whose
 # regression probes pass, and the fixes each rule's trace evidence relies on. A rule's
 # trace findings stay capped at warn while it needs a fix not listed in FIXED.
@@ -113,13 +129,18 @@ class Run(NamedTuple):
 class Explored(NamedTuple):
     """One bounded exploration: the runs kept (happy first, fewest deviations
     first, then the overlap runs), what the budget left unrun (deviation
-    combinations, overlap runs), and the bounds it ran under."""
+    combinations, overlap runs), and the bounds it ran under: `limits` as the
+    runs had them (sim.sized: the defaults grown to the document), `work` the
+    frames the overlap runs made and `work_cut` whether the work cap stopped
+    them (what is left unrun then counts in overlaps_left_out)."""
     runs: tuple
     left_out: int
     k: int
     budget: int
-    limits: object           # sim.Limits
+    limits: object           # sim.Limits, sized
     overlaps_left_out: int = 0
+    work: int = 0
+    work_cut: bool = False
 
 
 def explore(sim, sc, k: int, budget: int, limits, overlaps="all") -> Explored:
@@ -127,7 +148,8 @@ def explore(sim, sc, k: int, budget: int, limits, overlaps="all") -> Explored:
     overlap runs (overlap_scenarios) `overlaps` asks for — "off" none, "listed"
     the listed starts alone and with each deviation, "all" those then the sweep,
     a number N "all" but at most N runs — at most `budget` runs in all (the
-    happy run aside), each under `limits` (a sim.Limits). A run that repeats an
+    happy run aside), the overlap runs stopping too once their frames reach
+    work_cap(budget), each under `limits` (a sim.Limits). A run that repeats an
     earlier one's log and outcome is dropped."""
     ex = sim.combinations(sc, k, limits=limits, budget=budget)
     runs = tuple(Run(t.scenario, t.end, t.outcome) for t in ex.traces)
@@ -136,8 +158,9 @@ def explore(sim, sc, k: int, budget: int, limits, overlaps="all") -> Explored:
               overlap_scenarios(sim, sc, runs[1:], limits, sweep=overlaps != "listed"))
     room = budget - made if isinstance(overlaps, str) else min(budget - made, overlaps)
     simulate = lambda s: sim.simulate(sc, s, limits=limits, keep=False)
-    more, left = run_new(simulate, starts, room, {signature(r) for r in runs})
-    return Explored(runs + more, ex.left_out, k, budget, limits, left)
+    ran = run_new(simulate, starts, room, {signature(r) for r in runs}, work_cap(budget))
+    return Explored(runs + ran.runs, ex.left_out, k, budget, sim.sized(limits, sc),
+                    ran.left, ran.work, ran.work_cut)
 
 
 # ---------------------------------------------------------------------------
@@ -207,20 +230,38 @@ def signature(run: Run) -> tuple:
     return run.outcome, tuple(run.end.get("log", ()))
 
 
-def run_new(simulate: Callable, scenarios: list, budget: int, seen: set) -> tuple:
-    """(the Runs of `scenarios` whose signature `seen` lacks, in order; how many
-    the budget left unrun): at most `budget` runs are made. `seen` grows."""
-    out = []
+class Ran(NamedTuple):
+    """What run_new made: the new Runs, how many scenarios it left unrun, the
+    frames its runs made, and whether the work cap (not the budget) stopped it."""
+    runs: tuple
+    left: int
+    work: int = 0
+    work_cut: bool = False
+
+
+def frames_of(run: Run) -> int:
+    """The frames a run made: its last event's tick, plus one (none: 0)."""
+    return max((e["t"] for e in run.events), default=-1) + 1
+
+
+def run_new(simulate: Callable, scenarios: list, budget: int, seen: set,
+            work: Optional[int] = None) -> Ran:
+    """The Runs of `scenarios` whose signature `seen` lacks, in order: at most
+    `budget` runs are made, and none once their frames reach `work` (None: no
+    cap; a repeated run's frames count too). `seen` grows."""
+    out, spent = [], 0
     for n, s in enumerate(scenarios):
-        if n >= budget:
-            return tuple(out), len(scenarios) - n
+        capped = work is not None and spent >= work
+        if n >= budget or capped:
+            return Ran(tuple(out), len(scenarios) - n, spent, capped and n < budget)
         t = simulate(s)
         run = Run(t.scenario, t.end, t.outcome)
+        spent += frames_of(run)
         sig = signature(run)
         if sig not in seen:
             seen.add(sig)
             out.append(run)
-    return tuple(out), 0
+    return Ran(tuple(out), 0, spent)
 
 
 # ---------------------------------------------------------------------------
@@ -1024,8 +1065,10 @@ def unrun_parts(ex: Explored) -> list:
     if ex.left_out:
         parts.append(f"{plural(ex.left_out, 'combination')} of up to {ex.k} deviations")
     if ex.overlaps_left_out:
+        why = (f"; their frames reached the work cap: {ex.work} of {work_cap(ex.budget)}"
+               if ex.work_cut else "")
         parts.append(f"{plural(ex.overlaps_left_out, 'overlap run')} (an entry started "
-                     "while an earlier one runs)")
+                     f"while an earlier one runs{why})")
     return parts
 
 
@@ -1034,6 +1077,15 @@ def short_unrun(ex: Explored) -> str:
     return " and ".join(f"{n} {what}" for n, what in ((ex.left_out, "combinations"),
                                                      (ex.overlaps_left_out, "overlap runs"))
                         if n)
+
+
+def budget_fix(ex: Explored) -> str:
+    """The fix for what the budget (or the overlap work cap) left unrun."""
+    if ex.work_cut:
+        return (f"run with a larger budget (--budget N; above {BUDGET} it raises the "
+                f"work cap, {WORK_PER_RUN} frames a run), fewer overlap runs "
+                "(--overlaps listed), or a smaller --k")
+    return "run with a larger budget (--budget N), or a smaller --k"
 
 
 def budget_cause(ck):
@@ -1048,7 +1100,7 @@ def budget_cause(ck):
                          f"The exploration budget left {short_unrun(ex)} unrun. "
                          "Is what it ran enough evidence?",
                          anchor=("document", "budget"),
-                         fix="run with a larger budget (--budget N), or a smaller --k")
+                         fix=budget_fix(ex))
     return match
 
 

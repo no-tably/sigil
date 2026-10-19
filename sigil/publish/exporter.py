@@ -118,13 +118,15 @@ class Gate:
     graph: object = None
 
 
-def ready(text: str, dialect, lint, check) -> Gate:
+def ready(text: str, dialect, lint, check, limits=None) -> Gate:
     """The gate on `text`: what blocks exporting it, and the reading it made.
     `lint` and `check` are the sigil.analyse lint and check modules (the command
     passes them in). A document that is no spec, or that lint finds errors in,
     is not checked further. Raises ValueError for a rule pack check refuses. The
     document is read and parsed once: lint's reading and model are the ones
-    check judges (and run builds the export's model from)."""
+    check judges (and run builds the export's model from). `limits` (a
+    sim.Limits; None: the defaults) bound check's runs, so a run cut at a limit
+    is cleared by raising it (`sigil export --limit NAME=N`)."""
     mode = check.read_mode(text.splitlines())
     if mode != "spec":
         return Gate((f"mode: the document is `#!{mode}`; only a `#!spec` document exports",))
@@ -132,15 +134,15 @@ def ready(text: str, dialect, lint, check) -> Gate:
     errors = tuple(d.format() for d in linted.result.diagnostics if d.severity == "error")
     if errors:
         return Gate(errors, linted.walk, linted.graph)
-    report = check.check(text, mode="spec", dialect=dialect, export=True,
+    report = check.check(text, mode="spec", dialect=dialect, export=True, limits=limits,
                          walk=linted.walk, graph=linted.graph)
     return Gate(tuple(f.line_text() for f in report.shown if f.severity in ("error", "warn")),
                 linted.walk, linted.graph)
 
 
-def gate(text: str, dialect, lint, check) -> tuple:
+def gate(text: str, dialect, lint, check, limits=None) -> tuple:
     """The lines that block exporting `text` (none: it is ready): ready's."""
-    return ready(text, dialect, lint, check).blocking
+    return ready(text, dialect, lint, check, limits).blocking
 
 
 def out_problem(out: Path) -> Optional[str]:

@@ -3,7 +3,7 @@
     sigil lint FILE|- [--deep] [--dialect D]
     sigil check [FILE|-] [--mode M] [--k N] [--budget N] [--limit NAME=N] [--overlaps …] [--json] [--export] [--rules]
     sigil view FILE [--once] [--graph|--tree|--flow|--run] [--sim S] …
-    sigil export SPEC --out DIR [--name NAME] [--json] [--dry-run]
+    sigil export SPEC --out DIR [--name NAME] [--limit NAME=N] [--json] [--dry-run]
     sigil export FILE --mermaid [--depth N|all] [--composition subgraphs|edges|none]
     sigil export FILE --mermaid --spine [--name NAME]
     sigil frames draw FILE [--view V] [--depth N|all] [--width N] [--scenario S] [--limit NAME=N] …
@@ -465,6 +465,10 @@ def _export_folder(argv: list, dialect) -> int:
                     help="print the delta (what changed since the export in DIR) as JSON")
     ap.add_argument("--dry-run", action="store_true",
                     help="print the delta and write nothing")
+    ap.add_argument("--limit", action="append", default=[], metavar="NAME=N",
+                    help="raise one simulator limit for the gate's check (repeatable; "
+                         "e.g. frames=20000), as `sigil check` takes it: a run cut at "
+                         "a limit blocks the export until raised or acknowledged")
     a = ap.parse_args(argv)
     from sigil.analyse import check, lint
     from sigil.publish import exporter
@@ -475,7 +479,7 @@ def _export_folder(argv: list, dialect) -> int:
     try:
         loaded = load_dialect(a.dialect)
         text = read_text(a.spec)
-        passed = exporter.ready(text, loaded, lint, check)
+        passed = exporter.ready(text, loaded, lint, check, _limits(a.limit))
     except (ValueError, OSError) as exc:
         say("export", str(exc))
         return 2

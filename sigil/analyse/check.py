@@ -21,7 +21,9 @@ Options:
     --mode M     check as mode M (default: the document's mode line; none = sketch)
     --k N        failure combinations explored per scenario (default: 1, spec 2)
     --budget N   runs one exploration may make: deviation combinations, then
-                 overlap runs (default: rules.trace.BUDGET)
+                 overlap runs (default: rules.trace.BUDGET); the overlap runs also
+                 stop once their frames reach rules.trace.work_cap (WORK_PER_RUN
+                 frames per run of the budget, at least BUDGET's)
     --overlaps off|listed|all|N  overlap runs (a later entry started while an
                  earlier one's episode runs) to make: none; the listed starts
                  (sim.overlaps), alone and with each deviation; those, then every
@@ -30,7 +32,8 @@ Options:
                  spec is final), off in sketch and craft
     --limit NAME=N  raise one simulator bound (sim.Limits: depth, iterations,
                  spawn, activations, …); repeatable
-    --json       one JSON object: mode, k, limits (with budget), findings,
+    --json       one JSON object: mode, k, limits (as the runs had them, the
+                 defaults grown to the document; with budget), findings,
                  acknowledged
     --all        also print the findings the mode hides (sketch's info)
     --export     check export readiness too: the readiness rules (EXPORT_MODULES:
@@ -1012,9 +1015,10 @@ def limits_from(pairs: Iterable, base):
 
 
 def limits_of(doc: Doc) -> dict:
-    """The bounds in effect, as --json prints them: the Limits, the trace budget
-    and k (catalog §1.3)."""
-    out = dict(doc.limits._asdict())
+    """The bounds in effect, as --json prints them: the Limits the runs had (the
+    defaults grown to the document's size, sim.sized, so `--limit frames=N`
+    starts from the printed N), the trace budget and k (catalog §1.3)."""
+    out = dict(doc.sim.sized(doc.limits, doc.sc)._asdict())
     out["budget"] = doc.budget
     out["k"] = doc.k
     out["overlap_runs"] = doc.overlaps      # --overlaps (sim.Limits has its own "overlaps")

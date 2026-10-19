@@ -723,9 +723,55 @@ class Exploration(unittest.TestCase):
             made.append(s.name)
             return sim.Trace(s, (), "ok", {"log": logs[s.name]})
         scen = [sim.Scenario(n) for n in "abcd"]
-        runs, left = ct.run_new(simulate, scen, 3, {("ok", ())})
-        self.assertEqual(([r.scenario.name for r in runs], left), (["a", "c"], 1))
+        ran = ct.run_new(simulate, scen, 3, {("ok", ())})
+        self.assertEqual(([r.scenario.name for r in ran.runs], ran.left), (["a", "c"], 1))
+        self.assertFalse(ran.work_cut)
         self.assertEqual(made, ["a", "b", "c"])
+
+    def test_run_new_stops_once_the_runs_frames_reach_the_work_cap(self):
+        # each run's frames: its last event's tick plus one (repeats count too)
+        ticks = {"a": 5, "b": 5, "c": 3, "d": 1}
+
+        def simulate(s):
+            end = {"log": [s.name], "events": [{"kind": "end", "t": ticks[s.name] - 1}]}
+            return sim.Trace(s, (), "ok", end)
+        scen = [sim.Scenario(n) for n in "abcd"]
+        ran = ct.run_new(simulate, scen, 10, set(), work=10)
+        self.assertEqual(([r.scenario.name for r in ran.runs], ran.left, ran.work,
+                          ran.work_cut), (["a", "b"], 2, 10, True))
+        ran = ct.run_new(simulate, scen, 10, set(), work=11)
+        self.assertEqual((len(ran.runs), ran.left, ran.work, ran.work_cut), (3, 1, 13, True))
+        ran = ct.run_new(simulate, scen, 2, set(), work=10)       # the budget stops it first
+        self.assertEqual((ran.left, ran.work_cut), (2, False))
+        self.assertEqual(ct.run_new(simulate, scen, 10, set()).left, 0)   # no cap
+        self.assertEqual(ct.frames_of(ct.Run(scen[0], {}, "ok")), 0)
+
+    def test_the_work_cap_grows_with_a_larger_budget_only(self):
+        floor = ct.WORK_PER_RUN * ct.BUDGET
+        self.assertEqual([ct.work_cap(b) for b in (1, ct.BUDGET, 2 * ct.BUDGET)],
+                         [floor, floor, 2 * floor])
+
+    def test_the_overlap_sweep_is_bounded_by_its_frames(self):
+        from unittest import mock
+        text = fixture("trace-204-overlap.sigil")
+        d = make_doc(text)
+        whole = ct.explore(sim, d.sc, 1, ct.BUDGET, d.limits)
+        self.assertEqual((whole.overlaps_left_out, whole.work_cut), (0, False))
+        self.assertGreater(whole.work, 0)
+        self.assertEqual(cause_of(ck.check(text, registry=REGISTRY), "exploration budget"), [])
+        with mock.patch.object(ct, "WORK_PER_RUN", 1):           # a cap of BUDGET frames
+            cut = ct.explore(sim, d.sc, 1, ct.BUDGET, d.limits)
+            (f,) = cause_of(ck.check(text, registry=REGISTRY), "exploration budget")
+        self.assertTrue(cut.work_cut)
+        self.assertGreater(cut.overlaps_left_out, 0)
+        self.assertGreaterEqual(cut.work, ct.BUDGET)
+        self.assertLess(sum(1 for r in cut.runs if r.scenario.starts),
+                        sum(1 for r in whole.runs if r.scenario.starts))
+        self.assertIn(f"left {cut.overlaps_left_out} overlap runs (an entry started while an "
+                      f"earlier one runs; their frames reached the work cap: {cut.work} of "
+                      f"{ct.BUDGET}) unrun", f.hit.statement)
+        self.assertIn("--budget N; above 256 it raises the work cap", f.hit.fix)
+        self.assertIn("--overlaps listed", f.hit.fix)
 
     def test_the_overlap_runs_follow_the_deviation_runs(self):
         names = [r.scenario.name for r in runs_of(fixture("trace-204-overlap.sigil"))]
@@ -803,16 +849,53 @@ class Exploration(unittest.TestCase):
         from sigil.analyse import lint
         from sigil.publish import exporter
 
-        class Limited:                       # check at frames=2, as --limit would
-            def __getattr__(self, name):
-                return getattr(ck, name)
-
-            @staticmethod
-            def check(text, **kw):
-                return ck.check(text, limits=sim.Limits(frames=2), **kw)
-
-        blocking = exporter.gate(self.SHORT, None, lint, Limited())
+        blocking = exporter.gate(self.SHORT, None, lint, ck, sim.Limits(frames=2))
         self.assertTrue(any("SGC090" in ln and "cut a run" in ln for ln in blocking), blocking)
+        self.assertFalse(any("SGC090" in ln for ln in exporter.gate(self.SHORT, None, lint, ck)))
+
+    def test_export_takes_the_limits_its_gate_checks_under(self):
+        import tempfile
+
+        def export(*args):
+            return subprocess.run([sys.executable, str(ROOT / "bin" / "sigil"), "export",
+                                   str(spec), "--out", str(Path(tmp) / "out"), "--dry-run",
+                                   *args], capture_output=True, text=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            spec = Path(tmp) / "short.sigil"
+            spec.write_text(self.SHORT, encoding="utf-8")
+            cut = export("--limit", "frames=2")
+            self.assertEqual(cut.returncode, 2)
+            self.assertIn("cut a run at its frames limit", cut.stdout)
+            self.assertIn("frames=2)", cut.stdout)
+            self.assertIn("not ready to export", cut.stderr)
+            self.assertNotIn("SGC090", export().stdout)
+            self.assertNotIn("SGC090", export("--limit", "frames=2", "--limit",
+                                              "frames=5000").stdout)
+            bad = export("--limit", "frames=none")
+            self.assertEqual(bad.returncode, 2)
+            self.assertIn("frames=none", bad.stderr)
+
+    # A chain long enough that the default frames and activations limits grow
+    # past their floors (sim.sized): 41 nodes and 40 edges.
+    LONG = "#!craft\n(U) -> [N0] : go({X}) => {Y}\n" + "".join(
+        f"[N{i}] -> [N{i + 1}] : step({{X}}) => {{Y}}\n" for i in range(39))
+
+    def test_the_limits_shown_are_the_ones_the_runs_had(self):
+        sized = sim.sized(sim.Limits(), make_doc(self.LONG).sc)
+        self.assertEqual((sized.frames, sized.activations), (64 * 81, 20 * 81))
+        rep = ck.check(self.LONG, registry=REGISTRY)
+        self.assertEqual((rep.limits["frames"], rep.limits["activations"]),
+                         (sized.frames, sized.activations))
+        rep = ck.check(self.LONG, limits=sim.Limits(stack=4), registry=REGISTRY)
+        (f,) = cause_of(rep, "cut a run at its stack limit")
+        self.assertIn(f"(limits: activations={sized.activations}, stack=4, "
+                      f"frames={sized.frames})", f.hit.statement)
+        self.assertEqual(rep.limits["stack"], 4)
+        given = ck.check(self.LONG, limits=sim.limits_from(["frames=3000"]), registry=REGISTRY)
+        self.assertEqual((given.limits["frames"], given.limits["activations"]),
+                         (3000, sized.activations))
+        small = ck.check(self.SHORT, registry=REGISTRY)            # a small one: the floors
+        self.assertEqual((small.limits["frames"], small.limits["activations"]), (2000, 500))
 
     def test_the_loop_cap_reads_the_iterations_limit(self):
         text = "#!craft\n(U) -> [B] : run()\nloop @times 5 {\n  [B] -> |Q| : push({I})\n}\n"
