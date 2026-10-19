@@ -80,7 +80,7 @@
   # what the design means and how it runs; pure
   [Scene] -> [Core] : parse({Text}) => {Doc}                   # wires, roles, notes, joins, access, writers
   [Sim] -> [Scene] : scene({Doc}) => {Scene}
-  [Systems] -> [Scene] : edges({Doc}) => {Spine}               # the export model: systems, homes, interfaces
+  [Systems] -> [Scene] : edges({Doc}) => {Spine}               # the export model: systems, homes (a flow-only reference is no home; never homeless), interfaces
   [Structure] -> [Systems] : units({Doc}) => {Spine}           # `view --structure`: units, cycles, up, edge, reach
   [Structure] -> [Sim] : canonical({Doc}) => {Scene}           # writers per store, as check counts them
   [Sim] := {

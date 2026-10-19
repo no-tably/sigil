@@ -4,14 +4,91 @@ Each release's notes, newest first. The same text is the GitHub release's descri
 
 ## 0.6.2 — unreleased
 
-- The skill has a new **refine** step: a loop the agent runs after each feature it
-  adds with you. It reads the design from eight angles: purpose, names,
-  dependencies, blast radius, complexity, composability, efficiency and behaviour.
-  It proposes each structural change with its reason and re-measures with lint,
-  check and the simulator, until a full round finds nothing you want changed.
-  Craft hands over to it after each feature. A refinement you agree to is kept
-  apart from check findings, which are still resolved only by declaring or
-  acknowledging them.
+Sigil can now judge a design's structure, not only its flows. A new structure
+reading and two new checks measure units, dependencies, reach and size. The skill
+gains a refine loop that uses them after every feature. The checks no longer pass
+on simulation runs that never finished.
+
+### New
+
+- **The refine step in the skill.** After each feature it adds with you, the agent
+  reads the design from eight angles:
+  - purpose and names;
+  - dependencies;
+  - blast radius (how far a failed or hostile part could reach, and who can drive it);
+  - complexity, composability and efficiency;
+  - behaviour.
+
+  It proposes each structural change with its reason and measured cost, then
+  re-measures, until a full round finds nothing you want changed. A refinement you
+  agree to is kept apart from check findings, which are still resolved only by
+  declaring or acknowledging them. A delegated run with no one to ask applies only
+  what matches what is already known, and lists the rest as proposals.
+- **`sigil view FILE --structure [--json]`** reads the design as units, with no
+  drawing, in any mode. For each unit it shows:
+  - its members (actors kept apart), its flows, and the units it calls and holds;
+  - cycles between sibling units, with the flows that make them;
+  - *up* links into an enclosing unit;
+  - the edge: the parts that call an actor;
+  - each part's reach, out and in;
+  - pass-throughs;
+  - units over 9 members;
+  - parts with no home;
+  - writers per store (counted from the flows, even without `@read`/`@write`).
+- **New check rules:**
+  - **SGC176 `unit-cycle`:** two sibling units that depend on each other. It is a
+    warning in spec mode, which blocks export unless acknowledged on a unit's
+    header.
+  - **SGC177 `large-unit`:** more than 9 built members, actors not counted. Info only.
+- **`sigil export … --limit NAME=N`** and **`sigil frames draw … --limit NAME=N`**
+  take the simulator's limits, as `check` and `view` do.
+
+### Changed
+
+- **A run cut at the simulator's limits is now a spec-mode warning**
+  (SGC090), so it blocks export unless acknowledged on its entry's line. Before, a
+  large spec could pass `check --mode spec` and the export gate on runs that never
+  finished.
+- **The default `frames` and `activations` limits grow with the document**
+  (128 and 20 × its nodes plus edges, never below 2000 and 500). Large designs
+  finish their runs at default limits, small ones are unchanged, and a given
+  `--limit` still wins. SGC090 and `check --json` show the limits the runs actually
+  had.
+- **The overlap sweep in spec mode stops at a work cap** (400 frames a run × the
+  budget). A large spec's `sigil check` takes seconds again; one example went from
+  about 7 minutes to 12 seconds. When the cap stops it, the hint says how many runs
+  were left.
+- **Where components live in the export:**
+  - **An expansion** written at the top for a member of another unit nests under
+    that unit. It is also run there by the simulator, and SGC172 no longer calls a
+    wire to it an escape.
+  - **An actor** creates no dependency between systems and is never *no-home*.
+  - **A level that writes a part only as an end of its flows** refers into the unit
+    that writes the part, and is no longer its home. Examples are an actor's entry
+    line such as `(Client) -> [Transport]`, or a top-level flow into a part a unit
+    writes. The part now lives in its unit, together with an expansion written at
+    the top for it when the unit declares it. A part is never left homeless: one
+    used by two sibling units stays at the level above, as before. **The first
+    re-export after upgrading may mark such systems `rebuild`.**
+- **A comment-only line aligned under a trailing comment continues that comment**,
+  in notes, export descriptions and the views. Before, it described the next
+  statement.
+- **Overlap scenario labels** name the part that writes or reads (`as [Status]
+  reads it`), not the episode's entry.
+- **A cut run's log and narration** say which episode reached the limit and from
+  which tick.
+
+### Fixes
+
+- **SGL030 (prose verb between glyphs)** reads the parsed tokens, so payload verbs
+  such as `: calls(…)`, `sends(` and `reads(` are no longer flagged.
+- **SGC090's loop-cap hint** reads the given `--limit iterations=N`.
+- **Plain `sigil export --mermaid`** no longer fails on a dialect kind its
+  `NODE_KINDS` doesn't list; it draws the core shape.
+- **The viewer split's control file is private.** The Claude Code mod and pi create
+  it in a 0700 directory with mode 0600. `sigil frames follow` refuses a control
+  file, or its directory, that another user could write. The file names a `sigil
+  view` command line, which can load a dialect's code.
 
 ## 0.6.1 — 2026-10-18
 
