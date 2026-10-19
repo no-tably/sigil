@@ -346,6 +346,32 @@ export function zellijLayout(follow: readonly string[]): string {
   return `layout {\n    pane name="sigil" command=${command} close_on_exit=true {\n        args ${args.join(' ')}\n    }\n}\n`
 }
 
+/** The split's control file. It names the command line `sigil view` runs, and a
+ * `--dialect` there is Python code, so a host keeps it private: in a directory of
+ * its own only this user can enter (0700, `privateDirArgv` or mkdtemp), with mode
+ * 0600 (`privateWriteArgv`); `sigil frames follow` refuses one another user could
+ * write. Its directory's name starts with CONTROL_PREFIX, so follow removes it
+ * once it has emptied it. */
+export const CONTROL_PREFIX = 'sigil-view-'
+export const CONTROL_NAME = 'control.json'
+
+/** The control file in the private directory `dir`. */
+export function controlPath(dir: string): string {
+  return `${dir.trim().replace(/\/$/, '')}/${CONTROL_NAME}`
+}
+
+/** `mktemp -d`: a new directory under `tmp` only this user can enter (0700); it
+ * prints the directory's path. */
+export function privateDirArgv(tmp: string): string[] {
+  return ['mktemp', '-d', `${tmp.replace(/\/$/, '') || '/tmp'}/${CONTROL_PREFIX}XXXXXXXXXX`]
+}
+
+/** Writes its standard input to `path` with mode 0600 (umask 077), whole: into a
+ * file beside it, then renamed over it, so follow never reads half a request. */
+export function privateWriteArgv(path: string): string[] {
+  return ['sh', '-c', 'umask 077 && cat > "$1.new" && mv -f "$1.new" "$1"', 'sh', path]
+}
+
 /** The zellij layout file for a control file: beside it, `.kdl` for `.json`. */
 export function zellijLayoutPath(control: string): string {
   return control.replace(/\.json$/, '') + '.kdl'

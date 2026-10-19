@@ -6,7 +6,7 @@ import {
   glyphs, heldBy, holdsWide, parseDrawing, parseLayoutArgs, parsePlacementArgs, parseRequest, pickDisplay, pickLayout, pickPlacement,
   placementOf, placementReport, playbackFor, playTick, rasterCells, replyText,
   resolveDisplay, runLines, shellQuote, slices, slot, speedText, splitArgv, splitStart, statusLine, tabArgv, viewArgv, windowFor,
-  windowStart, zellijLayout, zellijLayoutPath,
+  windowStart, zellijLayout, zellijLayoutPath, CONTROL_NAME, CONTROL_PREFIX, controlPath, privateDirArgv, privateWriteArgv,
 } from '../hooks/logic'
 import type { Drawing } from '../types'
 
@@ -140,6 +140,14 @@ describe('commands', () => {
     expect(herdrReadyArgv('w6:p2')).toEqual(['herdr', 'pane', 'wait-output', 'w6:p2', '--regex', '\\S', '--source', 'visible'])
     expect(shellQuote(['python3', "/a b/it's.py"])).toBe(`python3 '/a b/it'\\''s.py'`)
   })
+  test('the control file: a private directory (mktemp -d, 0700), written 0600 and whole', () => {
+    expect([CONTROL_PREFIX, CONTROL_NAME]).toEqual(['sigil-view-', 'control.json'])
+    expect(privateDirArgv('/t/')).toEqual(['mktemp', '-d', '/t/sigil-view-XXXXXXXXXX'])
+    expect(privateDirArgv('')).toEqual(['mktemp', '-d', '/tmp/sigil-view-XXXXXXXXXX'])
+    expect(controlPath('/t/sigil-view-ab12\n')).toBe('/t/sigil-view-ab12/control.json')
+    expect(privateWriteArgv('/t/d/control.json')).toEqual(
+      ['sh', '-c', 'umask 077 && cat > "$1.new" && mv -f "$1.new" "$1"', 'sh', '/t/d/control.json'])
+  })
   test('a tab per multiplexer, keeping this session in front where it can', () => {
     const follow = followArgv('/s/bin/sigil', '/tmp/c.json')
     const place = { cwd: '/w', workspace: 'w6', layout: '/tmp/c.kdl' }
@@ -151,6 +159,7 @@ describe('commands', () => {
       ['herdr', 'tab', 'create', '--workspace', 'w6', '--cwd', '/w', '--label', 'sigil view', '--no-focus'])
     expect(tabArgv('herdr', follow, { cwd: '/w', layout: '' })).not.toContain('--workspace')
     expect(zellijLayoutPath('/tmp/sigil-view-1.json')).toBe('/tmp/sigil-view-1.kdl')
+    expect(zellijLayoutPath(controlPath('/t/sigil-view-a'))).toBe('/t/sigil-view-a/control.kdl')
     expect(zellijLayout(['python3', '/a "b"/sigil', 'frames'])).toBe(
       'layout {\n    pane name="sigil" command="python3" close_on_exit=true {\n        args "/a \\"b\\"/sigil" "frames"\n    }\n}\n')
     expect(herdrPaneGetArgv('w6:p1')).toEqual(['herdr', 'pane', 'get', 'w6:p1'])

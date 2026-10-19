@@ -237,6 +237,30 @@ PERM2_PROBE = (
 )
 
 
+class ProseVerbsFromTokens(unittest.TestCase):
+    """SGL030 reads the walk's tokens (refine-1 D8): a prose verb is a `word`
+    token between two glyphs with no arrow, never a payload's or a modifier's."""
+
+    def test_a_payload_verb_named_like_a_prose_verb_is_no_prose(self):
+        for verb in ("calls", "sends", "reads"):
+            doc = f"#!sketch\n[A] -> [B] : {verb}({{Doc}}) => {{Spine}}\n"
+            self.assertNotIn("SGL030", [r for _, r in rules(doc)], verb)
+        doc = "#!sketch\n[A] -> [B] @retry(3) : sends({X}) [C]\n"
+        self.assertNotIn("SGL030", [r for _, r in rules(doc)])
+
+    def test_a_prose_verb_between_glyphs_is_flagged(self):
+        self.assertIn((2, "SGL030"), rules("#!sketch\n[A] calls [B]\n"))
+        self.assertIn((2, "SGL030"), rules("#!sketch\n(U) uses [A] -> [B]\n"))
+        self.assertIn((3, "SGL030"), rules("#!sketch\n[X]\nloop [A] reads |S| {\n  [A] -> [B]\n}\n"))
+        twice = [x for x in rules("#!sketch\n[A] calls [B] returns [C]\n") if x[1] == "SGL030"]
+        self.assertEqual(twice, [(2, "SGL030"), (2, "SGL030")])
+
+    def test_modifier_arguments_strings_and_comments_hold_no_prose(self):
+        doc = ('#!sketch\n[A] -> [B] @inv excludes([X], [Y])\n'
+               '[A] -> [C] : "[A] calls [B]"\n[A] -> [D] # [A] calls [B]\n')
+        self.assertNotIn("SGL030", [r for _, r in rules(doc)])
+
+
 class TheWalkAlone(unittest.TestCase):
     """What lint reads beside the statements is the walk's record too."""
 

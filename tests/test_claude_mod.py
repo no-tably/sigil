@@ -229,6 +229,7 @@ class FollowTest(unittest.TestCase):
     def start(self, d: Path, argv: list[str]):
         control = d / "c.json"
         control.write_text(json.dumps({"argv": argv}))
+        control.chmod(0o600)                 # as a host makes it (control_problem)
         proc = subprocess.Popen([sys.executable, str(SIGIL), "frames", "follow", str(control)],
                                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True)
@@ -259,6 +260,98 @@ class FollowTest(unittest.TestCase):
             out = proc.stdout.read()
             self.assertIn("waiting for the next request", out)
             self.assertIn("[Shop]", out)
+
+
+class FollowRefusesTest(unittest.TestCase):
+    """CONTROL names what `sigil view` runs (a --dialect is Python code): follow
+    refuses one another user could write, in a directory another user could write,
+    or not a regular file of this user's, and runs nothing it asks."""
+
+    def private(self, argv: list | None = None) -> Path:
+        d = Path(tempfile.mkdtemp(prefix="sigil-view-"))
+        self.addCleanup(shutil.rmtree, d, True)
+        d.chmod(0o700)
+        control = d / "c.json"
+        control.write_text(json.dumps({"argv": argv or [str(SHOP), "--tree", "--color", "never"]}))
+        control.chmod(0o600)
+        return control
+
+    @unittest.skipUnless(hasattr(__import__("os"), "getuid"), "unix file modes")
+    def test_a_private_file_in_a_private_directory_is_accepted(self):
+        from sigil import cli
+        self.assertIsNone(cli.control_problem(self.private()))
+
+    @unittest.skipUnless(hasattr(__import__("os"), "getuid"), "unix file modes")
+    def test_a_file_or_directory_others_can_write_is_refused(self):
+        from sigil import cli
+        for mode in (0o620, 0o602, 0o666):
+            control = self.private()
+            control.chmod(mode)
+            self.assertIn("can be written by other users", cli.control_problem(control), oct(mode))
+        for mode in (0o770, 0o1777):
+            control = self.private()
+            control.parent.chmod(mode)
+            said = cli.control_problem(control)
+            self.assertIn("its directory", said)
+            self.assertIn("can be written by other users", said)
+
+    @unittest.skipUnless(hasattr(__import__("os"), "getuid"), "unix file modes")
+    def test_a_link_or_another_users_file_is_refused(self):
+        from unittest import mock
+        from sigil import cli
+        control = self.private()
+        link = control.with_name("link.json")
+        link.symlink_to(control)
+        self.assertIn("not a regular file", cli.control_problem(link))
+        import os
+        with mock.patch.object(os, "getuid", return_value=os.getuid() + 1):
+            self.assertIn("not to you", cli.control_problem(control))
+
+    @unittest.skipUnless(hasattr(__import__("os"), "getuid"), "unix file modes")
+    def test_follow_refuses_on_screen_and_runs_nothing(self):
+        import contextlib, io
+        from sigil import cli
+        control = self.private()
+        control.chmod(0o666)
+        err, waited = io.StringIO(), []
+        with contextlib.redirect_stderr(err), mock_popen() as popen:
+            self.assertEqual(cli.follow(control, wait=lambda: waited.append(1)), 2)
+        self.assertEqual(waited, [1])                       # held for the split to close
+        popen.assert_not_called()
+        self.assertIn("refusing", err.getvalue())
+        self.assertIn("can be written by other users", err.getvalue())
+        self.assertTrue(control.exists())                   # nothing removed
+        self.assertFalse(Path(str(control) + ".alive").exists())   # nor written
+
+    @unittest.skipUnless(hasattr(__import__("os"), "getuid"), "unix file modes")
+    def test_a_request_made_writable_later_is_refused(self):
+        # a first request that fails, so the split stays up waiting (stdout is a
+        # pipe: a view that runs prints once and ends, and so does the split)
+        control = self.private([str(SHOP), "--no-such-flag"])
+        proc = subprocess.Popen([sys.executable, str(SIGIL), "frames", "follow", str(control)],
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True)
+        self.addCleanup(proc.stdout.close)
+        self.addCleanup(lambda: proc.poll() is None and proc.kill())
+        deadline = time.monotonic() + 15
+        while not Path(str(control) + ".alive").exists() and time.monotonic() < deadline:
+            time.sleep(0.1)
+        time.sleep(1.0)
+        control.chmod(0o666)
+        control.write_text(json.dumps({"argv": [str(SHOP), "--tree", "--color", "never"]}))
+        time.sleep(1.5)
+        self.assertIsNone(proc.poll())                      # the open request was not run
+        proc.terminate()
+        proc.wait(timeout=10)
+        out = proc.stdout.read()
+        self.assertIn("refusing", out)
+        self.assertNotIn("[Shop]", out)
+        self.assertFalse(control.parent.exists())           # its files gone, the directory too
+
+
+def mock_popen():
+    from unittest import mock
+    return mock.patch("subprocess.Popen")
 
 
 class PackagingTest(unittest.TestCase):

@@ -61,9 +61,12 @@ function world(on: On, opts: { isPlaced: boolean; env?: Record<string, string>; 
   })
   on('process.run', async ($, e) => {
     seen.runs.push([...e.argv])
+    // the control file, written whole and private (privateWriteArgv): kept as a write
+    if (e.argv[0] === 'sh') seen.writes.push({ path: e.argv[4] ?? '', text: e.init?.stdin ?? '' })
     const ms = opts.delay?.(e.argv) ?? 0
     if (ms > 0) await seen.clock.sleep(ms)
-    const stdout = opts.stdout?.(e.argv) ?? (e.argv.includes('draw') ? drawingOf(e.argv) : e.argv[0] === 'tmux' ? '%7\n' : '')
+    const made = e.argv[0] === 'mktemp' ? `${(e.argv[2] ?? '').replace(/X+$/, 'q1')}\n` : undefined
+    const stdout = made ?? opts.stdout?.(e.argv) ?? (e.argv.includes('draw') ? drawingOf(e.argv) : e.argv[0] === 'tmux' ? '%7\n' : '')
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('ui.open', ($, e) => {
@@ -285,7 +288,20 @@ describe('multiplex display', () => {
     expect(split?.slice(0, 8)).toEqual(['tmux', 'split-window', '-h', '-d', '-P', '-F', '#{pane_id}', '--'])
     expect(split?.slice(10, 12)).toEqual(['frames', 'follow'])
     expect(JSON.parse(seen.writes[0]?.text ?? '{}')).toEqual({ argv: [FILE, '--depth', 'all', '--tree'] })
-    expect(seen.writes[0]?.path.startsWith('/t/sigil-view-')).toBe(true)
+    expect(seen.writes[0]?.path).toBe('/t/sigil-view-q1/control.json')
+  })
+
+  test('the control file lives in a private directory, written 0600 and whole', async ($, on) => {
+    const seen = world(on, { isPlaced: true, env: { TMUX: 'x', TMPDIR: '/t/' } })
+    await $.session.start(START)
+    await $.tool.call({ tool: 'mcp__sigil__view', file: 'shop.sigil' })
+    const made = seen.runs.findIndex(argv => argv[0] === 'mktemp')
+    const wrote = seen.runs.findIndex(argv => argv[0] === 'sh')
+    const split = seen.runs.findIndex(argv => argv[0] === 'tmux')
+    expect(seen.runs[made]).toEqual(['mktemp', '-d', '/t/sigil-view-XXXXXXXXXX'])
+    expect(seen.runs[wrote]).toEqual(['sh', '-c', 'umask 077 && cat > "$1.new" && mv -f "$1.new" "$1"', 'sh', '/t/sigil-view-q1/control.json'])
+    expect(made < wrote && wrote < split).toBe(true)          // made, written, then the split follows it
+    expect(seen.runs[split]?.at(-1)).toBe('/t/sigil-view-q1/control.json')
   })
 
   test('a split still up is driven through its control file', async ($, on) => {

@@ -10,10 +10,11 @@ import type { EngineInterface, Register, UiOpenResult } from 'claude-code'
 import type { Drawing, Mux, Playback, Split, ViewRequest } from '../types'
 import {
   COMMAND, DEFAULT_WIDTH, PANE, VIEWS, RASTER_COLUMNS, START_SPEED, SUPERSEDED, TOOL, UNASKED_COLUMNS,
-  aheadFrom, askedFrame, cropRows, detectMux, glyphs, heldBy, holdsWide, displayReport, drawArgv, drawnFrame, followArgv, frameIndex, frameMs,
+  aheadFrom, askedFrame, controlPath, cropRows, detectMux, glyphs, heldBy, holdsWide, displayReport, drawArgv, drawnFrame, followArgv, frameIndex, frameMs,
   herdrPaneGetArgv, herdrPaneOf, herdrReadyArgv, herdrWorkspaceOf,
   isDisplayChoice, lastFrame, layoutOf, layoutReport, nextDepth, nextSpeed, nextView, panTo, parseCommandArgs,
   parseDisplayArgs, parseDrawing, parseLayoutArgs, parsePlacementArgs, parseRequest, placementOf, placementReport,
+  privateDirArgv, privateWriteArgv,
   playbackFor, playTick, rasterCells, replyText,
   resolveDisplay, rowsWidth, runLines, shellQuote, slices, slot, splitArgv, splitStart, statusLine, tabArgv, viewArgv,
   windowFor, windowStart, zellijLayout, zellijLayoutPath,
@@ -266,6 +267,14 @@ async function openArgv($: $, mux: Mux, placement: Placement, follow: readonly s
   return tabArgv(mux, follow, { cwd, layout: layoutFile, ...(workspace ? { workspace } : {}) })
 }
 
+/** Writes the control file (mode 0600, whole: privateWriteArgv); undefined, or
+ * the reply when it could not. */
+async function writeControl($: $, path: string, text: string): Promise<string | undefined> {
+  const ran = await $.process.run(privateWriteArgv(path), { stdin: text, timeoutMs: 10000 }).catch((e: unknown) => String(e))
+  if (typeof ran === 'string') return `sigil: could not write the control file ${path}: ${ran}`
+  return ran.exitCode === 0 ? undefined : `sigil: could not write the control file ${path}: ${ran.stderr.trim()}`
+}
+
 /** Writes the split's control file, opening the split (or tab) first when none is up. */
 async function showInSplit($: $, asked: Asked): Promise<string> {
   const path = await located($, asked.request.file)
@@ -280,12 +289,19 @@ async function showInSplit($: $, asked: Asked): Promise<string> {
   const control = JSON.stringify({ argv: live })
   const held = await read($, split)
   if (held !== null && held.mux === mux && (held.placement ?? 'split') === placement && (await isAlive($, held))) {
-    await $.fs.write(held.control, control)
+    const wrote = await writeControl($, held.control, control)
+    if (wrote !== undefined) return wrote
     return about($, req, asked, `Shown in the ${mux} ${placement} running sigil view live: ${shellQuote(live)}.`)
   }
   const tmp = (await $.env.get('TMPDIR')) ?? '/tmp'
-  const opened: Split = { mux, placement, control: `${tmp.replace(/\/$/, '')}/sigil-view-${crypto.randomUUID()}.json` }
-  await $.fs.write(opened.control, control)
+  const made = await $.process.run(privateDirArgv(tmp), { timeoutMs: 10000 }).catch((e: unknown) => String(e))
+  if (typeof made === 'string' || made.exitCode !== 0 || made.stdout.trim() === '') {
+    return `sigil: could not make a private directory for the ${placement}'s control file: `
+      + (typeof made === 'string' ? made : made.stderr.trim() || 'mktemp printed no path')
+  }
+  const opened: Split = { mux, placement, control: controlPath(made.stdout) }
+  const wrote = await writeControl($, opened.control, control)
+  if (wrote !== undefined) return wrote
   const follow = followArgv(await scriptPath($), opened.control)
   const ran = await $.process.run(await openArgv($, mux, placement, follow, opened.control))
   if (ran.exitCode !== 0) return `sigil: could not open a ${mux} ${placement}: ${ran.stderr.trim()}`

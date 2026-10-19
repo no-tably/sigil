@@ -6,8 +6,10 @@ declaration no dialect declares (SGL189) — and the edit-distance index the
 near-name suggestions use (here and in lint.graph).
 
 The mode-line rules read the document's lines through core's line readings
-(lex.first_content, is_mode_line, is_comment_line); the others read each line's code
-as the walk found it (lint.reading.LineView) or the walk's `state` block lines (Transition).
+(lex.first_content, is_mode_line, is_comment_line); the prose verbs rule reads the
+walk's tokens (statements and control-block headers); the others read each line's
+code as the walk found it (lint.reading.LineView) or the walk's `state` block lines
+(Transition).
 """
 
 import re
@@ -96,41 +98,39 @@ def lint_actor_as_state(views: tuple, states: frozenset, result: LintResult):
             )
 
 
-def lint_prose_verbs(views: tuple, result: LintResult):
-    """Flag prose verbs appearing between glyphs on a flow-like line.
+def lint_prose_verbs(statements: tuple, headers: list, result: LintResult):
+    """Flag a prose verb written between two glyphs with no arrow between them
+    (`[A] calls [B]`). Reads the walk's tokens (a statement's, or a control-block
+    header's): a `word` token between two core glyph tokens with no arrow token
+    between them. A payload (`: calls({Doc})`), a modifier's argument
+    (`@inv excludes(...)`), a string and a comment are tokens of their own or no
+    token at all, so their words are never read as prose."""
+    reads = [(st.line, st.toks) for st in statements]
+    reads += [(h.line, h.toks) for h in headers]
+    for line, toks in sorted(reads, key=lambda r: r[0]):
+        for word in _prose_verbs_between_glyphs(toks):
+            result.add(
+                "warn", line, "SGL030",
+                f"prose verb {word!r} appears between glyphs without an arrow. "
+                f"Model as an invariant (@inv), a flow with an arrow, or a comment."
+            )
 
-    Skip verbs that appear inside a modifier expression like `@inv excludes(...)`,
-    where the verb is a predicate name and is legitimately English.
-    """
-    for i, view in enumerate(views, start=1):
-        line = view.bare.strip()
-        if not line or _section_or_mode(view.plain):
-            continue
 
-        # Blank out anything inside modifier expressions `@name(...)` so we
-        # don't flag prose inside them. This is intentionally loose; invariant
-        # contents are allowed to be prose-like.
-        masked = re.sub(r"@[a-z][a-z0-9_-]*\([^)]*\)", lambda m: " " * len(m.group(0)), line)
-        # Also mask `@name ...rest-of-line` invariant-form (no parens)
-        masked = re.sub(r"@inv\b[^\n]*", lambda m: " " * len(m.group(0)), masked)
-        masked = re.sub(r"@sla\b[^\n]*", lambda m: " " * len(m.group(0)), masked)
-        masked = re.sub(r"@cap\b[^\n]*", lambda m: " " * len(m.group(0)), masked)
-
-        glyphs = list(ANY_GLYPH_RE.finditer(masked))
-        if len(glyphs) < 2:
-            continue
-        for a, b in zip(glyphs, glyphs[1:]):
-            between = masked[a.end() : b.start()]
-            if ARROW_RE.search(between):
-                continue
-            for word in re.findall(r"\b[a-z]+\b", between.lower()):
-                if word in PROSE_VERBS:
-                    result.add(
-                        "warn", i, "SGL030",
-                        f"prose verb {word!r} appears between glyphs without an arrow. "
-                        f"Model as an invariant (@inv), a flow with an arrow, or a comment."
-                    )
-                    break
+def _prose_verbs_between_glyphs(toks) -> list:
+    """For each pair of consecutive core glyph tokens with no arrow token between
+    them, the first prose verb among the `word` tokens between them."""
+    found, words, after_glyph = [], [], False
+    for tok in toks:
+        if tok.kind == "glyph" and tok.node is None:
+            verb = next((w for w in words if w in PROSE_VERBS), None) if after_glyph else None
+            if verb:
+                found.append(verb)
+            words, after_glyph = [], True
+        elif tok.kind == "arrow":
+            words, after_glyph = [], False
+        elif tok.kind == "word":
+            words += re.findall(r"[a-z]+", tok.text.lower())
+    return found
 
 
 def _section_or_mode(plain: str) -> bool:

@@ -7,16 +7,15 @@
 // imports pi itself, so it loads in any pi that has extensions; the
 // repository's plugin/pi/README.md has the layout.
 
-import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
   DEFAULT_WIDTH, DISPLAYS, LAYOUTS, PLACEMENTS, START_SPEED, SUPERSEDED, UNASKED_COLUMNS, VIEWS,
-  aheadFrom, askedFrame, cellWidth, cropRows, cutCells, glyphs, heldBy, detectMux, displayReport, drawArgv, drawnFrame, followArgv, frameIndex, frameMs,
+  CONTROL_PREFIX, aheadFrom, askedFrame, cellWidth, controlPath, cropRows, cutCells, glyphs, heldBy, detectMux, displayReport, drawArgv, drawnFrame, followArgv, frameIndex, frameMs,
   herdrPaneGetArgv, herdrPaneOf, herdrReadyArgv, herdrWorkspaceOf,
   lastFrame, layoutReport, nextSpeed, panTo, parseCommandArgs, parseDisplayArgs, parseDrawing, parseLayoutArgs, parsePlacementArgs, parseRequest,
   pickDisplay, pickLayout, pickPlacement, placementReport, playbackFor, playTick, replyText, resolveDisplay, runLines, shellQuote, slot, splitArgv,
@@ -588,6 +587,12 @@ export default function sigil(pi: Pi): void {
     return tabArgv(mux, follow, { cwd: ctx.cwd, layout: layoutFile, ...(workspace ? { workspace } : {}) })
   }
 
+  /** Writes the control file whole (beside it, then renamed over it), mode 0600. */
+  async function writeControl(path: string, text: string): Promise<void> {
+    await writeFile(`${path}.new`, text, { mode: 0o600 })
+    await rename(`${path}.new`, path)
+  }
+
   /** Writes the split's control file, opening the split (or tab) first when none is up. */
   async function showInSplit(ctx: Ctx, asked: Asked): Promise<string> {
     const path = await located(ctx.cwd, asked.request.file)
@@ -603,11 +608,13 @@ export default function sigil(pi: Pi): void {
     const live = viewArgv(req, layout, splitStart(asked))
     const control = JSON.stringify({ argv: live })
     if (split !== null && split.mux === mux && split.placement === placement && (await isAlive(split))) {
-      await writeFile(split.control, control)
+      await writeControl(split.control, control)
       return about(req, asked, `Shown in the ${mux} ${placement} running sigil view live: ${shellQuote(live)}.`)
     }
-    const opened: Split = { mux, placement, control: join(tmpdir(), `sigil-view-${randomUUID()}.json`) }
-    await writeFile(opened.control, control)
+    // a directory only this user can enter (mkdtemp: 0700), the file 0600: the
+    // control file names what `sigil view` runs (logic.ts CONTROL_PREFIX)
+    const opened: Split = { mux, placement, control: controlPath(await mkdtemp(join(tmpdir(), CONTROL_PREFIX))) }
+    await writeControl(opened.control, control)
     const follow = followArgv(SIGIL, opened.control)
     const argv = await openArgv(ctx, mux, placement, follow, opened.control)
     const ran = await pi.exec(argv[0] ?? mux, argv.slice(1), { timeout: 30000 })

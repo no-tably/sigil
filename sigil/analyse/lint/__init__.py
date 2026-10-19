@@ -89,7 +89,7 @@ def lint_reading(text: str, dialect=None) -> Linted:
     lint_mode_not_first(lines, result)
     lint_holes_in_spec_mode(views, mode, result)
     lint_actor_as_state(views, state_lines(walk.doc), result)
-    lint_prose_verbs(views, result)
+    lint_prose_verbs(walk.statements, headers, result)
     lint_invented_modifiers(views, result, known, deferred)
     lint_declarations(declarations(walk.doc), _declared(dialect), result,
                       loaded=dialect is not None)

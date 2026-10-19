@@ -23,6 +23,7 @@ import json
 import os
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -559,7 +560,40 @@ def _mermaid(argv: list, dialect) -> int:
 # ---------------------------------------------------------------------------
 
 FOLLOW_POLL_S = 0.3         # how often follow looks at CONTROL
+CONTROL_PREFIX = "sigil-view-"   # a host's private directory for CONTROL (plugin logic.ts)
 ALIVE_S = 1.0               # how often follow touches CONTROL.alive
+
+
+def control_problem(path: Path) -> str | None:
+    """Why CONTROL is not to be trusted, or None. CONTROL names the command line
+    `sigil view` runs, and that can load a dialect (Python code), so it must be a
+    regular file of this user's that no other user can write, in a directory of
+    this user's that no other user can write (a host makes it in a private
+    directory, 0700, with mode 0600). Unix only: elsewhere nothing is checked."""
+    if not hasattr(os, "getuid"):
+        return None
+    uid = os.getuid()
+    try:
+        own = os.lstat(path)
+        folder = os.stat(path.parent)
+    except OSError as exc:
+        return f"cannot read {exc.filename}: {exc.strerror or exc}"
+    if not stat.S_ISREG(own.st_mode):
+        return f"{path} is not a regular file (a link or a device)"
+    for what, where, st in (("the control file", path, own),
+                            ("its directory", path.parent, folder)):
+        if st.st_uid != uid:
+            return f"{what} {where} belongs to uid {st.st_uid}, not to you (uid {uid})"
+        if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+            return (f"{what} {where} can be written by other users "
+                    f"(mode {stat.S_IMODE(st.st_mode):04o})")
+    return None
+
+
+def _refuse(control: Path, problem: str) -> None:
+    say("frames", f"refusing {control}: {problem}. The control file names what "
+                  "`sigil view` runs (a --dialect is Python code), so it must be yours "
+                  "and writable by you alone (ctrl-c closes this split)")
 
 
 def read_control(path: Path) -> list[str] | None:
@@ -590,17 +624,31 @@ def _stop(child) -> None:
             child.wait()
 
 
-def follow(control: Path) -> int:
+def follow(control: Path, wait=lambda: signal.pause()) -> int:
     """The multiplexer split's loop: runs `sigil view` live with the argv in the
     JSON file CONTROL ({"argv": [...]}), restarts it whenever CONTROL changes,
     touches CONTROL.alive every second so the host can tell the split is still
     up, and exits when the view quits on its own (q) or the split closes —
     removing both files. A view that fails (a bad flag, an unreadable file)
-    leaves its message on screen and the loop waiting."""
-    alive = control.with_name(control.name + ".alive")
-    child, seen, touched = None, None, 0.0
+    leaves its message on screen and the loop waiting.
+
+    CONTROL is checked first (control_problem) and again before each request is
+    run: one another user could write, or one not this user's, is refused on
+    screen and nothing it asks is run. Refused at the start, follow writes and
+    removes nothing and waits for the split to close (`wait`), so the message
+    stays readable; it then exits 2."""
     for sig in (signal.SIGTERM, signal.SIGHUP):    # the split closed: unwind through finally
         signal.signal(sig, lambda *_: sys.exit(0))
+    problem = control_problem(control)
+    if problem is not None:
+        _refuse(control, problem)
+        try:
+            wait()
+        except KeyboardInterrupt:
+            pass
+        return 2
+    alive = control.with_name(control.name + ".alive")
+    child, seen, touched = None, None, 0.0
     try:
         while True:
             now = time.monotonic()
@@ -610,7 +658,10 @@ def follow(control: Path) -> int:
             stamp = _mtime(control)
             if stamp != seen:
                 seen = stamp
-                argv = read_control(control)
+                problem = control_problem(control) if stamp else None
+                if problem is not None:
+                    _refuse(control, problem)
+                argv = None if problem is not None else read_control(control)
                 if argv is not None:
                     _stop(child)
                     child = subprocess.Popen([sys.executable, str(ROOT / "bin" / "sigil"), "view", *argv])
@@ -630,6 +681,12 @@ def follow(control: Path) -> int:
                 path.unlink()
             except OSError:
                 pass
+        if control.parent.name.startswith(CONTROL_PREFIX):  # a host's private directory:
+            for path in (control.with_suffix(".kdl"), control.parent):   # its zellij layout,
+                try:                                         # then the directory once empty
+                    path.unlink() if path != control.parent else path.rmdir()
+                except OSError:
+                    pass
 
 
 def _depth(text: str) -> int:
