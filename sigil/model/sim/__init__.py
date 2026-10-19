@@ -16,7 +16,8 @@ construct-by-construct rules are stated here and on the functions that apply the
 Pure and deterministic: simulate() is a function of its arguments — no clock,
 no randomness, no I/O. Every choice comes from the Scenario; every order is
 written order (the Scene's wire order). Every loop, recursion, cycle, spawn and
-the trace length are bounded by Limits; hitting a bound is logged. No drawing
+the trace length are bounded by Limits (the default frames and activations limits
+grow with the document: scaled, sized); hitting a bound is logged. No drawing
 code: it reads sigil.model.scene (and through it the parsed model) only.
 
 The package, part by part (program ← engine ← scenarios / narration):
@@ -276,9 +277,10 @@ NARRATION (pure, over a Trace and the scene it names)
 
 
 from sigil.model.sim.program import (  # noqa: F401  (the package's API)
-    Frame, Group, Instance, Limits, Machine, Program, Region, Scenario, Step, Token, Trace,
-    TriggerRef, attempts, canonical, carried, duration, instances, limits_from, loop_count,
-    mod, program, resilient, returned, route_guard, selected_routes,
+    PER_SIZE, Floor, Frame, Group, Instance, Limits, Machine, Program, Region, Scenario, Step,
+    Token, Trace, TriggerRef, attempts, canonical, carried, doc_size, duration, instances,
+    limits_from, loop_count, mod, program, resilient, returned, route_guard, scaled,
+    selected_routes, sized,
     _flat, _program_of)        # read by the flow rules and the run view through the package
 from sigil.model.sim.engine import CONVENTIONS, simulate  # noqa: F401
 from sigil.model.sim.scenarios import (  # noqa: F401

@@ -1,17 +1,19 @@
 """The simulator's limits reach every scenario list and every run check makes.
 
-A document whose happy run needs more frames than the default (generated here):
-at the default limits the run is cut, so no later entry's episode starts and no
-overlap scenario is listed; `--limit frames=N` (view and check alike) lets the
-run end, and the overlap scenarios built from it appear in `sigil view --sim
-list` and in check's own runs. The choice points (failure scenarios) are read
-off the program, so they are listed either way. SGC090's cut hint names the
-flag that raises the limit.
+A document whose happy run needs more frames than 2000 (generated here): the
+default frames and activations limits grow with the document's size
+(sim.scaled), so at default limits the run ends and the overlap scenarios built
+from it are listed; a given `--limit frames=N` (view and check alike) is used as
+given, so a lower one cuts the run, no later entry's episode starts and no
+overlap scenario is listed. The choice points (failure scenarios) are read off
+the program, so they are listed either way. SGC090's cut hint names the flag
+that raises the limit. A small document keeps the 2000 / 500 floors.
 
 Run:  python3 -m unittest discover tests
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -29,6 +31,7 @@ from sigil.model import sim  # noqa: E402
 
 CALLS = 300                    # sequential calls: about 3000 ticks, past frames=2000
 RAISED = ("frames=20000",)
+LOWERED = ("frames=1000",)     # given: used as given, so the run is cut
 
 
 def long_document(calls: int = CALLS) -> str:
@@ -59,6 +62,10 @@ def raised() -> sim.Limits:
     return sim.limits_from(RAISED)
 
 
+def lowered() -> sim.Limits:
+    return sim.limits_from(LOWERED)
+
+
 def sigil(*args) -> subprocess.CompletedProcess:
     env = {k: v for k, v in os.environ.items() if k != "SIGIL_DIALECT"}
     return subprocess.run([sys.executable, str(ROOT / "bin" / "sigil"), *args],
@@ -66,20 +73,27 @@ def sigil(*args) -> subprocess.CompletedProcess:
 
 
 class TheDocument(unittest.TestCase):
-    def test_its_happy_run_needs_more_than_the_default_frames(self):
+    def test_its_happy_run_needs_more_than_the_floor(self):
         sc = canon()
         happy = sim.scenario(sc, "happy")
-        self.assertEqual(sim.simulate(sc, happy, keep=False).outcome, "cut")
+        tr = sim.simulate(sc, happy, keep=False)
+        self.assertEqual(tr.outcome, "ok")
+        self.assertGreater(tr.frames[-1].tick + 1, 2000)
+        self.assertEqual(sim.simulate(sc, happy, limits=lowered(), keep=False).outcome, "cut")
         self.assertEqual(sim.simulate(sc, happy, limits=raised(), keep=False).outcome, "ok")
 
 
 class ScenarioList(unittest.TestCase):
     """sim.scenarios(…, limits=) — what view --sim list / all and check list."""
 
-    def test_the_default_limits_list_no_overlap(self):
-        found = names(sim.scenarios(canon()))
+    def test_a_lowered_limit_lists_no_overlap(self):
+        found = names(sim.scenarios(canon(), limits=lowered()))
         self.assertEqual(overlap_names(found), [])
         self.assertIn("Hub?>Audit", found)
+
+    def test_the_default_limits_list_the_overlaps(self):
+        found = names(sim.scenarios(canon()))
+        self.assertTrue(overlap_names(found), found)
 
     def test_raised_limits_list_the_overlaps_their_run_reaches(self):
         found = names(sim.scenarios(canon(), limits=raised()))
@@ -89,6 +103,7 @@ class ScenarioList(unittest.TestCase):
     def test_the_choice_points_do_not_depend_on_the_run(self):
         prog = sim._program_of(canon().graph)
         self.assertEqual(sim.deviations(prog), sim.deviations(prog, raised()))
+        self.assertEqual(sim.deviations(prog), sim.deviations(prog, lowered()))
 
 
 class ViewCli(unittest.TestCase):
@@ -105,17 +120,19 @@ class ViewCli(unittest.TestCase):
         return [ln.split()[0] for ln in p.stdout.splitlines() if ln.strip()]
 
     def test_sim_list_follows_limit(self):
-        self.assertEqual(overlap_names(self.listed()), [])
-        listed = self.listed("--limit", RAISED[0])
-        self.assertTrue(overlap_names(listed), listed)
-        self.assertIn("Hub?>Audit", listed)
+        self.assertEqual(overlap_names(self.listed("--limit", LOWERED[0])), [])
+        for given in ((), ("--limit", RAISED[0])):
+            listed = self.listed(*given)
+            self.assertTrue(overlap_names(listed), listed)
+            self.assertIn("Hub?>Audit", listed)
 
     def test_check_limit_reaches_its_runs(self):
-        cut = sigil("check", self.path, "--all", "--overlaps", "listed")
+        cut = sigil("check", self.path, "--all", "--overlaps", "listed", "--limit", LOWERED[0])
         self.assertIn("cut a run at its frames limit", cut.stdout)
         self.assertIn("--limit frames=N", cut.stdout)
-        full = sigil("check", self.path, "--all", "--overlaps", "listed", "--limit", RAISED[0])
-        self.assertNotIn("SGC090", full.stdout)
+        for given in ((), ("--limit", RAISED[0])):
+            full = sigil("check", self.path, "--all", "--overlaps", "listed", *given)
+            self.assertNotIn("SGC090", full.stdout)
 
 
 class CheckRuns(unittest.TestCase):
@@ -125,8 +142,9 @@ class CheckRuns(unittest.TestCase):
         ex = ct.explore(sim, canon(), 1, ct.BUDGET, limits, overlaps="listed")
         return names(r.scenario for r in ex.runs)
 
-    def test_raised_limits_add_the_overlap_runs(self):
-        self.assertEqual(overlap_names(self.explored(sim.Limits())), [])
+    def test_limits_that_let_the_run_end_add_the_overlap_runs(self):
+        self.assertEqual(overlap_names(self.explored(lowered())), [])
+        self.assertTrue(overlap_names(self.explored(sim.Limits())))
         self.assertTrue(overlap_names(self.explored(raised())))
 
     def test_the_check_reports_the_limits_it_ran_under(self):
@@ -139,9 +157,58 @@ class CutHint(unittest.TestCase):
     def test_the_hint_names_the_flag(self):
         self.assertEqual(ct.limit_fix("frames"), "run with a larger frames limit "
                                                  "(--limit frames=N)")
-        rep = ck.check(TEXT, overlaps="off")
+        rep = ck.check(TEXT, overlaps="off", limits=lowered())
         (f,) = [f for f in rep.findings if f.rule.id == "SGC090"]
         self.assertIn("--limit frames=N", f.fix)
+
+
+class Scaled(unittest.TestCase):
+    """sim.scaled: the default frames / activations grow with the document."""
+
+    def small(self):
+        return canon("(U) -> [A] : go({X}) => {Y}\n[A] -> [B]\n")
+
+    def test_size_counts_nodes_and_edges_of_every_unit(self):
+        prog = sim._program_of(canon("(U) -> [A]\n[A] := {\n  [P] -> [Q]\n}\n").graph)
+        self.assertEqual(sim.doc_size(prog), sum(len(u.graph.nodes) + len(u.graph.edges)
+                                                 for u in prog.units))
+        self.assertGreater(len(prog.units), 1)
+
+    def test_defaults_grow_with_the_document(self):
+        sc = canon()
+        size = sim.doc_size(sim._program_of(sc.graph))
+        got = sim.sized(sim.Limits(), sc)
+        self.assertEqual((got.frames, got.activations),
+                         (sim.PER_SIZE["frames"] * size, sim.PER_SIZE["activations"] * size))
+        self.assertIs(type(got.frames), int)
+
+    def test_a_small_document_keeps_the_floors(self):
+        got = sim.sized(sim.Limits(), self.small())
+        self.assertEqual((got.frames, got.activations), (2000, 500))
+        self.assertIs(type(got.frames), int)
+
+    def test_a_given_limit_is_used_as_given(self):
+        sc = canon()
+        self.assertEqual(sim.sized(lowered(), sc).frames, 1000)
+        got = sim.sized(sim.Limits(frames=10, activations=7), sc)
+        self.assertEqual((got.frames, got.activations), (10, 7))
+        given = sim.limits_from(["frames=2000"])
+        self.assertEqual(sim.sized(given, sc).frames, 2000)
+
+    def test_a_floor_reads_as_its_value_but_is_not_a_given_one(self):
+        default = sim.Limits()
+        self.assertEqual((str(default.frames), f"{default.activations}"), ("2000", "500"))
+        self.assertEqual(json.loads(json.dumps(default._asdict()))["frames"], 2000)
+        self.assertNotEqual(default, sim.Limits(frames=2000, activations=500))
+        self.assertEqual(default, sim.Limits())
+        self.assertEqual(hash(default), hash(sim.Limits()))
+
+    def test_the_run_is_deterministic(self):
+        sc = canon()
+        a = sim.simulate(sc, sim.scenario(sc, "happy"), keep=False)
+        b = sim.simulate(sc, sim.scenario(sc, "happy"), keep=False)
+        self.assertEqual((a.outcome, a.frames[-1].tick, a.end["log"]),
+                         (b.outcome, b.frames[-1].tick, b.end["log"]))
 
 
 if __name__ == "__main__":

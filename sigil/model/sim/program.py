@@ -23,22 +23,48 @@ from sigil.model import scene as scene_mod
 # Public data
 # ---------------------------------------------------------------------------
 
+PER_SIZE = {"frames": 64, "activations": 20}   # a default limit per unit of document size
+
+
+class Floor(int):
+    """A default per-episode limit that grows with the document (`frames`,
+    `activations`): a floor that a run raises to PER_SIZE[name] times the
+    document's size (scaled), so a large design's runs finish at default limits.
+    A given value (limits_from, Limits(frames=N)) is a plain int and is used as
+    given. A Floor prints, formats and serialises as its value, but never equals a
+    plain int, so Limits() and Limits(frames=2000) stay apart wherever limits are
+    compared or kept as a key."""
+    __slots__ = ()
+
+    def __eq__(self, other):
+        return type(other) is Floor and int(self) == int(other)
+
+    def __ne__(self, other):
+        return not self == other
+
+    def __hash__(self):
+        return hash((Floor, int(self)))
+
+
 class Limits(NamedTuple):
     """The bounds that make every run end. `depth` is checked at every
     arrival (the base case: nothing runs); `activations`, `stack` and `frames` end
     the run with outcome "cut" — `stack` keeps a long sync chain inside Python's
     recursion limit (each activation nests a few generator frames). `activations`
     and `frames` count per episode, so a design with many entries runs each of them
-    in full; a run's length is bounded by its entries times `frames`."""
+    in full; a run's length is bounded by its entries times `frames`. The defaults
+    of `frames` and `activations` are Floors: a run gets max(2000, 64 × size)
+    frames and max(500, 20 × size) activations per episode, size being the nodes
+    and edges of every unit (scaled, PER_SIZE); a given one is used as given."""
     hop: int = 4               # ticks per hop
     iterations: int = 2        # loop repetitions
     depth: int = 3             # recursion depth / re-entry on one task's stack
     spawn: int = 2             # instances per dynamic child per parent; symbolic ×N
     spawns: int = 8            # instances per node in total
     visits: int = 3            # task-root activations of one node per episode (async cycles)
-    activations: int = 500     # activations per episode
+    activations: int = Floor(500)  # activations per episode (default: scaled)
     stack: int = 64            # activations on one task's stack (nested sync work)
-    frames: int = 2000         # frames per episode
+    frames: int = Floor(2000)  # frames per episode (default: scaled)
     scenarios: int = 64        # scenarios listed
     overlaps: int = 12         # overlap scenarios listed (scenarios())
     pair_overlaps: int = 3     # overlap scenarios listed per pair of entries
@@ -60,6 +86,27 @@ def limits_from(pairs, base: Limits = Limits()) -> Limits:
             raise ValueError(f"--limit {name}: must be at least 1")
         out = out._replace(**{name: int(value)})
     return out
+
+
+def doc_size(prog) -> int:
+    """A document's size as the scaled limits read it: the nodes and edges of
+    every unit of its Program (every level, each counted where written)."""
+    return sum(len(u.graph.nodes) + len(u.graph.edges) for u in prog.units)
+
+
+def scaled(limits: Limits, prog) -> Limits:
+    """The limits a run of `prog` gets, every value a plain int: each default
+    (a Floor) of PER_SIZE raised to its factor times doc_size(prog), a given one
+    as given. Deterministic: a function of the document and the limits only."""
+    grown = {name: max(int(getattr(limits, name)), k * doc_size(prog))
+             for name, k in PER_SIZE.items() if type(getattr(limits, name)) is Floor}
+    return limits._replace(**grown) if grown else limits
+
+
+def sized(limits: Limits, sc) -> Limits:
+    """scaled() for a Scene's document: the limits its runs get, written out —
+    what a tool shows as "frames=N" and what `--limit frames=N` reproduces."""
+    return scaled(limits, _program_of(sc.graph))
 
 
 class Scenario(NamedTuple):

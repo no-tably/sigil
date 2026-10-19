@@ -17,7 +17,8 @@ from sigil.model.sim.program import (
     Frame, Group, Instance, Limits, Program, Region, Scenario, Step, Token, Trace, TriggerRef,
     _alias_of, _beneath, _declared_times, _detached, _flat, _gate_of, _guards, _home,
     _one_of_groups, _owned_stores, _program_of, _pseudo, _running, _select, _summed, _tally,
-    attempts, carried, instances, loop_count, mod, resilient, returned, selected_routes)
+    attempts, carried, instances, loop_count, mod, resilient, returned,
+    scaled, selected_routes)
 
 
 CONVENTIONS = ("conventions: written order; entries one after another; ?> not taken "
@@ -95,6 +96,7 @@ class _Run:
     """One simulation: tasks, activations, machines, instances; tick() makes Frames."""
 
     def __init__(self, prog: Program, sc: Scenario, limits: Limits, keep: bool = True):
+        limits = scaled(limits, prog)  # the defaults grown to the document's size
         self.prog, self.limits, self.keep = prog, limits, keep
         self.choices = dict(sc.choices)
         self.entries = _scheduled(_resolve_entries(prog, sc.entries), sc.starts)
