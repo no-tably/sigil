@@ -1013,6 +1013,24 @@ the head is a recognised one (see "Recognised invariants" under "Invariants,
 capabilities, resource ownership"); any other `@inv` is listed as unchecked, never
 failed. A dialect can add rules and `@inv` heads of its own (see "Dialects").
 
+*Structure* rules read the design as units, the systems an export would make (each
+expansion, each tree root, the top level), as `sigil view FILE --structure` lists
+them: **SGC176 `unit-cycle`**, two sibling units (neither encloses the other) whose
+flows depend on each other, is info in `#!craft` and a warning in `#!spec`, and is
+acknowledged on the header of a unit in the cycle, never document-wide; **SGC177
+`large-unit`**, a unit with more than 9 built members (actors not counted), is info
+only. A flow from a unit into one enclosing it is never a finding.
+
+**Runs that never finished.** Every simulated run ends: one that would not is cut
+at a limit (`frames` and `activations` per episode, which grow with the document's
+size; `--limit NAME=N` raises one). A cut run is evidence the checks did not
+finish reading, so **SGC090 `exploration-incomplete`** reports it, naming the limit
+and the run. It is a hint, but a **warning in `#!spec`**: a spec whose runs were
+cut does not pass the spec check or the export gate until the limit is raised or
+the cut is acknowledged on the line of the entry whose episode was cut. SGC090 also
+says, as a hint, when the budget (`--budget`) or the overlap sweep's work cap left
+runs unrun.
+
 **A finding is resolved in one of two ways only:**
 
 - **declare** the handling in notation the language already has — `@timeout(t)`,
@@ -1031,7 +1049,9 @@ failed. A dialect can add rules and `@inv` heads of its own (see "Dialects").
 An acknowledgement anchors by line: trailing the line, on the line(s) directly
 above a statement, on or above a block's header or its `}` (the whole block), or
 before the first statement and separated from it by a blank line (the whole
-document). The reason is required. An acknowledged finding is listed as `accepted:`
+document). The reason is required; a trailing acknowledgement's reason may go on
+over comment-only lines aligned under its `#`, as any trailing comment does (see
+"Descriptions" under "Ready to export"). An acknowledged finding is listed as `accepted:`
 with its reason and no longer counts toward the exit code. Three meta rules keep the
 valve honest and cannot themselves be acknowledged: `ack-unknown-rule` (a mistyped
 rule name; a warn even in `#!sketch`), `ack-without-reason` (the acknowledgement is
@@ -1081,8 +1101,8 @@ callee's through it). When the level also writes the part's own expansion header
 (`[Buffer] := { … }` at the top), the part moves only into a unit that declares it;
 a unit that only calls it calls out. The rule never leaves a part homeless: a part
 two sibling units write, referred to from above (`{Order}` used at the top level and
-in two units), still lives in the level above, as before. An actor's entry line is no
-such reference. A system's **boundary**
+in two units), still lives in the level above, as before. The rule never moves an
+actor: `(Client)` stays where its entry line is written. A system's **boundary**
 is the flows with exactly one end in it; its **interface** is those flows, with their
 payloads and returns. System A depends on B when a flow leaves A for B.
 
@@ -1094,7 +1114,10 @@ notes:
   miss: a header comment with no blank line after it describes the first statement's
   node, not the document;
 - a header comment followed by a blank line describes the top system;
-- a comment at the end of a line describes that line's first node;
+- a comment at the end of a line describes that line's first node. A comment-only
+  line right below it whose `#` sits in the same column continues it (as do more
+  such lines); without that alignment it is a comment above the next statement. A
+  `# accepts:` line never continues one;
 - a comment above an expansion `X := {` describes both the node `X` and the
   system `X`; a comment set apart by blank lines elsewhere describes nothing.
 

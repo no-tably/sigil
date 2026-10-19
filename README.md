@@ -93,7 +93,7 @@ Redirect.lookup:fails    failed   32 frames  lookup fails 1×, no fallback
   failed: [Redirect] -> |Links| · (Visitor) -> [Redirect]
   routes: [Redirect] !> (Visitor)
 Visitor@0                ok       31 frames
-    (Visitor) starts at t0, reaching |Links| as (User) writes it
+    (Visitor) starts at t0, reaching |Links| as [Shortener] writes it
 3 scenarios: 2 ok, 1 failed, 0 cut
 ```
 
@@ -117,9 +117,9 @@ folder export, since the manifest names the spec file. Every flag and key is in 
 
 | Command | Does |
 | --- | --- |
-| `sigil view FILE` | Live terminal view, redrawn on every save: a flow view (a call graph left to right, the default), a graph view (`--graph`), a tree view (`--tree`) and a run view (one simulated run as a timeline, `--run`) — `1` `2` `3` `4` pick one, `t` steps to the next — a simulation mode (`x`) and a checks overlay (`c`). `--once` prints one drawing for agents and CI. |
+| `sigil view FILE` | Live terminal view, redrawn on every save: a flow view (a call graph left to right, the default), a graph view (`--graph`), a tree view (`--tree`) and a run view (one simulated run as a timeline, `--run`) — `1` `2` `3` `4` pick one, `t` steps to the next — a simulation mode (`x`) and a checks overlay (`c`). `--once` prints one drawing for agents and CI. `--structure` prints no drawing but the design read as units: each unit's members and dependencies, cycles between units, each part's reach, units over 9 members, writers per store. |
 | `sigil lint FILE` | Validates a document: one `severity:line:rule: message` per issue; exit 0 clean, 1 warnings, 2 errors. `--deep` adds the composition checks. |
-| `sigil check FILE` | Composition checks ([RFC 0003](./rfcs/0003-composition-checks.md)): does the design say how its risks are handled — time bounds, idempotency, writers, failure routes, stuck state machines? A finding never forbids a shape: declare the handling, or accept the risk with a reason. |
+| `sigil check FILE` | Composition checks ([RFC 0003](./rfcs/0003-composition-checks.md)): does the design say how its risks are handled — time bounds, idempotency, writers, failure routes, stuck state machines, units that depend on each other or grow too big? A finding never forbids a shape: declare the handling, or accept the risk with a reason. |
 | `sigil export SPEC --out DIR` | Exports a ready `#!spec` document as a build skeleton: a folder per system, a file per component, `manifest.json` as the contract. A re-export says which systems changed (see [Export a spec](#export-a-spec)). |
 | `sigil export FILE --mermaid` | Emits a Mermaid `flowchart TD` for docs or review (GitHub, Obsidian, mermaid.live), in any mode. `--spine` groups it by the export's systems, a subgraph each. |
 | `sigil themes [NAME]` | Prints a colour theme from `themes/*.yaml` resolved, as JSON (`--list` lists them); the viewer and the web page share the files. |
@@ -238,6 +238,10 @@ random; the run is a function of the design and the chosen **scenario**.
   `*>` and `&` fork to all and wait for all, `!>` fires only on failure, retries
   count their attempts, events drive the state machines that name them (each
   machine's current state is marked `◉`), loops and recursion are bounded.
+  Every run ends: one that would not is `cut` at a limit (frames and activations
+  per episode, which grow with the design's size), and the run says which episode
+  hit it. In `#!spec`, `sigil check` warns about a cut run, so it blocks the export
+  until the limit is raised (`--limit frames=N`) or the cut is acknowledged.
 - **Levels:** an expansion is a closer reading of its node, so an outer flow whose
   target the expansion also reaches by a flow (not only by a failure route or
   an optional `?>`) is a summary of that detail — `[Shop] ~>
@@ -384,7 +388,9 @@ entry at *every* tick of an earlier entry's episode (within `--budget`), so a ra
 between two entries — two writers from two episodes, an event landing in a state
 that exists only mid-episode — is found, and its witness names the run
 (`SGC204: race: … holds it too in the Bob@0 run`) for `--sim Bob@0` to replay.
-This sweep is the exhaustive check before a spec is final. In sketch and craft it
+This sweep is the exhaustive check before a spec is final. It stops at a work cap
+(400 frames a run × the budget), so a large spec still checks in seconds; when the
+cap stops it, the SGC090 hint says how many overlap runs were left. In sketch and craft it
 is off, so checks stay quick while you draft; `--overlaps listed` tries just the
 listed runs, and `--overlaps N` caps the sweep at N runs.
 
@@ -410,7 +416,7 @@ build/
   manifest.json      per system: interface hash, body hash, components (each with its two hashes), depends_on
   delta.json         what changed since the last export (the first: every system added)
   README.md          the index: systems and what each depends on
-  shop/              the top level: (Shopper), [Storefront], <OrderPlaced>, …
+  shop/              the top level: (Shopper), [Storefront], [Checkout], …
   catalog/           the [Catalog] tree: README.md, listings.md, prices.md, system.json
   checkout/          the [Checkout] expansion: basket.md, payments.md, orders.md, …
   fulfilment/
@@ -521,10 +527,11 @@ sigil/core/      the notation read: lex (the lexical tables, kept once),     ┐
                  tokens · statements · parse (a document → the graph model), │ core
                  graph, comments, dialects, vocab (the dialect API)          ┘
 sigil/model/     scene (wires, roles, colours, notes, joins),                ┐ model
-                 sim/ (program · engine · scenarios · narration), systems    ┘
+                 sim/ (program · engine · scenarios · narration), systems,   │
+                 structure (the design read as units, view --structure)      ┘
 sigil/analyse/   lint/ (SGLnnn, by rule group), check (SGCnnn: registry,     ┐ analyse
                  findings, acks, budget), rules/ (flow · state · trace ·     │
-                 inv · export)                                               ┘
+                 inv · structure · export)                                   ┘
 sigil/publish/   mermaid, spine (--mermaid --spine), systems, exporter,      ┐ publish
                  delta: what leaves sigil                                    ┘
 sigil/present/   app (the terminal viewer), views/ (graph · tree · flow ·    ┐ present

@@ -12,10 +12,11 @@ the manifest names the spec file (and its stem is the top system's default name)
 sigil lint FILE|- [--deep] [--dialect D]
 sigil check [FILE|-] [--mode M] [--k N] [--budget N] [--limit NAME=N] [--overlaps …] [--json] [--export] [--rules]
 sigil view FILE [--once] [--graph|--tree|--flow|--run] [--sim S] …
-sigil export SPEC --out DIR [--name NAME] [--json] [--dry-run]
+sigil view FILE --structure [--json]
+sigil export SPEC --out DIR [--name NAME] [--limit NAME=N] [--json] [--dry-run]
 sigil export FILE --mermaid [--depth N|all] [--composition subgraphs|edges|none]
 sigil export FILE --mermaid --spine [--name NAME]
-sigil frames draw FILE [--view V] [--depth N|all] [--width N] [--scenario S] …
+sigil frames draw FILE [--view V] [--depth N|all] [--width N] [--scenario S] [--limit NAME=N] …
 sigil frames follow CONTROL
 sigil themes [NAME|PATH] [--list]
 ```
@@ -33,7 +34,7 @@ The package is `sigil/`, one subpackage per layer, as drawn in
 | Layer | Holds |
 | --- | --- |
 | `sigil/core` | the notation read: `lex` (the lexical tables, kept once), `tokens`, `statements`, `parse` (a document → the graph model in `graph`), `comments`, `dialects`, `vocab` (the dialect API) |
-| `sigil/model` | what a design does: `scene`, the simulator `sim/` (`program`, `engine`, `scenarios`, `narration`), `systems` (the export model) |
+| `sigil/model` | what a design does: `scene`, the simulator `sim/` (`program`, `engine`, `scenarios`, `narration`), `systems` (the export model), `structure` (the design read as units) |
 | `sigil/analyse` | is it sound: `lint/` (SGLnnn, a module per rule group), `check` (SGCnnn: registry, findings, acknowledgements, budget), `rules/` |
 | `sigil/publish` | what leaves sigil: `mermaid`, `spine`, `systems`, `exporter`, `delta` |
 | `sigil/present` | the drawings: `app` (the live viewer), `views/` (graph, tree, flow, run), `kit`, `themes`, `frames` |
@@ -96,16 +97,28 @@ binding rules errors. The line format and [exit codes](#exit-codes) match lint.
 - `--budget N` caps the runs one exploration may make: the failure combinations
   first, then the overlap runs (each later entry started at every tick of an earlier
   entry's episode; see [Runs that overlap](../README.md#runs-that-overlap)), so a
-  race between two entries is found and its witness names the `Entry@t` run.
-  `--limit NAME=N` raises one simulator limit (repeatable, e.g. `depth=5`;
+  race between two entries is found and its witness names the `Entry@t` run. A
+  check that ran out of budget says so (SGC090, a hint) and names `--budget N`.
+  The overlap runs also stop at a **work cap**: 400 frames a run × the budget (a
+  budget below the default 256 counts as 256), so a large spec's sweep takes
+  seconds, not minutes. When the cap stops the sweep, SGC090 says how many overlap
+  runs were left and how far the frames got (`58 overlap runs (…; their frames
+  reached the work cap: 103729 of 102400)`), and its fix names `--budget N` (above
+  256 it raises the cap), `--overlaps listed` or a smaller `--k`.
+- `--limit NAME=N` raises one simulator limit (repeatable, e.g. `depth=5`;
   `window=N` the start ticks tried per pair of entries, 64), as `sigil view
   --limit` does: every run check makes, and the scenario list it draws them from,
-  use the raised limits. When a run is cut short by a limit, SGC090's fix names the
-  flag (`run with a larger frames limit (--limit frames=N)`), and a check that ran
-  out of budget names `--budget N`. Failure scenarios come from the design alone and
-  are listed at any limits; an overlap scenario needs the happy run to reach its
-  start tick, so a long happy run cut at the default `frames` lists its overlaps only
-  with `--limit frames=N` raised.
+  use the raised limits. The default `frames` and `activations` grow with the
+  document (see `--limit` under [`sigil view`](#sigil-view-file)), so most designs
+  finish their runs without it. When a run is still cut short by a limit, SGC090
+  names the limit, the run and the limits it had, with the fix `raise --limit
+  frames=N until no run is cut, or acknowledge on the entry's line`. In `#!spec`
+  that finding is a **warning**, so it also blocks the export gate: a spec whose
+  runs never finished is not ready. When what ran is enough, acknowledge it on the
+  line of the entry whose episode was cut (`# accepts: exploration-incomplete — …`).
+  Failure scenarios come from the design alone and are listed at any limits; an
+  overlap scenario needs the happy run to reach its start tick, so a happy run cut
+  at its `frames` lists its overlaps only with `--limit frames=N` raised.
 - `--overlaps off|listed|all|N` says which overlap runs to make. `off` makes none,
   and `listed` makes the listed `Entry@t` runs, alone and with each failure. `all`
   makes those, then every start tick, and `N` is `all` but at most N runs. The
@@ -113,7 +126,9 @@ binding rules errors. The line format and [exit codes](#exit-codes) match lint.
   exhaustive check you run before a spec is final, not on every edit. `--json`
   reports the setting as `limits.overlap_runs`.
 - `--all` also shows hidden findings.
-- `--json` prints one JSON object: the mode, `k`, the `limits` and every finding
+- `--json` prints one JSON object: the mode, `k`, the `limits` (as the runs had
+  them: `frames` and `activations` grown to the document; with `budget`, `k` and
+  `overlap_runs`) and every finding
   with its rule, tier, why, how to satisfy (`fix`), witness (and `at`, the tick in
   the witness run where a behavioural finding shows), plus the acknowledged ones.
 - `--export` also runs the export readiness rules, SGC401 `no-home` and SGC402
@@ -121,6 +136,13 @@ binding rules errors. The line format and [exit codes](#exit-codes) match lint.
   run, so no other output changes.
 - `--rules` lists the rules and exits.
 - `--dialect NAME` adds a dialect's rule pack.
+
+Two structure rules read the units that [`sigil view --structure`](#sigil-view-file---structure)
+lists, so the two never disagree: SGC176 `unit-cycle` (two sibling units whose
+flows depend on each other; info in craft, a warning in spec, acknowledged on the
+header of a unit in the cycle, never document-wide) and SGC177 `large-unit` (a unit
+with more than 9 built members, actors not counted; info). A flow from a unit into
+one enclosing it is never a finding. The web page's playground runs without them.
 
 See "Checks" in [`language.md`](../language.md).
 
@@ -153,6 +175,10 @@ one **home**.
   `--mermaid --spine` takes it too; plain `--mermaid` refuses it.
 - `--dry-run` prints the delta and writes nothing.
 - `--json` prints the delta as JSON instead of the summary in words.
+- `--limit NAME=N` raises one simulator limit for the gate's check (repeatable,
+  e.g. `frames=20000`), as `sigil check` takes it. A run cut at a limit is a
+  warning in spec mode, so it blocks the export until the limit is raised or the
+  cut is acknowledged on its entry's line.
 - `--dialect NAME` loads a dialect, as `lint`, `check` and `view` do.
 
 Exit codes: 0 exported (or a dry run), 1 the folder could not be written, 2 not
@@ -335,7 +361,9 @@ Options:
   header (`branch on …`, `loop …`, `parallel …`, a scoped `name {`) tags the block's
   frame title or header row. A header comment that comes before the first statement
   but isn't directly above it is the document's own note. It is listed first as `¶`
-  and tagged on nothing.
+  and tagged on nothing. A comment-only line right below a trailing comment, its `#` in
+  the same column, continues that comment (one note on the line above, not a note
+  on the next statement); a `# accepts:` line never does.
 - `--sim SCENARIO` runs one pathway of the design and draws its last frame, then the
   outcome and the run in plain words, one `tNNN …` line per step (`[API] calls
   [Payments] with charge(total) — attempt 2 of 4`; see
@@ -364,11 +392,20 @@ Options:
   last.
 - `--limit NAME=N` raises one simulator bound for `--sim` (repeatable): `iterations`
   (loop repetitions, 2), `depth` (recursion, 3), `spawn` / `spawns`, `visits`, `stack`,
-  and the per-episode `frames` (2000) and `activations` (500); `overlaps` (12) and
-  `pair_overlaps` (3) cap the overlap scenarios listed. Each entry point runs
-  as its own episode with its own `frames` and `activations` (`frames` counted from
-  the latest episode's start), so a large design runs every entry in full; a run that
-  still ends `cut` names the bound it hit.
+  and the per-episode `frames` and `activations`; `overlaps` (12) and
+  `pair_overlaps` (3) cap the overlap scenarios listed. The defaults of `frames`
+  and `activations` grow with the document: 128 and 20 × its nodes plus edges
+  (every level, each counted where written), never below 2000 and 500, so a large
+  design finishes its runs at default limits and a small one is unchanged
+  (02-shop gets 4736 frames and 740 activations). A given `--limit` wins. Each
+  entry point runs as its own episode with its own `frames` and `activations`
+  (`frames` counted from the latest episode's start), so a large design runs every
+  entry in full. A run that still ends `cut` names the bound it hit, the episode
+  that reached it and the tick it started from (`the run is cut: episode 1 reached
+  the frames limit, 20 frames from t0`; in `--sim all`, `bounds: cut: frames limit
+  (20 frames of an episode, from t0)`).
+- `--structure` prints no drawing: the design read as units (see
+  [below](#sigil-view-file---structure)). `--json` prints the same as data.
 - `--checks` marks composition-check findings on the drawing, with a checks legend.
   Each finding's question follows the lint summary.
 - `--compact` starts without the blank row between top-level units.
@@ -522,6 +559,95 @@ Live keys:
 | `z` `g` | centre · home |
 | `r` `q` | reload · quit |
 
+### `sigil view FILE --structure`
+
+Reads the design as units instead of drawing it: the numbers to look at when
+refining a design's shape. It runs in any mode (no gate), prints no drawing, always
+exits 0, and `--json` gives the same as data (`top`, `units`, `cycles`, `up`,
+`edge`, `reach`, `pass_throughs`, `large`, `repeated`, `writers`, `summary`). The
+units are the systems an export would make (the top, each expansion, each tree
+root), so this reading and an export never disagree, and `sigil check`'s structure
+rules read the same units. For `site/examples/02-shop.sigil`:
+
+```
+units
+  02-shop  top · 5 members · 3 internal flows
+    members: [Edge] · [Shop] · |Catalog| · [Fulfilment] · |Ledger|
+    calls: Shop
+    nests: Fulfilment · Shop
+  Shop  expansion in 02-shop · 4 members · 4 internal flows
+    members: <OrderPlaced> · [Cart] · [Checkout] · [Payments]
+    calls: 02-shop · Fulfilment · Payments
+    nests: Payments
+  …
+  Fulfilment  expansion in 02-shop · 2 members · 2 internal flows
+    members: [Picker] · [Packer]
+
+cycles (units whose flows depend on one another)
+  (none)
+
+up (a unit's flows into a unit enclosing it)
+  Shop → 02-shop
+      [Shop] -> |Catalog|  (line 8)
+      <OrderPlaced> *> |Ledger|  (line 9)
+  Risk → Payments
+      [Risk] ?> [Review]  (line 22)
+
+edge (parts that call an actor)
+  [Packer] in Fulfilment → (Courier)
+
+reach (what each part can drive / be driven by, largest first)
+  [Edge]         out  15  in   0  02-shop  → (Courier)  ← (Shopper)
+  [Shop]         out  14  in   1  02-shop  → (Courier)  ← (Shopper)
+  …
+  |Catalog|      out   0  in   2  02-shop  ← (Shopper)
+
+pass-throughs (one caller, one callee, no actor)
+  (none)
+
+units over 9 members
+  (none)
+
+a name declared in two units (one name, one entity)
+  (none)
+
+writers per store
+  |Catalog| in 02-shop  0: no writer
+  |Features| in Risk  0: no writer
+  |Ledger| in 02-shop  0: no writer
+
+6 units: 0 cycles, 2 up, 1 edge part, 0 pass-throughs, 0 over 9 members, 0 names in two units, 0 stores with two or more writers
+```
+
+- **units**: each unit, its kind and where it sits, its members (the built parts
+  homed there: services, stores, events, data; actors are not built, so they are
+  kept apart, as `actors` in the JSON), its internal flows, the units its flows call
+  (`calls`) and the units nested in it (`nests`). A flow to or from an actor makes
+  no dependency.
+- **cycles**: sibling units (neither encloses the other) whose flows depend on one
+  another round, with every flow that makes the cycle. A flow from a part of a
+  nested unit counts as its enclosing unit's. Each cycle is one SGC176 `unit-cycle`
+  finding.
+- **up**: a unit's flows into a unit enclosing it, here `[Shop]`'s parts leaning on
+  the top level's stores. Listed only, never a finding: most layered designs have
+  them.
+- **edge**: the parts that call an actor, the ones that touch the outside world.
+- **reach**: for each part, how many parts it can drive (`out`) and how many can
+  drive it (`in`), over calls, sends and conditional flows (never `!>` or `=>`),
+  then its unit, the actors it reaches (`→`) and the actors that can drive it
+  (`←`). Data glyphs pass a path on but are not counted. It is the blast radius: a
+  failed or hostile part reaches what its `out` counts.
+- **pass-throughs**: a part (no data, event, store or actor, and no unit's face)
+  with exactly one caller and one callee, neither an actor: a layer that may isolate nothing.
+- **units over 9 members**: units too big to scan at a glance; each is one SGC177
+  `large-unit` finding.
+- **a name declared in two units**: a part written in two units neither of which
+  encloses the other, so it has no home; `sigil check --export` calls it SGC401
+  `no-home`.
+- **writers per store**: who writes each store, counted as `sigil check` counts
+  writers: a writing flow into it (not a read verb), `@write(…)` on it, `@owns` on
+  the writer. It needs no `@read` / `@write` declared.
+
 ## The Claude Code viewer
 
 The Claude Code plugin's mod (`plugin/claude`) gives the agent a `view` tool and
@@ -663,6 +789,15 @@ finds the same command and the same words.
   `sigil frames follow`), and `auto` picks `multiplex` when `HERDR_ENV`, `TMUX` or
   `ZELLIJ` is set, and `mod` otherwise. `resolveDisplay` in
   `plugin/claude/hooks/logic.ts` is the rule; a plugin in TypeScript imports it.
+- **The split's control file** is private. It names the `sigil view` command line
+  the split runs, and a `--dialect` there is Python code, so a host writes it as
+  `control.json`, mode 0600, in a directory of its own that only this user can
+  enter (0700, named `sigil-view-…`; `privateDirArgv` and `privateWriteArgv` in
+  `logic.ts`, or `mkdtemp`), and replaces it whole (written beside it, then renamed
+  over it). `sigil frames follow` checks it at the start and before each request it
+  runs: a file, or a directory, that is not this user's or that another user could
+  write is refused on screen and nothing it asks is run. Once the split closes,
+  follow removes the file and, in a `sigil-view-…` directory, the directory too.
 - **Where it's kept**: in the host's own settings when it has them (Claude
   Code: the plugin's `userConfig` fields `display`, `layout` and `placement`,
   `/config` rows). A host without them uses the shared file
@@ -739,14 +874,20 @@ What the Claude Code pane and the pi widget run; not meant to be typed.
 
 - `sigil frames draw FILE [--view graph|tree|flow|run] [--depth N|all] [--width N]
   [--height N] [--layout auto|wrap|pan] [--scenario NAME [--from N|last] [--count N]]
-  [--payloads] [--theme NAME]` prints the drawing as one JSON object of packed rows
-  (text and a style id per run, a style table with hex colours), with the legend,
-  summary, lint and scenarios, and for a run its frames a window at a time. The
+  [--payloads] [--theme NAME] [--limit NAME=N]` prints the drawing as one JSON
+  object of packed rows (text and a style id per run, a style table with hex
+  colours), with the legend, summary, lint and scenarios, and for a run its frames
+  a window at a time. `--limit` raises one simulator limit (repeatable), as `sigil
+  view` and `sigil check` take it, for the run and the scenarios listed. The
   shape is in the docstring of `sigil/present/frames.py`; the page's `frames.json`
   and the playground use the same packing.
 - `sigil frames follow CONTROL` runs `sigil view` live with the flags in the
   control file, restarting it each time the file is rewritten (the `multiplex`
-  split).
+  split). The control file names a `sigil view` command line, which can load a
+  dialect's code (`--dialect`), so follow refuses one, or one in a directory, that
+  another user could write or that is not yours (it says why on screen, runs
+  nothing and exits 2 when the split closes); see [the viewer plugin
+  contract](#the-viewer-plugin-contract).
 
 ## Themes
 
