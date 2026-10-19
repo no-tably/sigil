@@ -1044,6 +1044,8 @@ def _bound_text(ev: dict, name, scn) -> str:
     """A `limit` event as a bound: `base case at [Walker]`, `cut: frames limit`."""
     what = ev["name"]
     if what not in _BOUND_TEXT:
+        if what == "frames" and "frames" in ev:    # counted per episode
+            return f"cut: frames limit ({ev['frames']} frames of an episode, from t{ev['start']})"
         return f"cut: {what} limit"
     if what == "iterations":
         return f"loop capped at line {_block_line(scn, ev['node'], ev.get('block'))}"

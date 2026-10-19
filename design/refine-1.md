@@ -241,7 +241,7 @@ Flagged for the main session (**fix in 0.6.2** where marked):
   is a cycle (*up*). That's consistent with `depends_on`, but a K1 "cycle" rule would then
   fire on most layered designs, this one included. Decide before K1: are face flows the
   enclosing unit's?
-- **D6 (S1).** The sized default (`frames` = 64 × size = 9216 here) doesn't finish this
+- **D6 (S1; fixed in M2: factor 128, the cut reports its episode).** The sized default (`frames` = 64 × size = 9216 here) didn't finish this
   model's happy run (13602 frames). The frames limit also counts from the latest episode's
   start, so SGC090 says `frames=9216` while `view --sim all` shows the happy run `cut 11382
   frames` (the earlier Visitor episode added). "Raise --limit frames=N" starts from a number

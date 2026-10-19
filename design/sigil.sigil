@@ -109,7 +109,7 @@
       \-> [TraceRules]      # SGC090: a run cut at a limit warns in spec (blocks export); the overlap hint stays info
       \-> [InvRules]
       \-> [ExportRules]     # SGC401, SGC402: only with --export (not in the playground)
-      \-> [StructureRules]  # K1, not built: reads Structure; loaded on demand like ExportRules
+      \-> [StructureRules]  # SGC176 unit-cycle, SGC177 large-unit: read Structure; in every check where shipped (not the playground)
 }
 
 [Publish] := {
