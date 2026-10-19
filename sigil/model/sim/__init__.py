@@ -93,7 +93,11 @@ view draws (events drawn where they land, a shallower depth).
   a view that folds the expansion (--depth 0) draws the detail's token on the
   summary (project).
   A node reached in a unit where it has no work of its own runs its home
-  unit's (the shallowest that has some). An alias runs when called by name.
+  unit's (the shallowest that has some). An expansion whose owner its level
+  writes only on the `X := {` header (`[A] := { … }` at the top, [A] written
+  inside `[Core] := { … }`) is the inside of the X written there: it runs where
+  X is reached, as if written in that body (the export model nests it the same
+  way; core.graph.header_only). An alias runs when called by name.
   Composition children are instances: static ones once per parent (×N
   multiplies), dynamic ones Limits.spawn per parent, a `=>` into one spawns
   another. A flow's destination cardinality (`-> [App]×N`, Edge.card) is how
@@ -171,7 +175,9 @@ Trace(scenario, frames, outcome, end, scene)
                           abort), node, guard
               limit       name (depth | visits | spawns | iterations | activations
                           | stack | frames), node; a depth limit also act (the
-                          capped caller), level (how deep it is) and wire
+                          capped caller), level (how deep it is) and wire; a
+                          frames limit also frames (the limit) and start (the
+                          tick the latest episode began: it counts from there)
               enter       act (run-wide activation number, from 1), caller (the
                           act whose hop or fork started it; None for an entry),
                           node, unit (index), level (activations of node on the

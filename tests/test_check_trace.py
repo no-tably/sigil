@@ -882,7 +882,8 @@ class Exploration(unittest.TestCase):
 
     def test_the_limits_shown_are_the_ones_the_runs_had(self):
         sized = sim.sized(sim.Limits(), make_doc(self.LONG).sc)
-        self.assertEqual((sized.frames, sized.activations), (64 * 81, 20 * 81))
+        self.assertEqual((sized.frames, sized.activations),
+                         (sim.PER_SIZE["frames"] * 81, sim.PER_SIZE["activations"] * 81))
         rep = ck.check(self.LONG, registry=REGISTRY)
         self.assertEqual((rep.limits["frames"], rep.limits["activations"]),
                          (sized.frames, sized.activations))

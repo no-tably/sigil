@@ -211,5 +211,40 @@ class Scaled(unittest.TestCase):
                          (b.outcome, b.frames[-1].tick, b.end["log"]))
 
 
+class PerEpisode(unittest.TestCase):
+    """The frames limit counts from the latest episode's start: a cut says which
+    episode ran how many frames from which tick, and the run's length is that
+    start plus the limit (the number SGC090's `frames=N` names)."""
+
+    TEXT = "(Bob) -> |Db| : read({Row})\n" + "\n".join(long_document(40).splitlines()[1:]) + "\n"
+
+    def test_a_cut_names_its_episode_and_count(self):
+        sc = canon(self.TEXT)
+        tr = sim.simulate(sc, sim.scenario(sc, "happy"), limits=sim.Limits(frames=100))
+        self.assertEqual(tr.outcome, "cut")
+        (ev,) = [e for e in tr.end["events"] if e["kind"] == "limit"]
+        (_first, second) = tr.end["episodes"]
+        self.assertEqual((ev["name"], ev["episode"], ev["frames"], ev["start"]),
+                         ("frames", 2, 100, second["start"]))
+        self.assertGreater(ev["start"], 0)
+        self.assertEqual(tr.frames[-1].tick + 1, ev["start"] + ev["frames"])
+        self.assertTrue([ln for ln in tr.end["log"]
+                         if f"100 frames of episode 2, from t{ev['start']}" in ln])
+        told = " ".join(b.text for b in sim.narrate(tr))
+        self.assertIn(f"episode 2 reached the frames limit, 100 frames from "
+                      f"t{ev['start']}", told)
+
+
+class MetaModel(unittest.TestCase):
+    """design/sigil.sigil, the toolchain modelled in sigil: its happy run (two
+    episodes, the longer about 80 frames per unit of size) ends at default limits."""
+
+    def test_its_happy_run_ends_at_default_limits(self):
+        sc = sim.canonical(parse.parse_document(
+            (ROOT / "design" / "sigil.sigil").read_text(encoding="utf-8")))
+        tr = sim.simulate(sc, sim.scenario(sc, "happy"), keep=False)
+        self.assertEqual(tr.outcome, "ok")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1053,6 +1053,19 @@ _LIMIT_TEXT = {"depth": "{n} stops at the base case",
                "iterations": "the loop is capped"}
 
 
+def _limit_text(ev: dict, n: str) -> str:
+    """A `limit` event's sentence. The frames limit counts per episode, so a cut
+    says how many frames the episode ran and from when ("the run is cut: episode
+    2 reached the frames limit, 9216 frames from t2166"), matching the run's length."""
+    text = _LIMIT_TEXT.get(ev["name"])
+    if text:
+        return text.format(n=n)
+    if ev["name"] == "frames" and "frames" in ev:
+        return (f"the run is cut: episode {ev['episode']} reached the frames limit, "
+                f"{ev['frames']} frames from t{ev['start']}")
+    return f"the run is cut: the {ev['name']} limit"
+
+
 _STOP_TEXT = {"entry": "episode {ep} fails",
               "unawaited": "{n}'s failure stops there: nothing waits for it",
               "route-failed": "the route to {n} fails too",
@@ -1087,8 +1100,7 @@ def _event_sentence(wd: _Words, ev: dict, scn) -> Optional[str]:
     if kind == "stop" and ev["how"] in _STOP_TEXT:
         return _STOP_TEXT[ev["how"]].format(n=n, ep=ev["episode"])
     if kind == "limit":
-        text = _LIMIT_TEXT.get(ev["name"])
-        return text.format(n=n) if text else f"the run is cut: the {ev['name']} limit"
+        return _limit_text(ev, n)
     if kind == "gate-arrive":
         return f"{n} reaches the join into {wd.name(ev['key'][2])}"
     if kind == "gate-fire":

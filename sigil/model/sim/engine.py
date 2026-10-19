@@ -232,9 +232,17 @@ class _Run:
             self._request(task, req)
 
     def _cut(self, limit: str) -> None:
+        """End the run at a limit. The frames limit counts from the latest episode's
+        start, so its event and log say which episode ran how many frames from
+        which tick (`frames`, `start`): the run's length is start + frames."""
         self.cut.append(limit)
-        self._event("limit", None, name=limit, node=None)
-        self._log(f"cut: {limit} limit")
+        if limit == "frames":
+            n, start = int(self.limits.frames), self.episode_t
+            self._event("limit", None, name=limit, node=None, frames=n, start=start)
+            self._log(f"cut: frames limit ({n} frames of episode {self.episode}, from t{start})")
+        else:
+            self._event("limit", None, name=limit, node=None)
+            self._log(f"cut: {limit} limit")
         self.done = True
 
     def _request(self, task: _Task, req: tuple) -> None:

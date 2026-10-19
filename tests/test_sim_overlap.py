@@ -142,9 +142,18 @@ class TestListedOverlaps(unittest.TestCase):
         sc = build(SHARED)
         (s,) = sim.overlaps(sc)
         self.assertEqual((s.name, s.starts), ("B@5", (("B_service", 5),)))
-        self.assertEqual(s.label, f"[B] starts at {at(5)}, reaching |Db| as [A] writes it")
+        self.assertEqual(s.label, f"[B] starts at {at(5)}, reaching |Db| as [S] writes it")
         self.assertEqual(accesses(sim.simulate(sc, s)), [(9, 1, "write"), (9, 2, "read")])
         self.assertEqual(sim.scenario(sc, "B@5"), s)          # by name: the same one
+
+    def test_the_label_names_the_node_that_writes_the_store(self):
+        """The access's own node is the writer, not the earlier episode's entry:
+        an actor written inside the entry's expansion writes the store."""
+        sc = build("(V) -> [P] : go()\n[P] := {\n  (W) -> |T| : write({X})\n}\n"
+                   "[C] -> [R] : r()\n[R] -> |T| : read({X})\n")
+        labels = [s.label for s in sim.overlaps(sc)]
+        self.assertTrue(any("reaching |T| as (W) writes it" in x
+                            for x in labels), labels)
 
     def test_a_start_before_the_earlier_episode_is_its_start(self):
         sc = build("[A] -> |Db| : w()\n[A] -> [S] : a()\n[B] -> [C] : c()\n[C] -> |Db| : r()\n")

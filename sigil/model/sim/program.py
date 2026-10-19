@@ -15,7 +15,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import NamedTuple, Optional
 
-from sigil.core.graph import ALL_DEPTH, matching_occurrences, occurrences
+from sigil.core.graph import ALL_DEPTH, header_only, matching_occurrences, occurrences
 from sigil.model import scene as scene_mod
 
 
@@ -23,7 +23,7 @@ from sigil.model import scene as scene_mod
 # Public data
 # ---------------------------------------------------------------------------
 
-PER_SIZE = {"frames": 64, "activations": 20}   # a default limit per unit of document size
+PER_SIZE = {"frames": 128, "activations": 20}   # a default limit per unit of document size
 
 
 class Floor(int):
@@ -53,7 +53,7 @@ class Limits(NamedTuple):
     recursion limit (each activation nests a few generator frames). `activations`
     and `frames` count per episode, so a design with many entries runs each of them
     in full; a run's length is bounded by its entries times `frames`. The defaults
-    of `frames` and `activations` are Floors: a run gets max(2000, 64 × size)
+    of `frames` and `activations` are Floors: a run gets max(2000, 128 × size)
     frames and max(500, 20 × size) activations per episode, size being the nodes
     and edges of every unit (scaled, PER_SIZE); a given one is used as given."""
     hop: int = 4               # ticks per hop
@@ -253,9 +253,9 @@ def program(sc) -> Program:
     edge_unit = {id(e): i for i, u in enumerate(units) for e in u.graph.edges}
     flows = [w for w in sc.wires if w.role == "flow" and id(w.edge) in edge_unit]
     wire_unit = {id(w): edge_unit[id(w.edge)] for w in flows}
-    expansions = {(i, nid): unit_of_graph[id(sub)] for i, u in enumerate(units)
-                  for nid, sub in u.graph.expansions.items()
-                  if sub.role != "state" and id(sub) in unit_of_graph}
+    expansions = _nested(units, {(i, nid): unit_of_graph[id(sub)] for i, u in enumerate(units)
+                                 for nid, sub in u.graph.expansions.items()
+                                 if sub.role != "state" and id(sub) in unit_of_graph})
     prog = Program(scene=sc, units=units, wire_unit=wire_unit, bodies={}, arm_bodies={},
                    arm_wire={}, routes={}, returns={}, expansions=expansions,
                    aliases=_aliases(units, expansions), entries={}, decisions={},
@@ -550,6 +550,26 @@ def _unit_entries(prog: Program, ui: int, wires: list) -> tuple:
         if dui == ui:
             cands.append((u.graph.blocks[bi].lines[0], -1, did))
     return tuple(nid for _line, _k, nid in sorted(cands, key=lambda c: (c[0], c[1])))
+
+
+def _nested(units: list, expansions: dict) -> dict:
+    """expansions with each one whose owner its level writes only on the header
+    (core.graph.header_only: `[A] := { … }` at the top for an [A] written inside
+    `[Core] := { … }`) moved to the units that write its owner: there it is A's
+    inside, run when A is reached as if written in that body (the export model
+    nests its system the same way). An owner written nowhere else keeps its
+    expansion where the header is."""
+    out = dict(expansions)
+    for (i, nid), exp in expansions.items():
+        if not header_only(units[i].graph, nid):
+            continue
+        hosts = [j for j, u in enumerate(units)
+                 if j not in (i, exp) and u.graph.role != "state" and nid in u.graph.nodes
+                 and (j, nid) not in expansions and not header_only(u.graph, nid)]
+        if hosts:
+            del out[(i, nid)]
+            out.update({(j, nid): exp for j in hosts})
+    return out
 
 
 def _aliases(units: list, expansions: dict) -> dict:

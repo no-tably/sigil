@@ -744,12 +744,14 @@ class OverlapWindow(NamedTuple):
 
 class _Touch(NamedTuple):
     """An episode touching something: at `tick`, `item` (a node id, or a machine's
-    owner) as `kind` ("store": an access, `mode` its mode; "machine": a
+    owner) as `kind` ("store": an access, `mode` its mode, `by` the node at the
+    access wire's other end, the one reading or writing it; "machine": a
     transition; "node": the middle of an activation there)."""
     tick: int
     item: str
     kind: str
     mode: str = ""
+    by: str = ""
 
 
 class _Episode(NamedTuple):
@@ -784,15 +786,18 @@ def _start_scenario(prog: Program, part: str, entries: dict) -> Optional[Scenari
     return Scenario(part, (), f"{_Words(prog.scene).name(nid)} starts at t{t}", None, ((nid, t),))
 
 
-def _touches(events: list) -> tuple:
-    """The _Touches of one episode's events: each store access, each machine
-    transition, and the middle tick of each activation (a node the access
-    already names counts as the store only)."""
+def _touches(events: list, wires: dict) -> tuple:
+    """The _Touches of one episode's events: each store access (by the other end
+    of its wire, `wires` {ident: scene Wire}), each machine transition, and the
+    middle tick of each activation (a node the access already names counts as
+    the store only)."""
     entered, out = {}, []
     accessed = {e["store"] for e in events if e["kind"] == "access"}
     for e in events:
         if e["kind"] == "access":
-            out.append(_Touch(e["t"], e["store"], "store", e["mode"]))
+            w = wires.get(e["wire"])
+            by = "" if w is None else (w.src if w.dst == e["store"] else w.dst)
+            out.append(_Touch(e["t"], e["store"], "store", e["mode"], by))
         elif e["kind"] == "transition":
             out.append(_Touch(e["t"], e["owner"], "machine"))
         elif e["kind"] == "enter":
@@ -804,16 +809,17 @@ def _touches(events: list) -> tuple:
     return tuple(sorted(out, key=lambda x: x.tick))
 
 
-def _episodes(trace: Trace) -> list:
-    """[_Episode] of a run, in start order (an episode no task of which acted is
-    left out)."""
+def _episodes(prog: Program, trace: Trace) -> list:
+    """[_Episode] of a run of prog, in start order (an episode no task of which
+    acted is left out)."""
     events = [e for e in trace.end["events"] if e["task"] is not None]
+    wires = {w.ident: w for w in prog.scene.wires}
     out = []
     for ep in trace.end["episodes"]:
         own = [e for e in events if e["episode"] == ep["episode"]]
         if own:
             out.append(_Episode(ep["entry"], ep["start"], max(e["t"] for e in own),
-                                _touches(own)))
+                                _touches(own, wires)))
     return out
 
 
@@ -823,17 +829,20 @@ def _pairs(prog: Program, limits: Limits) -> list:
     named = set(_entry_parts(prog).values())
     if len(named) < 2:
         return []
-    eps = [e for e in _episodes(_simulate(prog, Scenario("happy"), limits, keep=False))
+    eps = [e for e in _episodes(prog, _simulate(prog, Scenario("happy"), limits, keep=False))
            if e.entry in named]
     return [(a, b) for j, b in enumerate(eps) for a in eps[:j]]
 
 
-def _touch_clause(who: str, t: _Touch) -> str:
-    """What the earlier entry is doing to the shared item as the later one
-    reaches it: "as [A] writes it", "as [A] changes its state", "while [A] is there"."""
+def _touch_clause(who: str, t: _Touch, wd: _Words) -> str:
+    """What the earlier entry `who` is doing to the shared item as the later one
+    reaches it: "as [A] writes it", "as [A] changes its state", "while [A] is there".
+    A store access names the node that makes it, which may be a node the entry's
+    episode reaches rather than the entry ("as (Author) writes it" in (Visitor)'s
+    episode)."""
     verb = {"read": "reads", "write": "writes", "rw": "reads and writes"}.get(t.mode, "uses")
     if t.kind == "store":
-        return f"as {who} {verb} it"
+        return f"as {wd.name(t.by) if t.by else who} {verb} it"
     if t.kind == "machine":
         return f"as {who} changes its state"
     return f"while {who} is there"
@@ -859,7 +868,7 @@ def _pair_overlaps(prog: Program, a: _Episode, b: _Episode, wd: _Words, cap: int
         item = wd.name(t.item)
         label = (f"{bname} starts at t{start} with {aname}, reaching {item} after it does"
                  if late else
-                 f"{bname} starts at t{start}, reaching {item} {_touch_clause(aname, t)}")
+                 f"{bname} starts at t{start}, reaching {item} {_touch_clause(aname, t, wd)}")
         out.append(Scenario(f"{_node_part(prog, b.entry)}@{start}", (), label, None,
                             ((b.entry, start),)))
     return out

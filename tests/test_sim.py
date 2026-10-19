@@ -1818,5 +1818,52 @@ class TestOverlappingEpisodes(unittest.TestCase):
                     self.assertTrue(all(t.episode == f.episode for t in f.tokens))
 
 
+# ---------------------------------------------------------------------------
+# An expansion written at the top for a member of another unit
+# ---------------------------------------------------------------------------
+
+NESTED_HEAD = "(U) -> [Core] : use({X}) => {Y}\n\n"
+INSIDE_A = "[A] := {\n  [P] -> [Q] : go({X}) => {Y}\n}\n"
+
+
+class TestHeaderOnlyExpansion(unittest.TestCase):
+    """`[A] := { … }` at the top, [A] written inside `[Core] := { … }` with flows
+    of its own there: the run enters A's expansion where A is reached, as it does
+    when the expansion is written inside Core's body (the export model nests it
+    there, core.graph.header_only)."""
+
+    def texts(self, core: str):
+        top = NESTED_HEAD + "[Core] := {\n" + core + "}\n\n" + INSIDE_A
+        inside = (NESTED_HEAD + "[Core] := {\n" + core
+                  + "".join("  " + ln + "\n" for ln in INSIDE_A.splitlines()) + "}\n")
+        return top, inside
+
+    def test_the_expansion_runs_as_if_written_inside(self):
+        top, inside = self.texts("  [B] -> [A] : get({X}) => {Y}\n"
+                                 "  [A] -> [C] : put({X}) => {Y}\n")
+        a, b = run(build(top)), run(build(inside))
+        self.assertTrue(logs(a, "[P] -> [Q]"), a.end["log"])
+        self.assertEqual([ln for ln in a.end["log"] if " -> " in ln],
+                         [ln for ln in b.end["log"] if " -> " in ln])
+        self.assertEqual(len(a.frames), len(b.frames))
+
+    def test_a_member_with_no_flow_of_its_own_still_runs_it(self):
+        top, _ = self.texts("  [A]\n  [B] -> [A] : get({X}) => {Y}\n")
+        self.assertTrue(logs(run(build(top)), "[P] -> [Q]"))
+
+    def test_an_owner_written_nowhere_else_keeps_it_at_the_top(self):
+        sc = build("(U) -> [Top] : go({X}) => {Y}\n[Top] -> [B] : get({X}) => {Y}\n\n"
+                   + INSIDE_A + "\n[B] := {\n  [R] -> [P] : go({X}) => {Y}\n}\n")
+        prog = sim._program_of(sc.graph)
+        self.assertIn((0, "A_service"), prog.expansions)
+
+    def test_spec_check_reports_no_unreached_part(self):
+        from sigil.analyse import check as ck
+        top, _ = self.texts("  [B] -> [A] : get({X}) => {Y}\n"
+                            "  [A] -> [C] : put({X}) => {Y}\n")
+        rep = ck.check("#!spec\n" + top, mode="spec")
+        self.assertEqual([f for f in rep.findings if f.rule.id == "SGC175"], [])
+
+
 if __name__ == "__main__":
     unittest.main()
