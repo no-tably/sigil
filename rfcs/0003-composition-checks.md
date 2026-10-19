@@ -198,8 +198,9 @@ design (see the list below):
   `policy-in-prose` can be acknowledged: its match reads prose, so it misfires on a
   comment that names a policy the design delegates elsewhere (`# the timeout is
   enforced by the gateway`). `exploration-incomplete` can be acknowledged for its
-  loop-cap cause only, on the loop's line; its budget, cut and spawn causes
-  describe a run, not the design. Every structural, behavioural and invariant rule can be acknowledged.
+  loop-cap cause, on the loop's line, and (since 0.6.2, when a cut run warns in
+  spec) its cut cause, on the entry's line; its budget and spawn causes describe
+  the exploration, not the design. Every structural, behavioural and invariant rule can be acknowledged.
 - **Later: a decorated form.** A reserved marker after `#` lets tools and readers
   tell an acknowledgement from prose without reading words:
   `#= retry-without-idempotency — upsert on order_id`. Both forms will stay valid

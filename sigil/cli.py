@@ -6,7 +6,7 @@
     sigil export SPEC --out DIR [--name NAME] [--json] [--dry-run]
     sigil export FILE --mermaid [--depth N|all] [--composition subgraphs|edges|none]
     sigil export FILE --mermaid --spine [--name NAME]
-    sigil frames draw FILE [--view V] [--depth N|all] [--width N] [--scenario S] …
+    sigil frames draw FILE [--view V] [--depth N|all] [--width N] [--scenario S] [--limit NAME=N] …
     sigil frames follow CONTROL
     sigil themes [NAME|PATH] [--list]
 
@@ -644,13 +644,21 @@ def _frames(argv: list, dialect) -> int:
     d.add_argument("--count", type=int, default=frames.WINDOW)
     d.add_argument("--payloads", action="store_true")
     d.add_argument("--theme", default=None)
+    d.add_argument("--limit", action="append", default=[], metavar="NAME=N",
+                   help="raise one simulator limit (repeatable; e.g. frames=5000), as "
+                        "view and check take it")
     f = sub.add_parser("follow", help="run `sigil view` live as a control file says")
     f.add_argument("control", type=Path)
     a = ap.parse_args(argv)
     if a.cmd == "follow":
         return follow(a.control)
+    try:
+        limits = _limits(a.limit)
+    except ValueError as exc:
+        say("frames", str(exc))
+        return 2
     out = frames.draw(a.file, a.view, a.depth, a.width, a.scenario, a.payloads, a.theme,
-                      a.layout, a.height, a.start, a.count)
+                      a.layout, a.height, a.start, a.count, limits)
     sys.stdout.write(json.dumps(out, ensure_ascii=False) + "\n")
     return 0
 

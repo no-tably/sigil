@@ -41,7 +41,7 @@ number. "Example n" means language.md's worked example n.
 | SGC002 | ack-without-reason | meta | binding | P1 | — |
 | SGC003 | ack-unused | meta | advisory | P2 | — |
 | SGC004 | policy-in-prose | meta | hint | P1 | site 02:13, site 01:8 |
-| SGC090 | exploration-incomplete | meta | hint | P3 (loop part P2) | coverage loop caps |
+| SGC090 | exploration-incomplete | meta | hint (a cut run: warn in spec, 0.6.2) | P3 (loop part P2) | coverage loop caps |
 | SGC101 | unguarded-call | static | binding (op) / advisory (actor) | P2 | examples.md:497–498 (satisfied at P2) |
 | SGC102 | retry-amplification | static | advisory | P2 | probe only |
 | SGC103 | timeout-budget-inverted | static | binding | P2 | probe only |
@@ -2264,10 +2264,10 @@ is acknowledged, or checked by a dialect pack (§11).
 acknowledgement (correct the name, give the reason, delete the stale line), which is
 always possible and never touches the design. SGC004 can be acknowledged: its match
 reads prose, so it misfires on a comment that names a policy the design delegates
-elsewhere. SGC090 can be acknowledged for its loop-cap cause
-only (the one cause anchored on a line of the design); its budget, cut and spawn
-causes describe a run, not the design, and are never acknowledged. RFC 0003 says
-the same.
+elsewhere. SGC090 can be acknowledged for its loop-cap cause (on the loop's line)
+and, since 0.6.2, its cut cause (on the cut episode's entry line, since a cut run
+warns in spec and blocks the export gate); its budget and spawn causes describe the
+exploration, not the design, and are never acknowledged. RFC 0003 says the same.
 
 #### SGC001 `ack-unknown-rule`
 - **What.** An acknowledgement names no known rule (core or dialect). The message
@@ -2362,10 +2362,14 @@ the same.
     B11's missing log line was fixed in P3: a capped loop logs
     `loop capped: @times N runs n` and records a `limit` event.
 - **Declare.** Nothing in the design is wrong. A loop-cap finding can be
-  acknowledged on the loop's line (the example); the other causes are answered by
-  running with larger limits or budget, and are never acknowledged. The budget
-  counts runs, not seconds, so a cut is the same on every machine.
-- **Tier.** hint in craft; in spec info plus a summary line. Ask: "The simulator ran
+  acknowledged on the loop's line (the example), a cut run on its episode's entry
+  line; the other causes are answered by running with larger limits or budget, and
+  are never acknowledged. The budget counts runs, not seconds, so a cut is the same
+  on every machine.
+- **Tier.** hint in craft; in spec info plus a summary line — except a run cut at
+  its activations, stack or frames limit, which warns in spec (0.6.2): a spec whose
+  runs never finished does not pass `check --mode spec` or the export gate until
+  `--limit` is raised so nothing is cut, or the cut is acknowledged. Ask: "The simulator ran
   this loop 2 of its 5 times. Are 2 iterations enough evidence?"
 - **Example.** Flagged:
   ```

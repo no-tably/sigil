@@ -759,9 +759,70 @@ class Exploration(unittest.TestCase):
         self.assertIn("SGC090", cli(bound))
         self.assertNotIn("SGC090", cli(bound, "--limit", "depth=40"))
 
-    def test_a_cut_is_not_acknowledgeable(self):
+    def test_only_a_cut_or_a_loop_cap_is_acknowledgeable(self):
         rule = REGISTRY["SGC090"]
-        self.assertFalse(rule.acknowledgeable)
+        self.assertEqual((rule.acknowledgeable, rule.ack_document), (False, False))
+        (budget,) = cause_of(ck.check(fixture("trace-206-k2.sigil"), k=2, budget=1,
+                                      registry=REGISTRY), "exploration budget")
+        self.assertFalse(ck.acknowledgeable(budget))
+        (cut,) = cause_of(self.cut("spec"), "cut a run")
+        self.assertTrue(ck.acknowledgeable(cut))
+
+    # A short spec the simulator cuts at frames=2 (its entry on line 2).
+    SHORT = ("#!spec\n(U) -> [A] : go({X}) => {Y}\n[A] -> [B] : step({X}) => {Y}\n"
+             "[B] -> [C] : step({X}) => {Y}\n")
+
+    def cut(self, mode: str, text: str = SHORT):
+        return ck.check(text, mode=mode, limits=sim.Limits(frames=2), registry=REGISTRY)
+
+    def test_a_cut_run_warns_in_spec_only(self):
+        severities = {}
+        for mode in ck.MODES:
+            rep = self.cut(mode)
+            severities[mode] = [f.severity for f in rep.findings
+                                if f.rule.id == "SGC090" and "cut a run" in f.hit.statement]
+        self.assertEqual(severities, {"sketch": [], "craft": ["info"], "spec": ["warn"]})
+        (f,) = cause_of(self.cut("spec"), "cut a run")
+        self.assertEqual(f.line, 2)
+        self.assertIn("raise --limit frames=N until no run is cut", f.hit.fix)
+
+    def test_the_other_causes_stay_hints_in_spec(self):
+        rep = ck.check(COVERAGE.read_text(encoding="utf-8"), mode="spec", budget=1,
+                       registry=REGISTRY)
+        (f,) = cause_of(rep, "exploration budget")
+        self.assertEqual(f.severity, "info")
+
+    def test_a_cut_is_acknowledged_on_its_entry_line(self):
+        acked = self.SHORT.replace("=> {Y}\n", "=> {Y}  # accepts: exploration-incomplete "
+                                   "— the happy run is long by design\n", 1)
+        rep = self.cut("spec", acked)
+        self.assertEqual(cause_of(rep, "cut a run"), [])
+        self.assertEqual([f.rule.id for f in rep.acknowledged], ["SGC090"])
+
+    def test_a_cut_run_blocks_the_export_gate(self):
+        from sigil.analyse import lint
+        from sigil.publish import exporter
+
+        class Limited:                       # check at frames=2, as --limit would
+            def __getattr__(self, name):
+                return getattr(ck, name)
+
+            @staticmethod
+            def check(text, **kw):
+                return ck.check(text, limits=sim.Limits(frames=2), **kw)
+
+        blocking = exporter.gate(self.SHORT, None, lint, Limited())
+        self.assertTrue(any("SGC090" in ln and "cut a run" in ln for ln in blocking), blocking)
+
+    def test_the_loop_cap_reads_the_iterations_limit(self):
+        text = "#!craft\n(U) -> [B] : run()\nloop @times 5 {\n  [B] -> |Q| : push({I})\n}\n"
+        (f,) = of(ck.check(text, registry=REGISTRY), "SGC090")
+        self.assertIn("ran this loop 2 of its 5 times (limits: iterations=2)", f.hit.statement)
+        self.assertIn("--limit iterations=N", f.hit.fix)
+        (f,) = of(ck.check(text, limits=sim.Limits(iterations=3), registry=REGISTRY), "SGC090")
+        self.assertIn("ran this loop 3 of its 5 times (limits: iterations=3)", f.hit.statement)
+        self.assertEqual(of(ck.check(text, limits=sim.Limits(iterations=5), registry=REGISTRY),
+                            "SGC090"), [])
 
     def test_a_declared_bound_beyond_the_simulators(self):
         rep = ck.check(fixture("trace-090-bound.sigil"), registry=REGISTRY)

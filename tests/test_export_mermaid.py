@@ -112,6 +112,38 @@ class SpineTest(unittest.TestCase):
         self.assertTrue(out.startswith("flowchart TD\n"))
 
 
+class UnlistedDialectKindTest(unittest.TestCase):
+    """A dialect glyph of a kind its NODE_KINDS does not list (or lists without a
+    `mermaid_shape`) draws in the core component's shape, not a KeyError."""
+
+    PROBE = (ROOT / "tests" / "fixtures" / "dialect_export_probe.py").read_text(encoding="utf-8")
+
+    def chart(self, node_kinds: str) -> tuple:
+        with tempfile.TemporaryDirectory() as tmp:
+            dialect = Path(tmp) / "unlisted.py"
+            dialect.write_text(self.PROBE.replace(
+                self.PROBE[self.PROBE.index("NODE_KINDS = "):self.PROBE.index("_REF_RE")],
+                node_kinds + "\n\n"), encoding="utf-8")
+            sigil = Path(tmp) / "doc.sigil"
+            sigil.write_text("[Api] -> [[Cache]] : get({K}) => {V}\n", encoding="utf-8")
+            return run_cli(["export", str(sigil), "--mermaid", "--dialect", str(dialect)])
+
+    def test_an_unlisted_kind_is_a_rectangle(self):
+        code, out = self.chart("NODE_KINDS = {}")
+        self.assertEqual(code, 0)
+        self.assertIn('Cache_ref["Cache"]', out)
+
+    def test_a_listed_kind_without_a_shape_is_a_rectangle(self):
+        code, out = self.chart('NODE_KINDS = {"ref": {"open": "[[", "close": "]]"}}')
+        self.assertEqual(code, 0)
+        self.assertIn('Cache_ref["Cache"]', out)
+
+    def test_a_listed_shape_still_wins(self):
+        code, out = self.chart('NODE_KINDS = {"ref": {"mermaid_shape": ("[[", "]]")}}')
+        self.assertEqual(code, 0)
+        self.assertIn('Cache_ref[["Cache"]]', out)
+
+
 class FaceDependencyTest(unittest.TestCase):
     TEXT = doc("""
         #!spec

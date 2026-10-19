@@ -144,12 +144,16 @@ def node_label(n: Node, dialect=None) -> str:
     return {"start": "●", "end": "◉", "any": "∗ any"}.get(n.attrs.get("pseudo"), n.name)
 
 
+def node_shape(n: Node, dialect=None) -> tuple:
+    """(open, close) of a node's Mermaid shape: its dialect NODE_KINDS entry's
+    `mermaid_shape`, else the core kind's, else — a dialect kind NODE_KINDS does not
+    list, or lists without a shape — the core component's (a rectangle)."""
+    spec = _node_kinds(dialect).get(n.kind) or {}
+    return tuple(spec.get("mermaid_shape") or NODE_SHAPE.get(n.kind, NODE_SHAPE["service"]))
+
+
 def emit_node(n: Node, indent: str = "    ", dialect=None) -> str:
-    spec = _node_kinds(dialect).get(n.kind)
-    if spec is not None:
-        open_shape, close_shape = spec["mermaid_shape"]
-    else:
-        open_shape, close_shape = NODE_SHAPE[n.kind]
+    open_shape, close_shape = node_shape(n, dialect)
     label = mermaid_text(node_label(n, dialect))
     if n.is_stream:
         label = f"*{label}"

@@ -15,7 +15,7 @@ a terminal. The page (site/build_site.py's frames.json), the playground
 
 `sigil frames draw FILE [--view graph|tree|flow|run] [--depth N|all] [--width N]
 [--height N] [--layout auto|wrap|pan] [--scenario NAME [--from N|last]
-[--count N]] [--payloads] [--theme NAME]` prints one JSON object: {"file",
+[--count N]] [--payloads] [--theme NAME] [--limit NAME=N]…` prints one JSON object: {"file",
 "view", "width", "layout" (what was drawn: wrap — fitted to --width — or pan —
 the natural layout; auto picks as the live view does for a --width × --height
 pane, wrap without --height), "styles": [[fg hex|null, bg hex|null, bold]],
@@ -269,9 +269,11 @@ def legend_rows(g, view_name: str, *, depth: int, payloads: bool, events: str, s
 def draw(path: Path, view_name: str = "flow", depth: int = 1, width: int | None = None,
          scenario: str | None = None, payloads: bool = False, theme: str | None = None,
          layout: str = "auto", height: int | None = None, start: int | None = 0,
-         count: int = WINDOW) -> dict:
+         count: int = WINDOW, limits=None) -> dict:
     """The JSON object `sigil frames draw` prints (see the module docstring); a
-    run's frames are window(start, count, its last frame)."""
+    run's frames are window(start, count, its last frame). `limits`: the
+    simulator's bounds (--limit NAME=N; None: its defaults), for the run drawn and
+    the scenarios listed, as `sigil view` and `sigil check` use them."""
     try:
         kit.use_theme(theme)
     except ValueError as exc:
@@ -291,7 +293,7 @@ def draw(path: Path, view_name: str = "flow", depth: int = 1, width: int | None 
         if out["layout"] == "pan":
             kw["width"] = None
         if scenario:
-            player = app.SimPlayer(g, scenario)
+            player = app.SimPlayer(g, scenario, limits)
             shown = player.shown(scene.SceneOptions(events, True, False, depth))
             picks = window(start, count, player.last)
             drawn, status, log, say, trail, path_rows = [], [], [], [], [], []
@@ -328,7 +330,8 @@ def draw(path: Path, view_name: str = "flow", depth: int = 1, width: int | None 
     out["lint"] = [d.format() for d in diags[:LINT_LINES]]
     try:
         canon = simulator.canonical(g)
-        out["scenarios"] = [s.name for s in simulator.scenarios(canon)]
+        out["scenarios"] = [s.name for s in simulator.scenarios(
+            canon, limits=limits or simulator.Limits())]
     except Exception:                       # a half-written design still draws
         out["scenarios"] = []
     out["frames"], out["styles"] = drawn, styles.table

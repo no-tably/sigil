@@ -1796,10 +1796,11 @@ def find_ordering_unstated(ck, f: Facts):
 # SGC090 exploration-incomplete: the loop-cap cause (static)
 # ---------------------------------------------------------------------------
 
-def capped_loops(sim, prog) -> list:
+def capped_loops(sim, prog, limits=None) -> list:
     """(Block, declared, runs) of every reachable loop the simulator runs fewer
-    times than its `@times N` (a symbolic N: always)."""
-    limits = sim.Limits()
+    times than its `@times N` (a symbolic N: always), under `limits` (None: the
+    simulator's defaults)."""
+    limits = limits or sim.Limits()
     out = []
     for _key, region in sorted(sim.reachable(prog)[2].items(), key=lambda kv: kv[0]):
         if region is None or region.block.kind != "loop":
@@ -1815,16 +1816,16 @@ def capped_loops(sim, prog) -> list:
 
 def loop_cap_cause(ck):
     def match(doc):
-        limits = doc.sim.Limits()
-        for b, times, runs in capped_loops(doc.sim, doc.prog):
+        limits = doc.limits
+        for b, times, runs in capped_loops(doc.sim, doc.prog, limits):
             yield ck.Hit(b.lines[0], f"the simulator ran this loop {runs} of its {times} "
                                      f"times (limits: iterations={limits.iterations})",
                          f"The simulator ran this loop {runs} of its {times} times "
                          f"(limits: iterations={limits.iterations}). Are {runs} iterations "
                          "enough evidence?",
                          anchor=("block", str(b.lines[0])), acknowledgeable=True,
-                         fix="run with a larger iterations limit, or acknowledge on the "
-                             "loop's line")
+                         fix="run with a larger iterations limit (--limit iterations=N), "
+                             "or acknowledge on the loop's line")
     return match
 
 

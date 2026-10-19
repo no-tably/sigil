@@ -1061,8 +1061,16 @@ def episode_entry_at(events: list, index: int) -> Optional[str]:
     return node
 
 
+def cut_limit_fix(name: str) -> str:
+    """The fix for a run cut at limit `name`: raise it until nothing is cut."""
+    return (f"raise --limit {name}=N until no run is cut, or acknowledge on the "
+            "entry's line")
+
+
 def cut_cause(ck):
-    """A run the simulator cut at a limit: one finding per limit."""
+    """A run the simulator cut at a limit: one finding per limit. A hint, but a
+    warn in spec mode, so a spec whose runs never finished does not pass the spec
+    check or the export gate unless acknowledged (on the entry's line)."""
     run_limits = ("activations", "stack", "frames")
 
     def match(doc):
@@ -1083,7 +1091,8 @@ def cut_cause(ck):
                                 f"The simulator stopped {in_run(run)} at its {e['name']} "
                                 "limit. Is what it ran enough evidence?",
                                 anchor=("limit", e["name"]), at=e["t"],
-                                fix=limit_fix(e["name"]))
+                                fix=cut_limit_fix(e["name"]),
+                                acknowledgeable=True, severity_in=(("spec", "warn"),))
     return match
 
 

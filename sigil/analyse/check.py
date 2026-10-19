@@ -150,8 +150,8 @@ CATALOG = {**CORE_NAMES, **EXPORT_NAMES}
 CORE_ID_PREFIXES = {"SGL": "lint codes", "SGC": "check ids"}
 # Fixed by editing a line, never by a decision about the design (catalog §5): the
 # ack-* rules (SGC001-SGC003). No Rule or Hit flag can make these acknowledgeable.
-# SGC090 is acknowledgeable for its loop-cap cause only, on the loop's line (see
-# exploration_rule). SGC004 policy-in-prose is acknowledgeable: its match reads
+# SGC090 is acknowledgeable for its loop-cap and cut-run causes only, on the
+# loop's or the cut episode's entry line (see exploration_rule). SGC004 policy-in-prose is acknowledgeable: its match reads
 # prose and can misfire.
 NOT_ACKNOWLEDGEABLE = frozenset({"ack-unknown-rule", "ack-without-reason", "ack-unused"})
 EXPLORATION = ("SGC090", "exploration-incomplete")
@@ -249,6 +249,7 @@ class Hit:
     scopes: tuple = ()
     acknowledgeable: Optional[bool] = None   # None: the rule's
     about: str = ""                  # the id of a rule this hit is about (SGC003's)
+    severity_in: tuple = ()          # ((mode, severity), …): the rule's, for this hit
 
 
 @dataclass
@@ -781,10 +782,12 @@ def module_rules(api, names: tuple = RULE_MODULES) -> list:
 def exploration_rule(causes: list) -> Rule:
     """SGC090 exploration-incomplete: one rule over the causes several modules find
     (a module's `exploration_causes(api)` returns match functions: loop caps from
-    the static rules, budget, cut and spawn ceiling from the traces). Only a
-    loop-cap Hit is acknowledgeable, and only on the loop's own line: its cause
-    yields Hits with `acknowledgeable=True` anchored on the loop header; the
-    others describe a run, not the design (catalog §5)."""
+    the static rules, budget, cut and spawn ceiling from the traces). A hint,
+    but a run cut at a limit warns in spec mode (its Hit's `severity_in`): a spec
+    whose runs never finished is not ready to export. Only a loop-cap or cut-run
+    Hit is acknowledgeable, and only on its own line (the loop header, the cut
+    episode's entry): their causes yield Hits with `acknowledgeable=True`; the
+    others describe the exploration, not the design (catalog §5)."""
     def match(doc):
         for cause in causes:
             yield from cause(doc)
@@ -895,7 +898,7 @@ def effective_tier(tier: str, guessed: bool) -> str:
 def grade(rule: Rule, hit: Hit, mode: str) -> tuple:
     """(severity or None, hidden, tier) for a hit in a mode (catalog §1.2)."""
     tier = effective_tier(hit.tier or rule.tier, bool(hit.guess))
-    override = dict(rule.severity_in).get(mode)
+    override = dict(hit.severity_in).get(mode) or dict(rule.severity_in).get(mode)
     if override:
         severity, hidden = override, False
     else:
