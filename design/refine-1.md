@@ -257,3 +257,26 @@ Flagged for the main session (**fix in 0.6.2** where marked):
 - **Fixed in the model** (it was wrong, the code was right): `[Check] -> [Lint]`, `[Parse]
   -> [Comments]`, `[Systems]` in Publish, `@inv serialised(|ExportDir|)`, no Follow / themes
   command, no structure reading.
+
+## Round 2: system kinds (2026-10-22, patch-0.6.3)
+
+The change, modelled before it was built: Core gains `[Kinds]` (a table read from
+the `#%` line after the mode line: shape, reach, concurrency, and the rule groups
+each word turns off); Lint judges the line (SGL093–095); Check drops the groups the
+Doc's kind turns off, names them in its summary, and makes no overlap runs for a
+`deterministic` kind; `--all-rules` runs everything; the skill asks the kind once.
+No new dependency or trust boundary: the line is text, and `[Kinds]` calls nothing.
+
+| reading | before | after |
+|---|---|---|
+| Core members / internal flows | 6 / 5 | 7 / 6 |
+| units, cycles, up links | 10, 0, 2 | 10, 0, 2 |
+| `[Kinds]` reach | — | out 0, in 31 (a leaf, like Lex) |
+| spec check (no `#%` line) | 0 error, 2 warn, 8 info | the same |
+| happy run | 13602 frames | 14912 (one more call per parse) |
+
+Then the model itself took `#% job in-process deterministic`: 21 rules off, and its
+two warnings go with them — SGC101 on loading a dialect (an import: in-process) and
+SGC204 on `|ThemeFiles|` (the author's edit and the viewer's reload, one at a time).
+The second is a judgement the user may revisit: `frames follow` spawns a child
+`sigil view`, so part of sigil is not one process.

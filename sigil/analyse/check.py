@@ -96,6 +96,7 @@ from typing import Callable, Iterable, Optional
 
 # Layout and acknowledgements are read in core (check.Ack, check.read_acks, … keep
 # their names here).
+from sigil.core.kinds import read_kind
 from sigil.core.comments import (  # noqa: F401  (re-exported)
     Ack, Layout, RULE_ID_RE, ack_span, parse_ack, read_acks, walk_layout)
 
@@ -182,6 +183,23 @@ DEFAULT_K = {"sketch": 1, "craft": 1, "spec": 2}
 # Overlap runs (a later entry started while an earlier one's episode runs) are the
 # exhaustive part of an exploration: off while a design is drafted, every start
 # tick (within the budget) in spec, the check before a spec is final.
+# The group of each rule a system kind can turn off (sigil.core.kinds: the `#%`
+# line); every other rule, a dialect's too, is "global" and always runs.
+RULE_GROUPS = {
+    **dict.fromkeys(("SGC101", "SGC102", "SGC103", "SGC104", "SGC111", "SGC112", "SGC114",
+                     "SGC135", "SGC165", "SGC206", "SGC306"), "network"),
+    **dict.fromkeys(("SGC123", "SGC131", "SGC133", "SGC134", "SGC136", "SGC173", "SGC204",
+                     "SGC205"), "concurrency"),
+    **dict.fromkeys(("SGC163", "SGC166"), "traffic"),
+    **dict.fromkeys(("SGC144", "SGC147", "SGC152", "SGC153"), "ending"),
+    **dict.fromkeys(("SGC145", "SGC146", "SGC175"), "entry"),
+}
+
+
+def group_of(rule_id: str) -> str:
+    return RULE_GROUPS.get(rule_id, "global")
+
+
 OVERLAPS = ("off", "listed", "all")
 DEFAULT_OVERLAPS = {"sketch": "off", "craft": "off", "spec": "all"}
 
@@ -336,6 +354,8 @@ class Report:
     findings: list                   # emitted, unacknowledged, unfolded (incl. hidden)
     acknowledged: list
     folded: list
+    kind: str = ""                   # the `#%` line's words ("": no line)
+    off: tuple = ()                  # the ids of the rules the kind turned off
 
     @property
     def shown(self) -> list:
@@ -346,9 +366,12 @@ class Report:
         return 2 if "error" in sev else 1 if "warn" in sev else 0
 
     def to_dict(self) -> dict:
-        return {"mode": self.mode, "k": self.k, "limits": self.limits,
-                "findings": [f.to_dict() for f in self.findings],
-                "acknowledged": [f.to_dict() for f in self.acknowledged]}
+        out = {"mode": self.mode, "k": self.k, "limits": self.limits,
+               "findings": [f.to_dict() for f in self.findings],
+               "acknowledged": [f.to_dict() for f in self.acknowledged]}
+        if self.kind:
+            out["kind"] = {"words": self.kind, "off": list(self.off)}
+        return out
 
 
 # ---------------------------------------------------------------------------
@@ -393,6 +416,7 @@ class Doc:
         self._budget = budget        # None: the defaults (see budget, limits)
         self._limits = limits
         self._overlaps = overlaps    # None: the mode's (DEFAULT_OVERLAPS)
+        self.off = {}                # rule id → the `#%` words that turned it off
 
     def id_of(self, name: str) -> str:
         """The id of the rule named `name` ("" when no rule has it)."""
@@ -1040,7 +1064,7 @@ def limits_of(doc: Doc) -> dict:
 def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
           dialect=None, registry: Optional[dict] = None, pack=None,
           budget: Optional[int] = None, limits=None, overlaps=None,
-          export: bool = False, walk=None, graph=None) -> Report:
+          export: bool = False, walk=None, graph=None, all_rules: bool = False) -> Report:
     """Check a document. `mode` overrides its mode line; `pack` defaults to the
     dialect's rule pack (dialect_pack), whose read verbs, policy words and
     `@inv` heads the rules read; `registry` defaults to the core rules, every rule module beside
@@ -1051,7 +1075,9 @@ def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
     it is). `walk`: the document's reading (sigil.core.statements.read_document
     of `text` with `dialect`) when the caller has it already, as `sigil lint
     --deep` and the export gate do, and `graph` the model parsed from that walk
-    (sigil.core.parse.parse_document); None reads / parses it here."""
+    (sigil.core.parse.parse_document); None reads / parses it here. The `#%`
+    kind line turns rule groups off (RULE_GROUPS; a `deterministic` kind makes no
+    overlap runs unless `overlaps` is given); `all_rules` runs them anyway."""
     pack = dialect_pack(dialect) if pack is None else pack
     registry = default_registry(pack.rules, export) if registry is None else registry
     lines = text.splitlines()
@@ -1059,11 +1085,18 @@ def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
     if mode not in MODES:
         raise ValueError(f"unknown mode {mode!r} (one of {', '.join(MODES)})")
     k = DEFAULT_K[mode] if k is None else k
+    kind = read_kind(lines)
+    off = () if all_rules else tuple(sorted(
+        rid for rid in registry if group_of(rid) in kind.off))
+    registry = {rid: r for rid, r in registry.items() if rid not in off}
+    if overlaps is None and kind.concurrency == "deterministic" and not all_rules:
+        overlaps = "off"
     known = frozenset(CATALOG.values()) | {r.name for r in registry.values()}
     doc = Doc(text, mode, k, known, dialect, read_verbs=pack.read_verbs,
               policy_words=pack.policy_words, inv_heads=pack.inv_heads,
               budget=budget, limits=limits, overlaps=overlaps,
               rule_ids={r.id: r.name for r in registry.values()}, walk=walk, graph=graph)
+    doc.off = dict.fromkeys(off, kind.text)
     first = [r for r in registry.values() if not r.after_acks]
     findings = run_rules(doc, first)
     fold(findings)
@@ -1079,7 +1112,8 @@ def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
         mode=mode, k=k, limits=limits_of(doc),
         findings=[f for f in roots if not is_acknowledged(f)],
         acknowledged=[f for f in roots if is_acknowledged(f)],
-        folded=[f for f in emitted if f.folded_into is not None])
+        folded=[f for f in emitted if f.folded_into is not None],
+        kind=kind.text, off=off)
 
 
 # ---------------------------------------------------------------------------
@@ -1098,7 +1132,15 @@ def summary(report: Report) -> str:
     return (f"sigil check ({report.mode}, k={report.k}): {len(sev)} finding(s) "
             f"({sev.count('error')} error, {sev.count('warn')} warn, "
             f"{sev.count('info')} info); {len(report.acknowledged)} acknowledged; "
-            f"{hidden} hidden")
+            f"{hidden} hidden" + off_text(report))
+
+
+def off_text(report: Report) -> str:
+    """The summary's note of the rules the kind turned off ("": none)."""
+    if not report.off:
+        return ""
+    return (f"; {len(report.off)} rule(s) off for `#% {report.kind}`: {' '.join(report.off)}"
+            " (--all-rules runs them)")
 
 
 def registry_lines(registry: dict) -> list:
@@ -1107,6 +1149,6 @@ def registry_lines(registry: dict) -> list:
         rule = registry.get(rid)
         tier = rule.tier if rule else "-"
         name = rule.name if rule else CORE_NAMES[rid]
-        out.append(f"{rid}  {name:<28} {tier:<9} {'' if rule else '(not implemented)'}"
-                   .rstrip())
+        out.append(f"{rid}  {name:<28} {tier:<9} {group_of(rid):<12} "
+                   f"{'' if rule else '(not implemented)'}".rstrip())
     return out

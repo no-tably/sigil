@@ -19,7 +19,9 @@ from sigil.core.vocab import (
     ANY_GLYPH_RE, ARROW_RE, LintResult, VALID_LOOP_MODS, VALID_MODES,
     VALID_MODIFIERS, VALID_PARALLEL_MODS, VALID_STREAM_POLICIES)
 
-from sigil.core.lex import HOLE_RE, MOD_TOKEN_RE, first_content, is_comment_line, is_mode_line
+from sigil.core.kinds import CHOICE_OF, CHOICES, kind_lines, kind_words, placed
+from sigil.core.lex import (HOLE_RE, MOD_TOKEN_RE, comment_col, first_content, is_comment_line,
+                            is_mode_line)
 from sigil.core.tokens import glyph_spans
 
 
@@ -273,6 +275,49 @@ def lint_mode_not_first(lines: list, result: LintResult):
             seen_content = True     # a second mode line is misplaced too
         elif raw.strip() and not is_comment_line(raw):
             seen_content = True
+
+
+# A claim `deterministic` breaks: a race (`parallel @any`, or a `&?` join).
+_RACE_RE = re.compile(r"\bparallel\s+@any\b|&\?")
+
+
+def lint_kind_line(lines: list, result: LintResult):
+    """The `#%` kind line (sigil.core.kinds). SGL093: a word that names no kind,
+    two words for one choice, or no word; SGL094: a `#%` line not read (not right
+    after the mode line, or a second one); SGL095: `deterministic` beside a race."""
+    read = None
+    for k in kind_lines(lines):
+        if read is not None or not placed(lines, k):
+            result.add("warn", k + 1, "SGL094",
+                       "a `#%` kind line is read only once, after the mode line and before "
+                       "the first statement; this one is ignored.")
+            continue
+        read = k
+        words = kind_words(lines[k])
+        if not words:
+            result.add("error", k + 1, "SGL093", "`#%` names no kind. Expected words from: "
+                       + "; ".join(" | ".join(ws) for ws in CHOICES.values()) + ".")
+        seen = {}
+        for w in words:
+            choice = CHOICE_OF.get(w)
+            if choice is None:
+                near = min(CHOICE_OF, key=lambda known: _edit_distance(w, known))
+                hint = (f" Did you mean `{near}`?" if _edit_distance(w, near) <= 2
+                        else " Known: " + ", ".join(CHOICE_OF) + ".")
+                result.add("error", k + 1, "SGL093", f"`{w}` is no system kind.{hint}")
+            elif choice in seen:
+                result.add("error", k + 1, "SGL093",
+                           f"`{seen[choice]}` and `{w}` are both a {choice}: a system has one.")
+            else:
+                seen[choice] = w
+        if seen.get("concurrency") == "deterministic":
+            for j, line in enumerate(lines):
+                cut = comment_col(line)
+                code = line if cut is None else line[:cut]
+                if not is_comment_line(line) and _RACE_RE.search(code):
+                    result.add("warn", j + 1, "SGL095",
+                               "a race here, in a system the `#%` line calls `deterministic` "
+                               "(one input at a time, in order): drop the race or the claim.")
 
 
 def lint_state_block_syntax(transitions: tuple, result: LintResult):

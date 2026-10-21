@@ -297,11 +297,16 @@ The usual changes, in the design's own terms:
   match what is already known: the code, the stated decisions, the comments. List
   the rest as proposals, each with its reason and measured cost.
 
-**A library-shaped design** trips rules written for services: *unreached*,
-*capacity-mismatch*, an error event nobody consumes (a library returns its errors
-to the caller), and *saga-uncompensated* over pure parts. These are facts about the
-shape, not risks: acknowledge them once, document-wide, with the reason, and tell
-the user which you added. **A design that uses a library** names the library's
+**The system's kind.** Early in a craft session, ask the user once what kind of
+system it is and write the answer on a `#%` line under the mode line (language.md
+"System kind"): its shape (`service`, `library`, `daemon`, `job`), reach
+(`networked`, `in-process`) and concurrency (`concurrent`, `deterministic`); write
+only the words that differ from the first, the default. The kind turns off the rule
+groups that cannot apply — a `library` is not asked who calls it, a `daemon` not
+what ends it — and the check's summary names the rules it turned off. Never write
+or change a kind to quiet a finding: it is a fact the user states. A finding the
+kind does not cover, such as *saga-uncompensated* over pure parts, is still answered
+by declaring or acknowledging it. **A design that uses a library** names the library's
 parts as op calls (`: op cure.paint(view)`), not as components: a component would
 be exported as something to build, and would merge with any part of the same name.
 Acknowledge the op calls' missing timeouts document-wide, as in-process library
@@ -321,7 +326,9 @@ with no route, a race, an event nothing handles, an unbounded recursion. A findi
 never forbids a shape; it names a risk the document leaves undeclared. Run it in
 **craft** (findings are `warn` questions) and **spec** (findings of binding rules
 are errors); in sketch they are hidden (`--all` shows them).
-1. Run `python3 scripts/bin/sigil check FILE` (or `sigil lint FILE --deep`). For a rule's
+1. Run `python3 scripts/bin/sigil check FILE` (or `sigil lint FILE --deep`). Its
+   summary names any rules the `#%` kind turned off; an acknowledgement of one of
+   them is reported unused (SGC003): delete it, the kind says it once. For a rule's
    rationale and the declarations that satisfy it, use `--json` (`why`, `fix`).
 2. Put each finding to the user **as its question** (craft prints it; in spec turn
    the statement into one), in the design's own terms, and let the user answer.

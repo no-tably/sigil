@@ -972,6 +972,55 @@ itself (see "Streams, generators, backpressure").
 
 Mode declaration goes on the first non-empty line of the document. `#!craft` documents should normally be promoted to `#!spec` or `#!sketch` when authoring concludes — craft is a process mode, not a resting state.
 
+### System kind (`#%`)
+
+The line right after the mode line may say what kind of system the document
+describes. The kind decides which groups of composition checks apply, so a design
+is not asked to answer risks its kind cannot have:
+
+```
+#!spec
+#% daemon
+```
+
+A kind is three choices. Each has a default, and a document with no `#%` line
+is all three defaults (every check applies, as before):
+
+| Choice | Word | Means | Turns off |
+| --- | --- | --- | --- |
+| shape | `service` (default) | serves requests from outside, under load | — |
+| | `library` | called in-process by its user's code; no main loop of its own; errors return to the caller | entry, traffic |
+| | `daemon` | runs until stopped; waiting idle is its normal state | ending |
+| | `job` | runs once to completion (a CLI, a batch, a pipeline) | traffic |
+| reach | `networked` (default) | parts talk across processes or machines: calls can hang, repeat, or arrive out of order | — |
+| | `in-process` | one process; calls are function calls | network |
+| concurrency | `concurrent` (default) | inputs may overlap | — |
+| | `deterministic` | one input at a time, in order; the same input gives the same run | concurrency (and no overlap runs) |
+
+Write only the words that differ from the defaults (`#% library deterministic`). The
+line goes after the mode line and before the first statement (comment lines between
+are fine), and it is no comment: no node's note, no title. Lint reports an unknown
+word or two words for one choice (`SGL093`, error), a `#%` line it does not read
+(`SGL094`), and a race (`parallel @any`, `&?`) in a `deterministic` system
+(`SGL095`). State the kind the system has; never write one to quiet a finding.
+
+Each composition check (below) belongs to one group:
+
+| Group | Off for | Rules |
+| --- | --- | --- |
+| global | — | SGC001–004, 090, 113, 121, 122, 132, 141–143, 148, 151, 161, 162, 167, 171, 172, 174, 176, 177, 201–203, 301–304, 401, 402, and every dialect rule |
+| network | `in-process` | SGC101–104, 111, 112, 114, 135, 165, 206, 306 |
+| concurrency | `deterministic` | SGC123, 131, 133, 134, 136, 173, 204, 205 |
+| traffic | `library`, `job` | SGC163, 166 |
+| ending | `daemon` | SGC144, 147, 152, 153 |
+| entry | `library` | SGC145, 146, 175 |
+
+A group the kind turns off does not run, and is never silent: the check's summary
+names its rules ("4 rule(s) off for `#% daemon`: SGC144 SGC147 SGC152 SGC153"),
+`--json` lists them under `kind`, `--rules` shows each rule's group, and
+`--all-rules` runs them anyway. An acknowledgement of a rule the kind turned off is
+reported unused (`SGC003`): the kind says it once, for the whole document.
+
 
 ---
 
@@ -1007,7 +1056,7 @@ with no mode line is checked as `#!sketch`.
 findings; `--k N` sets how many failures one simulated run combines (default 1 in
 sketch and craft, 2 in spec); `--json` prints one object with each rule's tier, why
 it matters, how to satisfy it, and the witness scenario; `--rules` lists every rule
-with its tier. `sigil lint FILE --deep` runs lint and the checks together and merges the
+with its tier and group; `--all-rules` also runs the groups the `#%` kind turns off. `sigil lint FILE --deep` runs lint and the checks together and merges the
 two reports into one list sorted by line, with the acknowledged findings last as
 `accepted:` lines; its exit code is the worse of the two. Fix lint errors first: a
 malformed line can explain a finding. `sigil view FILE --checks` (live key `c`) marks
@@ -1405,7 +1454,7 @@ loop @while |Q|.nonempty {
 
 12. **Encoding algorithms or data-structure internals.** Sigil describes the wiring between components, not their internals. If a user asks "how should `[Sorter]` sort?" the answer is not more Sigil — it's prose or code. Declare `[Sorter]` with its inputs/outputs and treat its internals as opaque. This boundary is what keeps Sigil language-agnostic.
 
-13. **Mode declaration with trailing text.** The mode line is exactly `#!spec`, `#!sketch`, or `#!craft` — no title, no name after it. A document title belongs in a section header: `--- System Name ---`. Wrong: `#!spec agent-memory`. Right: `#!spec\n\n--- agent-memory ---`.
+13. **Mode declaration with trailing text.** The mode line is exactly `#!spec`, `#!sketch`, or `#!craft` — no title, no name after it; the system's kind goes on its own `#%` line below it (see "System kind"). A document title belongs in a section header: `--- System Name ---`. Wrong: `#!spec agent-memory`. Right: `#!spec\n\n--- agent-memory ---`.
 
 14. **Writing prose verbs inside flow lines.** Every connector between glyphs must be an arrow (`->`, `~>`, `=>`, `!>`, `?>`, `*>`, `<->`). Do not write English verbs like "excludes", "surfaces", "returns", "calls", "reads" as if they were operators. Wrong: `[MCP] excludes (superseded) ∪ (retracted)`. Right: model the filter as an invariant (`[MCP] @inv excludes({Entity}.state ∈ {superseded, retracted})`), a branch, or a comment — never inline prose posing as notation.
 

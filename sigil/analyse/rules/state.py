@@ -106,11 +106,23 @@ def stale_hit(ck, ack, name: str, rule_id: str):
                       "line it is about", about=rule_id)
 
 
+def off_hit(ck, ack, name: str, rule_id: str, kind: str):
+    """SGC003's hit for an acknowledgement of a rule the `#%` kind turned off."""
+    return ck.Hit(ack.line, f"the acknowledgement names `{name}`, which `#% {kind}` turns off",
+                  f"`#% {kind}` already turns `{name}` off. Is this acknowledgement still "
+                  "needed?", anchor=("comment", ack.line), scopes=(("rule", name),),
+                  fix=f"delete `{name}` from the acknowledgement: the kind says it once",
+                  about=rule_id)
+
+
 def ack_unused_rule(ck):
     def match(doc):
         for ack in doc.acks:
             for name in stale_names(ack, doc.findings, doc.known, ck.NOT_ACKNOWLEDGEABLE):
-                yield stale_hit(ck, ack, name, doc.id_of(name))
+                rid = doc.id_of(name)
+                kind = getattr(doc, "off", {}).get(rid)
+                yield (stale_hit(ck, ack, name, rid) if kind is None
+                       else off_hit(ck, ack, name, rid, kind))
 
     return ck.Rule(
         "SGC003", "ack-unused", "advisory",

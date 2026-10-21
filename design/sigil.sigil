@@ -1,4 +1,5 @@
 #!sketch
+#% job in-process deterministic
 # sigil's toolchain: one package, one direction only:
 # text -> tokens -> document -> scene -> runs -> findings / drawings / exports.
 # Each expansion is a layer (a subpackage); a layer calls only the layers above
@@ -9,7 +10,8 @@
 --- who uses it ---
 
 # the people and programs that run `sigil` are drawn inside [Cli], at the command each
-# one runs: the agent that follows the skill is the main user (craft, refine, check, export)
+# one runs: the agent that follows the skill is the main user (craft, refine, check, export).
+# The skill asks the user the system's kind once (`#%`); it never writes one to quiet a finding
 (Visitor) -> [Playground] : play({Text}) => {Drawing}
 
 --- trust boundaries: what crosses each ---
@@ -33,7 +35,7 @@
   (Host) -> [FramesCmd] : frames({Argv}) => {Frames}          # the Claude Code mod and pi (the agent's viewer tool)
   (Dialect) -> [LintCmd] : run({Argv}) => {Diagnostics}       # a dialect's wrapper: cli.main(argv, dialect=NAME), any command
   [LintCmd] -> [Analyse] : lint({Text}) => {Diagnostics}      # sigil lint (--deep also runs check)
-  [CheckCmd] -> [Analyse] : check({Text}) => {Findings}       # sigil check (--limit, --budget, --overlaps, --export)
+  [CheckCmd] -> [Analyse] : check({Text}) => {Findings}       # sigil check (--limit, --budget, --overlaps, --export, --all-rules)
   [ViewCmd] -> [Present] : draw({Text}) => {Drawing}          # sigil view (live, --once, --sim, --structure)
   [ExportCmd] -> [Publish] : export({Text}) => {Delta}        # sigil export (--out DIR --name --limit, or --mermaid [--spine])
   [FramesCmd] -> [Present] : frames({Text}) => {Frames}       # sigil frames draw (packed rows for the hosts, --limit)
@@ -69,9 +71,14 @@
   [Parse] -> [Read] : walk({Text}) => {Statements}            # one reading: lines, statements, tokens (line and column)
   [Read] -> [Lex] : tokens({Line}) => {Tokens}                 # lex, vocab, tokens: the bracket and arrow tables
   [Read] -> [Dialects] : hooks({Name}) => {Hooks}              # prepasses, strips, tokenizers, `#&` declarations
+  [Read] -> [Kinds] : kind({Line}) => {Kind}                   # the `#%` line after the mode line: shape, reach, concurrency
   [Parse] -> [Graph] : build({Statements}) => {Doc}            # nodes, wires, trees, blocks, gaps, header_only
   [Comments] -> [Graph] : notes({Doc}) => {Notes}              # notes and `# accepts:` (scene, check, kit, export read them)
   [Dialects] -> (Dialect) : load({Path}) => {Hooks}            # imports Python: the widest trust boundary
+  # Kinds: a table, no rules. Shape service|library|daemon|job, reach networked|in-process,
+  # concurrency concurrent|deterministic; no line = the first of each (checks as before).
+  # Each word names the rule groups it turns off: library entry+traffic, job traffic,
+  # daemon ending, in-process network, deterministic concurrency; the Doc carries the Kind
   # a comment-only line whose `#` sits under the previous line's trailing `#`
   # continues that comment (its node's note); `# accepts:` never continues
 }
@@ -99,9 +106,15 @@
 [Analyse] := {
   # diagnosis: lint (form) and checks (meaning), one finding shape
   [Lint] -> [Core] : read({Text}) => {Statements}             # rules over tokens and statements, and a dialect's lint rules
+  # Lint on the kind line: an unknown word, two words of one choice, a `#%` not after the
+  # mode line; `deterministic` beside `parallel @any` or a `&?` race (a claim the design breaks)
   [Check] -> [Core] : parse({Text}) => {Doc}
-  [Check] -> [Model] : explore({Scene}) => {Trace}             # runs within --budget and the work cap (400 frames a run × budget)
+  [Check] -> [Model] : explore({Scene}) => {Trace}             # runs within --budget and the work cap (400 frames a run × budget); deterministic: no overlap runs
   [Check] -> [Rules] : match({Doc}) => {Hit}                   # and a dialect's rule pack (the dialect Core loaded)
+  # check.RULE_GROUPS puts each rule in one group: global network concurrency traffic
+  # ending entry (a dialect's rules: global). A group
+  # the Doc's Kind turns off is not run, and never silent: the summary names its rules
+  # (--all-rules runs them); an acknowledgement of an off rule is SGC003 unused
   [Rules] -> [Model] : facts({Doc}) => {Spine}                 # export rules read Systems, structure rules Structure
   [Rules]
       \-> [FlowRules]

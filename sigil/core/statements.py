@@ -27,6 +27,7 @@ from bisect import bisect_left
 from dataclasses import dataclass
 from typing import NamedTuple, Optional
 
+from sigil.core.kinds import is_kind_line
 from sigil.core.dialects import DialectError, _hook
 from sigil.core.lex import (
     ALIAS_RE, ANY_GLYPH_RE, ARM_RE, ARROW_RE, BARE_BRANCH_RE, BLOCK_OPEN_RE,
@@ -323,7 +324,7 @@ def _comment_at(line: str, marker) -> Optional[tuple]:
     """comment_of with the column its marker starts at: (column, text, own_line)."""
     if marker is None and "#" not in line:
         return None
-    if is_mode_line(line) or declaration_name(line) is not None:
+    if is_mode_line(line) or is_kind_line(line) or declaration_name(line) is not None:
         return None
     m = comment_start(line, notes_only=True)
     if marker:

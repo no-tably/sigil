@@ -394,6 +394,12 @@ cap stops it, the SGC090 hint says how many overlap runs were left. In sketch an
 is off, so checks stay quick while you draft; `--overlaps listed` tries just the
 listed runs, and `--overlaps N` caps the sweep at N runs.
 
+A `#%` line under the mode line says what kind of system the design is
+(`#% library`, `#% daemon`, `#% job in-process deterministic`), and the checks
+skip the groups of rules that kind cannot need: a library is not asked who calls
+it, a daemon not what ends it, a deterministic system not about races. The summary
+names every rule it skipped, and `--all-rules` runs them anyway.
+
 ## Export a spec
 
 Once a design is final, `sigil export` hands it to whoever builds it: a folder per

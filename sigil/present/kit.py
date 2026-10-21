@@ -49,6 +49,7 @@ from sigil.core import graph as _graph
 from sigil.core.lex import (
     BLOCK_SENTINEL, GLYPH_PREFIXES, MODIFIER_RE, PREFIXES_CLASS, declaration_name,
     first_content, glyph_kind, is_mode_line, net_braces)
+from sigil.core.kinds import is_kind_line
 from sigil.core.statements import comment_of
 from sigil.core.tokens import lexicon
 from sigil.core.vocab import Diagnostic
@@ -1776,7 +1777,7 @@ def check_runs(marks) -> list:
 
 def doc_title(text: str, dialect=None) -> str:
     """A document's title: the first comment line of its opening notes, a
-    heading's extra `#`s dropped. Blank lines, `#!` mode lines and `#&`
+    heading's extra `#`s dropped. Blank lines, `#!` mode lines, the `#%` kind line and `#&`
     declarations (lex.declaration_name, with the `{ … }` block one opens) are
     stepped over; a comment is read the dialect's way (statements.comment_of with
     its COMMENT_MARKERS). "" when another statement (or a bare `#`) comes first."""
@@ -1786,7 +1787,7 @@ def doc_title(text: str, dialect=None) -> str:
         if depth > 0:
             depth += net_braces(line)
             continue
-        if not line.strip() or is_mode_line(line):
+        if not line.strip() or is_mode_line(line) or is_kind_line(line):
             continue
         if declaration_name(line) is not None:
             depth = net_braces(line)

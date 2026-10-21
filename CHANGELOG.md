@@ -15,6 +15,26 @@ checks already told you to write.
   triggers lead (`Busy -<Paid, Declined>-> Idle`). Lint warns (SGL090) on an empty
   or repeated item.
 
+- **System kinds.** A `#%` line under the mode line says what kind of system the
+  design is: its shape (`service`, `library`, `daemon`, `job`), reach (`networked`,
+  `in-process`) and concurrency (`concurrent`, `deterministic`). Each word turns off
+  the group of checks its kind cannot need, so an agent is no longer pushed to
+  restructure a design, or acknowledge rule after rule, for risks it cannot have:
+  - `library` turns off entry (unreached, orphan event, undriven transition) and
+    traffic (capacity, single point of failure); `job` turns off traffic;
+  - `daemon` turns off ending (no-exit, wait-without-timeout, async cycle,
+    unbounded loop);
+  - `in-process` turns off network (timeouts, retries, duplicates, stale reads);
+  - `deterministic` turns off concurrency (races, ordering, lost updates) and makes
+    no overlap runs.
+
+  Nothing is silent: the summary names every rule the kind turned off, `--json`
+  lists them, `check --rules` shows each rule's group, and `check --all-rules` runs
+  them anyway. An acknowledgement of a rule the kind turned off is reported unused.
+  Lint checks the line (SGL093 an unknown or doubled word, SGL094 a `#%` line it
+  does not read, SGL095 a race in a `deterministic` system). No `#%` line: the
+  checks are as before.
+
 ### Fixes
 
 - **`$` honours its own self-loops, and begins a new record through `+`.** An event

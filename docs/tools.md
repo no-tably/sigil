@@ -10,7 +10,7 @@ the manifest names the spec file (and its stem is the top system's default name)
 
 ```
 sigil lint FILE|- [--deep] [--dialect D]
-sigil check [FILE|-] [--mode M] [--k N] [--budget N] [--limit NAME=N] [--overlaps …] [--json] [--export] [--rules]
+sigil check [FILE|-] [--mode M] [--k N] [--budget N] [--limit NAME=N] [--overlaps …] [--json] [--export] [--all-rules] [--rules]
 sigil view FILE [--once] [--graph|--tree|--flow|--run] [--sim S] …
 sigil view FILE --structure [--json]
 sigil export SPEC --out DIR [--name NAME] [--limit NAME=N] [--json] [--dry-run]
@@ -134,7 +134,12 @@ binding rules errors. The line format and [exit codes](#exit-codes) match lint.
 - `--export` also runs the export readiness rules, SGC401 `no-home` and SGC402
   `untyped-boundary` (see [`sigil export`](#sigil-export-spec---out-dir)). Without it they never
   run, so no other output changes.
-- `--rules` lists the rules and exits.
+- `--all-rules` also runs the rule groups the document's `#%` kind line turns off
+  (language.md, "System kind"). Without it, the summary names the rules that kind
+  turned off, and `--json` lists them under `kind` (`{"words": …, "off": [ids]}`;
+  no `kind` key without a `#%` line). A `deterministic` kind also makes no overlap
+  runs unless `--overlaps` is given.
+- `--rules` lists the rules, each with its tier and group, and exits.
 - `--dialect NAME` adds a dialect's rule pack.
 
 Two structure rules read the units that [`sigil view --structure`](#sigil-view-file---structure)

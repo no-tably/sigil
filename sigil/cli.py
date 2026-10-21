@@ -1,7 +1,7 @@
 """The `sigil` command: one entry point, a subcommand per tool.
 
     sigil lint FILE|- [--deep] [--dialect D]
-    sigil check [FILE|-] [--mode M] [--k N] [--budget N] [--limit NAME=N] [--overlaps …] [--json] [--export] [--rules]
+    sigil check [FILE|-] [--mode M] [--k N] [--budget N] [--limit NAME=N] [--overlaps …] [--json] [--export] [--all-rules] [--rules]
     sigil view FILE [--once] [--graph|--tree|--flow|--run] [--sim S] …
     sigil view FILE --structure [--json]
     sigil export SPEC --out DIR [--name NAME] [--limit NAME=N] [--json] [--dry-run]
@@ -232,7 +232,10 @@ def _check_parser(dialect, check) -> argparse.ArgumentParser:
     ap.add_argument("--export", action="store_true",
                     help="also check export readiness (SGC401 no-home, SGC402 "
                          "untyped-boundary)")
-    ap.add_argument("--rules", action="store_true", help="list the rules and exit")
+    ap.add_argument("--all-rules", action="store_true",
+                    help="also run the rule groups the `#%%` kind line turns off")
+    ap.add_argument("--rules", action="store_true",
+                    help="list the rules (with each one's group) and exit")
     _dialect_flag(ap, dialect)
     return ap
 
@@ -272,7 +275,7 @@ def _check(argv: list, dialect) -> int:
         return 0
     report = check.check(text, mode=a.mode, k=a.k, dialect=loaded, registry=registry,
                          pack=pack, budget=a.budget, limits=limits, overlaps=a.overlaps,
-                         export=a.export)
+                         export=a.export, all_rules=a.all_rules)
     if a.json:
         print(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
     else:

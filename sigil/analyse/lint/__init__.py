@@ -40,7 +40,8 @@ from sigil.analyse.lint.graph import lint_graph, parse_for_lint
 from sigil.analyse.lint.hardening import lint_hardening
 from sigil.analyse.lint.lines import (
     lint_actor_as_state, lint_declarations, lint_duplicate_glyph_in_flow,
-    lint_holes_in_spec_mode, lint_invented_modifiers, lint_mode_line, lint_mode_not_first, lint_prose_verbs,
+    lint_holes_in_spec_mode, lint_invented_modifiers, lint_kind_line, lint_mode_line,
+    lint_mode_not_first, lint_prose_verbs,
     lint_reverse_arrow, lint_semicolon_separator, lint_state_block_syntax)
 from sigil.analyse.lint.payloads import lint_payloads
 from sigil.analyse.lint.permissions import declared_principals, lint_permission_graph
@@ -87,6 +88,7 @@ def lint_reading(text: str, dialect=None) -> Linted:
     lines = blank_lines(walk.lines, markers)
     mode = lint_mode_line(lines, result)
     lint_mode_not_first(lines, result)
+    lint_kind_line(lines, result)
     lint_holes_in_spec_mode(views, mode, result)
     lint_actor_as_state(views, state_lines(walk.doc), result)
     lint_prose_verbs(walk.statements, headers, result)
