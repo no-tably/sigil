@@ -1,11 +1,15 @@
-# SGC203 event-ignored — the first `<Paid>` takes `{Order}` to `$`; the second
-# arrives after the end pseudo-state, which takes no transition, so it is
-# dropped exactly as in a named state with none for it (catalog §3).
-# expect: error:10:SGC203
+# SGC203 event-ignored — `<Paid>` takes `{Order}` to `$`; the second `<Paid>`
+# arrives after the end pseudo-state, which has no self-loop for it and no `+`
+# transition on it (a new record), so it is dropped exactly as in a named state
+# with none for it (catalog §3).
+# expect: error:14:SGC203
 #!spec
 (User) -> [Shop] : go() @sla(1s)
+[Shop] ~> <Placed>
 [Shop] ~> <Paid>
 [Shop] ~> <Paid>
+{Order} @inv ordered(id)
 state {Order} {
-  + -<Paid>-> $
+  +    -<Placed>-> Open
+  Open -<Paid>->   $
 }

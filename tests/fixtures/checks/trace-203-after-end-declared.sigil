@@ -1,0 +1,16 @@
+# SGC203 event-ignored, declared at `$` — the late `<Paid>` meets the self-loop
+# `$ -<Paid>-> $` (ignored on purpose), and a second `<Placed>` meets the `+`
+# transition: a new record begins in `Open`. Nothing is dropped.
+# expect: (none)
+#!spec
+(User) -> [Shop] : go() @sla(1s)
+[Shop] ~> <Placed>
+[Shop] ~> <Paid>
+[Shop] ~> <Paid>
+[Shop] ~> <Placed>
+{Order} @inv ordered(id)
+state {Order} {
+  +    -<Placed>-> Open
+  Open -<Paid>->   $
+  $    -<Paid>->   $
+} @inv retention(30d)

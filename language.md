@@ -462,8 +462,18 @@ state {Name} {
 ```
 
 - `+` — creation source (no predecessor)
-- `$` — terminal state (no successor)
-- `_` — wildcard source (transitions from any state)
+- `$` — the end of a record. Nothing leaves it except in two ways: its own
+  self-loop `$ -<T>-> $` (a late `T` is expected and ignored on purpose), and a
+  `+ -<T>-> S` transition, which begins a **new** record in `S` (an order placed
+  again is a new order). `_` does not reach `$`. Any other transition out of `$`
+  is a lint error (`SGL092`).
+- `_` — wildcard source (transitions from any state but `$`)
+- **A trigger list `S -<A, B>-> T`** is the transitions `S -<A>-> T` and
+  `S -<B>-> T` written on one line; every tool reads it as those lines. Use it to
+  say in one line what a state ignores (`Settled -<pay, place>-> Settled`) or
+  where several triggers lead (`Open -<cancel, expire>-> Cancelled`). A comment on
+  the line covers the whole list; give a trigger a line of its own when it needs
+  its own reason. Lint warns (`SGL090`) on an empty or repeated item.
 - **A specific transition beats `_`.** When a state has its own transition for a
   trigger, that transition is taken and the wildcard's is not, whichever is written
   first.
@@ -490,8 +500,12 @@ state {Order} {
   Settled   -<pay>->     Settled     # a repeated payment is ignored on purpose
   Settled   -<cancel>->  Settled     # beats `_`: a settled order is not cancelled
   Settled   -<ship>->    $
+  $         -<pay>->     $           # a payment after shipping is ignored on purpose
 }
 ```
+
+Each self-loop above keeps its own line because each has its own reason. With one
+reason, a list says it once: `Settled -<pay, cancel>-> Settled  # ignored once settled`.
 
 **Events drive transitions by name.** A trigger names an event: when the document
 has an event glyph of the same name (case-insensitive), that event **is** the
@@ -1493,7 +1507,9 @@ path        := entity ('/' entity)+                   # no spaces around '/'; ea
                                                       # occurrence's ancestor chain (SGL112 if none)
 
 state-block := 'state' entity '{' trans* '}' (mod)*   # any glyph owns the machine
-trans       := (name | '+' | '_') '-<' name '>->' (name | '$') (mod)*
+trans       := (name | '+' | '_' | '$') '-<' triggers '>->' (name | '$') (mod)*
+triggers    := name (',' name)*                      # a list: one transition per trigger
+                                                      # `$` as a source: only `$ -<…>-> $`
 
 loop-block     := 'loop' loopmod '{' stmt* '}' (mod)*
 loopmod        := '@each' name 'of' expr | '@while' expr

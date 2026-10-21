@@ -1121,15 +1121,14 @@ class _Run:
     def _deliver(self, task: _Task, act: _Act) -> None:
         """An event's triggers: a task per machine with a matching transition (a
         specific one beats `_`: catalog §6 NG6), forked by the delivering task. A machine
-        heading for `$`, or with no transition from its heading state, ignores it."""
+        with no transition from its heading state ignores it (at `$`: see _matching)."""
         refs = self.prog.triggers.get(act.node, ())
         for owner in dict.fromkeys(r.trigger.owner for r in refs):
             mine = [r for r in refs if r.trigger.owner == owner]
             state = self._heading(owner)
             if state is None:
                 continue
-            pick = (None if _pseudo(self.prog, state) == "end"
-                    else self._pick(task, mine, owner, state))
+            pick = self._pick(task, mine, owner, state)
             if pick is None:
                 self._ignored(task, act.node, mine[0].trigger.label, owner, state)
                 continue
@@ -1160,10 +1159,13 @@ class _Run:
 
     def _matching(self, refs: list, state: str) -> list:
         """The refs whose transition leaves `state`: those written from it, else
-        the `_` ones (a specific transition beats the wildcard: catalog §6 NG6, Q12)."""
+        the `_` ones (a specific transition beats the wildcard: catalog §6 NG6, Q12).
+        At `$` the record is over: only its own self-loops (`$ -<E>-> $`, ignored on
+        purpose) and the `+` ones (a new record begins) match, never `_`."""
         specific = [r for r in refs if r.trigger.src == state]
+        fallback = "start" if _pseudo(self.prog, state) == "end" else "any"
         return specific or [r for r in refs
-                            if _pseudo(self.prog, r.trigger.src) == "any"]
+                            if _pseudo(self.prog, r.trigger.src) == fallback]
 
     def _ignored(self, task: _Task, event: str, label: str, owner: str, state) -> None:
         self._event("ignored", task, event=event, label=label, owner=owner, state=state)
@@ -1180,7 +1182,7 @@ class _Run:
             self.bound[t.owner].pop(0)
         state = self.machines.get(t.owner)
         pick = None
-        if state is not None and _pseudo(self.prog, state) != "end":
+        if state is not None:
             mine = [r for r in self.prog.triggers.get(t.event, ()) if r.trigger.owner == t.owner]
             pick = self._pick(task, mine, t.owner, state)
         if pick is None:

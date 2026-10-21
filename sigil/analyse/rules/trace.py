@@ -391,11 +391,10 @@ def unordered(a: Delivery, b: Delivery) -> bool:
 
 def step(m, state: str, label: str) -> tuple:
     """(next state, dropped) of machine view m taking `label` in `state`: a
-    transition written from the state beats a `_` one (catalog §6 NG6); after `$` or with
-    no transition the event is dropped."""
-    if state in m.end:
-        return state, True
-    for t in m.specific(state) + [t for t in m.transitions if t.src in m.any]:
+    transition written from the state beats a `_` one (catalog §6 NG6); at `$` only its
+    self-loops and the `+` transitions apply (MachineView.outgoing); with no
+    transition the event is dropped."""
+    for t in m.outgoing(state):
         if t.label == label:
             return t.dst, False
     return state, True
@@ -666,8 +665,10 @@ def ignored_hit(ck, st, m, run: Run, d: Delivery):
         f"`{d.label}` reaches `{o}` while it is `{s}`. Should it be ignored, or is a "
         "transition missing?",
         anchor=("machine", m.owner), scopes=st.machine_scopes(m, d.state), at=tick_of(run, d.index),
-        fix=f"a transition `{s} -{d.label}-> …`, a `_ -{d.label}-> …` wildcard, or the "
-            f"self-loop `{s} -{d.label}-> {s}` to ignore it on purpose")
+        fix=(f"the self-loop `$ -{d.label}-> $` to ignore it on purpose, or a "
+             f"`+ -{d.label}-> …` that begins a new record" if s == "$" else
+             f"a transition `{s} -{d.label}-> …`, a `_ -{d.label}-> …` wildcard, or the "
+             f"self-loop `{s} -{d.label}-> {s}` to ignore it on purpose"))
 
 
 def events_ignored(ck, doc):

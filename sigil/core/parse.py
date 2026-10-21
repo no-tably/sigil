@@ -1195,7 +1195,8 @@ def find_triggers(graph: Graph) -> tuple:
 def parse_state_block(lines, entity: str = "") -> Graph:
     """The body of a `state {X} { … }` block (its lines as the walk read them:
     statements.Transition records) as a graph of `state` nodes whose edges carry
-    the trigger as their label. `+` / `$` / `_` become start / end / any
+    the trigger as their label (a trigger list `-<a, b>->`: one edge per trigger,
+    as if written on lines of their own). `+` / `$` / `_` become start / end / any
     pseudo-state nodes (attrs["pseudo"]); a line that is no transition is
     dropped ("not-a-transition")."""
     g = Graph(role="state")
@@ -1214,7 +1215,8 @@ def parse_state_block(lines, entity: str = "") -> Graph:
                 g.dropped.append(Dropped(t.line, "not-a-transition", t.raw))
             continue
         a, b = node(t.src), node(t.dst)
-        label = f"<{t.trigger}>" if t.trigger else None
-        g.edges.append(Edge(src=a.id, dst=b.id, kind="->", label=label,
-                            payload=t.rest or None, mods=scan_mods(t.rest), line=t.line))
+        for trigger in [x for x in t.triggers if x] or [None]:    # a list: one edge each
+            label = f"<{trigger}>" if trigger else None
+            g.edges.append(Edge(src=a.id, dst=b.id, kind="->", label=label,
+                                payload=t.rest or None, mods=scan_mods(t.rest), line=t.line))
     return g

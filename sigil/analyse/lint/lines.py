@@ -277,13 +277,29 @@ def lint_mode_not_first(lines: list, result: LintResult):
 
 def lint_state_block_syntax(transitions: tuple, result: LintResult):
     """SGL090: a `state` block line that writes a `-<trigger>->` the model does not
-    read as a trigger (`transitions`: the walk's Transition of each line)."""
+    read as a trigger, or a trigger list with an empty or repeated item; SGL092: a
+    transition out of `$` that is no self-loop (`transitions`: the walk's
+    Transition of each line)."""
     for t in transitions:
         if t.writes_trigger and t.kind != "triggered":
             result.add(
                 "warn", t.line, "SGL090",
                 "malformed state transition. Expected: `source -<trigger>-> target`"
             )
+            continue
+        names = t.triggers
+        if "" in names:
+            result.add("warn", t.line, "SGL090",
+                       "empty trigger in a list. Expected: `source -<a, b>-> target`")
+        twice = sorted({n for n in names if n and names.count(n) > 1})
+        if twice:
+            result.add("warn", t.line, "SGL090",
+                       f"trigger <{twice[0]}> listed twice in one transition")
+        if t.src == "$" and t.dst != "$":
+            result.add("error", t.line, "SGL092",
+                       "`$` is the end of a record: the only transition out of it is the "
+                       "self-loop `$ -<E>-> $` (ignored on purpose). To begin a new record, "
+                       f"write `+ -<{names[0] if names else 'E'}>-> {t.dst}`.")
 
 
 def _edit_distance(a: str, b: str, most: Optional[int] = None) -> int:

@@ -129,3 +129,25 @@ export-dry/tests/fixtures/checks/export-untyped-boundary-fixed.sigil
 export-dry/tests/fixtures/checks/flow-timeout-budget-block-declared.sigil
 export-dry/tests/fixtures/export-edit.sigil
 export-dry/tests/fixtures/overlap.sigil
+
+# patch-0.6.3 (vs 0.6.2): language.md's lifecycle example gains `$ -<pay>-> $` (block-09) and the
+# grammar block two lines (block-38); trace-203-after-end rewritten for `$` + `+` (a second <Paid> no
+# longer meets a + transition). Every other design reads and runs as before.
+check-json/language.md/block-09.sigil
+check-spec/language.md/block-09.sigil
+mermaid-d1/language.md/block-09.sigil
+mermaid-d2/language.md/block-09.sigil
+mermaid-subgraphs/language.md/block-09.sigil
+check-json/language.md/block-38.sigil
+lint-deep/language.md/block-38.sigil
+lint/language.md/block-38.sigil
+mermaid-d1/language.md/block-38.sigil
+mermaid-d2/language.md/block-38.sigil
+mermaid-subgraphs/language.md/block-38.sigil
+check-json/tests/fixtures/checks/trace-203-after-end.sigil
+check-spec/tests/fixtures/checks/trace-203-after-end.sigil
+check/tests/fixtures/checks/trace-203-after-end.sigil
+lint-deep/tests/fixtures/checks/trace-203-after-end.sigil
+mermaid-d1/tests/fixtures/checks/trace-203-after-end.sigil
+mermaid-d2/tests/fixtures/checks/trace-203-after-end.sigil
+mermaid-subgraphs/tests/fixtures/checks/trace-203-after-end.sigil

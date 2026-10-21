@@ -2,6 +2,32 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
+## 0.6.3 — unreleased
+
+State machines say more in fewer lines, and the end state `$` means what the
+checks already told you to write.
+
+### New
+
+- **Trigger lists.** `S -<A, B>-> T` is `S -<A>-> T` and `S -<B>-> T` on one line,
+  and every tool reads it as those lines. One line per state can now say everything
+  that state ignores (`Built -<Planned, Assigned, Passed>-> Built`), or where several
+  triggers lead (`Busy -<Paid, Declined>-> Idle`). Lint warns (SGL090) on an empty
+  or repeated item.
+
+### Fixes
+
+- **`$` honours its own self-loops, and begins a new record through `+`.** An event
+  that reaches a machine at `$` used to be dropped every time, so following the
+  SGC203 hint, "the self-loop `$ -<E>-> $`", could never resolve the finding. Now:
+  - `$ -<E>-> $` ignores a late `E` on purpose, and SGC203 is quiet;
+  - an event with a `+ -<E>-> S` transition begins a new record in `S` (an order
+    placed again is a new order);
+  - `_` still never reaches `$`, and any other transition out of `$` is a lint
+    error (SGL092).
+
+  The SGC203 hint at `$` now names only these two fixes.
+
 ## 0.6.2 — 2026-10-20
 
 Sigil can now judge a design's structure, not only its flows. A new structure

@@ -339,7 +339,9 @@ are errors); in sketch they are hidden (`--all` shows them).
      `@deadline(t)`, `×N` with `@after(…)`, `@fallback(x)`, a `!>` route, a
      recognised `@inv` (`idempotent(key)`, `atomic(…)`, `cas(field)`,
      `depth <= N`, …), `@owns |S|`, `@read(…)` / `@write(…)`, a `^N` bound, an
-     `@sla`, a `?>` exit, a terminal state `$`, a consumer for an event — whatever
+     `@sla`, a `?>` exit, a terminal state `$`, a consumer for an event, a
+     self-loop that ignores an event on purpose (several at once as a trigger list,
+     `Built -<Planned, Passed>-> Built`; after the end, `$ -<Passed>-> $`) — whatever
      the user's answer says is true of the system. `@cap(…)` is a capability
      requirement, not a bound: it resolves no finding;
    - or **acknowledge** it, when the user accepts the risk: a comment

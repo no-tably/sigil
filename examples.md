@@ -146,7 +146,9 @@ state {Job} {
 
 **Key decisions:**
 - `+` read as "the job is created and enters..."
-- `$` read as "terminal" or archived / ended.
+- `$` read as "terminal" or archived / ended: that job's record is over. A late
+  event for it is dropped, unless `$ -<T>-> $` says it's ignored on purpose; and a
+  `submit` after `$` would begin a new job through `+`.
 - `_` read as "from any state."
 - `×3` on a transition reads as "up to 3 times."
 
@@ -717,8 +719,7 @@ state {Order} {
 }
 state [Checkout] {
   Idle  -<Placed>->    Busy
-  Busy  -<Paid>->      Idle
-  Busy  -<Declined>->  Idle
+  Busy  -<Paid, Declined>->  Idle
 }
 ```
 
@@ -753,6 +754,9 @@ the triggers that enter it):
 - **Triggers are named after events.** The flows say who raises each event; the
   state blocks say what it does. Matching names are the wiring — viewers and Mermaid
   draw the link, nothing else is authored.
+- **One line per way out.** `Busy -<Paid, Declined>-> Idle` is a trigger list: the
+  two transitions `Busy -<Paid>-> Idle` and `Busy -<Declined>-> Idle` on one line.
+  The views and the simulator read it as those two lines.
 - **The error path is an event too.** `[Payments] !> <Declined>` keeps the failure
   on the error arrow, and the state blocks still react to it by name.
 

@@ -133,6 +133,14 @@ class Transition(NamedTuple):
         return "malformed" if "-<" in self.text else "unread"
 
     @property
+    def triggers(self) -> tuple:
+        """Its triggers, in order: one for `-<t>->`, each of a list `-<a, b>->`
+        (an empty item stays "", for lint to report)."""
+        if not self.trigger:
+            return ()
+        return tuple(part.strip() for part in self.trigger.split(","))
+
+    @property
     def writes_trigger(self) -> bool:
         """Its code (not a string in it) writes part of a `-<trigger>->`."""
         return "-<" in self.text or ">->" in self.text

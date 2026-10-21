@@ -283,9 +283,11 @@ class MachineView(NamedTuple):
     mods: tuple = ()         # (name, arg) written after the machine's `}`
 
     def outgoing(self, s: str) -> list:
-        """Transitions that leave s: its own, then the wildcards (`_`)."""
-        return ([t for t in self.transitions if t.src == s]
-                + [t for t in self.transitions if t.src in self.any])
+        """Transitions that leave s: its own, then the wildcards (`_`); at `$` its
+        own self-loops, then the `+` ones (a new record begins), never `_`."""
+        own = [t for t in self.transitions if t.src == s]
+        after = self.start if s in self.end else self.any
+        return own + [t for t in self.transitions if t.src in after]
 
     def specific(self, s: str) -> list:
         return [t for t in self.transitions if t.src == s]
