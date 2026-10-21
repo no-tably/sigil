@@ -14,6 +14,7 @@ from sigil.analyse.check import check  # noqa: E402
 from sigil.analyse.lint import lint  # noqa: E402
 from sigil.core import parse as render  # noqa: E402
 from sigil.model import scene, sim  # noqa: E402
+from sigil.model.sim.narration import narrate  # noqa: E402
 
 
 def machine_edges(text: str) -> list:
@@ -88,6 +89,12 @@ class EndState(unittest.TestCase):
         text = ORDER % "  _     -<Paid>->           Open"
         _machines, ignored = end_state(text)
         self.assertEqual([e["label"] for e in ignored], ["<Paid>"])
+
+    def test_narration_says_ignored_after_the_end_and_begins_again(self):
+        sc = scene.build_scene(render.parse_document(ORDER % "  $ -<Paid>-> $"))
+        text = " ".join(b.text for b in narrate(sim.simulate(sc, sim.scenario(sc, "happy"))))
+        self.assertIn("{Order} ignores <Paid> after its end, on purpose", text)
+        self.assertIn("{Order} begins again in Open on <Placed>: a new record", text)
 
     def test_lint_refuses_a_way_out_of_end(self):
         self.assertEqual(rules(ORDER % "  $     -<Paid>->           Open"), [(9, "SGL092")])

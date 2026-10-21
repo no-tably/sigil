@@ -1092,8 +1092,11 @@ def _event_sentence(wd: _Words, ev: dict, scn) -> Optional[str]:
         w = wd.wires.get(ev["wire"])
         return f"{n} routes the failure to {wd.name(w.dst) if w else '?'}"
     if kind == "transition":
-        return (f"{wd.name(ev['owner'])} moves {wd.state(ev['src'])} → "
-                f"{wd.state(ev['dst'])} on {ev['label']}")
+        owner, src, dst = wd.name(ev['owner']), wd.state(ev['src']), wd.state(ev['dst'])
+        if src == "$":                  # past its end: a self-loop, or `+` begins anew
+            return (f"{owner} ignores {ev['label']} after its end, on purpose" if dst == "$"
+                    else f"{owner} begins again in {dst} on {ev['label']}: a new record")
+        return f"{owner} moves {src} → {dst} on {ev['label']}"
     if kind == "ignored":
         return (f"{wd.name(ev['owner'])} ignores {ev['label']} in "
                 f"{wd.state(ev['state'])}: no transition leaves it")

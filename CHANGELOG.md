@@ -27,6 +27,8 @@ checks already told you to write.
     error (SGL092).
 
   The SGC203 hint at `$` now names only these two fixes.
+  The run narration says so: "{Order} ignores <pay> after its end, on purpose", and
+  "{Order} begins again in Open on <place>: a new record".
 
 ## 0.6.2 — 2026-10-20
 
