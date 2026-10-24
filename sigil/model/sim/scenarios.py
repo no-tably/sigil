@@ -16,8 +16,8 @@ from typing import NamedTuple, Optional
 
 from sigil.model import scene as scene_mod
 from sigil.model.sim.program import (
-    Group, Limits, Program, Region, Scenario, Step, Trace, _alias_of, _detached, _flat,
-    _gate_of, _guards, _home, _one_of_groups, _program_of, _running, attempts, loop_count,
+    Decide, Group, Limits, Program, Region, Scenario, Step, Trace, _alias_of, _decides,
+    _detached, _flat, _gate_of, _guards, _home, _one_of_groups, _program_of, _running, attempts, loop_count,
     mod, resilient, selected_routes)
 from sigil.model.sim.engine import _simulate
 from sigil.model.sim.narration import _Words
@@ -37,7 +37,8 @@ from sigil.model.sim.narration import _Words
 #                 call still fire, on the caller's own task only), `!` ends the run
 #                 (no route fires), else it raises ("call", ident)
 #   _self_call    the same over the recursion / alias body; then its `=>` returns
-#   _region       relabels any failure leaving it as ("block", index); a loop run 0
+#   _region       relabels any failure leaving it as ("block", index), keeping what it
+#                 was inside (a route on the call line still fires); a loop run 0
 #                 times runs nothing; `parallel` forks its members (a member's
 #                 fallback fires no route), @all / @any await, @none does not
 #   _group        `~>` members are forked unawaited; an alternative is a step; an
@@ -48,7 +49,8 @@ from sigil.model.sim.narration import _Words
 #   _detached     a `=>` hop or a flow into a stream: the callee's failure stops
 #                 there; only the hop's own outcome fails the call (catalog §6 B13)
 #   _branch       an arm entry's failure travels as ("node", arm entry)
-#   _fire_routes  routes guarded by the arriving guard, else the unguarded ones
+#   _fire_routes  routes guarded by the arriving guard (or one it was inside its
+#                 blocks), else the unguarded ones
 # Every choice may go either way (each is a scenario option); limits that only
 # cut a run short (depth, visits, instances) are not modelled, so a route this
 # calls live may need a deeper run, or two deviations, to fire.
@@ -77,6 +79,8 @@ class _Effect(NamedTuple):
     raises: frozenset = frozenset()     # guards the work raises to its activation
     absorbed: frozenset = frozenset()   # ("call", ident) a fallback absorbed there
     started: tuple = ()                 # the _Ctx activations it starts
+    via: frozenset = frozenset()        # (raised block guard, the guards it was before
+                                        # leaving its blocks, innermost first): one per path
 
 
 class _Flow(NamedTuple):
@@ -101,11 +105,22 @@ class FailureFlow(NamedTuple):
 def _merge(*effects: _Effect) -> _Effect:
     return _Effect(frozenset().union(*(e.raises for e in effects)),
                    frozenset().union(*(e.absorbed for e in effects)),
-                   tuple(c for e in effects for c in e.started))
+                   tuple(c for e in effects for c in e.started),
+                   frozenset().union(*(e.via for e in effects)))
 
 
 def _relabel(e: _Effect, guard: tuple) -> _Effect:
-    return e._replace(raises=frozenset({guard}) if e.raises else frozenset())
+    """A failure leaving a block raises the block's guard; each path keeps the
+    guards it had inside (_Fail.via), so a route on a call line still fires."""
+    if not e.raises:
+        return e._replace(raises=frozenset(), via=frozenset())
+    via = frozenset((guard, p + (g,)) for g in e.raises for p in _paths(e, g))
+    return e._replace(raises=frozenset({guard}), via=via)
+
+
+def _paths(e: _Effect, guard) -> list:
+    """The guards a raised `guard` had inside its blocks, one tuple per path."""
+    return [p for o, p in e.via if o == guard] or [()]
 
 
 def _land_ctx(prog: Program, w, arm, scopes: frozenset) -> Optional[_Ctx]:
@@ -222,6 +237,8 @@ def _walk(fl: _Flow, fails: dict, items, at: _Place) -> _Effect:
             out.append(_step_effect(fl, fails, it.wire, at))
         elif isinstance(it, Group):
             out.append(_group_effect(fl, fails, it, at))
+        elif isinstance(it, Decide):
+            out.append(_branch_effect(fl, fails, it.ui, it.index, at.scopes))
         else:
             out.append(_region_effect(fl, fails, it, at))
     return _merge(*out)
@@ -274,7 +291,7 @@ def _activation(fl: _Flow, fails: dict, ctx: _Ctx) -> _Effect:
 def _fired(prog: Program, ctx: _Ctx, e: _Effect) -> list:
     """The routes of ctx's node that its arriving and absorbed guards select."""
     routes = prog.routes.get((ctx.ui, ctx.node), ())
-    out = [w for f in e.raises for w in selected_routes(routes, f)]
+    out = [w for f in e.raises for p in _paths(e, f) for w in selected_routes(routes, f, p)]
     out += [w for f in e.absorbed for w, g in routes if _guards(g, f)]
     return list({w.ident: w for w in out}.values())
 
@@ -424,6 +441,9 @@ def reachable(prog: Program):
         items = _running(prog, prog.bodies.get((ui, nid), ()))
         regions_of(items, nid)
         take(_flat(items), ui)
+        for d in _decides(items):
+            regions[(d.ui, d.index)] = None
+            _take_branch(prog, d.ui, d.index, take, queue)
         take([w for w, _g in prog.routes.get((ui, nid), ())], ui)
         exp = prog.expansions.get((ui, nid))
         if exp is not None:

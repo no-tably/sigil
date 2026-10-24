@@ -1865,5 +1865,128 @@ class TestHeaderOnlyExpansion(unittest.TestCase):
         self.assertEqual([f for f in rep.findings if f.rule.id == "SGC175"], [])
 
 
+
+FIELD_BRANCH = ("(U) -> [Run] : go({Job})\n\n[Run] := {\n"
+                "  [Lead] -> [Builders] : assign({Job}) => {Outcome}\n"
+                "  [Builders] -> [Log] : assigned({Job})\n"
+                "  branch on {Contract}.fit {\n"
+                "    meets      => [Builders] -> [Check] : verify({Job}) => {Report}\n"
+                "    unmeetable => [Builders] -> [Log] : unmeetable({Job})\n"
+                "  }\n"
+                "  [Builders] -> [Log] : passed({Job})\n"
+                "}\n")
+
+FIELD_BRANCH_MACHINE = ("(U) -> [Run] : go({Job})\n\n[Run] := {\n"
+                        "  [Lead] -> [Builders] : assign({Job}) => {Outcome}\n"
+                        "  [Builders] ~> <Assigned>\n"
+                        "  branch on {Contract}.fit {\n"
+                        "    meets      => [Builders] -> [Check] : verify({Job}) => {Report}\n"
+                        "    unmeetable => [Builders] ~> <Unmeetable>\n"
+                        "  }\n"
+                        "  [Builders] ~> <Passed>\n"
+                        "}\n\nstate {Component} {\n"
+                        "  +        -<Assigned>->   Building\n"
+                        "  Building -<Passed>->     Built\n"
+                        "  Building -<Unmeetable>-> Planned\n"
+                        "  Built    -<Unmeetable>-> Built\n}\n")
+
+
+def calls_made(trace) -> list:
+    """The ops of the calls a run makes after its entry's, in order."""
+    return [ln.split(" : ")[-1] for ln in trace.end["log"]
+            if " -> " in ln and " : " in ln and "(U)" not in ln]
+
+
+class TestFieldBranchInPlace(unittest.TestCase):
+    """A branch on a field written between two flows of one source decides there,
+    in that source's order (program.Decide), not after the source's later flows."""
+
+    def test_the_arm_runs_between_the_flows_it_is_written_between(self):
+        self.assertEqual(calls_made(run(build(FIELD_BRANCH), "Contract.fit=unmeetable")),
+                         ["assign({Job})", "assigned({Job})", "unmeetable({Job})",
+                          "passed({Job})"])
+
+    def test_the_default_arm_is_taken_in_place_too(self):
+        self.assertEqual(calls_made(run(build(FIELD_BRANCH))),
+                         ["assign({Job})", "assigned({Job})", "verify({Job})",
+                          "passed({Job})"])
+
+    def test_an_arm_event_reaches_the_machine_before_the_later_one(self):
+        tr = run(build(FIELD_BRANCH_MACHINE), "Contract.fit=unmeetable")
+        self.assertEqual(tr.end["machines"]["Component_data"], "Component_state_Planned")
+
+    def test_it_is_an_item_of_the_source_not_an_entry(self):
+        prog = sim._program_of(build(FIELD_BRANCH).graph)
+        self.assertEqual(prog.decisions, {})
+        ui = next(i for i, u in enumerate(prog.units) if u.owner == "Run_service")
+        items = prog.bodies[(ui, "Builders_service")]
+        self.assertEqual([type(it).__name__ for it in items], ["Step", "Decide", "Step"])
+        self.assertEqual(sim._flat(items)[0].dst, "Log_service")
+
+    def test_inside_a_loop_it_decides_on_every_iteration_in_place(self):
+        text = ("(U) -> [A] : go({X})\nloop @times 2 {\n  [A] -> [B] : one({X})\n"
+                "  branch on {X}.kind {\n    p => [A] -> [P] : p({X})\n"
+                "    q => [A] -> [Q] : q({X})\n  }\n  [A] -> [C] : two({X})\n}\n")
+        self.assertEqual(calls_made(run(build(text))), ["one({X})", "p({X})", "two({X})"] * 2)
+
+    def test_a_branch_after_a_sources_last_flow_stays_an_entry(self):
+        text = ("(U) -> [A] : go({X})\n[A] -> [B] : one({X})\n"
+                "branch on {X}.kind {\n  p => [C] -> [P] : p({X})\n}\n")
+        prog = sim._program_of(build(text).graph)
+        self.assertEqual(len(prog.decisions), 1)
+
+    def test_a_branch_between_two_sources_flows_stays_an_entry(self):
+        # [A] writes flows long before and long after; the flows next to the
+        # branch are [B]'s and [C]'s: it belongs to neither
+        text = ("(U) -> [A] : go({X})\n[A] -> [B] : one({X})\n[B] -> [D] : d({X})\n"
+                "branch on {X}.kind {\n  p => [P] -> [Q] : p({X})\n}\n"
+                "[C] -> [D] : c({X})\n[A] -> [C] : two({X})\n")
+        prog = sim._program_of(build(text).graph)
+        self.assertEqual(len(prog.decisions), 1)
+
+    def test_static_reach_and_choices_see_it(self):
+        sc = build(FIELD_BRANCH_MACHINE)
+        self.assertIn("Contract.fit=unmeetable", names(sc))
+        prog = sim._program_of(sc.graph)
+        wires, _nodes, regions = sim.reachable(prog)
+        self.assertIn("Unmeetable_event", {w.dst for w in wires})
+        self.assertIn(None, regions.values())
+
+
+class TestRouteOnACallLineInsideABlock(unittest.TestCase):
+    """A `!>` continuing a call line inside a loop or a scope is that call's route:
+    a failure leaving the block keeps the guards it had inside (_Fail.via), so the
+    route fires, statically (failure_analysis) and in the run alike."""
+
+    TWO_LINES = ("(U) -> [Worker] : go({Job})\n[Worker] @owns |Conn| {\n"
+                 "  [Worker] -> [B] : run({Job}) => {R}\n    !> <fail>\n}\n")
+    ONE_LINE = ("(U) -> [Worker] : go({Job})\nloop @times 1 {\n  [Worker] @owns |Conn| {\n"
+                "    [Worker] -> [B] : run({Job}) => {R} !> <fail>\n  }\n}\n")
+
+    def test_the_route_fires_in_both_forms(self):
+        for text in (self.TWO_LINES, self.ONE_LINE):
+            with self.subTest(text=text):
+                sc = build(text)
+                tr = run(sc, "Worker.run:fails")
+                self.assertTrue(logs(tr, "[Worker] failed → <fail>"), tr.end["log"])
+                prog = sim.program(sim.canonical(sc.graph))
+                live = sim.failure_analysis(prog).live
+                self.assertEqual({i for i in routes_of(prog) if i in live},
+                                 set(tr.end["routes"]))
+
+    def test_another_call_in_the_block_does_not_take_it(self):
+        text = ("(U) -> [Worker] : go({Job})\n[Worker] @owns |Conn| {\n"
+                "  [Worker] -> [A] : fetch({Job}) => {Job} @timeout(1s)\n"
+                "  [Worker] -> [B] : run({Job}) => {R}\n    !> <fail>\n}\n")
+        tr = run(build(text), "Worker.fetch:fails")
+        self.assertEqual(tr.end["routes"], [])
+
+    def test_selected_routes_reads_via(self):
+        g = ("calls", frozenset({("call", "c")}))
+        routes = [("r", g), ("u", None)]
+        self.assertEqual(sim.selected_routes(routes, ("block", 0)), ["u"])
+        self.assertEqual(sim.selected_routes(routes, ("block", 0), (("call", "c"),)), ["r"])
+
+
 if __name__ == "__main__":
     unittest.main()

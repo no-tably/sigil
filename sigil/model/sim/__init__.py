@@ -283,7 +283,8 @@ NARRATION (pure, over a Trace and the scene it names)
 
 
 from sigil.model.sim.program import (  # noqa: F401  (the package's API)
-    PER_SIZE, Floor, Frame, Group, Instance, Limits, Machine, Program, Region, Scenario, Step,
+    PER_SIZE, Decide, Floor, Frame, Group, Instance, Limits, Machine, Program, Region, Scenario,
+    Step,
     Token, Trace, TriggerRef, attempts, canonical, carried, doc_size, duration, instances,
     limits_from, loop_count, mod, program, resilient, returned, route_guard, scaled,
     selected_routes, sized,

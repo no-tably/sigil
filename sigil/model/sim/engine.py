@@ -14,7 +14,7 @@ from typing import NamedTuple, Optional
 from sigil.core.graph import node_label
 from sigil.model import scene as scene_mod
 from sigil.model.sim.program import (
-    Frame, Group, Instance, Limits, Program, Region, Scenario, Step, Token, Trace, TriggerRef,
+    Decide, Frame, Group, Instance, Limits, Program, Region, Scenario, Step, Token, Trace, TriggerRef,
     _alias_of, _beneath, _declared_times, _detached, _flat, _gate_of, _guards, _home,
     _one_of_groups, _owned_stores, _program_of, _pseudo, _running, _select, _summed, _tally,
     attempts, carried, instances, loop_count, mod, resilient, returned,
@@ -30,10 +30,18 @@ CONVENTIONS = ("conventions: written order; entries one after another; ?> not ta
 # ---------------------------------------------------------------------------
 
 class _Fail(Exception):
-    """A failure travelling up a task's sync stack; guard: what failed."""
-    def __init__(self, guard=None):
+    """A failure travelling up a task's sync stack; guard: what failed; via: the
+    guards it had before leaving its blocks, innermost first (a route on the call
+    line inside a block still fires: selected_routes)."""
+    def __init__(self, guard=None, via=()):
         super().__init__(guard)
         self.guard = guard
+        self.via = via
+
+    def left(self, index: int) -> "_Fail":
+        """This failure as it leaves block `index`."""
+        via = self.via + ((self.guard,) if self.guard is not None else ())
+        return _Fail(("block", index), via)
 
 
 class _Abort(Exception):
@@ -636,7 +644,7 @@ class _Run:
     def _fire_routes(self, task: _Task, act: _Act, f: _Fail):
         """The failed activation's routes, in written order: those
         guarded by what failed, else the unguarded ones."""
-        for w in selected_routes(self.prog.routes.get((act.ui, act.node), ()), f.guard):
+        for w in selected_routes(self.prog.routes.get((act.ui, act.node), ()), f.guard, f.via):
             yield from self._route(task, act, w, f.guard)
 
     def _route(self, task: _Task, act: _Act, w, guard):
@@ -663,6 +671,8 @@ class _Run:
                 yield from self._step(task, it.wire, arm)
             elif isinstance(it, Group):
                 yield from self._group(task, it, arm)
+            elif isinstance(it, Decide):
+                yield from self._branch(task, it.ui, it.index, None)
             else:
                 yield from self._region(task, it, arm)
 
@@ -1023,8 +1033,8 @@ class _Run:
         if task.scopes[key]:            # already inside it on this task: a plain scope
             try:
                 yield from self._items(task, r.items, arm)
-            except _Fail:
-                raise _Fail(("block", r.index)) from None
+            except _Fail as f:
+                raise f.left(r.index) from None
             return
         subject = not task.stack or not b.subject or task.stack[-1].node in b.subject
         kind = b.kind if subject else "scope"
@@ -1052,8 +1062,8 @@ class _Run:
                 yield from self._parallel(task, r, arm)
             else:
                 yield from self._items(task, r.items, arm)
-        except _Fail:
-            raise _Fail(("block", r.index)) from None
+        except _Fail as f:
+            raise f.left(r.index) from None
         finally:
             self.blocks[key] -= 1
             task.scopes[key] -= 1

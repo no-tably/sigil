@@ -199,6 +199,15 @@ class Region(NamedTuple):
     items: tuple
 
 
+class Decide(NamedTuple):
+    """A branch with no header glyph (a field's: `branch on {X}.f`, or none) written
+    between two flows of one source: it decides there, in that body's order
+    (_place_decisions). It holds no wires (`items` is empty, so _flat skips it)."""
+    ui: int
+    index: int                 # into the unit graph's blocks
+    items: tuple = ()
+
+
 class Machine(NamedTuple):
     owner: str
     initial: str
@@ -392,7 +401,7 @@ def _fill_unit(prog: Program, ui: int, u, wires: list) -> None:
         if b.kind == "branch":
             if b.refs and not _field_header(b):
                 prog.branches[(ui, b.refs[0])] = prog.branches.get((ui, b.refs[0]), ()) + (bi,)
-            else:
+            elif not _place_decision(prog, ui, bi, blocks, work):
                 prog.decisions[scene_mod.decision_id(u.owner, bi)] = (ui, bi)
 
 
@@ -404,6 +413,58 @@ def _field_header(b) -> bool:
     value, nothing activates it, so it decides where it is written, as a branch
     with no header glyph does (catalog §6 B4)."""
     return bool(_FIELD_HEADER.match(b.header or ""))
+
+
+def _place_decision(prog: Program, ui: int, bi: int, blocks: list, work: list) -> bool:
+    """Put a branch with no header glyph into the body of the source it is written
+    between two flows of — the work flows on the lines next before and next after
+    the branch, in its own block, share that source — as a Decide item where it is
+    written; True when placed. A branch in a `parallel` block, or one with no
+    such source around it, stays an entry of its unit (a decision), run in line
+    order among the unit's entries."""
+    b = blocks[bi]
+    if any(blocks[c].kind == "parallel" for c in _chain(b.parent, blocks)):
+        return False
+    lo, hi = b.lines
+    mine = [w for w in work if b.parent is None or b.parent in _chain(w.block, blocks)]
+    before = [w for w in mine if w.line < lo]
+    after = [w for w in mine if w.line > hi]
+    if not before or not after:
+        return False
+    last, first = max(w.line for w in before), min(w.line for w in after)
+    following = {w.src for w in after if w.line == first}
+    src = next((w.src for w in before if w.line == last and w.src in following), None)
+    if src is None or (ui, src) not in prog.bodies:
+        return False
+    prog.bodies[(ui, src)] = _with_decide(prog.bodies[(ui, src)], Decide(ui, bi), b, blocks)
+    return True
+
+
+def _with_decide(items: tuple, d: Decide, b, blocks: list) -> tuple:
+    """items with d before the first item written after branch b (inside the region
+    that holds b, when one does)."""
+    chain = _chain(b.parent, blocks)
+    out = list(items)
+    for k, it in enumerate(out):
+        if isinstance(it, Region) and it.index in chain:
+            out[k] = it._replace(items=_with_decide(it.items, d, b, blocks))
+            return tuple(out)
+        wires = _flat((it,))
+        if wires and wires[0].line > b.lines[1]:
+            out.insert(k, d)
+            return tuple(out)
+    return tuple(out + [d])
+
+
+def _decides(items) -> list:
+    """Every Decide among items, regions' included, in order."""
+    out = []
+    for it in items:
+        if isinstance(it, Decide):
+            out.append(it)
+        elif isinstance(it, Region):
+            out += _decides(it.items)
+    return out
 
 
 def _arm_membership(blocks: list, wires: list) -> dict:
@@ -754,10 +815,12 @@ def _owned_stores(prog: Program) -> dict:
     return out
 
 
-def selected_routes(routes, guard) -> list:
+def selected_routes(routes, guard, via=()) -> list:
     """The routes (wire, guard) pairs _fire_routes takes for an arriving failure
-    guard: those it guards, else the unguarded ones."""
-    chosen = [w for w, g in routes if _guards(g, guard)]
+    guard: those it guards — or that guard one of `via`, the guards the failure
+    had before it left its blocks (a `!>` on a call line inside a loop or a
+    scope) — else the unguarded ones."""
+    chosen = [w for w, g in routes if _guards(g, guard) or any(_guards(g, v) for v in via)]
     return chosen or [w for w, g in routes if g is None]
 
 
