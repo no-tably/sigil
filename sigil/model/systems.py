@@ -41,13 +41,17 @@ HOMES
 
   A node's candidate systems are the systems it is written in (in a tree, the
   tree's system; elsewhere the system of the graph). A level that writes a node
-  only as an end of its own flows is a REFERENCE into a system nested under it
-  that writes the node too (declared there, in a tree there, or an end of that
-  system's own flows), and is no home candidate — unless the systems left have
-  none enclosing the others (siblings): the rule never makes a node homeless,
-  so then the outer level stays and homes it (a {Order} used at the top and in
-  two sibling units lives at the top, as before): `(Client) -> [Transport]` at
-  the top level with [Transport] written inside [Remote] homes it in Remote. A
+  only as an end of its own flows is a REFERENCE, and no home candidate, when
+  any other level DECLARES the node (a line of its own, a tree, a modifier
+  line), wherever that level is: `[Core] := { [Text] … }` beside `[Buffer] := {
+  [Cells] -> [Text] … }` homes [Text] in Core, and Buffer reaches it there. It
+  is a reference too into a system nested under it that writes the node in any
+  way (an end of that system's own flows as well): `(Client) -> [Transport]` at
+  the top level with [Transport] written inside [Remote] homes it in Remote.
+  The rule never makes a node homeless: when the systems left have none
+  enclosing the others (siblings), every candidate stays, so the outer level
+  homes it (a {Order} used at the top and in two sibling units, declared in
+  none, lives at the top, as before). A
   level that also writes the `X := {` header of the node's own expansion
   refers so only to a nested system that declares the node (a line of its own,
   a tree): the header is then only where the inside is written, and the
@@ -58,8 +62,9 @@ HOMES
 
   Its HOME is the remaining candidate that encloses all the others (a node
   declared at the top level and written in an expansion is shared at the top
-  level). When no candidate encloses the rest (a member of two sibling
-  expansions, of two trees, with no level above writing it) the node has no
+  level). When no candidate encloses the rest (declared in two sibling
+  expansions, a member of two trees, written in the flows of two siblings and
+  declared nowhere, with no level above writing it) the node has no
   one home: it is listed in Model.shared (SGC401) and lives in its first
   candidate. An
   actor is not built, so it is never shared: it lives in the nearest system
@@ -378,17 +383,21 @@ def reference_only(g, nid: str) -> Optional[str]:
 
 def home_candidates(lay: Layout, nid: str) -> list:
     """The candidates a node's home is chosen from: its candidates less each level
-    that writes it only as a reference into a system nested under it — a level
-    writing it only as flow ends, when a candidate nested under it writes it too;
-    a level writing it as flow ends and the header of its expansion, when a
-    candidate nested under it declares it (a line, a tree: the header there is
-    only where the inside is written, as for a header-only expansion). The rule
-    never makes a node homeless: when the rest has no candidate enclosing the
-    others (siblings), every candidate stays, so the outer level homes it."""
+    that writes it only as a reference into another system — a level writing it
+    only as flow ends, when any other candidate declares it (a line of its own, a
+    tree, a modifier line) or a candidate nested under it writes it too; a level
+    writing it as flow ends and the header of its expansion, when a candidate
+    nested under it declares it (the header there is only where the inside is
+    written, as for a header-only expansion). The rule never makes a node
+    homeless: when the rest has no candidate enclosing the others (siblings),
+    every candidate stays, so the outer level homes it."""
     cands = lay.candidates.get(nid, [])
+    declared = [c for c in cands if (nid, c) in lay.strong]
 
     def reference(c):
         how = lay.refs.get((nid, c))
+        if how == "flow" and any(o != c for o in declared):
+            return True
         return how is not None and any(
             o != c and c in ancestors(o, lay.systems)
             and (how == "flow" or (nid, o) not in lay.refs) for o in cands)

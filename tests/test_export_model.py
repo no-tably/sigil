@@ -423,12 +423,22 @@ class TestHomeRule(unittest.TestCase):
         self.assertEqual(m.shared, ())
 
     def test_a_part_of_two_sibling_units_referred_to_from_the_top_stays_there(self):
-        # dropping the top would leave two siblings and no home: the top stays
+        # both siblings declare it: dropping the top would leave two siblings
+        # and no home, so the top stays
+        text = ("[Api] -> [X] : get({K}) => {V}\n"
+                "[A] := {\n  [X]\n}\n[B] := {\n  [X]\n  [X] -> |Db| : put({K}) => {Ok}\n}\n")
+        m = model(text, "t")
+        self.assertEqual(m.shared, ())
+        self.assertEqual(m.components["X_service"].home, "t")
+
+    def test_a_part_declared_in_one_sibling_is_homed_there(self):
+        # the top and B name [X] only in their flows; A declares it (0.6.4)
         text = ("[Api] -> [X] : get({K}) => {V}\n"
                 "[A] := {\n  [X]\n}\n[B] := {\n  [X] -> |Db| : put({K}) => {Ok}\n}\n")
         m = model(text, "t")
         self.assertEqual(m.shared, ())
-        self.assertEqual(m.components["X_service"].home, "t")
+        self.assertEqual(m.components["X_service"].home, "A")
+        self.assertEqual(m.components["X_service"].systems, ("t", "A", "B"))
 
     def test_data_used_in_two_sibling_units_and_at_the_top_stays_there(self):
         text = ("[Shop] -> {Order} : make({Cart})\n"
@@ -438,8 +448,16 @@ class TestHomeRule(unittest.TestCase):
         self.assertEqual(m.shared, ())
         self.assertEqual(m.components["Order_data"].home, "t")
 
-    def test_a_part_of_two_sibling_units_alone_is_still_shared(self):
-        text = "[A] := {\n  [X]\n}\n[B] := {\n  [X] -> |Db| : put({K}) => {Ok}\n}\n"
+    def test_a_part_declared_in_two_sibling_units_alone_is_still_shared(self):
+        text = ("[A] := {\n  [X]\n}\n"
+                "[B] := {\n  [X]\n  [X] -> |Db| : put({K}) => {Ok}\n}\n")
+        self.assertEqual([(s.glyph, s.systems) for s in model(text, "t").shared],
+                         [("[X]", ("A", "B"))])
+
+    def test_a_part_in_the_flows_of_two_siblings_alone_is_still_shared(self):
+        # declared nowhere: neither flow-only level is dropped
+        text = ("[A] := {\n  [P] -> [X] : get({K}) => {V}\n}\n"
+                "[B] := {\n  [X] -> |Db| : put({K}) => {Ok}\n}\n")
         self.assertEqual([(s.glyph, s.systems) for s in model(text, "t").shared],
                          [("[X]", ("A", "B"))])
 
@@ -462,6 +480,54 @@ class TestHomeRule(unittest.TestCase):
         m = model(text, "t")
         self.assertEqual(m.systems["Inner"].parent, "Outer")
         self.assertEqual(m.components["Leaf_service"].home, "Inner")
+
+
+class TestGeneralHomeRule(unittest.TestCase):
+    """A level that names a part only in its flows is never its home when any
+    other level declares it (a line of its own, a tree, a modifier line), even a
+    level that does not enclose it (0.6.4)."""
+
+    TEXT = ("[Core] := {\n  [Text]\n  [Text] -> |Glyphs| : load({Font}) => {Run}\n}\n"
+            "[Text] := {\n  [Shaper] -> [Measure] : shape({Run}) => {Run}\n}\n"
+            "[Buffer] := {\n  [Cells] -> [Text] : cell({Run}) => {Run}\n}\n")
+
+    def test_a_flow_from_a_sibling_unit_is_a_reference(self):
+        m = model(self.TEXT, "t")
+        self.assertEqual(m.shared, ())
+        self.assertEqual(m.components["Text_service"].home, "Core")
+        self.assertEqual(m.components["Text_service"].systems, ("Core", "Buffer"))
+        self.assertEqual(m.systems["Text"].parent, "Core")
+        self.assertEqual(glyphs(m, "Buffer"), ["[Cells]"])
+        self.assertEqual(m.systems["Buffer"].depends_on, ("Text",))
+
+    def test_a_tree_declares_it(self):
+        text = ("[Core]\n    \\-> [Text]\n"
+                "[Buffer] := {\n  [Cells] -> [Text] : cell({Run}) => {Run}\n}\n")
+        m = model(text, "t")
+        self.assertEqual(m.shared, ())
+        self.assertEqual(m.components["Text_service"].home, "Core")
+
+    def test_a_modifier_line_declares_it(self):
+        text = ("[Core] := {\n  [Text] @sla(p99 < 5ms)\n}\n"
+                "[Buffer] := {\n  [Cells] -> [Text] : cell({Run}) => {Run}\n}\n")
+        m = model(text, "t")
+        self.assertEqual(m.shared, ())
+        self.assertEqual(m.components["Text_service"].home, "Core")
+
+    def test_flows_in_many_units_and_the_top(self):
+        text = self.TEXT + ("[Canvas] := {\n  [Grid] -> [Text] : put({Run}) => {Ok}\n}\n"
+                            "[Api] -> [Text] : get({K}) => {Run}\n")
+        m = model(text, "t")
+        self.assertEqual(m.shared, ())
+        self.assertEqual(m.components["Text_service"].home, "Core")
+
+    def test_the_check_reads_no_home_error(self):
+        from sigil.analyse import check
+        found = check.check(self.TEXT, mode="spec", export=True)
+        self.assertNotIn("SGC401", [f.rule.id for f in found.findings])
+        shared = check.check(self.TEXT.replace("[Cells] -> [Text]", "[Text]\n  [Cells] -> [Text]"),
+                             mode="spec", export=True)
+        self.assertIn("SGC401", [f.rule.id for f in shared.findings])   # declared twice
 
 
 class TestActors(unittest.TestCase):
