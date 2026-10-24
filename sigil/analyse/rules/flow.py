@@ -781,7 +781,20 @@ class RawFailures:
                 activates(self.facts, w) and bool(self.unrouted(callee_key(self.facts, w))))
         if kind == "node":
             return any(self.unrouted(k) for k in self.fl.arriving if k[1] == what)
-        return any(self.raw(key, ("call", w.ident)) for w in self._in_block(key, what))
+        return bool(self._escaping(key, what))
+
+    def _escaping(self, key: tuple, bi: int) -> list:
+        """The calls in block bi of `key` whose raw failure leaves it selecting no
+        route: a route on the call's line, or after the `}` of a block inside bi
+        that holds it, still takes it (sim.selected_routes's `via`)."""
+        routes, out = self.fl.routes.get(key, ()), []
+        for w in self._in_block(key, bi):
+            chain = block_chain(self.facts, w)
+            via = (("call", w.ident),) + tuple(("block", b) for b in chain[:chain.index(bi)])
+            if (not self.facts.sim.selected_routes(routes, ("block", bi), via)
+                    and self.raw(key, ("call", w.ident))):
+                out.append(w)
+        return out
 
     def _in_block(self, key: tuple, bi: int) -> list:
         ui, nid = key
@@ -801,7 +814,7 @@ class RawFailures:
             return [o for k in self.fl.arriving if k[1] == what
                     for g in self.unrouted(k) for o in self.origins(k, g, seen)]
         if kind == "block":
-            return [o for w in self._in_block(key, what) if self.raw(key, ("call", w.ident))
+            return [o for w in self._escaping(key, what)
                     for o in self.origins(key, ("call", w.ident), seen)]
         w = self.wires.get(what)
         if w is None:
