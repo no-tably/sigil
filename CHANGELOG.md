@@ -2,10 +2,11 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
-## 0.6.3 — unreleased
+## 0.6.3 — 2026-10-24
 
 State machines say more in fewer lines, and the end state `$` means what the
-checks already told you to write.
+checks already told you to write. A design can say what kind of system it is, and
+the checks it cannot need step aside. The viewer uses the whole window.
 
 ### New
 
@@ -49,6 +50,14 @@ checks already told you to write.
   The SGC203 hint at `$` now names only these two fixes.
   The run narration says so: "{Order} ignores <pay> after its end, on purpose", and
   "{Order} begins again in Open on <place>: a new record".
+
+- **The viewer uses the whole window.** A drawing narrower than the window used to
+  open centred, leaving a wide blank margin on the left. It now opens at the
+  top-left, and the graph and flow views lay their sections side by side when the
+  window is wide enough: in order, down each column, the shortest layout that fits.
+  At 200 columns a design that took 114 rows of flow view takes 59. A drawing that
+  fits in one column, and the tree view (whose lanes run through every section),
+  draw as before; `z` still centres.
 
 ## 0.6.2 — 2026-10-20
 
