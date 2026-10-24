@@ -608,6 +608,135 @@ class TestGeneralHomeRule(unittest.TestCase):
         self.assertIn("SGC401", [f.rule.id for f in shared.findings])   # declared twice
 
 
+class TestPayloadDependencies(unittest.TestCase):
+    """A flow whose payload, op arguments or return names a data glyph homed in
+    system S makes both ends' systems depend on S, as a flow to it would (0.6.4)."""
+
+    TEXT = ("[Code] := {\n  [Parser] -> [Store] : save({Tree}) => {Ack}\n"
+            "  {Unit}\n    \\-& {Contract}\n}\n"
+            "[Run] := {\n  [Verify] -> [Check] : units({Tree}) => {Unit}\n}\n")
+
+    def test_a_return_naming_a_tree_s_root_depends_on_its_tree(self):
+        m = model(self.TEXT, "t")
+        self.assertEqual(m.systems["Run"].depends_on, ("Unit",))
+        self.assertEqual(m.systems["Code"].depends_on, ("Unit",))      # nesting only
+
+    def test_a_member_of_the_tree_in_a_payload(self):
+        m = model(self.TEXT.replace("=> {Unit}", "=> {Ok}\n  [Check] ~> [Judge] : {Contract}"), "t")
+        self.assertEqual(m.systems["Run"].depends_on, ("Unit",))
+
+    def test_data_named_only_in_payloads_makes_none(self):
+        m = model(self.TEXT, "t")
+        self.assertNotIn("Tree_data", m.components)
+        self.assertEqual(m.systems["Code"].depends_on, ("Unit",))
+
+    def test_data_of_the_end_s_own_or_an_enclosing_system_makes_none(self):
+        text = ("{Cfg} @inv immutable\n[Run] := {\n  {Job}\n"
+                "  [A] -> [B] : go({Job}, {Cfg}) => {Ok}\n}\n")
+        m = model(text, "t")
+        self.assertEqual(m.components["Cfg_data"].home, "t")
+        self.assertEqual(m.components["Job_data"].home, "Run")
+        self.assertEqual(m.systems["Run"].depends_on, ())
+
+    def test_an_actor_end_depends_on_nothing_the_other_end_does(self):
+        text = ("[Orders] := {\n  {Order}\n  [Book] -> |Ledger| : put({Order}) => {Ok}\n}\n"
+                "[Shop] := {\n  (Buyer) -> [Api] : {Order}\n}\n")
+        m = model(text, "t")
+        self.assertEqual(m.systems["Shop"].depends_on, ("Orders",))
+        self.assertEqual(m.components["Buyer_actor"].home, "Shop")
+
+    def test_glyphs_read_as_the_parser_reads_them(self):
+        text = ("[Store] := {\n  ~{Session}\n  {Note}\n}\n"
+                "[Api] := {\n  [A] -> [B] : put(~{Session}, \"{Note}\") => {Ok}\n}\n")
+        m = model(text, "t")
+        self.assertEqual(m.systems["Api"].depends_on, ("Store",))     # not the string's {Note}
+        m2 = model(text.replace(', \"{Note}\"', ""), "t")
+        self.assertEqual(m2.systems["Api"].depends_on, ("Store",))
+
+    def test_a_dependency_moves_no_hash(self):
+        m = model(self.TEXT, "t")
+        run = m.systems["Run"]
+        again = em.with_hashes(model_systems.replace(run, depends_on=()), m.components, m.top)
+        self.assertEqual((again.interface_hash, again.body_hash),
+                         (run.interface_hash, run.body_hash))
+
+    def test_the_structure_reading_agrees(self):
+        from sigil.core.parse import parse_document
+        from sigil.model import structure
+        u = structure.units_of(parse_document(self.TEXT), "t")
+        run = next(x for x in u.units if x.key == "Run")
+        self.assertEqual(run.calls, ("Unit",))
+        self.assertEqual(run.depends_on, ("Unit",))
+
+
+class TestMentionsInPassing(unittest.TestCase):
+    """A level that names a part only in passing — a block header's subject, a
+    branch arm's body, a store it borrows, a join's member — refers to it; it
+    never declares it (0.6.4)."""
+
+    def test_a_branch_s_field_subject_is_a_reference(self):
+        text = ("[Code] := {\n  {Unit}\n    \\-& {Contract}\n}\n"
+                "[Run] := {\n  [Verify] -> [Check] : units({Tree}) => {Contract}\n"
+                "  branch on {Contract}.fit {\n    meets => [Check] -> [Judge] : {Contract}\n"
+                "    unmeetable => [Check] ~> <Fail>\n  }\n}\n")
+        m = model(text, "t")
+        self.assertEqual(m.shared, ())
+        self.assertEqual(m.components["Contract_data"].home, "Unit")
+        self.assertEqual(m.systems["Run"].depends_on, ("Unit",))
+
+    def test_a_loop_s_subject_is_a_reference(self):
+        text = ("[Site] := {\n  {Pages}\n  [Crawler] -> |Index| : put({Pages}) => {Ok}\n}\n"
+                "[Build] := {\n  loop @each p of {Pages} {\n    [Render] -> [Out] : {Html}\n  }\n}\n")
+        m = model(text, "t")
+        self.assertEqual(m.shared, ())
+        self.assertEqual(m.components["Pages_data"].home, "Site")
+
+    def test_an_arm_s_body_is_a_reference(self):
+        text = ("[Core] := {\n  [Admin] @cap(admin)\n  [Admin] -> [Db] : {Q}\n}\n"
+                "[Ui] := {\n  [Gate] -> [Router] : {Request}\n  branch on {Request}.kind {\n"
+                "    admin => [Admin]\n    _ => [Router] ~> <Rejected>\n  }\n}\n")
+        m = model(text, "t")
+        self.assertEqual(m.shared, ())
+        self.assertEqual(m.components["Admin_service"].home, "Core")
+
+    def test_a_borrowed_store_is_a_reference(self):
+        text = ("[Core] := {\n  [Writer] -> |Log| : append({Line}) => {Ack}\n}\n"
+                "[Ui] := {\n  [Panel] @borrow(read) |Log|\n  [Panel] -> [Screen] : {Line}\n}\n")
+        m = model(text, "t")
+        self.assertEqual(m.shared, ())     # the writer's flows win over the borrow
+        self.assertEqual(m.components["Log_store"].home, "Core")
+        self.assertEqual(m.components["Panel_service"].home, "Ui")
+
+    def test_an_access_grant_is_the_store_s_own_line(self):
+        text = ("[Core] := {\n  [Writer] -> |Log| : append({Line}) => {Ack}\n  [Reader]\n}\n"
+                "[Ui] := {\n  |Log| @read(Reader)\n  [Panel] -> |Log| : read() => {Line}\n}\n")
+        m = model(text, "t")
+        self.assertEqual(m.shared, ())     # a modifier line: it declares the store
+        self.assertEqual(m.components["Log_store"].home, "Ui")
+
+    def test_a_join_s_member_is_a_flow_end(self):
+        text = ("[Core] := {\n  [Text] @inv lock-order\n  [Text] -> [Out] : {Line}\n}\n"
+                "[Ui] := {\n  [Left] & [Text] -> [Merge] : {Line}\n}\n")
+        m = model(text, "t")
+        self.assertEqual(m.shared, ())
+        self.assertEqual(m.components["Text_service"].home, "Core")
+
+    def test_a_part_named_only_in_passing_still_has_a_home(self):
+        text = "[Run] := {\n  branch on {Job}.state {\n    done => [A] -> [B] : {X}\n  }\n}\n"
+        m = model(text, "t")
+        self.assertEqual(m.components["Job_data"].home, "Run")
+
+    def test_the_check_reads_no_home_error(self):
+        from sigil.analyse import check
+        text = ("#!spec\n[Code] := {\n  {Unit}\n    \\-& {Contract}\n"
+                "  [Maker] -> |Units| : put({Unit}) => {Ok}\n}\n"
+                "[Run] := {\n  [Verify] -> [Check] : take({Unit}) => {Contract}\n"
+                "  branch on {Contract}.fit {\n    meets => [Check] -> [Judge] : {Contract}\n"
+                "    unmeetable => [Check] ~> <Fail>\n  }\n}\n")
+        found = check.check(text, mode="spec", export=True)
+        self.assertNotIn("SGC401", [f.rule.id for f in found.findings])
+
+
 class TestActors(unittest.TestCase):
     """An actor is not built: it makes no system depend on another, and one
     written in two sibling systems is homed where they meet, not shared."""

@@ -226,7 +226,8 @@ def units_of(graph, stem: str, kinds: Mapping = {}) -> Units:
     flows = systems.collect_flows(graph, comps)
     actors = actor_ids(comps)
     faces = faces_of(model)
-    links = flow_links(flows, comps, faces, actors)
+    links = flow_links(flows, comps, faces, actors,
+                       {key: s.parent for key, s in model.systems.items()})
     children: dict = {}
     for key, sysm in model.systems.items():
         if sysm.parent is not None and sysm.parent != key:
@@ -262,22 +263,23 @@ def inside(c, faces: dict) -> frozenset:
     return frozenset({c.home} | ({faces[c.id]} if c.id in faces else set()))
 
 
-def flow_links(flows: list, comps: dict, faces: dict, actors: frozenset) -> dict:
+def flow_links(flows: list, comps: dict, faces: dict, actors: frozenset,
+               parents: dict) -> dict:
     """{(unit, unit it depends on): [Flow]}: the dependencies flows make, as the
     export model's depends_on reads them (systems.dependencies): a flow from a node
     in A to a node in B (`<->` both ways), a flow into a face standing for its unit
-    alone; a flow to or from an actor makes none."""
+    alone, and the data a flow carries (systems.payload_dependencies); a flow
+    to or from an actor makes none of its own. `parents`: {unit: its parent}."""
     ins = {nid: inside(c, faces) for nid, c in comps.items()}
     out: dict = {}
     for f in flows:
-        if f.src in actors or f.dst in actors:
-            continue
-        pairs = [(f.src, f.dst)] + ([(f.dst, f.src)] if f.arrow == "<->" else [])
-        for a, b in pairs:
-            for sa in ins[a]:
-                for sb in ({faces[b]} if b in faces else ins[b]):
-                    if sa != sb:
-                        out.setdefault((sa, sb), []).append(f)
+        links = list(systems.payload_dependencies(f, ins, faces, parents, actors))
+        if f.src not in actors and f.dst not in actors:
+            pairs = [(f.src, f.dst)] + ([(f.dst, f.src)] if f.arrow == "<->" else [])
+            links += [(sa, sb) for a, b in pairs for sa in ins[a]
+                      for sb in ({faces[b]} if b in faces else ins[b]) if sa != sb]
+        for link in dict.fromkeys(links):
+            out.setdefault(link, []).append(f)
     return out
 
 

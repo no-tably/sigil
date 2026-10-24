@@ -55,7 +55,12 @@ HOMES
   only as an end of its own flows is a REFERENCE, and no home candidate, when
   any other level DECLARES the node (a line of its own, a tree, a modifier
   line), wherever that level is: `[Core] := { [Text] … }` beside `[Buffer] := {
-  [Cells] -> [Text] … }` homes [Text] in Core, and Buffer reaches it there. It
+  [Cells] -> [Text] … }` homes [Text] in Core, and Buffer reaches it there. A
+  level that names it only IN PASSING (a control block's header, `branch on
+  {X}.f {`; a branch arm's body; a store it borrows, `[P] @borrow(read) |S|`; a
+  join's member) declares it neither: it is a reference as a flow end is, and
+  also when another level writes it as a flow end (a borrow beside the
+  writer's flows). It
   is a reference too into a system nested under it that writes the node in any
   way (an end of that system's own flows as well): `(Client) -> [Transport]` at
   the top level with [Transport] written inside [Remote] homes it in Remote.
@@ -122,8 +127,14 @@ BOUNDARIES AND DEPENDENCIES
   A node is IN a system when it is homed there or is its face. A flow crosses a
   system's boundary when exactly one end is in it; the system's interface is
   those flows. System A depends on B when a flow leaves a node in A for a node
-  in B (`<->` both ways), and on every system nested in it. A flow to or from
-  an actor makes no system depend on another. A boundary flow
+  in B (`<->` both ways), on every system nested in it, and on the system a
+  data glyph its flows carry is homed in: a `{D}` named in a flow's payload, op
+  arguments or return, when {D} is a component (written somewhere as a part;
+  one named only in payloads has no home), makes each end's systems depend on
+  {D}'s (its own system when it is a face) unless that is the end's own or
+  encloses it (payload_dependencies). A flow to or from an actor makes no
+  system depend on another (its other end still depends on the data it
+  carries). A dependency is no part of any hash. A boundary flow
   with no payload (neither end a data or event glyph either) or a synchronous
   call with no `=> return` is listed in Model.untyped (SGC402).
 """
@@ -136,6 +147,8 @@ from typing import Iterable, Mapping, NamedTuple, Optional
 
 from sigil.core.graph import header_only, walk_depth
 from sigil.core.lex import BLOCK_SENTINEL, GLYPH_BRACKETS
+from sigil.core.parse import parse_glyph
+from sigil.core.tokens import glyph_spans
 
 
 # ---------------------------------------------------------------------------
@@ -326,8 +339,8 @@ class Layout:
     headers: list = field(default_factory=list)      # (face id, system key) of each
                                         # expansion whose owner its level writes only
                                         # on the `X := {` header (see header_only)
-    refs: dict = field(default_factory=dict)         # (node id, system key) → "flow"
-                                        # | "owner" where that level writes the node only
+    refs: dict = field(default_factory=dict)         # (node id, system key) → "passing"
+                                        # | "flow" | "owner" where that level writes the node only
                                         # as an end of its flows (see reference_only)
     strong: set = field(default_factory=set)         # (node id, system key) where a
                                         # graph of that level writes it otherwise
@@ -390,8 +403,11 @@ def nest_headers(lay: Layout):
 
 
 def reference_only(g, nid: str) -> Optional[str]:
-    """How g writes node `nid` when it writes it only as an end of g's own flows:
-    "flow" when nothing else of g names it, "owner" when g also writes the
+    """How g writes node `nid` when it writes it only as an end of g's own flows
+    or in passing (named_in_passing: a block header's subject, an arm's body, a
+    borrowed store, a join's member): "passing" when g names it only so, "flow"
+    when g writes it as a flow end and heads no statement with it, "owner" when g
+    also writes the
     `X := {` header of its own expansion; None when g heads another statement
     with it (a declaration or modifier line) or places it in a tree, and for an
     actor (its entry line stands where it is written). Where a system nested
@@ -401,7 +417,8 @@ def reference_only(g, nid: str) -> Optional[str]:
         return None
     flow_lines = {ln for e in g.edges if nid in (e.src, e.dst) for ln in (e.line, e.cont) if ln}
     if not flow_lines:
-        return None
+        named = not any(h == nid for _line, h in g.heads) and named_in_passing(g, nid)
+        return "passing" if named else None
     sub, node = g.expansions.get(nid), g.nodes[nid]
     owner = sub is not None and sub.role != "state" and node.kind != "alias"
     others = sum(1 for line, h in g.heads if h == nid and line not in flow_lines)
@@ -410,11 +427,30 @@ def reference_only(g, nid: str) -> Optional[str]:
     return "owner" if owner else "flow"
 
 
+def named_in_passing(g, nid: str) -> bool:
+    """Whether g names node `nid` where another statement is about something
+    else: a control block's header (`branch on {X}.f {`, `loop @each x of {Xs}
+    {`: the subject it decides on or walks; an owns header aside, whose owner
+    heads it), a branch arm's body (`ok => [A]`: a route, as a flow end is), a
+    store borrowed in an access list (`[P] @borrow(read) |S|`: P's statement),
+    or a join's member (an end of the flow the join is on). Such a mention is a
+    reference, never a declaration (reference_only)."""
+    return (any(nid in b.refs for b in g.blocks if b.kind != "owns")
+            or any(nid in nodes for b in g.blocks for _arm, nodes in b.arm_nodes)
+            or any(a.store == nid for a in g.access if a.mode == "borrow")
+            or any(nid in j.members for j in g.joins))
+
+
+REF_RANK = ("passing", "flow", "owner")  # how a level refers to a node, weakest first
+
+
 def home_candidates(lay: Layout, nid: str) -> list:
     """The candidates a node's home is chosen from: its candidates less each level
     that writes it only as a reference into another system — a level writing it
-    only as flow ends, when any other candidate declares it (a line of its own, a
-    tree, a modifier line) or a candidate nested under it writes it too; a level
+    only as flow ends or in passing (named_in_passing), when any other candidate
+    declares it (a line of its own, a tree, a modifier line) or a candidate nested
+    under it writes it too; a level naming it only in passing, when another
+    candidate writes it as a flow end (a borrow beside the writer's flows); a level
     writing it as flow ends and the header of its expansion, when a candidate
     nested under it declares it (the header there is only where the inside is
     written, as for a header-only expansion). The rule never makes a node
@@ -425,11 +461,14 @@ def home_candidates(lay: Layout, nid: str) -> list:
 
     def reference(c):
         how = lay.refs.get((nid, c))
-        if how == "flow" and any(o != c for o in declared):
+        if how in ("passing", "flow") and any(o != c for o in declared):
             return True
+        if how == "passing" and any(o != c and lay.refs.get((nid, o)) != "passing"
+                                    for o in cands):
+            return True                 # a flow end (or a declaration) elsewhere wins
         return how is not None and any(
             o != c and c in ancestors(o, lay.systems)
-            and (how == "flow" or (nid, o) not in lay.refs) for o in cands)
+            and (how != "owner" or (nid, o) not in lay.refs) for o in cands)
 
     kept = [c for c in cands if not reference(c)]
     if kept and home_of(kept, lay.systems) is not None:
@@ -460,7 +499,7 @@ def _lay_graph(g, key: str, lay: Layout):
                 lay.refs.pop((nid, key), None)
             elif (nid, key) not in lay.strong:
                 was = lay.refs.get((nid, key))
-                lay.refs[(nid, key)] = "owner" if "owner" in (ref, was) else ref
+                lay.refs[(nid, key)] = max(ref, was or ref, key=REF_RANK.index)
             if ref == "owner" and nid not in lay.follow:
                 lay.follow.append(nid)
             _add(lay.candidates, nid, key)
@@ -889,14 +928,18 @@ def make_systems(facts: Facts, components: dict, inside: dict) -> dict:
 
 def dependencies(lay: Layout, flows: list, inside: dict,
                  actors: frozenset = frozenset()) -> dict:
-    """{system: {systems it depends on}}: the systems its flows reach, and the
+    """{system: {systems it depends on}}: the systems its flows reach, the
+    systems the data its flows carry is homed in (payload_dependencies), and the
     systems nested in it. A flow to or from an actor is no dependency: an actor
     is not built, so no system waits on another for it."""
     deps = {}
     for key, (_n, _k, _f, parent) in lay.systems.items():
         if parent is not None and parent != key:
             _add(deps, parent, key)
+    parents = {key: sysm[3] for key, sysm in lay.systems.items()}
     for f in flows:
+        for sa, sb in payload_dependencies(f, inside, lay.by_face, parents, actors):
+            _add(deps, sa, sb)
         if f.src in actors or f.dst in actors:
             continue
         pairs = [(f.src, f.dst)] + ([(f.dst, f.src)] if f.arrow == "<->" else [])
@@ -906,6 +949,53 @@ def dependencies(lay: Layout, flows: list, inside: dict,
                     if sa != sb:
                         _add(deps, sa, sb)
     return deps
+
+
+def payload_dependencies(f: Flow, inside: dict, faces: dict, parents: dict,
+                         actors: frozenset = frozenset()) -> list:
+    """[(system, system it depends on)] for the data f carries: a `{D}` named in
+    its payload, op arguments or return that is a component (written somewhere
+    as a part, so it has a home) makes each end's systems depend on the systems
+    a flow into {D} would reach (its home; its own system when it is a face) —
+    unless that system is the end's own or encloses it. A {D} named only in
+    payloads has no home, and makes no dependency. An actor end depends on
+    nothing (it is not built); the other end still depends on what it carries.
+    `faces`: {face node id: its system}; `parents`: {system: its parent}."""
+    out = []
+    for nid in carried_data(f):
+        if nid not in inside:
+            continue
+        for end in dict.fromkeys((f.src, f.dst)):
+            if end in actors:
+                continue
+            for sa in inside[end]:
+                for sb in ({faces[nid]} if nid in faces else inside[nid]):
+                    if sb not in lineage(sa, parents):
+                        out.append((sa, sb))
+    return out
+
+
+def lineage(key: str, parents: dict) -> list:
+    """key, its parent, … up to the top, from {system: parent} (a cycle stops
+    the walk)."""
+    out = []
+    while key is not None and key not in out:
+        out.append(key)
+        key = parents.get(key)
+    return out
+
+
+def carried_data(f: Flow) -> list:
+    """The node ids of the `{D}` glyphs f's payload, op and return name (outside
+    strings; read as the parser reads a glyph, so `~{D}` is {D}), first written
+    first."""
+    ids = []
+    for text in (f.payload, f.op, f.returns):
+        for s in glyph_spans(text or ""):
+            node = parse_glyph(text[s.start:s.end]) if s.kind == "data" else None
+            if node is not None and node.id not in ids:
+                ids.append(node.id)
+    return ids
 
 
 def reached(nid: str, lay: Layout, inside: dict) -> frozenset:
