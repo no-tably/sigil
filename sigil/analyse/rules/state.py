@@ -1568,21 +1568,72 @@ def composed_under(g, owner: str, nid: str) -> bool:
     return False
 
 
+def member_of(g, nid: str) -> bool:
+    """g holds node `nid` as a member of its own: a statement of g heads it (a
+    line of its own, a modifier line, a flow it starts) other than the header of
+    its own expansion, or g's composition tree places it. A node g only reaches
+    (a flow's far end) is not a member of g."""
+    if nid not in g.nodes or header_only(g, nid):
+        return False
+    if any(t.node == nid for t in getattr(g, "tree", None) or []):
+        return True
+    sub = g.expansions.get(nid)
+    header = int(sub is not None and sub.role != "state")
+    return sum(1 for _line, h in g.heads if h == nid) > header
+
+
+def enclosing_owners(units: list) -> dict:
+    """{node id: the owners of the expansions that hold it as a member}."""
+    out = {}
+    for sub, owner, _ancestors in units:
+        for nid in sub.nodes:
+            if nid != owner and member_of(sub, nid):
+                out.setdefault(nid, set()).add(owner)
+    return out
+
+
+def enclosing(owners: dict, nid: str) -> frozenset:
+    """nid and every owner that holds it, directly or through owners that hold
+    those owners (a member's own expansion written anywhere stays nested under the
+    expansion that holds the member)."""
+    seen, todo = {nid}, [nid]
+    while todo:
+        for o in owners.get(todo.pop(), ()):
+            if o not in seen:
+                seen.add(o)
+                todo.append(o)
+    return frozenset(seen)
+
+
 def find_expansion_escape(ck, f: Facts):
     """SGC172: a wire inside `[O] := { … }` reaches a node of an outer level other
     than O, and the outer levels never connect O with it. An outer level that
     writes the node only on its own expansion's header (`[A] := { … }`) does not
-    hold it: that A is a member written inside, its expansion nested there."""
-    for sub, owner, ancestors in expansion_units(f):
+    hold it: that A is a member written inside, its expansion nested there.
+
+    A node held as a member of O, or of an expansion nested in O (declared there,
+    or starting a flow there), is O's own, however the outer levels also name it.
+    The connection may be stated between anything enclosing O and anything
+    enclosing the node, below what encloses both: `[Draw] -> [Core]` connects a
+    member of Draw's Paint with Core's Buffer, and `[Graph] -> [Canvas]` written
+    inside Draw connects Graph's own expansion with its sibling Canvas."""
+    units = expansion_units(f)
+    owners = enclosing_owners(units)
+    every = {(e.src, e.dst) for g, _o, _l, _t in f.units if g.role != "state" for e in g.edges}
+    for sub, owner, ancestors in units:
         outer = {nid for g in ancestors for nid in wired_ids(g) if not header_only(g, nid)}
-        connected = {(e.src, e.dst) for g in ancestors for e in g.edges}
+        mine = enclosing(owners, owner)
         for e in sub.edges:
             d = e.dst
             if d == owner or d not in outer or e.src == d:
                 continue
             if f.kind(d) != "service" or f.kind(e.src) != "service":
                 continue
-            if (owner, d) in connected or (d, owner) in connected:
+            theirs = enclosing(owners, d)
+            if owner in theirs:
+                continue
+            near, far = mine - theirs, theirs - mine
+            if any((a, b) in every or (b, a) in every for a in near for b in far):
                 continue
             if any(composed_under(g, owner, d) for g in ancestors):
                 continue

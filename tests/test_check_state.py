@@ -866,13 +866,96 @@ class ExpansionEscapeHeaderOnly(unittest.TestCase):
     def test_a_member_expanded_at_the_top_is_no_escape(self):
         self.assertEqual(found(run(self.CORE), "SGC172"), [])
 
-    def test_a_member_also_wired_at_the_top_still_escapes(self):
+    def test_a_member_also_wired_at_the_top_is_no_escape(self):
+        # [A] is declared inside [Core]: a top-level flow naming it reaches into
+        # Core, it does not make [A] a node of the top level
         text = self.CORE + "        [A] -> |Log| : put({X}) => {Ok}\n"
-        self.assertEqual(found(run(text), "SGC172"), [(7, "SGC172")])
+        self.assertEqual(found(run(text), "SGC172"), [])
 
     def test_an_outer_node_reached_from_inside_still_escapes(self):
         text = self.CORE.replace("[B] -> [A]", "[B] -> [Far]") + "        [Far] -> |Log| : put({X}) => {Ok}\n"
         self.assertEqual(found(run(text), "SGC172"), [(7, "SGC172")])
+
+
+
+class ExpansionEscapeEnclosing(unittest.TestCase):
+    """SGC172: a node held as a member of the expansion (declared there, or starting
+    a flow there) is its own, however the top also names it; and a connection
+    stated between what encloses each end (`[Draw] -> [Core]`, or `[Graph] ->
+    [Canvas]` inside the expansion holding both) is a connection."""
+
+    LIB = """
+        #!sketch
+        (User) -> [Canvas] : draw({S}) => {R}
+        (User) -> [Cells] : put({S}) => {R}
+        (Peer) -> [Link] : hello({S}) => {R}
+        [Lib]
+            \\-> [Core]
+            \\-> [Draw]
+            \\-> [Edge]
+        [Draw] -> [Core] : cells({S}) => {R}
+        [Edge] -> [Core] : show({S}) => {R}
+
+        [Core] := {
+          [Cells]
+        }
+
+        [Draw] := {
+          [Canvas]
+          [Graph]
+          [Paint]
+          [Graph] -> [Canvas] : draw({P}) => {C}
+          [Paint] -> [Graph] : lay({P}) => {C}
+        }
+
+        [Graph] := {
+          [Route] -> [Canvas] : draw({P}) => {C}
+        }
+
+        [Paint] := {
+          [Frame] -> [Cells] : put({P}) => {C}
+        }
+
+        [Edge] := {
+          [Term]
+          [Remote]
+          [Remote] -> [Cells] : show({P}) => {C}
+        }
+
+        [Remote] := {
+          [Server] -> [Link] : accept({P}) => {C}
+          [Link] -> [Wire] : frame({P}) => {C}
+          [Attach] -> [Term] : open({P}) => {C}
+        }
+        """
+
+    def line_of(self, text: str) -> int:
+        lines = textwrap.dedent(self.LIB).lstrip("\n").splitlines()
+        return next(i for i, ln in enumerate(lines, 1) if text in ln)
+
+    def escapes(self) -> list:
+        return found(run(self.LIB), "SGC172")
+
+    def test_a_member_declared_inside_and_reached_from_the_top_is_no_escape(self):
+        self.assertNotIn((self.line_of("[Graph] -> [Canvas]"), "SGC172"), self.escapes())
+
+    def test_a_sibling_connection_inside_the_holder_connects_the_members_expansion(self):
+        self.assertNotIn((self.line_of("[Route] -> [Canvas]"), "SGC172"), self.escapes())
+
+    def test_a_connection_between_the_enclosing_units_connects_their_members(self):
+        for wire in ("[Frame] -> [Cells]", "[Remote] -> [Cells]"):
+            self.assertNotIn((self.line_of(wire), "SGC172"), self.escapes(), wire)
+
+    def test_a_node_that_starts_a_flow_inside_is_a_member(self):
+        self.assertNotIn((self.line_of("[Server] -> [Link]"), "SGC172"), self.escapes())
+
+    def test_siblings_the_holder_never_connects_still_escape(self):
+        # [Remote] and [Term] are both members of [Edge], which never states
+        # [Remote] -> [Term]; the top names [Term] in a flow of its own
+        text = self.LIB + "        (User) -> [Term] : open({S}) => {R}\n"
+        self.assertEqual(found(run(text), "SGC172"),
+                         [(self.line_of("[Attach] -> [Term]"), "SGC172")])
+        self.assertEqual(self.escapes(), [])
 
 
 if __name__ == "__main__":
