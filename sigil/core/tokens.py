@@ -26,7 +26,8 @@ anywhere outside a string (a stream bound `^N@policy`, then the access lists
 `@read(…)` / `@write(…)`, then every other `@name` with its argument); its
 payload runs from the first `:` (not `:=`) to the line end, less those
 modifiers, a trailing count, bound or `!`, and modifier aliases after a `×N`
-(`: charge ×3 Retry`). The rest is read left to right: a dialect's tokenizers
+(`: charge ×3 Retry`) — or up to a `!>` with a glyph after it, outside any
+string or bracket (`: run() => {R} !> <E>`): the call's failure route. The rest is read left to right: a dialect's tokenizers
 first, then arrows, joins, glyphs, op-call targets and the marks glued to a
 glyph (`×N`, `!`, `?`, `.field`). Unreadable text becomes a `bad` token or a
 token with a `problem`, which lint's hardening rules report; a token the model
@@ -365,6 +366,7 @@ class _Payload(NamedTuple):
     text: Optional[str]  # the payload (None when empty)
     rest: str            # its text up to its tail, blanked modifiers as _GAP / space
     peeled: list         # [(column, kind, text, pair)] its tail and alias references
+    route: bool = False  # a `!> <E>` after it ends it: the call's failure route
 
 
 # A character every payload tail (PAYLOAD_TAIL_RE, PAYLOAD_TAIL_LOOSE_RE) holds.
@@ -379,7 +381,10 @@ def _take_payload(text: str) -> tuple:
     pm = PAYLOAD_RE.search(text) if ":" in text else None
     if not pm:
         return text, None
-    raw = pm.group(1)
+    raw, end = pm.group(1), pm.end()
+    cut = _route_cut(raw)
+    if cut is not None:                 # `: run() => {R} !> <E>`: the route is no payload
+        raw, end = raw[:cut], pm.start(1) + cut
     peeled = []
     refs = (ALIAS_REF_RE.search(raw.replace(_GAP, " "))
             if "×" in raw or "x" in raw else None)        # a count comes first
@@ -400,10 +405,37 @@ def _take_payload(text: str) -> tuple:
         raw = raw[:tail.start()]
     payload = raw.replace(_GAP, "").strip() or None
     colon = text.index(":", pm.start())
-    out = text[:pm.start()] + _blank(pm.end() - pm.start()) + text[pm.end():]
-    if ":" in out:
+    out = text[:pm.start()] + _blank(end - pm.start()) + text[end:]
+    if ":" in out and cut is None:
         out = PAYLOAD_RE.sub(lambda m: _blank(len(m.group(0))), out)
-    return out, _Payload(colon, pm.start(1), pm.end(), payload, raw, sorted(peeled))
+    return out, _Payload(colon, pm.start(1), end, payload, raw, sorted(peeled),
+                         cut is not None)
+
+
+# `!>` written as a payload item of its own, then a glyph: where a route starts.
+_ROUTE_RE = re.compile(r"!>(?=\s*" + PREFIXES_CLASS + "*" + OPENERS_CLASS + ")")
+
+
+def _route_cut(raw: str) -> Optional[int]:
+    """Where a payload ends because a failure route follows it (`: run({X}) =>
+    {Y} !> <Fail>`): the column in `raw` (a payload's text) of a `!>` outside
+    any string or bracket that a glyph follows, with no further `:` after it —
+    the route is the call's, as a `!>` on the line under it would be. None when
+    there is none."""
+    if "!>" not in raw:
+        return None
+    s = mask_strings(raw)
+    depth = 0
+    for i, ch in enumerate(s):
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif ch == "!" and depth == 0 and _ROUTE_RE.match(s, i) \
+                and (i == 0 or s[i - 1].isspace() or s[i - 1] == _GAP) \
+                and ":" not in s[i:]:
+            return i
+    return None
 
 
 def _overlay(base: str, blanked: str, spans) -> str:
@@ -622,7 +654,7 @@ class _Reader:
         else:
             spans = [(m.start, m.end) for m in mods]
             if payload is not None:
-                spans.append((payload.colon, len(blanked)))
+                spans.append((payload.colon, payload.end if payload.route else len(blanked)))
             self.w = _overlay(masked, blanked, spans)
         self.toks: list = []
         self.prev = False

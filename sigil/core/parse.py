@@ -158,6 +158,10 @@ def extract_flows(toks: list, graph: Graph, layer: str, last_src=None,
     if isinstance(last_src, Node):
         last_src = Subject((last_src.id,))
     tokens, mods, payload, payload_span, event_args, glued = _model_tokens(toks, layer)
+    cut = _route_col(tokens, payload_span)
+    if cut is not None:
+        return _with_route(toks, cut, graph, layer, last_src, dialect, first, line_no,
+                           out, lead)
     head = _head(tokens, lead)
     tokens, paths = _fold_paths(tokens)
     glyphs = [t[1] for t in tokens if t[0] == "glyph"]
@@ -200,6 +204,43 @@ def extract_flows(toks: list, graph: Graph, layer: str, last_src=None,
         return last_src
     return Subject(tuple(n.id for n in subject["nodes"]), subject["join_idx"],
                    tuple(subject.get("paths") or ()), line_no)
+
+
+def _route_col(tokens: list, payload_span: tuple) -> Optional[int]:
+    """The column of a `!>` that routes the statement's call rather than the glyph
+    before it: one written after the payload (`[A] -> [B] : run() => {R} !> <E>`)
+    or after a return (`[W] -> run() => <ok> !> <fail>`). None when there is none."""
+    arrow = None                        # the latest arrow before the token
+    for i, (kind, val, col) in enumerate(tokens):
+        if kind == "arrow" and val == "!>" and i > 0:
+            if 0 <= payload_span[0] < col:
+                return col
+            if arrow == "=>" and tokens[i - 1][0] in ("glyph", "void"):
+                return col
+        if kind == "arrow":
+            arrow = val
+    return None
+
+
+def _with_route(toks: list, cut: int, graph: Graph, layer: str, last_src, dialect,
+                first: Optional[list], line_no: int, out: Optional[dict], lead: int):
+    """A statement with its call's failure route written on the call's line (from
+    column `cut`): read as the statement up to the route, then the route as a
+    continuation line under it — `!>` hangs from the statement's subject, as it
+    would written on the next line (language.md pitfall 9)."""
+    head_out: dict = {}
+    subject = extract_flows([t for t in toks if t.col < cut], graph, layer, last_src,
+                            dialect, first, line_no, head_out, lead)
+    tail_out: dict = {}
+    if subject is not None:             # a statement's subject carries this line
+        extract_flows([t for t in toks if t.col >= cut], graph, layer, subject, dialect,
+                      None, line_no, tail_out, cut)
+    if out is not None:
+        out["nodes"] = list(dict.fromkeys(head_out.get("nodes", []) +
+                                          tail_out.get("nodes", [])))
+        out["edges"] = head_out.get("edges", []) + tail_out.get("edges", [])
+        out["head"] = head_out.get("head")
+    return subject
 
 
 def _head(tokens: list, lead: int) -> Optional[Node]:

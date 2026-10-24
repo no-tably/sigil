@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -86,6 +87,69 @@ class Continuation(unittest.TestCase):
     def test_a_section_header_resets_the_subject(self):
         g = parse("[A] -> [B]\n--- next ---\n  -> [C]\n")
         self.assertNotIn(("A_service", "C_service", "->"), keys(g))
+
+
+class OneLineRoute(unittest.TestCase):
+    """A `!>` after a call's payload or return, on the call's own line, is the
+    call's failure route — the graph a `!>` on the line under it draws."""
+
+    CALL = "(User) -> [A] : go({X}) => {Y}\n[A] -> [B] : run({X}) => {Y}"
+    AFTER = "\n<Fail> -> [C] : log({X}) => {Y}\n"
+
+    @staticmethod
+    def shape(g):
+        """The graph less where each line sits: every edge's ends, kind, payload
+        and modifiers, and whether it continues another line."""
+        return [(e.src, e.dst, e.kind, e.payload, e.target_op, tuple(e.mods), bool(e.cont))
+                for e in g.edges], sorted(g.nodes)
+
+    def test_after_a_payload_same_graph_as_the_line_under(self):
+        one = parse(self.CALL + " !> <Fail>" + self.AFTER)
+        two = parse(self.CALL + "\n  !> <Fail>" + self.AFTER)
+        self.assertEqual(self.shape(one), self.shape(two))
+        self.assertEqual(edge(one, "A_service", "B_service").payload, "run({X}) => {Y}")
+        route = edge(one, "A_service", "Fail_event", "!>")
+        self.assertEqual((route.line, route.cont), (2, 2))   # continues its own line
+
+    def test_after_a_return_same_graph_as_the_line_under(self):
+        one = parse("[Worker] -> run({Job}) => <ok> !> <fail>\n")
+        two = parse("[Worker] -> run({Job}) => <ok>\n  !> <fail>\n")
+        self.assertEqual(self.shape(one), self.shape(two))
+        self.assertIn(("Worker_service", "fail_event", "!>"), keys(one))
+        self.assertNotIn(("ok_event", "fail_event", "!>"), keys(one))
+
+    def test_in_a_block_and_with_a_chain_after(self):
+        body = "  [A] -> [B] : run() => {Y}"
+        one = parse("loop {\n" + body + " !> <Fail> -> [C]\n}\n")
+        two = parse("loop {\n" + body + "\n    !> <Fail> -> [C]\n}\n")
+        self.assertEqual(self.shape(one), self.shape(two))
+        self.assertEqual(core_graph.edge_blocks(one), core_graph.edge_blocks(two))
+        self.assertIn(("Fail_event", "C_service", "->"), keys(one))
+
+    def test_a_route_inside_a_string_or_bracket_is_payload(self):
+        g = parse('[A] -> [B] : say("a !> <b>")\n[A] -> [C] : f(x !> <y>)\n')
+        self.assertEqual(edge(g, "A_service", "B_service").payload, 'say("a !> <b>")')
+        self.assertEqual(edge(g, "A_service", "C_service").payload, "f(x !> <y>)")
+        self.assertEqual([e for e in g.edges if e.kind == "!>"], [])
+
+    def test_a_route_from_the_target_stays_the_targets(self):
+        # No payload, no return before it: the `!>` chains from the glyph before it.
+        self.assertIn(("B_service", "E_event", "!>"), keys(parse("[A] -> [B] !> <E>\n")))
+
+    def test_lint_and_sim_read_the_route(self):
+        doc = "#!sketch\n" + self.CALL + " !> <Fail>" + self.AFTER
+        self.assertEqual([d.code for d in lint.lint(doc).diagnostics], [])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "route.sigil"
+            path.write_text(doc)
+            sim = lambda sc: subprocess.run(
+                [sys.executable, str(SIGIL), "view", str(path), "--sim", sc, "--once"],
+                capture_output=True, text=True).stdout
+            out = sim("happy")
+            self.assertIn("[B] returns {Y} to [A]", out)
+            self.assertNotIn("!> <Fail>", out)
+            self.assertNotIn("episode 2", out)                # <Fail> is no entry
+            self.assertIn("[A] routes the failure to <Fail>", sim("A.run:fails"))
 
 
 class Generics(unittest.TestCase):
