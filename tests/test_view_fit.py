@@ -250,9 +250,33 @@ class TestGraphRelocation(unittest.TestCase):
         self.assertTrue(all(len(ln) <= nat_w - 1 for ln in lines))
 
 
+class TestColumns(unittest.TestCase):
+    """A window wider than the drawing is used: sections go side by side, in
+    order down each column, the shortest layout that fits; never past the width."""
+
+    DOC = "".join(f"--- part {k} ---\n[A{k}] -> [B{k}]\n[B{k}] -> [C{k}]\n" for k in range(4))
+
+    def test_wide_window_lays_sections_in_columns(self):
+        g = parse(self.DOC)
+        natural, nat_w = vgraph.compose(g, 1, False)
+        rows, w = vgraph.compose(g, 1, False, width=nat_w * 4 + 12)
+        lines = text_rows(rows)
+        self.assertLess(len(lines), len(text_rows(natural)))
+        self.assertTrue(all(len(ln) <= nat_w * 4 + 12 for ln in lines))
+        top = lines[0]
+        self.assertLess(top.index("part 0"), top.index("part 1"))   # side by side, in order
+
+    def test_columns_read_down_then_across(self):
+        sizes = [(10, 20), (10, 20), (10, 20), (10, 20)]
+        self.assertEqual(vgraph._columns(sizes, 44), [(0, 2), (2, 4)])
+        self.assertEqual(vgraph._columns(sizes, 43), [(0, 4)])        # two don't fit
+        self.assertEqual(vgraph._columns(sizes, None), [(0, 4)])
+
+
 class TestFitsUnchanged(unittest.TestCase):
     """When the drawing fits, fitting changes nothing: the natural output, byte for
-    byte (styles included), for every site example in every mode."""
+    byte (styles included), for every site example in every mode. (The graph
+    only at its natural width: wider, its sections go side by side, TestColumns.)"""
 
     MODES = [dict(notes=n, payloads=p, depth=d)
              for n in view.NOTE_MODES for p in (False, True) for d in (0, 1, kit.ALL_DEPTH)]
@@ -270,7 +294,7 @@ class TestFitsUnchanged(unittest.TestCase):
                         self.assertEqual(
                             vtree.compose_tree(g, m["depth"], notes=m["notes"],
                                               payloads=m["payloads"], width=width), tree)
-                    for width in (graph[1], 400):
+                    for width in (graph[1],):
                         self.assertEqual(
                             vgraph.compose(g, m["depth"], m["payloads"], m["notes"],
                                          width=width), graph)

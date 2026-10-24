@@ -1,14 +1,8 @@
-          [MCP.r] ▾   [MCP.w] ▾
+[MCP.r] ▾   [MCP.w] ▾    ── [MCP.r] := { … } ──────────────────────    ── [MCP.w] := { … } ───
 
-── [MCP.r] := { … } ──────────────────────
+                         [Surface]   [Hydrator]   [Materializer] #1    [Surface]   [Validator]
 
-[Surface]   [Hydrator]   [Materializer] #1
-
-── [MCP.w] := { … } ──────────────────────
-
-         [Surface]   [Validator]
-
-── notes ─────────────────────────────────
+── notes ─────────────────────────────────────────────────────────────────────────────────────
 
 #1 @miss → triggers [Renderer]
 

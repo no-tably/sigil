@@ -40,8 +40,8 @@ class _Doc(unittest.TestCase):
 
 
 class TestPlacement(unittest.TestCase):
-    def test_home_centres_a_fitting_drawing(self):
-        self.assertEqual(view.home_origin(4, 10), -3)
+    def test_home_is_the_start_even_when_it_fits(self):
+        self.assertEqual(view.home_origin(4, 10), 0)
         self.assertEqual(view.home_origin(40, 10), 0)
 
     def test_centre(self):
@@ -49,7 +49,7 @@ class TestPlacement(unittest.TestCase):
         self.assertEqual(view.centre_origin(4, 10), -3)
 
     def test_fit_bounds(self):
-        self.assertEqual(view.pan_bounds(4, 10, True), (-3, -3))     # pinned centred
+        self.assertEqual(view.pan_bounds(4, 10, True), (0, 0))       # pinned at its start
         self.assertEqual(view.pan_bounds(40, 10, True), (0, 30))
 
     def test_free_bounds_keep_part_on_screen(self):
@@ -160,12 +160,12 @@ class TestPan(_Doc):
         st.key("f")
         st.frame(100, 30)
         x0, y0 = st.sx, st.sy
-        st.key("right")
-        st.key("down")
+        st.key("left")
+        st.key("up")
         st.frame(100, 30)
-        self.assertEqual((st.sx, st.sy), (x0 + view.SCROLL_X, y0 + 1))
+        self.assertEqual((st.sx, st.sy), (x0 - view.SCROLL_X, y0 - 1))
 
-    def test_fitted_small_drawing_stays_centred(self):
+    def test_fitted_small_drawing_stays_put(self):
         st = self.state(SMALL)
         st.frame(100, 30)
         x0, y0 = st.sx, st.sy
@@ -219,12 +219,12 @@ class TestMouse(_Doc):
         st.frame(60, 20)
         x0, y0 = st.sx, st.sy
         self.assertFalse(st.mouse(view.Mouse(0, 30, 10, False)))     # press
-        self.assertTrue(st.mouse(view.Mouse(32, 26, 4, False)))      # drag up-left
+        self.assertTrue(st.mouse(view.Mouse(32, 34, 4, False)))      # drag up-right
         st.frame(60, 20)
-        self.assertEqual((st.sx, st.sy), (x0 + 4, y0 + 6))           # drawing follows
-        st.mouse(view.Mouse(0, 26, 4, True))                         # release
+        self.assertEqual((st.sx, st.sy), (x0 - 4, y0 + 6))           # drawing follows
+        st.mouse(view.Mouse(0, 34, 4, True))                         # release
         self.assertFalse(st.mouse(view.Mouse(32, 1, 1, False)))      # motion: no drag
-        self.assertEqual((st.sx, st.sy), (x0 + 4, y0 + 6))
+        self.assertEqual((st.sx, st.sy), (x0 - 4, y0 + 6))
 
     def test_other_buttons_do_not_drag(self):
         st = self.state(TALL)
@@ -240,9 +240,9 @@ class TestMouse(_Doc):
         self.assertEqual(st.sy, view.WHEEL_Y)
         st.key("f")
         x0 = st.sx
-        st.mouse(view.Mouse(67, 5, 5, False))
+        st.mouse(view.Mouse(66, 5, 5, False))
         st.frame(60, 20)
-        self.assertEqual(st.sx, x0 + view.SCROLL_X)
+        self.assertEqual(st.sx, x0 - view.SCROLL_X)
 
 
 if __name__ == "__main__":

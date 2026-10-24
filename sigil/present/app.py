@@ -128,7 +128,8 @@ top-down in layers (cycle breaking, longest-path layering, barycenter ordering,
 block-merged x placement, one track per fan-out) and drawn with box-drawing
 characters. The live view is a plain alternate-screen terminal loop. Wrapped
 (--layout wrap, or auto's pick) it shows the drawing rearranged to the pane's
-width, centred while it fits and scrolled down when it is taller; panned (pan) it
+width (sections side by side when the window is wider), from the top-left, and
+scrolled down when it is taller; panned (pan) it
 shows the drawing as --once without --width would and pans freely in x and y —
 keys, mouse drag, the wheel — clamped so part of it always stays on screen. auto
 (the default) decides per drawing and pane size (pick_layout) and keeps its choice
@@ -1602,17 +1603,18 @@ MOUSE_OFF = "\x1b[?1006l\x1b[?1002l"
 #    drawing cell at the viewport's first cell; negative = blank lead-in. --------
 
 def home_origin(size: int, view: int) -> int:
-    """Where a drawing opens: centred while it fits, else at its start."""
-    return -((view - size) // 2) if size <= view else 0
+    """Where a drawing opens: at its start (top-left), so a drawing that fits
+    keeps the window's far side free rather than a blank lead-in."""
+    return 0
 
 
 def centre_origin(size: int, view: int) -> int:
-    """The drawing's middle on the viewport's middle."""
-    return home_origin(size, view) if size <= view else (size - view) // 2
+    """The drawing's middle on the viewport's middle (key z)."""
+    return (size - view) // 2 if size > view else -((view - size) // 2)
 
 
 def pan_bounds(size: int, view: int, fit: bool) -> tuple[int, int]:
-    """(lowest, highest) origin. Fitted: pinned centred while the drawing fits,
+    """(lowest, highest) origin. Fitted: pinned at its start while the drawing fits,
     else scrolled within it. Natural (free pan): anywhere that keeps at least half
     the viewport (or all of a smaller drawing) on screen."""
     if fit:
@@ -2184,8 +2186,8 @@ class ViewState:
     def frame(self, cols: int, rows: int):
         """Exactly `rows` rows of styled runs for a cols×rows terminal: the status bar,
         the drawing, the footer, laid out as placing_for says. Wrap: the drawing
-        rearranged to fit `cols` when it is wider (see fitted()), centred while it
-        fits, scrolled down when it is taller. Pan: the drawing as composed,
+        rearranged to fit `cols` (see fitted()), from the top-left, scrolled
+        down when it is taller. Pan: the drawing as composed,
         panned freely (see pan_bounds). Resolves a pending home / centre and
         clamps the origin."""
         footer = self._footer_rows(cols)

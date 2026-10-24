@@ -2193,24 +2193,81 @@ def _node_mods(g) -> dict:
     return out
 
 
+COLUMN_GAP = 4        # blank columns between two columns of sections
+
+
 def _section_rows(parts, fit: int | None = None):
-    """The sections' canvases as rows, each centred within the widest, under
-    their titles; and that width. A Rule title (a `--- section ---`) is a
-    divider across the drawing: `── L2 · Payments ─────`. fit: a title is cut
-    to it (kit.fit_title), so a title never widens a drawing past it."""
+    """The sections' canvases as rows under their titles, and that width. A
+    Rule title (a `--- section ---`) is a divider across its column:
+    `── L2 · Payments ─────`. fit: a title is cut to it (kit.fit_title), so a
+    title never widens a drawing past it; and when sections fit side by side
+    in it, they are laid in columns (in order, down each column), the
+    shortest such layout, so a wide window is used rather than left blank."""
     if fit is not None:
         parts = [(kit.fit_title(t, fit - 6) if t else t, sg, cv) for t, sg, cv in parts]
-    width = max([cv.w for _, _, cv in parts] + [kit.cell_width(t) + 6 for t, _, _ in parts if t] + [0])
+    cells = [(t, list(cv.rows()), cv.w, max(cv.w, kit.cell_width(t) + 6 if t else 0))
+             for t, _sg, cv in parts]
+    runs = _columns([(len(rows) + (3 if t else 0), w) for t, rows, _cw, w in cells], fit)
+    if len(runs) == 1:
+        return _column(cells)
+    columns = [_column(cells[a:b]) for a, b in runs]
+    columns = [(rows[next((i for i, r in enumerate(rows) if r), 0):], w)   # every column from the top row
+               for rows, w in columns]
+    height = max(len(rows) for rows, _w in columns)
+    out = []
+    for y in range(height):
+        row, at = [], 0
+        for k, (rows, w) in enumerate(columns):
+            cell = list(rows[y]) if y < len(rows) else []
+            if cell:
+                row += ([(" " * at, None)] if at else []) + cell
+                at = w - kit.row_len(cell)
+            else:
+                at += w
+            at += COLUMN_GAP if k < len(columns) - 1 else 0
+        out.append(row)
+    return out, sum(w for _r, w in columns) + COLUMN_GAP * (len(columns) - 1)
+
+
+def _column(cells):
+    """(title, rows, canvas width, width) cells stacked, each centred within the
+    widest, under their titles, the rules run out to that width; and that width."""
+    width = max([w for _t, _r, _cw, w in cells] + [0])
     rows = []
-    for title, _sg, cv in parts:
+    for title, body, cw, _w in cells:
         if isinstance(title, kit.Rule):
             rows += ([[]] if rows else []) + [kit.section_rule(title, width), []]
         elif title:
             rows += [[], kit.section_rule(title, width), []]
-        pad = (width - cv.w) // 2
-        for row in cv.rows():
+        pad = (width - cw) // 2
+        for row in body:
             rows.append(([(" " * pad, None)] if pad and row else []) + row)
-    return rows, width
+    return kit.stretch_rules(rows, width), width
+
+
+def _columns(sizes, fit: int | None) -> list:
+    """How (height, width) sections split, in order, into columns that fit side
+    by side in `fit` columns: [(start, end), …] for the lowest tallest column
+    (fewer columns on a tie). One column when nothing narrower fits."""
+    n = len(sizes)
+    whole = [(0, n)]
+    if fit is None or n < 2:
+        return whole
+    tops = sorted({sum(h for h, _w in sizes[a:b]) for a in range(n) for b in range(a + 1, n + 1)})
+    for top in tops:
+        runs, a, h = [], 0, 0
+        for i, (hi, _w) in enumerate(sizes):
+            if i > a and h + hi > top:
+                runs.append((a, i))
+                a, h = i, 0
+            h += hi
+        runs.append((a, n))
+        if max(sum(h for h, _w in sizes[s:e]) for s, e in runs) > top:
+            continue
+        wide = sum(max(w for _h, w in sizes[s:e]) for s, e in runs) + COLUMN_GAP * (len(runs) - 1)
+        if wide <= fit:
+            return runs
+    return whole
 
 
 def graph_legend(triggers: bool = True, payloads: bool = False, access: bool = False,

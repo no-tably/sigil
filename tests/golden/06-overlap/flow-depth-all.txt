@@ -1,14 +1,8 @@
-── build ────────────────────────────────────────────────
+── build ────────────────────────────────────────────────    ── export ───────────────────────────
 
-(Operator) ─┬─▶ [Builder] ─┬─▶┐[Status] ─┬─────▶ |Export|
-<Stale> ────╯              ├─✖┘          ╰─┬───▶┐|Ledger|
-                           ├───────────────╯ ╭┄▶┘
+(Operator) ─┬─▶ [Builder] ─┬─▶┐[Status] ─┬─────▶ |Export|    (Author) ──▶ [Exporter] ─┬─▶ [Gate]
+<Stale> ────╯              ├─✖┘          ╰─┬───▶┐|Ledger|                             ├─▶ |Export|
+                           ├───────────────╯ ╭┄▶┘                                     ╰╌▶ <Stale>
                            ╰┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄╯
-
-── export ───────────────────────────────────────────────
-
-          (Author) ──▶ [Exporter] ─┬─▶ [Gate]
-                                   ├─▶ |Export|
-                                   ╰╌▶ <Stale>
 
 06-overlap.sigil: 9 nodes, 14 edges, 0 expansions · #!sketch

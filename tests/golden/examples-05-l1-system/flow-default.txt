@@ -1,11 +1,7 @@
-── L1 · System ────────────────────────────
+── L1 · System ────────────────────────────    ── [Core] := { … } ─────────
 
-(Client) ──▶ [Edge] ──▶ [Core] ▾ ──▶ [Data]
-
-── [Core] := { … } ────────────────────────
-
-       [LB] ──▶ [App] ─┬◀▶ [Cache]
-                       ╰─▶ [Data] ▸
+(Client) ──▶ [Edge] ──▶ [Core] ▾ ──▶ [Data]    [LB] ──▶ [App] ─┬◀▶ [Cache]
+                                                               ╰─▶ [Data] ▸
 
 examples-05-l1-system.sigil: 4 nodes, 3 edges, 1 expansions · #!sketch
 lint: OK

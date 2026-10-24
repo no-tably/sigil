@@ -179,7 +179,7 @@ class TestLiveView(unittest.TestCase):
             self.assertEqual(len(frame), rows)
             self.assertTrue(all(kit.row_len(r) <= cols for r in frame))
 
-    def test_small_graph_is_centred_both_ways(self):
+    def test_small_graph_opens_at_the_top_left(self):
         st = view.ViewState(self.path, do_lint=False)
         st.reload(force=True)
         frame = plain(st.frame(100, 41))
@@ -187,11 +187,9 @@ class TestLiveView(unittest.TestCase):
         lines = frame[1:rule]                     # the viewport: bar and legends dropped
         hit = [i for i, ln in enumerate(lines) if "[Alpha]" in ln or "[Beta]" in ln]
         first_row = next(i for i, ln in enumerate(lines) if ln.strip())
-        last_row = max(i for i, ln in enumerate(lines) if ln.strip())
-        self.assertAlmostEqual(first_row, len(lines) - 1 - last_row, delta=1)
+        self.assertLessEqual(first_row, 1)        # no blank lead-in above
         left = min(len(ln) - len(ln.lstrip()) for ln in lines if ln.strip())
-        right = max(len(ln.rstrip()) for ln in lines if ln.strip())
-        self.assertAlmostEqual(left, 100 - right, delta=2)
+        self.assertLessEqual(left, 1)             # nor to the left
         self.assertTrue(hit)
 
     def test_large_graph_scrolls_and_clamps(self):

@@ -219,3 +219,11 @@ mermaid-subgraphs/language.md/block-35.sigil
 mermaid-subgraphs/language.md/block-36.sigil
 mermaid-subgraphs/language.md/block-37.sigil
 check-spec/language.md/block-29.sigil
+# patch-0.6.3 views use the width: at --width 100 the graph and flow views lay sections side by side
+# where two fit (in order, down each column); a drawing that fits in one column is unchanged.
+view-flow/site/examples/06-overlap.sigil
+view-graph/site/examples/02-shop.sigil
+view-graph/site/examples/03-arena.sigil
+view-graph/site/examples/04-orders.sigil
+view-graph/site/examples/06-overlap.sigil
+view-graph/site/examples/07-export.sigil

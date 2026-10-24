@@ -1,17 +1,11 @@
-── build ───────────────────────────────────────────────────────────────────
+── build ────────────────────────────────────────────────    ── export ─────────────────────────────
 
-(Operator) ─┬─▶ [Builder] ─┬─▶┐[Status] ─┬─────▶ |Export|
-<Stale> #1 ─╯              ├─✖┘          ╰─┬───▶┐|Ledger|
-                           ├───────────────╯ ╭┄▶┘
+(Operator) ─┬─▶ [Builder] ─┬─▶┐[Status] ─┬─────▶ |Export|    (Author) ──▶ [Exporter] ─┬─▶ [Gate]
+<Stale> #1 ─╯              ├─✖┘          ╰─┬───▶┐|Ledger|                             ├─▶ |Export|
+                           ├───────────────╯ ╭┄▶┘                                     ╰╌▶ <Stale> #1
                            ╰┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄╯
 
-── export ──────────────────────────────────────────────────────────────────
-
-         (Author) ──▶ [Exporter] ─┬─▶ [Gate]
-                                  ├─▶ |Export|
-                                  ╰╌▶ <Stale> #1
-
-── notes ───────────────────────────────────────────────────────────────────
+── notes ───────────────────────────────────────────────────────────────────────────────────────────
 
 ¶ runs that overlap: an export lands while a builder is mid-build the notice
   is only a hint, the hashes stay the truth: a late or repeated notice costs

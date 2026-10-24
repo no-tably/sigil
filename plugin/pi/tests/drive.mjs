@@ -210,5 +210,5 @@ if (out.errors.length === 0) {
   }
   for (const fn of reg.handlers.session_shutdown ?? []) await fn({}, ctx)
 }
-process.stdout.write(JSON.stringify(out) + '\n')
-process.exit(0)
+// exit once written: on a pipe the write is asynchronous, and exiting first cuts it off
+process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0))
