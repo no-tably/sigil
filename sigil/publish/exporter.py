@@ -352,7 +352,8 @@ def lifecycle_lines(lc: dict) -> list:
 def system_kind_line(key: str, form: dict) -> str:
     parent = f" (inside system `{form['parent']}`)" if form.get("parent") else ""
     if form["kind"] == "top":
-        return "The top level of the spec: every component no expansion or tree holds."
+        face = f", written as `{form['face']}`" if form.get("face") else ""
+        return f"The top level of the spec{face}: every component no expansion or tree holds."
     if form["kind"] == "expansion":
         return f"The expansion of `{form.get('face', key)}`{parent}."
     return f"The composition tree rooted at `{form.get('face', key)}`{parent}."

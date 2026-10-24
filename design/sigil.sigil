@@ -104,7 +104,7 @@
   # Homes (0.6.4): a level that names a part only in its flows is never its home when
   # another level declares it (any level, not only an enclosing one); with no
   # declaration anywhere the outer level still homes it (never homeless).
-  # The root (0.6.4): a tree root or expansion owner named as the top is the top
+  # The root (0.6.4): a top-level service named as the top (by slug), rooting a tree or owning an expansion, is the top
   # (one system, its members homed at the top), never a second system beside it.
   # Dependencies (0.6.4): a flow whose payload names a homed data glyph makes both
   # ends' systems depend on that glyph's system, as a flow to it does

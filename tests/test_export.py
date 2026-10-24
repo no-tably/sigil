@@ -89,12 +89,12 @@ class Tmp(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def spec(self, text: str, name: str = "shop.sigil") -> Path:
+    def spec(self, text: str, name: str = "store.sigil") -> Path:
         p = self.tmp / name
         p.write_text(text, encoding="utf-8")
         return p
 
-    def export(self, text: str, out: str = "out", name: str = "shop.sigil") -> tuple:
+    def export(self, text: str, out: str = "out", name: str = "store.sigil") -> tuple:
         return run([str(self.spec(text, name)), "--out", str(self.tmp / out)])
 
 
@@ -164,13 +164,13 @@ class TestOutFolder(Tmp):
 class TestPlan(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.model = em.build_model(READY, "shop")
-        cls.plan = export.plan_export(cls.model, "shop.sigil", READY)
+        cls.model = em.build_model(READY, "store")
+        cls.plan = export.plan_export(cls.model, "store.sigil", READY)
 
     def test_manifest_shape(self):
         m = self.plan.manifest
         self.assertEqual(m["sigil_export"], 1)
-        self.assertEqual(m["spec"], "shop.sigil")
+        self.assertEqual(m["spec"], "store.sigil")
         self.assertEqual(m["spec_hash"], export.spec_hash(READY))
         self.assertEqual(len(m["spec_hash"]), em.HASH_LEN)
         self.assertEqual(list(m["systems"]), export.system_order(self.model))
@@ -192,7 +192,7 @@ class TestPlan(unittest.TestCase):
                                  sorted(self.model.components[c].glyph for c in s.members))
 
     def test_top_system_first_and_folders_are_slugs(self):
-        self.assertEqual(next(iter(self.plan.systems)), "shop")
+        self.assertEqual(next(iter(self.plan.systems)), "store")
         self.assertEqual({k: p.path for k, p in self.plan.systems.items()},
                          em.slugs(export.system_order(self.model)))
 
@@ -214,15 +214,15 @@ class TestPlan(unittest.TestCase):
                                  "{Order}": "order-2.md"})
 
     def test_plan_is_pure(self):
-        again = export.plan_export(em.build_model(READY, "shop"), "shop.sigil", READY)
+        again = export.plan_export(em.build_model(READY, "store"), "store.sigil", READY)
         self.assertEqual(again, self.plan)
 
 
 class TestMarkdown(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        model = em.build_model(READY, "shop")
-        cls.plan = export.plan_export(model, "shop.sigil", READY)
+        model = em.build_model(READY, "store")
+        cls.plan = export.plan_export(model, "store.sigil", READY)
 
     def test_mod_text_as_written(self):
         cases = {("×", "3"): "×3", ("^", "10k@drop"): "^10k@drop", (".", "age"): ".age",
@@ -240,7 +240,7 @@ class TestMarkdown(unittest.TestCase):
                          "@timeout(2s) ×3")
 
     def test_component_md_states_everything_verbatim(self):
-        md = self.plan.systems["shop"].files["shop.md"]
+        md = self.plan.systems["store"].files["shop.md"]
         self.assertTrue(md.startswith("# [Shop]\n"))
         self.assertIn("Kind: service.", md)
         self.assertIn("`[Shop] -> [Billing] : charge({Order}) => {Receipt} @after(1s) "
@@ -269,7 +269,7 @@ class TestMarkdown(unittest.TestCase):
     def test_system_md(self):
         md = self.plan.systems["Shop"].files["README.md"]
         self.assertTrue(md.startswith("# Shop\n"))
-        self.assertIn("The expansion of `[Shop]` (inside system `shop`).", md)
+        self.assertIn("The expansion of `[Shop]` (inside system `store`).", md)
         self.assertIn("## Boundary", md)
         self.assertIn("- `[Cart]` (service) — [cart.md](cart.md)", md)
         self.assertIn("`Billing` — [billing/](../billing/README.md)", md)
@@ -289,12 +289,12 @@ class TestWrite(Tmp):
         files = tree(self.tmp / "out")
         self.assertEqual(set(files), {
             "manifest.json", "README.md", "delta.json",
-            "shop/README.md", "shop/system.json", "shop/user.md", "shop/shop.md",
-            "shop/billing.md",
-            "shop-2/README.md", "shop-2/system.json", "shop-2/cart.md", "shop-2/db.md",
+            "store/README.md", "store/system.json", "store/user.md", "store/shop.md",
+            "store/billing.md",
+            "shop/README.md", "shop/system.json", "shop/cart.md", "shop/db.md",
             "billing/README.md", "billing/system.json", "billing/ledger.md"})
         manifest = json.loads(files["manifest.json"])
-        self.assertEqual(manifest["systems"]["Shop"]["path"], "shop-2")
+        self.assertEqual(manifest["systems"]["Shop"]["path"], "shop")
         self.assertIn("3 system(s)", out)
         self.assertFalse([p for p in (self.tmp / "out").iterdir() if p.name.endswith(".tmp")])
 
@@ -360,15 +360,15 @@ class TestWrite(Tmp):
 
     def test_reexport_drops_a_removed_component_file(self):
         self.assertEqual(self.export(READY)[0], 0)
-        self.assertTrue((self.tmp / "out" / "shop-2" / "db.md").exists())
+        self.assertTrue((self.tmp / "out" / "shop" / "db.md").exists())
         less = READY.replace("[Cart] -> |Db| : save({Order}) => {Ack}",
                              "[Cart] -> [Ledger2] : save({Order}) => {Ack}")
         self.assertEqual(self.export(less)[0], 0)
-        self.assertFalse((self.tmp / "out" / "shop-2" / "db.md").exists())
-        self.assertTrue((self.tmp / "out" / "shop-2" / "ledger2.md").exists())
+        self.assertFalse((self.tmp / "out" / "shop" / "db.md").exists())
+        self.assertTrue((self.tmp / "out" / "shop" / "ledger2.md").exists())
 
     def test_write_only_some_systems(self):
-        plan = export.plan_export(em.build_model(READY, "shop"), "shop.sigil", READY)
+        plan = export.plan_export(em.build_model(READY, "store"), "store.sigil", READY)
         out = self.tmp / "part"
         export.write_export(out, plan, only=["Billing"])
         self.assertEqual(sorted(p.name for p in out.iterdir()),

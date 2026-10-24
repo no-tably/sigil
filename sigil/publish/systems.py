@@ -19,7 +19,9 @@ HASHES
   description, interface, requirements, lifecycle, a dialect's attrs). No line
   numbers (`lines`, a declaration's `line`), whitespace or order from the source
   enter either, nor the top system's name (the file stem or `--name`): renaming
-  the spec moves no hash. A component's hashes enter no system's hash (they are
+  the spec moves no hash, unless the new name makes a top-level service the
+  top's face or stops doing so (sigil.model.systems, SYSTEMS): then the systems
+  themselves change. A component's hashes enter no system's hash (they are
   read off the same form).
 """
 
@@ -27,7 +29,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from dataclasses import replace
 from typing import Iterable, Mapping, Optional
 
@@ -35,7 +36,7 @@ from sigil.core import parse
 from sigil.core.comments import read_acks, walk_layout
 from sigil.core.statements import read_document
 from sigil.model import systems
-from sigil.model.systems import ARROW_MODE, Component, Flow, Model, System
+from sigil.model.systems import ARROW_MODE, Component, Flow, Model, System, slug
 from sigil.analyse.check import CORE_NAMES
 
 
@@ -200,19 +201,6 @@ def to_json(model: Model) -> dict:
         "untyped": [{"line": u.line, "from": u.src, "to": u.dst, "arrow": u.arrow,
                      "missing": u.missing, "systems": list(u.systems)}
                     for u in model.untyped]}
-
-
-_SLUG_RE = re.compile(r"[^a-z0-9]+")
-
-
-def slug(name: str) -> str:
-    """An ASCII-safe file name for a name: lower-case letters, digits and `-`;
-    any other character by its code point (`Café` → `caf-e9`)."""
-    out = []
-    for ch in name.lower():
-        out.append(ch if ch.isascii() else f"-{ord(ch):x}-")
-    s = _SLUG_RE.sub("-", "".join(out)).strip("-")
-    return s or "x"
 
 
 def slugs(names: Iterable) -> dict:

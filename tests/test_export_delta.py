@@ -187,7 +187,7 @@ class Tmp(unittest.TestCase):
         self._tmp.cleanup()
 
     def export(self, text: str, *flags) -> tuple:
-        spec = self.tmp / "shop.sigil"
+        spec = self.tmp / "store.sigil"
         spec.write_text(text, encoding="utf-8")
         return run([str(spec), "--out", str(self.out), *flags])
 
@@ -226,7 +226,7 @@ class TestWrittenFiles(unittest.TestCase):
         self.assertEqual(export.written_files(None), {})
 
     def test_they_match_the_plan(self):
-        plan = export.plan_export(export_model.build_model(READY, "shop"), "shop.sigil", READY)
+        plan = export.plan_export(export_model.build_model(READY, "store"), "store.sigil", READY)
         written = export.written_files(plan.manifest)
         for sp in plan.systems.values():
             with self.subTest(system=sp.key):
@@ -239,7 +239,7 @@ class TestFirstExport(Tmp):
         self.assertEqual(self.delta_json(), d)
         self.assertTrue((self.out / "manifest.json").exists())
         self.assertIsNone(d["from"])
-        self.assertEqual(sorted(d["added"]), ["Billing", "Shop", "shop"])
+        self.assertEqual(sorted(d["added"]), ["Billing", "Shop", "store"])
 
     def test_plain_output_says_so(self):
         self.assertIn("first export: 3 system(s) added", self.exported(READY))
@@ -250,7 +250,7 @@ class TestReexport(Tmp):
         self.exported(READY)
         self.age()
         d = json.loads(self.exported(REORDERED, "--json"))
-        self.assertEqual(sorted(d["unchanged"]), ["Billing", "Shop", "shop"])
+        self.assertEqual(sorted(d["unchanged"]), ["Billing", "Shop", "store"])
         for status in ("added", "removed", "rebuild", "recheck"):
             self.assertEqual(d[status], [])
         self.assertNotEqual(d["from"], d["to"])
@@ -273,15 +273,15 @@ class TestReexport(Tmp):
         self.age()
         out = self.exported(NOTIFY)
         d = self.delta_json()
-        self.assertEqual(sorted(d["rebuild"]), ["Shop", "shop"])
+        self.assertEqual(sorted(d["rebuild"]), ["Shop", "store"])
         self.assertEqual(d["recheck"], ["Billing"])
         self.assertIn("Shop", d["systems"]["Billing"]["because"])
         self.assertIn("recheck    Billing (interface changed:", out)
         rewritten = self.rewritten()
         self.assertFalse([f for f in rewritten - self.system_jsons()
                           if f.startswith("billing/")])
-        self.assertIn("shop-2/system.json", rewritten)
         self.assertIn("shop/system.json", rewritten)
+        self.assertIn("store/system.json", rewritten)
         manifest = json.loads((self.out / "manifest.json").read_text(encoding="utf-8"))
         for key, e in manifest["systems"].items():
             self.assertEqual(d["systems"][key]["new"],
@@ -311,7 +311,7 @@ class TestReexport(Tmp):
         self.exported(READY)
         before = self.files()
         (self.out / "billing" / "ledger.md").write_text("edited\n", encoding="utf-8")
-        (self.out / "shop-2" / "db.md").unlink()
+        (self.out / "shop" / "db.md").unlink()
         d = json.loads(self.exported(READY, "--json"))
         self.assertEqual(d["rebuild"], [])
         after = self.files()
@@ -322,17 +322,17 @@ class TestReexport(Tmp):
     def test_a_builders_files_survive_a_reexport(self):
         self.exported(READY)
         mine = {"billing/NOTES.md": "mine\n", "billing/package.json": "{}\n",
-                "shop/NOTES.md": "mine too\n", "shop/package.json": "{}\n"}
+                "store/NOTES.md": "mine too\n", "store/package.json": "{}\n"}
         for name, text in mine.items():
             (self.out / name).write_text(text, encoding="utf-8")
         self.age()
         d = json.loads(self.exported(NOTIFY, "--json"))
         self.assertEqual(d["unchanged"], [])
-        self.assertIn("shop", d["rebuild"])           # a rebuilt system (folder shop/)
+        self.assertIn("store", d["rebuild"])          # a rebuilt system (folder store/)
         self.assertEqual(d["recheck"], ["Billing"])   # its files are not rewritten
         self.assertFalse([f for f in self.rewritten() - self.system_jsons()
                           if f.startswith("billing/")])
-        self.assertIn("shop/system.json", self.rewritten())
+        self.assertIn("store/system.json", self.rewritten())
         for name, text in mine.items():
             with self.subTest(file=name):
                 self.assertEqual((self.out / name).read_text(encoding="utf-8"), text)
@@ -342,7 +342,7 @@ class TestReexport(Tmp):
         (self.out / "billing" / "NOTES.md").write_text("mine\n", encoding="utf-8")
         self.age()
         d = json.loads(self.exported(REORDERED, "--json"))
-        self.assertEqual(sorted(d["unchanged"]), ["Billing", "Shop", "shop"])
+        self.assertEqual(sorted(d["unchanged"]), ["Billing", "Shop", "store"])
         self.assertEqual(self.rewritten() - self.system_jsons(),
                          {"README.md", "delta.json", "manifest.json"})
         self.assertTrue((self.out / "billing" / "NOTES.md").exists())

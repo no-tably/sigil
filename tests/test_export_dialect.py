@@ -12,9 +12,10 @@ Covers:
     system), the body verbatim (statements.declaration_body), in the body hash
     and not the interface hash; a line move changes no hash;
   - `--name NAME` names the top system (folder and `--mermaid --spine`), the
-    stem by default; no hash depends on it; a name like a system's leaves that
-    system be (the top is `NAME (top)`); an empty name, or one without
-    --spine on --mermaid, is refused;
+    stem by default; no hash depends on it; a name like a top-level service's
+    expansion makes that expansion the top's face (one system, one folder;
+    the model's tests cover the kinds that keep a system and `NAME (top)`);
+    an empty name, or one without --spine on --mermaid, is refused;
   - delta.json on every export, a first one listing every system as added; a
     renamed top (--name or the stem) is `renamed`, not added and removed;
   - manifest `dialect`: {name, version} with a dialect (version only when the
@@ -209,19 +210,26 @@ class Name(Tmp):
         self.assertEqual(code, 0, err)
         _code, plain, _err = run("export", str(spec), "--mermaid", "--spine",
                                  "--dialect", str(PROBE))
-        # the expansion keeps its name; the top named like it steps aside
-        self.assertEqual(out, plain)
-        self.assertIn('subgraph system__api["Api"]', out)
+        # named like [Api], the top is its expansion: no subgraph of its own
+        self.assertIn('subgraph system__api["Api"]', plain)
+        self.assertNotIn("subgraph", out)
+        self.assertIn('Front_service["Front"]', out)
 
 
-    def test_a_name_like_a_system_renames_no_system(self):
-        def api(out):           # its hashes and folder (depends_on names the top's key)
-            e = read_json(out / "manifest.json")["systems"]["Api"]
-            return e["path"], e["interface"], e["body"], e["component_hashes"]
-        a = self.export(out="a")
-        b = self.export("--name", "Api", out="b")
-        self.assertEqual(api(a), api(b))
-        self.assertEqual(read_json(b / "manifest.json")["top"], "Api (top)")
+    def test_a_name_like_a_top_level_service_makes_its_expansion_the_top(self):
+        out = self.export("--name", "Api", out="b")
+        manifest = read_json(out / "manifest.json")
+        self.assertEqual(manifest["top"], "Api")
+        self.assertEqual(list(manifest["systems"]), ["Api"])
+        self.assertEqual(manifest["systems"]["Api"]["path"], "api")
+        top = read_json(out / "api" / "system.json")
+        self.assertEqual(top["face"], "[Api]")
+        self.assertEqual(sorted(c["glyph"] for c in top["components"]),
+                         ["(Shopper)", "[Api]", "[Back]", "[Front]", "[[Ledger]]"])
+        # the expansion's `#&` declaration is the top's now, beside the document's
+        self.assertEqual([d["name"] for d in top["declarations"]], ["probe", "probe"])
+        self.assertEqual(top["description"], ["the api's door"])
+        self.assertFalse((out / "api-2").exists())
 
     def test_mermaid_without_spine_refuses_it(self):
         spec = self.tmp / "shop.sigil"

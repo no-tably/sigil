@@ -37,6 +37,17 @@ SYSTEMS (inferred, no syntax of their own)
   written, and stands for the system there (a flow into [Shop] at the top
   level is a flow into the Shop system).
 
+  A service written at the top level and named as the top (its name and the
+  top's give one folder slug: `[Shop]` in `shop.sigil`, or as `--name` gives
+  it) IS the top: when it roots a tree or owns an expansion, that is no system
+  of its own but the top's face. Its tree's and expansion's nodes are written
+  in the top, its own comments are the top's description (after the
+  document's header), and it lives at the top (the top has no level above it),
+  so it is a member of the system it is the face of. A tree member at the top
+  level (`[R] \\-> [Shop]`) and any other kind (a store `|Shop|`) is no top
+  face: it keeps a system of its own (the top yields to one named exactly
+  like it, see KEY below).
+
 HOMES
 
   A node's candidate systems are the systems it is written in (in a tree, the
@@ -75,6 +86,8 @@ HOMES
   a store, actor, event, data or a dialect's kind), then its id — never by which
   comes first in the source. The top yields: named like a system of the spec,
   it is keyed `NAME (top)`, so the top's name never renames another system.
+  A top with a face keeps its name first (as a service does): another system
+  named like it (a store's tree) gets the suffix.
 
 COMPONENTS
 
@@ -321,15 +334,31 @@ class Layout:
     follow: list = field(default_factory=list)       # expansion owners written as
                                         # such a reference where their header is: their
                                         # system nests under their home
+    top_face: Optional[str] = None      # the service named as the top (top_face_of)
 
 
 def lay_out(graph, stem: str) -> Layout:
     """The layout of a document: systems keyed first by their face's node id, then
     renamed to their names (see named_keys), so no key depends on source order."""
-    lay = Layout(stem, {stem: (stem, "top", None, None)}, {}, {}, {}, {})
+    lay = Layout(stem, {stem: (stem, "top", None, None)}, {}, {}, {}, {},
+                 top_face=top_face_of(graph, stem))
     _lay_graph(graph, stem, lay)
     nest_headers(lay)
     return renamed(lay, named_keys(lay))
+
+
+def top_face_of(graph, stem: str) -> Optional[str]:
+    """The node that is the top's face when it roots a tree or owns an
+    expansion: a service the top level writes, other than as a tree member there,
+    whose name gives the top's folder slug (`[Shop]` in `shop.sigil`; the exact
+    name first, then by node id, when two do). None when there is no such
+    service; any other kind named as the top keeps a system of its own."""
+    members = {t.node for t in graph.tree if t.parent is not None}
+    want = slug(stem)
+    found = [n for nid, n in graph.nodes.items()
+             if n.kind == "service" and nid not in members and slug(n.name) == want]
+    found.sort(key=lambda n: (n.name != stem, n.id))
+    return found[0].id if found else None
 
 
 def nest_headers(lay: Layout):
@@ -476,7 +505,14 @@ def _has_children(tree: list, i: int) -> bool:
 
 def _system_for(lay: Layout, node, kind: str, parent: Optional[str]) -> str:
     """The key of the system `node` is the face of, made on first ask. A system
-    first met through its members gets its parent when its face is laid out."""
+    first met through its members gets its parent when its face is laid out.
+    The top's face (lay.top_face) stands for the top: its key is the top's."""
+    if node.id == lay.top_face:
+        name, k, _face, _parent = lay.systems[lay.top]
+        lay.systems[lay.top] = (name, k, node.id, None)
+        lay.by_face[node.id] = lay.top
+        lay.face_kinds[node.id] = node.kind
+        return lay.top
     key = lay.by_face.get(node.id)
     if key is not None:
         name, k, face, old = lay.systems[key]
@@ -499,8 +535,12 @@ def named_keys(lay: Layout) -> dict:
     share a name are told apart by a stable rule — by their face's node kind
     (KEY_KINDS order, a dialect's kinds after), then its node id — never by which
     comes first in the source. The top yields its name to a system of the spec
-    (`NAME (top)`), so the name given to the top never renames one of them."""
+    (`NAME (top)`), so the name given to the top never renames one of them; a
+    top with a face (top_face_of) keeps it first, as a service would."""
     names, taken = {}, set()
+    if lay.systems[lay.top][2] is not None:
+        names[lay.top] = lay.top
+        taken.add(lay.top)
 
     def rank(k):
         name, _kind, face, _parent = lay.systems[k]
@@ -513,7 +553,8 @@ def named_keys(lay: Layout) -> dict:
         name, face = lay.systems[k][0], lay.systems[k][2]
         names[k] = unique_key(name, lay.face_kinds[face], taken)
         taken.add(names[k])
-    names[lay.top] = unique_key(lay.top, "top", taken)
+    if lay.top not in names:
+        names[lay.top] = unique_key(lay.top, "top", taken)
     return names
 
 
@@ -877,7 +918,7 @@ def reached(nid: str, lay: Layout, inside: dict) -> frozenset:
 
 def system_description(graph, lay: Layout, key: str, face: Optional[str]) -> tuple:
     """The top level's document header; an expansion's body header notes; and
-    the face's own description."""
+    the face's own description (the top's face's too)."""
     texts = [n.text for g in walk(graph) if lay.graph_system.get(id(g)) == key
              and (g is graph or lay.systems[key][1] == "expansion")
              for n in g.notes if n.node is None and n.block is None]
@@ -902,6 +943,20 @@ def system_blocks(graph, lay: Layout, key: str) -> tuple:
 # ---------------------------------------------------------------------------
 # Small helpers
 # ---------------------------------------------------------------------------
+
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def slug(name: str) -> str:
+    """An ASCII-safe file name for a name: lower-case letters, digits and `-`;
+    any other character by its code point (`Café` → `caf-e9`). Two names with
+    one slug name one folder (top_face_of reads the top's face so)."""
+    out = []
+    for ch in name.lower():
+        out.append(ch if ch.isascii() else f"-{ord(ch):x}-")
+    s = _SLUG_RE.sub("-", "".join(out)).strip("-")
+    return s or "x"
+
 
 def ws(text: str) -> str:
     """Whitespace runs as one space, ends trimmed."""

@@ -64,7 +64,7 @@ SHOP_SHUFFLED = """\
 """
 
 
-def model(text: str = SHOP, stem: str = "shop") -> em.Model:
+def model(text: str = SHOP, stem: str = "store") -> em.Model:
     return em.build_model(text, stem)
 
 
@@ -92,9 +92,9 @@ class TestSystems(unittest.TestCase):
         self.m = model()
 
     def test_top_then_each_expansion(self):
-        self.assertEqual(list(self.m.systems), ["shop", "Shop", "Payments", "Fulfilment"])
-        self.assertEqual(self.m.top, "shop")
-        self.assertEqual(self.m.systems["shop"].kind, "top")
+        self.assertEqual(list(self.m.systems), ["store", "Shop", "Payments", "Fulfilment"])
+        self.assertEqual(self.m.top, "store")
+        self.assertEqual(self.m.systems["store"].kind, "top")
         self.assertEqual(self.m.systems["Payments"].parent, "Shop")
 
     def test_members_and_homes(self):
@@ -105,7 +105,7 @@ class TestSystems(unittest.TestCase):
         # too: the top's flow is a reference into Shop, its home
         self.assertEqual(self.m.components["OrderPlaced_event"].home, "Shop")
         # the face lives where it is written, not in its own system
-        self.assertEqual(self.m.components["Shop_service"].home, "shop")
+        self.assertEqual(self.m.components["Shop_service"].home, "store")
         self.assertEqual(self.m.shared, ())
 
     def test_boundary_is_the_flows_crossing_it(self):
@@ -118,8 +118,8 @@ class TestSystems(unittest.TestCase):
         self.assertIn(("Checkout_service", "Payments_service"), internal)
 
     def test_dependencies(self):
-        self.assertEqual(self.m.systems["Shop"].depends_on, ("Fulfilment", "Payments", "shop"))
-        self.assertIn("Fulfilment", self.m.systems["shop"].depends_on)
+        self.assertEqual(self.m.systems["Shop"].depends_on, ("Fulfilment", "Payments", "store"))
+        self.assertIn("Fulfilment", self.m.systems["store"].depends_on)
         self.assertEqual(self.m.systems["Fulfilment"].depends_on, ())
 
     def test_tree_root_is_a_system(self):
@@ -136,9 +136,11 @@ class TestSystems(unittest.TestCase):
         self.assertEqual(m.components["Node_service"].home, "t")
 
     def test_system_named_like_the_stem_keeps_both(self):
-        m = model("[shop] := {\n  [A] -> [B] : {X}\n}\n")
+        # a store is no top face (TestTopFace): the top yields its name
+        m = model("|shop|\n    \\-& {Row}\n[A] -> |shop| : put({Row})\n", "shop")
         self.assertEqual(list(m.systems), ["shop (top)", "shop"])
         self.assertEqual(m.top, "shop (top)")
+        self.assertEqual(m.systems["shop"].face, "shop_store")
 
 
     def test_same_named_systems_keyed_by_kind_not_order(self):
@@ -149,6 +151,82 @@ class TestSystems(unittest.TestCase):
         self.assertEqual(keys[0], keys[1])
         self.assertEqual(keys[0], [("Pay", "Pay_service"), ("Pay (data)", "Pay_data"),
                                    ("t", None)])
+
+
+class TestTopFace(unittest.TestCase):
+    """A service written at the top level and named as the top (one folder slug)
+    is the top: its tree or expansion is the top's face, not a system of its own."""
+
+    TREE = ("#!spec\n"
+            "# the product\n"
+            "[X]\n"
+            "    \\-> [A]\n"
+            "    \\-> [B]\n"
+            "\n"
+            "[A] := {\n"
+            "  [In] -> [Out] : go({Job}) => {Done}\n"
+            "}\n"
+            "[A] -> [B] : send({Job}) => {Done}\n")
+
+    def test_a_tree_root_named_as_the_top_is_the_top(self):
+        m = model(self.TREE, "x")
+        self.assertEqual(list(m.systems), ["x", "A"])
+        top = m.systems["x"]
+        self.assertEqual((top.kind, top.face, top.parent), ("top", "X_service", None))
+        self.assertEqual(glyphs(m, "x"), ["[A]", "[B]", "[X]"])
+        self.assertEqual(m.systems["A"].parent, "x")
+        self.assertEqual(top.description, ("the product",))   # the face's comment
+        self.assertEqual(m.shared, ())
+
+    def test_an_expansion_owner_named_as_the_top_is_the_top(self):
+        text = ("# the document\n"
+                "\n"
+                "(User) -> [Shop] : buy({Order}) => {Receipt}\n"
+                "# the shop's inside\n"
+                "[Shop] := {\n"
+                "  [Api] -> |Orders| : save({Order}) => {Ack}\n"
+                "  [Pay] := {\n"
+                "    [Gate] -> [Risk] : score({Card}) => {Verdict}\n"
+                "  }\n"
+                "}\n")
+        m = model(text, "shop")
+        self.assertEqual(list(m.systems), ["shop", "Pay"])
+        self.assertEqual(m.systems["shop"].face, "Shop_service")
+        self.assertEqual(m.systems["Pay"].parent, "shop")
+        self.assertEqual(glyphs(m, "shop"), ["(User)", "[Api]", "[Pay]", "[Shop]", "|Orders|"])
+        self.assertEqual(m.systems["shop"].description, ("the document", "the shop's inside"))
+
+    def test_names_compare_as_folder_slugs(self):
+        for stem in ("X", "x"):
+            self.assertEqual(list(model(self.TREE, stem).systems), [stem, "A"])
+        m = model(self.TREE.replace("[X]", "[MyX]"), "my-x")
+        self.assertEqual(list(m.systems), ["my-x", "MyX", "A"])      # slugs myx, my-x
+
+    def test_the_given_name_reads_so_too(self):
+        # `--name X` is the stem the model gets: the same rule
+        self.assertEqual(list(model(self.TREE, "other").systems), ["other", "X", "A"])
+        self.assertEqual(list(model(self.TREE, "X").systems), ["X", "A"])
+
+    def test_a_top_face_keeps_the_name_before_a_store(self):
+        text = self.TREE + "|X|\n    \\-& {Row}\n[B] -> |X| : put({Row})\n"
+        m = model(text, "X")
+        self.assertEqual(sorted(m.systems), ["A", "X", "X (store)"])
+        self.assertEqual(m.top, "X")
+        self.assertEqual(m.systems["X (store)"].face, "X_store")
+
+    def test_a_tree_member_named_as_the_top_keeps_its_system(self):
+        text = ("[R]\n    \\-> [X]\n"
+                "[X] := {\n  [In] -> [Out] : go({Job}) => {Done}\n}\n")
+        m = model(text, "x")
+        self.assertIsNone(m.systems["x"].face)
+        self.assertEqual(m.systems["X"].parent, "R")
+
+    def test_a_unit_named_as_the_top_inside_another_keeps_its_system(self):
+        text = ("[Core] := {\n  [X] := {\n    [In] -> [Out] : go({Job}) => {Done}\n  }\n"
+                "  [Y] -> [X] : run({Job}) => {Done}\n}\n")
+        m = model(text, "x")
+        self.assertIsNone(m.systems["x"].face)
+        self.assertEqual(m.systems["X"].parent, "Core")
 
 
 class TestComponents(unittest.TestCase):
