@@ -227,3 +227,17 @@ view-graph/site/examples/03-arena.sigil
 view-graph/site/examples/04-orders.sigil
 view-graph/site/examples/06-overlap.sigil
 view-graph/site/examples/07-export.sigil
+
+# patch-0.6.4 (vs main after the 0.6.4 design commit; .claude/campaigns/patch-0.6.4/baseline):
+# K1: SGC172 reads membership — coverage.sigil's [Router] inside [Core] reaching [Handler] (a member of
+# [Core]'s own [Handler] expansion) is no escape: the finding at line 187 is gone (spec: 41 -> 40 findings,
+# 18 -> 17 warn; sketch/craft: it was hidden, "20 hidden" -> "19 hidden")
+check-json/tests/fixtures/coverage.sigil
+check-spec/tests/fixtures/coverage.sigil
+check/tests/fixtures/coverage.sigil
+lint-deep/tests/fixtures/coverage.sigil
+# E1: language.md Example 5 (block-37) writes `[Worker] -> run({Job}) => <ok> !> <fail>`: the route is
+# the call's (Worker -> fail), no longer chained from the returned <ok>
+mermaid-d1/language.md/block-37.sigil
+mermaid-d2/language.md/block-37.sigil
+mermaid-subgraphs/language.md/block-37.sigil

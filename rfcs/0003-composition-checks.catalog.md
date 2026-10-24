@@ -1604,7 +1604,10 @@ purpose" (NG7, §7.8).
   destination is a node of an outer unit other than `O`, when the outer level has no
   flow between `O` and that node. Only component-to-component wires count, both ends
   `[X]` (retuned in P2): a data glyph, event, store or actor named inside an
-  expansion body is not a dependency on a sibling.
+  expansion body is not a dependency on a sibling. Membership, not mention (0.6.4): a
+  node `O` holds (declared in its body, or starting a flow there) is `O`'s own, however
+  an outer level names it; and a flow at any level between something enclosing `O` and
+  something enclosing the destination connects them (`[O] -> [X]` is the plain case).
 - **Declare.** State the dependency at the outer level (`[O] -> [X]`); the inner
   calls stay as they are.
 - **Tier.** advisory. Ask: "`[App]` inside `[Core]` calls `[Data]`, but the outer

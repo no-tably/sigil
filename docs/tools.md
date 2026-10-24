@@ -166,8 +166,11 @@ no error and no warning unacknowledged; info findings are fine. Otherwise
 export" in [`language.md`](../language.md)): every `X := { … }` expansion is a
 system named `X` (a nested one is its own system, and its parent depends on it),
 every composition-tree root is a system holding its tree, and every other node is in
-the top system, named after the spec file's stem (or `--name`). Each component has
-one **home**.
+the top system, named after the spec file's stem (or `--name`). A top-level service
+with the top's name (`[Shop]` in `shop.sigil`) is the top's face, not a second
+system. Each component has one **home**: a level that names a part only in its flows
+(or in passing: a block's subject, an arm, a borrow, a join) is never its home when
+another level declares it.
 
 - `--out DIR` the export folder, made when missing. It must be empty or hold an
   earlier export (a `manifest.json`); `sigil export` never writes over a folder it did
@@ -175,8 +178,13 @@ one **home**.
 - `--name NAME` names the top system (and its folder) instead of the file's stem. No
   hash depends on the top system's name, so renaming the spec, or exporting it under
   another name, moves no hash; the top's key and folder follow it, and the delta
-  reports the move as `renamed`. A top named like one of the spec's systems is keyed
-  `NAME (top)`, and that system keeps its name. A blank name is refused (exit 2).
+  reports the move as `renamed`. A name that matches a top-level service rooting a
+  tree or owning an expansion (by folder name: `--name shop` and `[Shop]`) makes that
+  service the top's face: its tree or expansion is the top system, not a system of
+  its own (this reverses 0.6.1, where `--name` renamed no system; the systems, and so
+  their hashes and folders, then change). A top named like a system of another kind
+  (a store's tree) is keyed `NAME (top)`, and that system keeps its name. A blank
+  name is refused (exit 2).
   `--mermaid --spine` takes it too; plain `--mermaid` refuses it.
 - `--dry-run` prints the delta and writes nothing.
 - `--json` prints the delta as JSON instead of the summary in words.
@@ -225,7 +233,8 @@ state machine, when it has one). No target-language types.
 `dialect` is there only when a dialect was loaded: its `NAME`, and its `VERSION`
 (as text) when the dialect module defines one; with no dialect the key is absent.
 `path` is the system's folder, `components` its glyphs, `depends_on` the systems
-its flows reach (and the ones nested in it), `component_hashes` each component's
+its flows reach, the ones nested in it, and the systems that hold the data its flows
+carry (a homed `{D}` named in a payload, op arguments or return; not hashed), `component_hashes` each component's
 two hashes, in the order of `components`.
 
 **The hashes.** A system's `interface` is the hash of the flows that cross its

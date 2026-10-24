@@ -406,7 +406,8 @@ Once a design is final, `sigil export` hands it to whoever builds it: a folder p
 system, a Markdown file per component (kind, description, interface, requirements,
 lifecycle), and `manifest.json`, the contract. Systems come from the design itself,
 no new syntax: each `X := { … }` expansion, each composition-tree root, and the top
-level (named after the file, or `--name NAME`). Only a ready spec exports: its mode
+level (named after the file, or `--name NAME`; a top-level service of that name,
+`[Shop]` in `shop.sigil`, is the top level itself). Only a ready spec exports: its mode
 line is `#!spec`, lint finds no error, and `sigil check --export` leaves no error or
 warning unacknowledged. Otherwise `sigil export` prints what blocks it, exits 2 and
 writes nothing. Here the shop in
@@ -433,7 +434,7 @@ Each system, and each component in it, has two hashes: the **interface** (the
 flows that cross its boundary, with their payloads and returns) and the **body**
 (everything in it). Reformatting, reordering or renaming the spec moves neither (a
 rename moves the top system's key and folder, which `delta.json` reports as
-`renamed`, with no system to rebuild);
+`renamed`, with no system to rebuild, unless the new name is a top-level service's);
 `system.json` also gives every component and flow its spec `lines`. Export again into the same folder after an
 edit, and `sigil export` compares with the manifest already there, rewrites only what
 changed and writes `delta.json`. Here `[Stock]`'s reprice call now returns a

@@ -2,6 +2,77 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
+## 0.6.4 — unreleased
+
+Fixes for what large real specs ran into: the export reads homes, the top and
+dependencies the way a designer means them, an error route can sit on the call's
+own line, and two checks stop flagging designs that are fine.
+
+### Fixes
+
+- **A one-line error route is the call's route.** `[A] -> [B] : run({X}) => {Y} !>
+  <Fail>` and `[Worker] -> run({Job}) => <ok> !> <fail>` now mean what `!>` on the
+  line under the call means. Before, the route was read as part of the payload (the
+  run said "[B] returns {Y} !> <Fail>", and `<Fail>` was sent on every run as an
+  entry of its own), or as a route from the returned glyph. Modifiers written after
+  the route belong to the route, as on the line under. `[A] -> [B] !> <E>`, with no
+  payload or return before the `!>`, is still `[B]`'s route. Lint, every view, the
+  simulator and export all read the same graph.
+
+- **A route inside a block is taken.** A call's `!>` inside a `loop` or an `@owns`
+  scope now routes that call's failure in the simulator, and `unhandled-failure`
+  (SGC201) reads it the same way, so language.md's worker-loop example no longer
+  raises a false finding.
+
+- **A field branch decides where it is written.** `branch on {X}.f { … }` between
+  two flows of one source used to run after all of that source's flows (its arm
+  fired after the record had reached its end). It now runs in the order written.
+
+- **`expansion-escape` (SGC172) reads membership, not mentions.** A part declared
+  inside a unit stays that unit's, however an outer level also reaches it, and a
+  link stated between anything enclosing one end and anything enclosing the other
+  connects them (`[Draw] -> [Core]` covers a member of Draw's unit calling a member
+  of Core's). On one real spec this cleared 15 of 16 false findings. The trade-off:
+  a member that also acts at the top level is still read as its holder's.
+
+### Export reads differently
+
+These change what `sigil export` writes for the shapes named; other specs export
+exactly as before.
+
+- **Homes: a level that only names a part never homes it when another declares it.**
+  A part declared in one unit (`[Core] := { [Text] … }`) and named in another unit's
+  flows (`[Buffer] := { [Cells] -> [Text] … }`) lives in Core, and Buffer depends on
+  Core; before, SGC401 `no-home` blocked the export unless the naming unit was
+  nested under the declaring one. Mentions in passing are references too: a block's
+  subject (`branch on {X}.f`, a loop's or parallel's subject), an arm's body, a
+  borrowed store and a join's member no longer count as a place a part is written
+  (a `branch on {Contract}.fit` no longer made `{Contract}` homeless). A part
+  declared nowhere still lives in the outer level (never homeless).
+  *Moves:* the body hash of each moved component and of the systems it leaves and
+  joins; their folders gain or lose its file.
+
+- **A service named as the top is the top.** A top-level `[Shop]` in `shop.sigil`
+  (or under `--name shop`) that roots a tree or owns an expansion is the top's face:
+  one system, its members and comments the top's. Before, export wrote a `Shop`
+  system and a `shop (top)` beside it, in two folders. A store or another kind named
+  as the top keeps `NAME (top)`. This reverses 0.6.1's "`--name` renames no
+  system": a `--name` that matches such a service makes it the top.
+  *Moves:* the top system's hashes, every component of the face's system (now homed
+  at the top), and the folders (one instead of two).
+
+- **Data a flow carries is a dependency.** A `{D}` named in a flow's payload, op
+  arguments or return, when `{D}` is a homed component, makes both ends' systems
+  depend on `{D}`'s system (not their own, nor one enclosing them). Data named only
+  in payloads makes none. `depends_on` (manifest, system.json, the index README) and
+  `view --structure` gain these links (so `unit-cycle`, SGC176, can now see a cycle
+  made through carried data); no hash reads dependencies, so no hash moves,
+  but a re-export now reports such a system as `recheck` when that data's system's
+  interface moves.
+
+- **A one-line route** (above) changes the payload text of flows that wrote it, so
+  their components' and systems' hashes move once.
+
 ## 0.6.3 — 2026-10-24
 
 State machines say more in fewer lines, and the end state `$` means what the

@@ -429,7 +429,15 @@ unacknowledged. The tool enforces that gate itself.
    Resolve them as any finding — ask the user, then declare or acknowledge; never
    reshape. Systems are each `X := { … }` expansion, each composition-tree root,
    and the top level (named after the file, or `--name NAME`); "Ready to export" in
-   `references/language.md` has the rules. Descriptions come from the `#` comments:
+   `references/language.md` has the rules. To make a root service the project
+   itself, name the file after it (`[Shop]` in `shop.sigil`, or `--name shop`): its
+   tree or expansion is then the top level, not a second system. Declare each part
+   in one unit (a line of its own, a tree, a modifier line) and only name it in the
+   flows of the others: a level that only reaches a part, or names it in passing (a
+   `branch on {X}.f` subject, an arm, a borrow, a join), is never its home, so
+   `no-home` asks only about parts declared in two sibling units. Data a flow
+   carries counts as a dependency: a payload naming a homed `{D}` makes both ends
+   depend on `{D}`'s system. Descriptions come from the `#` comments:
    a header comment needs a blank line after it to describe the top system, or it
    describes the first statement's node. A trailing comment describes its line's
    first node, and a comment-only line aligned under it continues it. `# accepts:`
@@ -471,6 +479,9 @@ saying which and why. When the user wants a diagram for docs, run
 - Wrong glyph kind: `{Order}` is the record, `[OrderSvc]` the component,
   `<OrderPlaced>` the event.
 - `->` calls, `=>` produces; `~>` is async; `!>` is only for failure paths.
+  A call's route can go on its own line or after its payload or return on the call
+  line (`[A] -> [B] : run({X}) => {Y} !> <Fail>`): both are the call's route. With
+  no payload or return before it, `[A] -> [B] !> <E>` is `[B]`'s route instead.
 - A line starting with an arrow continues the previous line's *subject*.
 - `&` is a strict join; use `&?` for a race.
 - "Has" / "made of" is a composition branch (`\-& {Health}`), not a flow; a branch

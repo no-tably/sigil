@@ -52,6 +52,8 @@ bracket (`[A}`) reads as its opening bracket's kind. Lint reports all three
 
 Arrows compose left-to-right. A **continuation line** (starting with an arrow) inherits only the *subject* of the previous line — not its modifiers. This lets you attach multiple outcomes to one subject without repetition.
 
+A call's error route may also be written on the call's own line, after its payload or its return: `[A] -> [B] : run({X}) => {Y} !> <Fail>` and `[Worker] -> run({Job}) => <ok> !> <fail>` mean exactly what the same `!>` written on the line under the call means — the call's failure route, not part of its payload or a route from the returned glyph. Modifiers written after the route belong to the route, as they would on the line under. A `!>` inside a string or a bracket stays payload text, and with no payload and no return before it, `!>` routes the failure of the glyph before it: `[A] -> [B] !> <E>` is `[B]`'s route.
+
 Flows are written in source-to-sink order. There is no reverse arrow.
 
 ## Modifiers
@@ -601,6 +603,8 @@ branch on {Request}.kind {
 }
 ```
 
+A branch on a field (`branch on {X}.f { … }`) decides where it is written: placed between two flows of one source, it runs after the flows above it and before the ones below it, in the order the lines are written.
+
 ### Recursion
 
 Self-arrows or self-referential aliases:
@@ -691,6 +695,8 @@ shared").
 Any entity can be expanded later; an entity without an expansion is a leaf. Deeper sections go **below** shallower ones — general-to-specific top-down.
 
 The levels describe one system, not two: above, `[Core] -> |DB|` is the summary of `[Handler] -> |DB|` inside `[Core] := { … }` — one write read at two levels (the simulator runs the detail, once). A glyph is the same entity at every level, so a node with no flows of its own where it is reached does what it does where its flows are written.
+
+An expansion's member that reaches a part of an outer level is a dependency the outer level should state: `[App] -> [Data]` inside `[Core] := { … }` wants a link between `[Core]` and `[Data]` above (the check `expansion-escape`, SGC172, asks for it). The check reads membership, not mentions: a part declared inside a unit (a line of its own, a modifier line, a flow it starts, a tree) stays that unit's even when an outer level also reaches it, and a link stated between anything that encloses one end and anything that encloses the other connects them (`[Draw] -> [Core]` covers a member of Draw's `[Paint]` calling Core's `[Buffer]`). The price: a member that also acts at the top level (starts a flow there) is still read as its holder's.
 
 ---
 
@@ -1148,26 +1154,50 @@ systems are read off the document; there is no syntax for them:
 - every composition-tree root (a glyph with `\-` branches) is a system holding its
   tree;
 - every other node is in the **top** system, named after the file (`--name NAME`
-  names it otherwise; no hash depends on that name, so renaming the spec moves none).
+  names it otherwise; no hash depends on that name, so renaming the spec moves none,
+  unless the new name makes a service the top's face, below).
+
+A top-level service named as the top (its name and the top's give one folder name:
+`[Shop]` in `shop.sigil`, or as `--name` gives it) **is** the top: when it roots a
+tree or owns an expansion, that tree or expansion is the top's face, not a second
+system. Its members live at the top, and its comments are the top's description
+(after the document's header). Any other kind named as the top (a store `|Shop|` in
+`shop.sigil`) keeps a system of its own, and the top is keyed `NAME (top)`.
 
 The node a system is named after (the expansion's owner, the tree's root) stands for
 the system where it is written: a flow into `[Checkout]` at the top level is a flow
 into the Checkout system. A component's **home** is the one system it lives in: of
 the systems it is written in, the one that encloses all the others (declared at the
 top level, on a line of its own or in a tree, and written in an expansion, it lives
-at the top level). A level that writes a part only as an end of its flows refers into
-the unit nested under it that writes the part too, and is no home for it:
+at the top level).
+
+A level that names a part only in its flows **declares** it nowhere: it reaches the
+part, and is never its home when any other level declares it (a line of its own, a
+tree, a modifier line), wherever that level is. `[Core] := { [Text] … }` beside
+`[Buffer] := { [Cells] -> [Text] … }` homes `[Text]` in Core, and Buffer reaches it
+there (and depends on Core). An access grant line, `|S| @read(P)`, is the store's
+own line: it declares `|S|`. A mention **in passing** declares nothing either: a
+block's subject (`branch on {X}.f {`, the subject a `loop` or `parallel` walks), a
+branch arm's body (`ok => [A]`), a store a component borrows (`[P] @borrow(read)
+|S|`) and a join's member are references, as a flow end is. A level that only refers
+to a part also leaves it to the unit nested under it that writes it in any way:
 `(Client) -> [Transport]` at the top level, with `[Transport]` written inside
 `[Remote] := { … }`, leaves `[Transport]` in Remote, and a top-level flow between
 parts of two units leaves each in its unit (the caller's system then depends on the
 callee's through it). When the level also writes the part's own expansion header
 (`[Buffer] := { … }` at the top), the part moves only into a unit that declares it;
 a unit that only calls it calls out. The rule never leaves a part homeless: a part
-two sibling units write, referred to from above (`{Order}` used at the top level and
-in two units), still lives in the level above, as before. The rule never moves an
-actor: `(Client)` stays where its entry line is written. A system's **boundary**
-is the flows with exactly one end in it; its **interface** is those flows, with their
-payloads and returns. System A depends on B when a flow leaves A for B.
+declared nowhere and named in the flows of two sibling units (`{Order}` used at the
+top level and in two units) lives in the outer level, as before. The rule never
+moves an actor: `(Client)` stays where its entry line is written.
+
+A system's **boundary** is the flows with exactly one end in it; its **interface**
+is those flows, with their payloads and returns. System A **depends on** B when a
+flow leaves A for B, when B is nested in A, and when a flow of A carries data that
+lives in B: a `{D}` named in a flow's payload, op arguments or return, when `{D}` is
+a component with a home, makes both ends' systems depend on `{D}`'s system (not on
+their own, nor on one enclosing them). Data named only in payloads has no home and
+makes no dependency. Dependencies enter no hash.
 
 **Descriptions** are the document's `#` comments, read as the drawing reads its
 notes:
@@ -1221,7 +1251,8 @@ lint clean and no other error or warning left unacknowledged.
 their modifiers) and a **body** hash (everything in it: for a component its kind,
 home, description, interface, requirements, lifecycle and a dialect's attributes).
 Line numbers, whitespace, statement order and the top system's name enter neither, so
-reformatting, reordering or renaming the spec moves no hash; a changed payload,
+reformatting, reordering or renaming the spec moves no hash (a name that makes a
+service the top's face changes the systems themselves); a changed payload,
 modifier, description or state does. Every component and every flow also carries
 `lines`, the spec lines that write it, for jumping back to the source. A `#& name …`
 declaration (see "Dialects") goes to the system whose scope holds it, the top system
@@ -1436,7 +1467,7 @@ loop @while |Q|.nonempty {
 
 3. **Confusing `->` with `=>`.** `->` is a call/request (A invokes B). `=>` is a return/produces (A yields X). `[API] -> [DB] => {Rows}` means "API calls DB, which returns Rows."
 
-4. **Forgetting arrow semantics.** `~>` is async; do not use `->` for fire-and-forget. `!>` is error path; do not mix it into the happy path. Error paths attach to the most recent flow as continuation lines.
+4. **Forgetting arrow semantics.** `~>` is async; do not use `->` for fire-and-forget. `!>` is error path; do not mix it into the happy path. Error paths attach to the most recent flow as continuation lines, or go on the call's own line after its payload or return (`=> {R} !> <E>`).
 
 5. **Mixing up `*` uses.** `*<X>` (stream), `*>` (broadcast), `×N` (cardinality) all use `*` or similar but mean different things. Streams are temporal, broadcast is topological, cardinality is a count.
 
