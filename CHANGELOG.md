@@ -2,7 +2,7 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
-## 0.6.4 — unreleased
+## 0.6.4 — 2026-10-25
 
 Fixes for what large real specs ran into: the export reads homes, the top and
 dependencies the way a designer means them, an error route can sit on the call's
