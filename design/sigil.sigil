@@ -1,5 +1,5 @@
 #!sketch
-#% job in-process deterministic
+#% job in-process
 # sigil's toolchain: one package, one direction only:
 # text -> tokens -> document -> scene -> runs -> findings / drawings / exports.
 # Each expansion is a layer (a subpackage); a layer calls only the layers above
@@ -132,6 +132,7 @@
   [Hashes] -> [Model] : systems({Doc}) => {Spine}
   [Hashes] -> [Analyse] : names({Name}) => {Catalog}           # check.CORE_NAMES, to read `# accepts:` lines
   [Exporter] -> [Delta] : compare({Manifest}) => {Changes}     # added removed rebuild recheck unchanged, renamed top
+  # accepts: shared-writable-store — split by file: an export writes and deletes only the files its manifest names, a builder only its own
   [Exporter] -> |ExportDir| : read({Manifest}) => {Manifest}   # untrusted: names a slug check before any delete
   [Exporter] -> |ExportDir| : write({Files})                   # changed files only; delta.json, then manifest last
   # no lock: two exports into one DIR at once are not ordered
@@ -157,6 +158,9 @@
   [Kit] -> [Themes] : theme({Name}) => {Palette}
   [Themes] -> |ThemeFiles| : read({Yaml}) => {Yaml}
   (Author) -> |ThemeFiles| : edit({Yaml})                      # themes/ beside the package, $SIGIL_THEME_PATH, or a PATH
+  # read once per run, whole: a theme applies only once it parses and resolves, so a save
+  # caught half-written stops the run (exit 2), never draws half a theme
+  |ThemeFiles| @inv atomic(theme)
   [Views]
       \-> [GraphView]
       \-> [TreeView]

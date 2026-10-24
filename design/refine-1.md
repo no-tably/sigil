@@ -280,3 +280,13 @@ two warnings go with them — SGC101 on loading a dialect (an import: in-process
 SGC204 on `|ThemeFiles|` (the author's edit and the viewer's reload, one at a time).
 The second is a judgement the user may revisit: `frames follow` spawns a child
 `sigil view`, so part of sigil is not one process.
+
+Revisited (2026-10-24, user): `deterministic` comes off — `frames follow` spawns a child
+`sigil view`, and the author saves themes while views start, so the race is real. The model
+takes `#% job in-process` (13 rules off) and says what the code does:
+`|ThemeFiles| @inv atomic(theme)` — each run reads its theme once, and applies it only once
+it parses and resolves, so a save caught half-written stops the run (exit 2), never draws
+half a theme. Concurrency back on also raises SGC131 on `|ExportDir|` (export and builder
+both write it), acknowledged: the folder is split by file (an export writes and deletes only
+the files its manifest names). Spec check: 0 error, 0 warn, 1 info (SGC090, overlap budget);
+1 acknowledged; 4 runs ok.
