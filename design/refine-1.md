@@ -290,3 +290,26 @@ half a theme. Concurrency back on also raises SGC131 on `|ExportDir|` (export an
 both write it), acknowledged: the folder is split by file (an export writes and deletes only
 the files its manifest names). Spec check: 0 error, 0 warn, 1 info (SGC090, overlap budget);
 1 acknowledged; 4 runs ok.
+
+## Round 3: homes, the root, payload dependencies (2026-10-24, patch-0.6.4)
+
+The change, modelled before it is built: three readings in `[Systems]` (the export model),
+no new module, flow, dependency or trust boundary.
+
+1. **Homes.** A level that names a part only in its flows is never its home when another
+   level declares it, at any level (today: only when the declaring level is nested under
+   it). With no declaration anywhere, the outer level still homes it (never homeless).
+2. **The root** (user: a component named as the project root is the root). A tree root or
+   expansion owner named as the top is the top: one system, not `NAME (top)` beside it.
+3. **Payload dependencies** (user: a real gap). A flow whose payload names a homed data glyph
+   makes both ends' systems depend on that glyph's system.
+
+| reading | before | after |
+|---|---|---|
+| lint / spec check | clean / 0 findings | the same |
+| sim | 4 ok | 4 ok |
+
+The model's own readings don't move (sigil.sigil has none of the three shapes). Specs that
+do: one with six parts declared once and named in sibling layers' flows (6 SGC401 → 0), one
+whose top tree is named as the file (two folders → one), one whose flows carry a data tree's
+names (a dependency the manifest lacked).
