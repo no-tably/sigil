@@ -313,3 +313,25 @@ The model's own readings don't move (sigil.sigil has none of the three shapes). 
 do: one with six parts declared once and named in sibling layers' flows (6 SGC401 → 0), one
 whose top tree is named as the file (two folders → one), one whose flows carry a data tree's
 names (a dependency the manifest lacked).
+
+## Round 4: starts in a state (2026-10-25, 0.6.5)
+
+Asked by construct (its R0: a report against a Built component, `Built -<Reported>->
+Stale`, then Rebuilding): every run starts from an empty world, so a way out of a later
+state is never walked. The change, modelled before it is built: one reading in `[Sim]`'s
+Scenarios, no new module, flow, dependency or trust boundary.
+
+- A scenario part `Owner=State` begins that owner's machine in State (any state its block
+  names). Parts combine with `+` like `Entry@t`: `happy+Component=Built`,
+  `Component.change=reported+Component=Built`. Everything that takes a scenario name
+  (view, frames, the MCP and pi tools, check witnesses) takes it with no new flag.
+- Listed: one run per state with a way out other than the initial one, after the
+  overlaps, within the scenario limit; so `--sim all` and spec-mode check walk them.
+- An unknown owner or state is the usual unknown-scenario error, listing the states.
+
+| reading | before | after |
+|---|---|---|
+| sigil.sigil lint / check | clean / OK | the same |
+| sigil.sigil sim | 4 ok | 4 ok (no machines) |
+| construct.sigil listed runs | — | +7 (Planned, Building, Built, Stale, Rebuilding, Pruning, Removed) |
+| cure.sigil, 02-shop | — | no change (no machine with a later state) |

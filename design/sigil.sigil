@@ -92,9 +92,13 @@
   [Structure] -> [Sim] : canonical({Doc}) => {Scene}           # writers per store, as check counts them
   [Sim] := {
     # the run: deterministic, no values computed
-    [Scenarios] -> [Engine] : run({Scenario}) => {Trace}        # happy, deviations, overlaps (Entry@t)
+    [Scenarios] -> [Engine] : run({Scenario}) => {Trace}        # happy, deviations, overlaps (Entry@t), starts in a state (Owner=State)
     [Engine] -> [Program] : compile({Scene}) => {Units}          # units, machines, triggers
     [Scenarios] -> [Narration] : tell({Trace}) => {Steps}        # beats, the log, run events
+    # Starts in a state (0.6.5): a scenario part `Owner=State` begins that owner's machine
+    # in State (any state its block names, reached or not); parts combine with `+` as
+    # Entry@t does, so every reader of a scenario name takes it. Listed: one per state
+    # with a way out other than the initial one, after the overlaps, within the scenario limit
     # Program: default frames and activations limits are max(floor, k × nodes+edges)
     # (k 64 / 20, sim.sized); a given --limit wins
   }
