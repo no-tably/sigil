@@ -63,6 +63,31 @@ NOTIFY = READY.replace("  [Cart] -> |Db| : save({Order}) => {Ack}\n",
 # The Billing expansion gone: [Billing] stays a component of the top system.
 NO_BILLING = READY.split("[Billing] := {")[0]
 
+# Pane nested in Ui, Ui depending on Core outside it; EDITOR_NOTIFY changes
+# Core's interface (a flow out of it), so Pane inherits the recheck via Ui.
+EDITOR = """\
+#!spec
+# an editor
+
+(User) -> [Ui] : open({Doc}) => {View}
+[Ui] -> [Core] : read({Doc}) => {Text}
+
+[Core] := {
+  [Store] -> |Db| : get({Doc}) => {Text}
+}
+
+[Ui] := {
+  [Pane] -> |Cache| : keep({Text}) => {Ack}
+}
+
+[Pane] := {
+  [Cell] -> |Grid| : put({Text}) => {Ack}
+}
+"""
+EDITOR_NOTIFY = EDITOR.replace("  [Store] -> |Db| : get({Doc}) => {Text}\n",
+                               "  [Store] -> |Db| : get({Doc}) => {Text}\n"
+                               "  [Store] ~> (User) : notify({Doc})\n")
+
 OLD_MTIME = 1_000_000_000
 
 
@@ -160,9 +185,95 @@ class TestDelta(unittest.TestCase):
                          ["first export: 4 system(s) added"])
 
 
+
+def nested(path, interface, body, deps=(), parent=None):
+    return {**entry(path, interface, body, deps), "parent": parent}
+
+
+class TestInheritedRecheck(unittest.TestCase):
+    """A nested system is rechecked along the dependencies its enclosing systems
+    have outside themselves (read from the new manifest's `parent`)."""
+
+    # top ⊃ Core, Ui ⊃ Pane ⊃ Cell; Ui depends on Core (outside it) and on Pane
+    # (nested in it); Pane on nothing; the top on Core and Ui.
+    OLD = manifest({"top": nested("top", "it", "bt", ["Core", "Ui"]),
+                    "Core": nested("core", "ic", "bc", parent="top"),
+                    "Ui": nested("ui", "iu", "bu", ["Core", "Pane"], parent="top"),
+                    "Pane": nested("pane", "ip", "bp", parent="Ui"),
+                    "Cell": nested("cell", "il", "bl", parent="Pane")})
+
+    def changed(self, **interfaces):
+        systems = json.loads(json.dumps(self.OLD["systems"]))
+        for key, i in interfaces.items():
+            systems[key]["interface"] = i
+        return manifest(systems, "s1")
+
+    def test_a_change_outside_the_owner_rechecks_what_is_nested_in_it(self):
+        d = export_delta.delta(self.OLD, self.changed(Core="ic2"))
+        self.assertEqual(d["recheck"], ["top", "Ui", "Pane", "Cell"])
+        self.assertEqual(d["unchanged"], ["Core"])
+        self.assertEqual(d["systems"]["Ui"]["because"], ["Core"])
+        self.assertNotIn("via", d["systems"]["Ui"])
+        self.assertEqual(d["systems"]["Pane"]["because"], ["Core"])
+        self.assertEqual(d["systems"]["Pane"]["via"], {"Core": "Ui"})
+        self.assertEqual(d["systems"]["Cell"]["via"], {"Core": "Ui"})
+
+    def test_a_change_inside_the_owner_is_not_inherited(self):
+        # Ui depends on Pane, but Pane is nested in Ui: Cell inherits nothing
+        # from it (and the top's dependencies are all inside the top).
+        d = export_delta.delta(self.OLD, self.changed(Pane="ip2"))
+        self.assertEqual(d["recheck"], ["Ui"])
+        self.assertEqual(d["unchanged"], ["top", "Core", "Pane", "Cell"])
+
+    def test_own_dependencies_first_then_inherited_without_duplicates(self):
+        old = json.loads(json.dumps(self.OLD))
+        old["systems"]["Pane"]["depends_on"] = ["Other"]
+        old["systems"]["Cell"]["depends_on"] = ["Core"]
+        old["systems"]["Other"] = nested("other", "io", "bo", parent="top")
+        old["systems"]["Ui"]["depends_on"] = ["Other", "Core", "Pane"]
+        new = json.loads(json.dumps(old))
+        new["systems"]["Core"]["interface"] = "ic2"
+        new["systems"]["Other"]["interface"] = "io2"
+        d = export_delta.delta(old, new)
+        self.assertEqual(d["systems"]["Cell"]["because"], ["Core", "Other"])
+        self.assertEqual(d["systems"]["Cell"]["via"], {"Other": "Pane"})
+        self.assertEqual(d["systems"]["Pane"]["because"], ["Other", "Core"])
+        self.assertEqual(d["systems"]["Pane"]["via"], {"Core": "Ui"})
+
+    def test_an_old_manifest_without_parent_still_compares(self):
+        old = json.loads(json.dumps(self.OLD))
+        for e in old["systems"].values():
+            del e["parent"]
+        d = export_delta.delta(old, self.changed(Core="ic2"))
+        self.assertEqual(d["systems"]["Cell"]["via"], {"Core": "Ui"})
+
+    def test_a_new_manifest_without_parent_inherits_nothing(self):
+        new = self.changed(Core="ic2")
+        for e in new["systems"].values():
+            del e["parent"]
+        d = export_delta.delta(self.OLD, new)
+        self.assertEqual(d["recheck"], ["top", "Ui"])
+
+    def test_a_parent_loop_ends(self):
+        new = self.changed(Core="ic2")
+        new["systems"]["Ui"]["parent"] = "Cell"
+        d = export_delta.delta(self.OLD, new)
+        self.assertEqual(d["systems"]["Pane"]["via"], {"Core": "Ui"})
+
+    def test_no_hash_moves(self):
+        d = export_delta.delta(self.OLD, self.changed(Core="ic2"))
+        self.assertEqual(d["systems"]["Cell"]["old"], d["systems"]["Cell"]["new"])
+
+    def test_words_name_the_enclosing_system(self):
+        lines = export_delta.delta_lines(export_delta.delta(self.OLD, self.changed(Core="ic2")))
+        self.assertIn("  recheck    Ui (interface changed: Core)", lines)
+        self.assertIn("  recheck    Cell (interface changed: Core (via Ui))", lines)
+
+
 class TestManifestProblem(unittest.TestCase):
     def test_an_export_manifest_is_fine(self):
         self.assertIsNone(export_delta.manifest_problem(TestDelta.OLD))
+        self.assertIsNone(export_delta.manifest_problem(TestInheritedRecheck.OLD))
 
     def test_refused(self):
         bad_path = manifest({"A": entry("../a", "i", "b")})
@@ -172,7 +283,8 @@ class TestManifestProblem(unittest.TestCase):
         for obj, word in ((None, "version"), ({"sigil_export": 2}, "version"),
                           ({"sigil_export": 1, "systems": []}, "systems"),
                           (no_body, "body"), (bad_path, "no slug"),
-                          (no_components, "components")):
+                          (no_components, "components"),
+                          (manifest({"A": {**entry("a", "i", "b"), "parent": 3}}), "parent")):
             with self.subTest(obj=obj):
                 self.assertIn(word, export_delta.manifest_problem(obj))
 
@@ -286,6 +398,36 @@ class TestReexport(Tmp):
         for key, e in manifest["systems"].items():
             self.assertEqual(d["systems"][key]["new"],
                              {"interface": e["interface"], "body": e["body"]})
+
+    def test_manifest_systems_carry_their_parent(self):
+        self.exported(EDITOR)
+        manifest = json.loads((self.out / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual({k: e["parent"] for k, e in manifest["systems"].items()},
+                         {"store": None, "Core": "store", "Ui": "store", "Pane": "Ui"})
+        for key, e in manifest["systems"].items():
+            form = json.loads((self.out / e["path"] / "system.json").read_text(encoding="utf-8"))
+            self.assertEqual(form.get("parent"), e["parent"])
+
+    def test_a_nested_system_rechecks_via_its_owner(self):
+        self.exported(EDITOR)
+        out = self.exported(EDITOR_NOTIFY)
+        d = self.delta_json()
+        self.assertEqual(sorted(d["recheck"]), ["Pane", "Ui"])
+        self.assertEqual(d["systems"]["Ui"]["because"], ["Core"])
+        self.assertNotIn("via", d["systems"]["Ui"])
+        self.assertEqual(d["systems"]["Pane"]["because"], ["Core"])
+        self.assertEqual(d["systems"]["Pane"]["via"], {"Core": "Ui"})
+        self.assertIn("recheck    Pane (interface changed: Core (via Ui))", out)
+
+    def test_an_export_before_parent_still_rechecks_via_the_owner(self):
+        self.exported(EDITOR)
+        path = self.out / "manifest.json"
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        for e in manifest["systems"].values():
+            del e["parent"]
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        self.exported(EDITOR_NOTIFY)
+        self.assertEqual(self.delta_json()["systems"]["Pane"]["via"], {"Core": "Ui"})
 
     def test_removed_system_folder_is_deleted(self):
         self.exported(READY)

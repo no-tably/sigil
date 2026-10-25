@@ -35,12 +35,17 @@ The folder (systems, homes and hashes as sigil.model.systems reads them):
     manifest.json = {"sigil_export": 1, "spec": <file name>, "spec_hash": …,
       "top": <the top system's key>, "dialect"?: {"name", "version"?},
       "systems": {name: {"path", "interface", "body", "components", "depends_on",
+                         "parent",
                          "component_hashes": {glyph: {"interface", "body"}}}}}
 
     `dialect` only when a dialect is loaded: its NAME, and its VERSION when the
     dialect module defines one. A system's `components` lists its glyphs (the
     file names follow from them); `component_hashes` each one's hashes
-    (sigil.publish.systems: what each covers).
+    (sigil.publish.systems: what each covers). `depends_on` names the systems
+    its own flows reach (never what it inherits from the systems enclosing it);
+    `parent` the enclosing system's key (null for the top), as system.json has
+    it, so a delta reads nesting from the manifests alone. Neither enters a
+    hash.
 
 A system.json holds the system's normalised form (sigil.publish.systems): its
 components (each with its `hashes`, its `lines` and, from a dialect, its
@@ -57,14 +62,18 @@ Re-export and delta. Before writing, `sigil export` reads the manifest already i
     removed    in the old one only (its folder is deleted)
     rebuild    its body hash changed
     recheck    its body is unchanged, but a system it depends on changed its
-               interface (its calls into that system need a second look)
+               interface (its calls into that system need a second look), or
+               one an enclosing system depends on, outside that enclosing
+               system, did
     unchanged  neither
 
     delta.json = {"sigil_delta": 1, "spec": <file name>, "from": <old spec_hash>,
       "to": <new spec_hash>, "added": […], "removed": […], "rebuild": […],
       "recheck": […], "unchanged": […], "systems": {name: {"status", "old",
-      "new", "because"?}}}   (old/new: {"interface", "body"}, or null;
-      because: the systems whose interface changed, for a recheck)
+      "new", "because"?, "via"?}}}   (old/new: {"interface", "body"}, or null;
+      because: the systems whose interface changed, for a recheck, its own
+      dependencies first; via: {inherited one: the enclosing system it came
+      through}, only when it inherits one)
 
 A system folder may also hold a builder's own files: `sigil export` deletes or
 compares only the files an earlier export wrote (the names its manifest's
@@ -226,6 +235,7 @@ def plan_system(key: str, system, form: dict, folders: dict) -> SystemPlan:
              "body": system.body_hash,
              "components": [c["glyph"] for c in comps],
              "depends_on": list(system.depends_on),
+             "parent": system.parent,
              "component_hashes": {c["glyph"]: c["hashes"] for c in comps}}
     return SystemPlan(key, folders[key], files, entry)
 

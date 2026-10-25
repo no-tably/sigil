@@ -6,8 +6,18 @@ Every system sorts into one of STATUSES:
     removed    in the old one only (its folder is deleted)
     rebuild    its body hash changed
     recheck    its body is unchanged, but a system it depends on changed its
-               interface (its calls into that system need a second look)
+               interface (its calls into that system need a second look), or
+               one an enclosing system depends on, outside that enclosing
+               system, did (its members make up the enclosing system, so they
+               use what it depends on)
     unchanged  neither
+
+`depends_on` is a system's own flows only; what a nested system inherits from
+the systems enclosing it is read here, through the new manifest's `parent`
+fields (an old manifest without them still compares). A recheck's `because`
+lists the changed systems, its own dependencies first, then inherited ones;
+`via` maps each inherited one to the nearest enclosing system it came through
+(only when something is inherited). No hash reads any of this.
 
 The top system renamed (the spec renamed, or another --name) is the same system
 under its new key: `renamed` gives {from, to} (else null), and the top is
@@ -48,6 +58,8 @@ def manifest_problem(obj) -> Optional[str]:
                 and isinstance(e.get("components"), list)
                 and all(isinstance(c, str) for c in e["components"])):
             return f"system {key!r} lacks path, interface, body, components or depends_on"
+        if e.get("parent") is not None and not isinstance(e["parent"], str):
+            return f"system {key!r} has a parent that is no system key"
         if not _FOLDER_RE.fullmatch(e["path"]):
             return f"system {key!r} has folder {e['path']!r}, no slug"
     return None
@@ -92,8 +104,9 @@ def top_renamed(old: Optional[dict], new: dict) -> Optional[dict]:
 
 def system_delta(key: str, olds: dict, news: dict) -> dict:
     """One system of the new export against the old: added, rebuild (its body
-    changed), recheck (`because` names the systems it depends on whose interface
-    changed) or unchanged."""
+    changed), recheck or unchanged. A recheck's `because` names the changed
+    systems it depends on, then those it inherits (inherited_changes); `via`
+    maps each inherited one to the enclosing system it came through."""
     old, new = olds.get(key), news[key]
     entry = {"old": hashes(old), "new": hashes(new)}
     if old is None:
@@ -101,9 +114,42 @@ def system_delta(key: str, olds: dict, news: dict) -> dict:
     if old["body"] != new["body"]:
         return {"status": "rebuild", **entry}
     because = [d for d in new["depends_on"] if interface_changed(d, olds, news)]
-    if because:
-        return {"status": "recheck", **entry, "because": because}
+    via = {d: up for d, up in inherited_changes(key, olds, news).items()
+           if d not in because}
+    if because or via:
+        return {"status": "recheck", **entry, "because": because + list(via),
+                **({"via": via} if via else {})}
     return {"status": "unchanged", **entry}
+
+
+def inherited_changes(key: str, olds: dict, news: dict) -> dict:
+    """{changed system: the nearest enclosing system it came through} for system
+    `key`: each system an enclosing system of `key` (its parent, its parent's
+    parent, …, read from the new manifest's `parent`) depends on, outside that
+    enclosing system, whose interface changed. Nearest enclosing system first,
+    each in its `depends_on` order."""
+    out = {}
+    for up in enclosing(key, news):
+        for d in news[up]["depends_on"]:
+            if d not in out and d != key and not within(d, up, news) \
+                    and interface_changed(d, olds, news):
+                out[d] = up
+    return out
+
+
+def enclosing(key: str, news: dict) -> list:
+    """The systems enclosing `key`, nearest first (its parent, …): none when the
+    manifest has no `parent` fields (an export before 0.6.5)."""
+    out, k = [], news.get(key, {}).get("parent")
+    while k in news and k != key and k not in out:
+        out.append(k)
+        k = news[k].get("parent")
+    return out
+
+
+def within(key: str, up: str, news: dict) -> bool:
+    """Whether system `key` is `up` or nested (at any depth) under it."""
+    return key == up or up in enclosing(key, news)
 
 
 def interface_changed(key: str, olds: dict, news: dict) -> bool:
@@ -143,9 +189,12 @@ def delta_lines(change: dict) -> list:
 
 
 def delta_note(d: dict) -> str:
-    """What a status line adds: a rebuild's body hashes, what a recheck depends on."""
+    """What a status line adds: a rebuild's body hashes, what a recheck depends on
+    (an inherited one with the enclosing system it came through)."""
     if d["status"] == "rebuild":
         return f" (body {d['old']['body']} → {d['new']['body']})"
     if d["status"] == "recheck":
-        return f" (interface changed: {', '.join(d['because'])})"
+        via = d.get("via", {})
+        named = (f"{k} (via {via[k]})" if k in via else k for k in d["because"])
+        return f" (interface changed: {', '.join(named)})"
     return ""

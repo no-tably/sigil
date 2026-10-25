@@ -22,6 +22,7 @@
         "Fulfilment",
         "Warehouse"
       ],
+      "parent": null,
       "component_hashes": {
         "(Shopper)": {
           "interface": "ae794b82d02eadf6",
@@ -58,6 +59,7 @@
         "|Prices|"
       ],
       "depends_on": [],
+      "parent": "07-export",
       "component_hashes": {
         "|Listings|": {
           "interface": "4f53cda18c2baa0c",
@@ -82,6 +84,7 @@
       "depends_on": [
         "Fulfilment"
       ],
+      "parent": "07-export",
       "component_hashes": {
         "<OrderPlaced>": {
           "interface": "a7319ed807b015dc",
@@ -111,6 +114,7 @@
         "[Picker]"
       ],
       "depends_on": [],
+      "parent": "07-export",
       "component_hashes": {
         "<Shipped>": {
           "interface": "13ebe7bcadf9c6e1",
@@ -136,6 +140,7 @@
       "depends_on": [
         "Catalog"
       ],
+      "parent": "07-export",
       "component_hashes": {
         "[Stock]": {
           "interface": "320cea06480e7697",

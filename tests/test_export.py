@@ -179,7 +179,8 @@ class TestPlan(unittest.TestCase):
             s = self.model.systems[key]
             with self.subTest(system=key):
                 self.assertEqual(set(e), {"path", "interface", "body", "components",
-                                          "depends_on", "component_hashes"})
+                                          "depends_on", "parent", "component_hashes"})
+                self.assertEqual(e["parent"], s.parent)
                 self.assertEqual(e["interface"], s.interface_hash)
                 self.assertEqual(e["body"], s.body_hash)
                 self.assertEqual(list(e["component_hashes"]), e["components"])
