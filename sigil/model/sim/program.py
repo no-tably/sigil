@@ -116,6 +116,8 @@ class Scenario(NamedTuple):
     entries: Optional[tuple] = None    # node ids; None: the default entries
     starts: tuple = ()         # ((entry node id, start tick), …): entries that begin
                                # at their tick, overlapping earlier episodes
+    machines: tuple = ()       # ((machine owner id, state node id), …): machines that
+                               # begin in that state instead of their initial one
 
 
 class Token(NamedTuple):
@@ -212,6 +214,8 @@ class Machine(NamedTuple):
     owner: str
     initial: str
     transitions: tuple         # (src state, dst state, label, transition wire ident)
+    states: tuple = ()         # the state node ids its block names (no `+`, `$`, `_`),
+                               # in written order
 
 
 class TriggerRef(NamedTuple):
@@ -672,7 +676,8 @@ def _machines(sc, units: list) -> dict:
                      None)
         initial = start or first
         if initial is not None:
-            out[u.owner] = Machine(u.owner, initial, trans)
+            states = tuple(nid for nid, n in g.nodes.items() if not n.attrs.get("pseudo"))
+            out[u.owner] = Machine(u.owner, initial, trans, states)
     return out
 
 

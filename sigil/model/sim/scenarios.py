@@ -17,7 +17,8 @@ from typing import NamedTuple, Optional
 from sigil.model import scene as scene_mod
 from sigil.model.sim.program import (
     Decide, Group, Limits, Program, Region, Scenario, Step, Trace, _alias_of, _decides,
-    _detached, _flat, _gate_of, _guards, _home, _one_of_groups, _program_of, _running, attempts, loop_count,
+    _detached, _flat, _gate_of, _guards, _home, _one_of_groups, _program_of, _pseudo, _running,
+    attempts, loop_count,
     mod, resilient, selected_routes)
 from sigil.model.sim.engine import _simulate
 from sigil.model.sim.narration import _Words
@@ -706,8 +707,8 @@ def _suffix_shared(names: list, suffix) -> list:
 
 def scenarios(sc, *, limits: Limits = Limits()) -> list:
     """`happy`, then one scenario per non-default option of each reachable choice
-    point, in source order, then the overlap scenarios (overlaps()); capped at
-    limits.scenarios."""
+    point, in source order, then the overlap scenarios (overlaps()), then the
+    state starts (state_starts()); capped at limits.scenarios."""
     prog = _program_of(sc.graph)
     out = [Scenario("happy", (), "every default: the happy path")]
     for p in choice_points(prog, limits):
@@ -715,31 +716,43 @@ def scenarios(sc, *, limits: Limits = Limits()) -> list:
             out.append(Scenario(nm, ((p.cid, opt),), label))
     if len(out) < limits.scenarios:
         out += _overlaps(prog, limits)
+    if len(out) < limits.scenarios:
+        out += _state_starts(prog)
     return out[:limits.scenarios]
 
 
 def scenario(sc, name: str, *, limits: Limits = Limits()) -> Scenario:
     """The scenario of that name; `a+b` combines its parts (later wins on one
-    choice point or one entry's start). A part is a listed scenario or `Entry@t`
-    (an entry, named as scenario names write nodes, beginning at tick t: any t,
-    listed or not). Raises KeyError listing the names when one is unknown."""
+    choice point, one entry's start or one machine's state). A part is a listed
+    scenario, `Entry@t` (an entry, named as scenario names write nodes, beginning
+    at tick t: any t, listed or not) or `Owner=State` (a state machine's owner,
+    named so, beginning in State: any state its block names, not `+`, `$` or `_`;
+    no `.` before the `=`, so a field choice `Owner.field=value` is not one).
+    Raises KeyError listing the names when one is unknown, and the owner's states
+    when the owner is known and the state is not."""
     prog = _program_of(sc.graph)
     listed = {s.name: s for s in scenarios(sc, limits=limits._replace(scenarios=10 ** 6))}
     entries = _entry_parts(prog)
+    owners = _machine_parts(prog)
     parts = name.split("+")
-    picked = [listed.get(p) or _start_scenario(prog, p, entries) for p in parts]
+    picked = [listed.get(p) or _start_scenario(prog, p, entries)
+              or _state_scenario(prog, p, owners) for p in parts]
     missing = [p for p, s in zip(parts, picked) if s is None]
     if missing:
-        hint = f" (an entry start is Entry@tick, one of {', '.join(entries)})" if entries else ""
+        ways = ([f"an entry start is Entry@tick, one of {', '.join(entries)}"] if entries else []) \
+            + ([f"a state start is Owner=State: {_owner_states(prog, owners)}"] if owners else [])
+        hint = f" ({'; '.join(ways)})" if ways else ""
         raise KeyError(f"unknown scenario {', '.join(missing)}{hint}; known: {', '.join(listed)}")
     if len(parts) == 1:
         return picked[0]
-    choices, starts = {}, {}
+    choices, starts, machines = {}, {}, {}
     for s in picked:
         choices.update(dict(s.choices))
         starts.update(dict(s.starts))
+        machines.update(dict(s.machines))
     return Scenario(name, tuple(choices.items()),
-                    " + ".join(s.label for s in picked if s.label), None, tuple(starts.items()))
+                    " + ".join(s.label for s in picked if s.label), None, tuple(starts.items()),
+                    tuple(machines.items()))
 
 
 # ---------------------------------------------------------------------------
@@ -804,6 +817,89 @@ def _start_scenario(prog: Program, part: str, entries: dict) -> Optional[Scenari
         return None
     nid, t = entries[m.group(1)], int(m.group(2))
     return Scenario(part, (), f"{_Words(prog.scene).name(nid)} starts at t{t}", None, ((nid, t),))
+
+
+_STATE_PART_RE = re.compile(r"^([^.=@+]+)=([^=+]+)$")
+
+
+def _machine_parts(prog: Program) -> dict:
+    """{owner as scenario names write it: owner node id} of every state machine
+    whose owner is a node of the scene (the first machine of a name keeps it)."""
+    out = {}
+    for owner in prog.machines:
+        if owner in prog.scene.nodes:
+            out.setdefault(_node_part(prog, owner), owner)
+    return out
+
+
+def _state_names(prog: Program, owner: str) -> dict:
+    """{state as scenario names write it: state node id} of owner's machine, in
+    written order (the first state of a name keeps it)."""
+    out = {}
+    for nid in prog.machines[owner].states:
+        out.setdefault(_part(_state_label(prog, nid)), nid)
+    return out
+
+
+def _owner_states(prog: Program, owners: dict) -> str:
+    """`Owner in A, B, C; Other in X` over owners ({part: owner id})."""
+    return "; ".join(f"{part} in {', '.join(_state_names(prog, owner))}"
+                     for part, owner in owners.items())
+
+
+def _state_start(prog: Program, owner: str, state: str) -> Scenario:
+    return Scenario(f"{_node_part(prog, owner)}={_part(_state_label(prog, state))}", (),
+                    f"starts with {_Words(prog.scene).name(owner)} in "
+                    f"{_state_label(prog, state)}", None, (), ((owner, state),))
+
+
+def _state_scenario(prog: Program, part: str, owners: dict) -> Optional[Scenario]:
+    """The scenario `Owner=State` names (owner's machine beginning in State), or
+    None when part is not one. Raises KeyError listing the owner's states when
+    the owner is known and its block names no such state (`+`, `$` and `_` are
+    no states to begin in)."""
+    m = _STATE_PART_RE.match(part)
+    if m is None or m.group(1) not in owners:
+        return None
+    owner = owners[m.group(1)]
+    states = _state_names(prog, owner)
+    if m.group(2) not in states:
+        raise KeyError(f"unknown state {m.group(2)} for {m.group(1)} in scenario {part}; "
+                       f"its states: {', '.join(states)}")
+    return _state_start(prog, owner, states[m.group(2)])
+
+
+def _ways_out(prog: Program, m) -> set:
+    """The states of machine m some transition leaves for another state: one written
+    from it, or a `_` one (taken from any state with no transition of its own on
+    that trigger) to a state other than it."""
+    out, wild = set(), set()
+    for src, dst, _label, _ident in m.transitions:
+        if src in m.states and dst != src:
+            out.add(src)
+        elif _pseudo(prog, src) == "any":
+            wild.add(dst)
+    return out | {s for s in m.states if wild - {s}}
+
+
+def _state_starts(prog: Program) -> list:
+    """One scenario `Owner=State` per state machine and state other than its initial
+    one with a way out (_ways_out), in machine order, then written order."""
+    out = []
+    for owner, m in prog.machines.items():
+        if owner not in prog.scene.nodes:
+            continue
+        ways = _ways_out(prog, m)
+        out += [_state_start(prog, owner, s) for s in m.states if s != m.initial and s in ways]
+    return out
+
+
+def state_starts(sc) -> list:
+    """The state starts scenarios() lists after the overlaps: for each state machine
+    (its owner a node of the scene) and each state other than its initial one that
+    a transition leaves, a scenario `Owner=State` beginning the machine there, so a
+    way out of a later state is walked. Named as scenario names write nodes."""
+    return _state_starts(_program_of(sc.graph))
 
 
 def _touches(events: list, wires: dict) -> tuple:

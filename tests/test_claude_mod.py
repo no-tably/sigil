@@ -207,7 +207,9 @@ class DrawTest(unittest.TestCase):
         listed = [s.name for s in simulator.overlaps(simulator.canonical(g))]
         self.assertTrue(listed)
         out = run_pane("draw", str(orders))
-        self.assertEqual(out["scenarios"][-len(listed):], listed)
+        starts = len(simulator.state_starts(simulator.canonical(g)))   # listed after them
+        self.assertEqual(out["scenarios"][-len(listed) - starts:len(out["scenarios"]) - starts],
+                         listed)
         name = listed[-1]
         player = app.SimPlayer(g, name)
         both = next(i for i, f in enumerate(player.trace.frames) if len(f.episodes) > 1)

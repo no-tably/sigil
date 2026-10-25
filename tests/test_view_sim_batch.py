@@ -47,7 +47,8 @@ class TestFacts(unittest.TestCase):
         self.assertEqual(fails["failed"], ["[Payments]"])
         self.assertEqual(fails["routes"], ["[Payments] !> <Declined>"])
         self.assertEqual([(o["name"], o["outcome"]) for o in overlaps],
-                         [("Payments@0", "ok"), ("Payments@10", "ok")])   # listed overlaps run too
+                         [("Payments@0", "ok"), ("Payments@10", "ok"),   # listed overlaps run too
+                          ("Checkout=Busy", "ok"), ("Order=Open", "ok")])  # and state starts
 
     def test_an_overlap_run_lists_its_episodes_and_no_other_run_does(self):
         by = {f["name"]: f for f in facts(ROOT / "tests" / "fixtures" / "overlap.sigil")}
@@ -88,7 +89,7 @@ class TestTable(unittest.TestCase):
         self.assertEqual(rows[1], "  states: [Checkout] Idle · {Order} Settled")
         self.assertIn("  failed: [Payments]", rows)
         self.assertIn("  routes: [Payments] !> <Declined>", rows)
-        self.assertEqual(rows[-1], "4 scenarios: 3 ok, 1 failed, 0 cut")   # 2 of them overlaps
+        self.assertEqual(rows[-1], "6 scenarios: 5 ok, 1 failed, 0 cut")   # 2 overlaps, 2 state starts
 
     def test_lines_fit_100_columns(self):
         for path in DOCS:
@@ -152,10 +153,11 @@ class TestCommandLine(unittest.TestCase):
         res = self.run_view(ORDERS, "--once", "--sim", "all", "--json")
         data = json.loads(res.stdout)
         self.assertEqual(data["scenarios"], facts(ORDERS))
-        self.assertEqual(data["summary"], "4 scenarios: 3 ok, 1 failed, 0 cut")
+        self.assertEqual(data["summary"], "6 scenarios: 5 ok, 1 failed, 0 cut")
         res = self.run_view(ORDERS, "--once", "--sim", "list", "--json")
         self.assertEqual([s["name"] for s in json.loads(res.stdout)],
-                         ["happy", "Payments:fails", "Payments@0", "Payments@10"])
+                         ["happy", "Payments:fails", "Payments@0", "Payments@10",
+                          "Checkout=Busy", "Order=Open"])
 
     def test_json_needs_sim(self):
         res = self.run_view(ORDERS, "--once", "--json")
@@ -176,6 +178,14 @@ class TestCommandLine(unittest.TestCase):
         self.assertTrue(texts[-1].endswith("the run ends: failed"))
         self.assertEqual(sorted(data["steps"][0]), ["frame", "text", "tick"])
         self.assertTrue(data["log"][-1].endswith("done: failed"))
+
+    def test_json_of_a_state_start(self):
+        """--sim Owner=State --json: named and labelled; its first step says it."""
+        res = self.run_view(ORDERS, "--sim", "Order=Open", "--json")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        data = json.loads(res.stdout)
+        self.assertEqual((data["name"], data["label"]), ("Order=Open", "starts with {Order} in Open"))
+        self.assertTrue(data["steps"][0]["text"].startswith("{Order} starts in Open; episode 1"))
 
     def test_json_of_an_unknown_run_exits_2(self):
         res = self.run_view(ORDERS, "--sim", "nope", "--json")

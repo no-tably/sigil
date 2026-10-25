@@ -54,13 +54,16 @@ def load(name: str, **options):
 
 
 def names(sc) -> list:
-    return [s.name for s in sim.scenarios(sc)]
+    """The listed names but the state starts (`Owner=State`; tests/test_sim_states.py
+    covers those)."""
+    return [s.name for s in sim.scenarios(sc) if not s.machines]
 
 
 def deviated(listed) -> list:
     """The listed single-deviation scenarios: neither happy nor an overlap (`B@t`,
-    which has starts and no choices; tests/test_sim_overlap.py covers those)."""
-    return [s for s in listed[1:] if not s.starts]
+    which has starts and no choices; tests/test_sim_overlap.py covers those) nor a
+    state start (`Owner=State`; tests/test_sim_states.py)."""
+    return [s for s in listed[1:] if not s.starts and not s.machines]
 
 
 def run(sc, name: str = "happy", **kw):

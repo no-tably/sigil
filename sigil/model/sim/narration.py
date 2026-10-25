@@ -1186,7 +1186,8 @@ def _prefixed(pairs: list, overlapping: bool) -> list:
 
 def narrate(trace: Trace, hosts: Optional[dict] = None) -> tuple:
     """(Beat, …): the run in plain words, a Beat for every frame where something
-    happens — an episode beginning, a hop setting out (`[API] calls [Payments]
+    happens — a machine the scenario begins in a state of its own (first), an
+    episode beginning, a hop setting out (`[API] calls [Payments]
     with charge(total) — attempt 2 of 4`), a reply or fallback, an attempt
     failing, a call giving up, a route, a transition, a join, a bound, the end.
     Over the scene the trace names (the canonical one, or project()'s). `hosts`
@@ -1208,6 +1209,9 @@ def narrate(trace: Trace, hosts: Optional[dict] = None) -> tuple:
         while folded < len(ticks) and ticks[folded] <= f.tick:   # subjects as of f.tick
             subjects = _subject_episodes(by_tick[ticks[folded]], subjects)
             folded += 1
+        if i == 0:                      # a machine the scenario begins in a state
+            pairs += [(None, f"{wd.name(owner)} starts in {wd.state(state)}")
+                      for owner, state in dict(trace.scenario.machines).items()]
         if f.episode != episode and f.entry is not None:
             pairs += [(k, f"episode {k} begins at {wd.name(nid)}")
                       for k, nid in _begun(trace, f, episode)]

@@ -84,7 +84,8 @@ view draws (events drawn where they land, a shallower depth).
   doesn't wait), `branch` runs the chosen arm only; a block repeats or forks only
   on its outermost entry on a task; a branch on a value's field (`branch on
   {R}.kind`) decides where it is written, as one with no header glyph does. State
-  machines start in `+` (or the source of their first written transition); an
+  machines start in `+` (or the source of their first written transition, or the
+  state the scenario names: Scenario.machines); an
   event delivers its triggers (a transition written from the machine's state
   beats a `_` one), then runs its body. An expansion is a closer reading of the same node: its entries run first,
   then the node's body minus its summary wires (out-wires to a target the
@@ -112,9 +113,10 @@ outcomes, `?>`, `/`, `&?`, `parallel @any`, branch arms, `\\-_` siblings,
 ambiguous machine transitions), ordered by source line. A route makes what it
 guards a choice point: the calls on its line, and — when nothing in it fails
 on its own — the awaited calls of the block whose `}` it follows. scenario(scene,
-"a+b") combines deviations. Scenario(name, choices, label, entries, starts):
+"a+b") combines deviations. Scenario(name, choices, label, entries, starts, machines):
 choices a tuple of (choice id, option); starts the entries that begin at a tick
-of their own, ((entry node id, tick), …) (a dict reads the same).
+of their own, ((entry node id, tick), …) (a dict reads the same); machines the
+state machines that begin in a state of their own (below).
 
 After them come the overlap scenarios (overlaps(scene)): for each later entry B
 and earlier entry A of the happy run, B started so it reaches something A's
@@ -126,6 +128,15 @@ nodes, a whole tick): `Builder.claim:fallback+Author@40`. overlap_windows(scene)
 gives each pair's window (A's first to last busy tick) and overlap_runs(scene)
 one `B@t` per tick of it (at most Limits.window per pair): what a checker tries
 beyond the listed few.
+
+Last come the state starts (state_starts(scene)): one per state machine and
+state other than its initial one that a transition leaves (one written from it,
+or a `_` one to another state), named `Owner=State`, beginning that machine
+there so a way out of a later state is walked. scenario() reads any `Owner=State`
+part (the owner as scenario names write nodes, any state its block names but `+`,
+`$`, `_`; no `.` before the `=`, so `Owner.field=value` stays a field choice):
+`Owner.field=value+Owner=Built`. Scenario.machines holds them, ((owner node id,
+state node id), …).
 
 combinations(scene, k, budget=…) explores up to k deviations at once: a
 combination grows only by a deviation its own run meets after its first
@@ -293,7 +304,7 @@ from sigil.model.sim.engine import CONVENTIONS, simulate  # noqa: F401
 from sigil.model.sim.scenarios import (  # noqa: F401
     ChoicePoint, Deviation, Exploration, FailureFlow, OverlapWindow, choice_points,
     combinations, deviations, failure_analysis, failure_flow, overlap_runs, overlap_windows,
-    overlaps, reachable, scenario, scenarios)
+    overlaps, reachable, scenario, scenarios, state_starts)
 from sigil.model.sim.narration import (  # noqa: F401
     FOLD, RUN_SHOW, Beat, Hop, Iteration, Lane, Mark, Move, Span, Timeline, change_ticks,
     folded_details, folded_hosts, folded_wire, host_map, hops, ident_map, narrate, project,

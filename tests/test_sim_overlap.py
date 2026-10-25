@@ -220,9 +220,9 @@ class TestListedOverlaps(unittest.TestCase):
             prog = _program_of(sc.graph)
             with self.subTest(doc=path.name):
                 listed = sim.scenarios(sc, limits=sim.Limits(scenarios=10 ** 6))
-                plain = [s.name for s in listed if not s.starts]
+                plain = [s.name for s in listed if not s.starts and not s.machines]
                 self.assertEqual(plain, ["happy"] + [d.name for d in sim.deviations(prog)])
-                for s in listed[len(plain):]:
+                for s in [s for s in listed if s.starts]:
                     tr = sim.simulate(sc, s)
                     self.assertTrue(any(len(f.episodes) > 1 for f in tr.frames), s.name)
                     self.assertEqual(sim.scenario(sc, s.name).starts, s.starts)

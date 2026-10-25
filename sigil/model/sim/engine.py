@@ -107,6 +107,7 @@ class _Run:
         limits = scaled(limits, prog)  # the defaults grown to the document's size
         self.prog, self.limits, self.keep = prog, limits, keep
         self.choices = dict(sc.choices)
+        self.scenario_machines = sc.machines
         self.entries = _scheduled(_resolve_entries(prog, sc.entries), sc.starts)
         self.t, self.episode, self.entry = 0, 0, None
         self.episode_t = 0             # the tick the latest episode began
@@ -116,7 +117,7 @@ class _Run:
         self.alive: list = []          # the tasks not ended yet, in fork order
         self.status: dict = {}
         self.taken, self.failed_w, self.routes = set(), set(), []
-        self.machines = {o: m.initial for o, m in prog.machines.items()}
+        self.machines = _initial_states(prog, sc.machines)
         self.bound: dict = {}          # owner → [state, …]: in-flight triggers' targets, FIFO
         self.changed, self.lit_now, self.ghosts = set(), set(), []
         self.insts = list(instances(prog, limits))     # every instance, spawned ones after
@@ -369,6 +370,8 @@ class _Run:
         if inst:
             parts = ", ".join(f"{self._name(n)} ×{c}" for n, c in inst.items())
             self._log(f"setup: {parts}")
+        for owner, state in dict(self.scenario_machines).items():
+            self._log(f"starts: {self._name(owner)} in {self._state_name(state)}")
 
     def _name(self, nid: str) -> str:
         sn = self.prog.scene.nodes.get(nid)
@@ -1276,6 +1279,21 @@ def _resolve_entries(prog: Program, names) -> list:
     return out
 
 
+def _initial_states(prog: Program, given: tuple) -> dict:
+    """{owner: state} each machine begins in: its initial state, or the one the
+    scenario names (Scenario.machines; a later pair for one owner wins). Raises
+    KeyError for an owner with no machine or a state its block does not name."""
+    out = {o: m.initial for o, m in prog.machines.items()}
+    for owner, state in given:
+        m = prog.machines.get(owner)
+        if m is None:
+            raise KeyError(f"no state machine owned by {owner!r}")
+        if state not in m.states:
+            raise KeyError(f"{owner!r} has no state {state!r}")
+        out[owner] = state
+    return out
+
+
 # ---------------------------------------------------------------------------
 # simulate
 # ---------------------------------------------------------------------------
@@ -1284,7 +1302,8 @@ def simulate(sc, scenario: Scenario, *, limits: Limits = Limits(), keep: bool = 
     """Run a scenario over a Scene (any Scene of the document: the run uses the
     canonical one) and return its Trace. keep=False keeps only the final frame (its
     tick + 1 is the run's length; `end` holds the rest). Raises KeyError for an
-    unknown entry or a start (Scenario.starts) naming no entry, ValueError for a
+    unknown entry, a start (Scenario.starts) naming no entry or a machine start
+    (Scenario.machines) naming no machine or none of its states, ValueError for a
     start tick that is not a whole number ≥ 0."""
     return _simulate(_program_of(sc.graph), scenario, limits, keep)
 
