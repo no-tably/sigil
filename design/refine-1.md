@@ -335,3 +335,26 @@ Scenarios, no new module, flow, dependency or trust boundary.
 | sigil.sigil sim | 4 ok | 4 ok (no machines) |
 | construct.sigil listed runs | — | +7 (Planned, Building, Built, Stale, Rebuilding, Pruning, Removed) |
 | cure.sigil, 02-shop | — | no change (no machine with a later state) |
+
+## Round 5: a nested system rechecks along its owner's dependencies (2026-10-26, 0.6.5)
+
+Found by cure (its K1: a nested system may import what its enclosing systems depend on
+outside themselves). A nested system's members make up its owner, so the owner's
+dependencies are used through them; today the delta marks only systems whose own
+`depends_on` names the changed system, so a change to Core flags Interact but not the
+systems nested in it. The change, modelled before it is built: one reading in `[Publish]`'s
+Delta and one manifest field, no new module, flow, dependency or trust boundary.
+
+- **Recheck** also when a system an enclosing system depends on, outside that enclosing
+  system, changed its interface. `because` names the changed system; a new `via` names the
+  enclosing system it came through. `depends_on` keeps its meaning (own flows only), and no
+  hash moves.
+- **Manifest** systems gain `parent` (system.json already has it), so a delta reads nesting
+  from the manifests alone.
+
+| reading | before | after |
+|---|---|---|
+| sigil.sigil lint / check | clean / OK | the same |
+| cure export | 29 systems | 19 gain inherited rechecks (e.g. Vt ← Core via Interact) |
+| construct export | 16 systems | 5 gain inherited rechecks (e.g. Unit ← construct) |
+| hashes | — | unchanged; manifests gain `parent` |

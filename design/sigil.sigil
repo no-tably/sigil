@@ -143,6 +143,8 @@
   [Hashes] -> [Model] : systems({Doc}) => {Spine}
   [Hashes] -> [Analyse] : names({Name}) => {Catalog}           # check.CORE_NAMES, to read `# accepts:` lines
   [Exporter] -> [Delta] : compare({Manifest}) => {Changes}     # added removed rebuild recheck unchanged, renamed top
+  # recheck: a system it depends on changed its interface, or one an enclosing system depends on
+  # outside itself (a nested system's members make up its owner, so they use the owner's dependencies)
   # accepts: shared-writable-store — split by file: an export writes and deletes only the files its manifest names, a builder only its own
   [Exporter] -> |ExportDir| : read({Manifest}) => {Manifest}   # untrusted: names a slug check before any delete
   [Exporter] -> |ExportDir| : write({Files})                   # changed files only; delta.json, then manifest last
@@ -154,7 +156,7 @@
   # Hashes: no line numbers, order, spacing or top name; `#&` declarations in the
   # body hash; a dialect's attrs as written; system.json adds lines per component and flow
   # manifest: top, dialect {name, version}, systems {interface, body, components,
-  # component_hashes, depends_on}; a re-export deletes only files the old manifest lists
+  # component_hashes, depends_on, parent}; a re-export deletes only files the old manifest lists
 }
 
 [Present] := {
