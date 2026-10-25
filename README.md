@@ -232,8 +232,11 @@ random; the run is a function of the design and the chosen **scenario**.
   `Risk?>Review` (a conditional taken), `Payments:fails` (a node with a `!>` route
   fails), `Api&?PspB` (another race winner), `Api/Err` (another alternative), a
   branch arm, … Join two with `a+b`. After them come a few **overlap** scenarios,
-  `Entry@t` (see [Runs that overlap](#runs-that-overlap)). An unknown name prints
-  the known ones (exit 2).
+  `Entry@t` (see [Runs that overlap](#runs-that-overlap)), then the **state
+  starts**, `Owner=State`: a state machine begun in a later state (`Order=Shipped`,
+  any state its block names), so a way out of that state is walked; one is listed
+  per state, other than the initial one, that a transition leaves. An unknown name
+  prints the known ones (exit 2).
 - **What moves:** `->` calls wait for their return, `~>` forks without waiting,
   `*>` and `&` fork to all and wait for all, `!>` fires only on failure, retries
   count their attempts, events drive the state machines that name them (each
@@ -344,7 +347,13 @@ Payments@0               ok       21 frames
 Payments@10              ok       21 frames
     [Payments] starts at t10, reaching [Checkout] as (Shopper) changes its state
   states: [Checkout] Idle · {Order} Settled
-4 scenarios: 3 ok, 1 failed, 0 cut
+Checkout=Busy            ok       32 frames  starts with [Checkout] in Busy
+  states: [Checkout] Idle · {Order} Settled
+  ignored: <Placed> in [Checkout] Busy
+Order=Open               ok       32 frames  starts with {Order} in Open
+  states: [Checkout] Idle · {Order} Settled
+  ignored: <Placed> in {Order} Open
+6 scenarios: 5 ok, 1 failed, 0 cut
 ```
 
 ### Runs that overlap
@@ -392,7 +401,10 @@ This sweep is the exhaustive check before a spec is final. It stops at a work ca
 (400 frames a run × the budget), so a large spec still checks in seconds; when the
 cap stops it, the SGC090 hint says how many overlap runs were left. In sketch and craft it
 is off, so checks stay quick while you draft; `--overlaps listed` tries just the
-listed runs, and `--overlaps N` caps the sweep at N runs.
+listed runs, and `--overlaps N` caps the sweep at N runs. A spec check also walks
+the state starts (before the overlap runs, within `--budget`), so an event that
+finds no transition out of a later state is found and named by its run
+(`dropped in the Ticket=Done run`).
 
 A `#%` line under the mode line says what kind of system the design is
 (`#% library`, `#% daemon`, `#% job in-process deterministic`), and the checks
@@ -420,7 +432,7 @@ sigil export shop.sigil --out build
 
 ```
 build/
-  manifest.json      per system: interface hash, body hash, components (each with its two hashes), depends_on
+  manifest.json      per system: interface hash, body hash, components (each with its two hashes), depends_on, parent
   delta.json         what changed since the last export (the first: every system added)
   README.md          the index: systems and what each depends on
   shop/              the top level: (Shopper), [Storefront], [Checkout], …
@@ -449,7 +461,10 @@ since spec 42c36c489b8429a2: 2 rebuild, 1 recheck, 2 unchanged
 ```
 
 `rebuild` systems changed inside; a `recheck` system is unchanged but depends on one
-whose boundary moved. `--dry-run` prints the delta and writes nothing; `--json`
+whose boundary moved, or sits inside a system that does (outside itself): its
+members make that system up, so the delta names the changed system and the
+enclosing one it came through (`Store (via Outer)`). `depends_on` stays the
+system's own flows. `--dry-run` prints the delta and writes nothing; `--json`
 prints it as JSON. Building against the export happens outside sigil. Every flag and
 field is in [`docs/tools.md`](./docs/tools.md#sigil-export-spec---out-dir).
 

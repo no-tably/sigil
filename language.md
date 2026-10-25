@@ -538,6 +538,17 @@ an event drawn as a node of its own) — and Mermaid gets a dotted `triggers` ed
 `sigil view --sim` runs the machines: each event moves its owners' current state (`◉`). A trigger with no matching event is still valid — it
 names a cause outside the document.
 
+Every run begins each machine in its initial state, so a way out of a later state
+(`Done -<Reopen>-> Open`) is walked only when some run gets there first. A scenario
+part `Owner=State` begins that machine in State instead (`--sim Ticket=Done`; any
+state its block names, never `+` or `$`), and plays the episode from its entry as
+usual; it combines through `+` with listed names, `Entry@t` starts and field choices
+(`Ticket.kind=urgent+Ticket=Done`). An unknown state is refused with the owner's
+states listed.
+The scenario list ends with one such run per state, other than the initial one, that
+a transition leaves (`starts with {Ticket} in Done`), and the run's narration opens
+with `{Ticket} starts in Done`.
+
 **Narrowing: aim an event at one owner.** By default an event drives every machine
 that names it as a trigger. When an event has explicit flows to state-machine
 owners, only those owners' machines react to it:
@@ -1077,7 +1088,16 @@ named `Entry@t`): races on a store, joins that stall, events a machine drops, or
 a machine cannot absorb. Those overlap runs are the exhaustive pass before a spec is final, so they
 run by default only in `#!spec`; `--overlaps off|listed|all|N` chooses them in any
 mode (none, the listed `Entry@t` runs, every start tick, or every tick but at most N
-runs). *Invariant* rules check the document's own `@inv` lines where
+runs). In `#!spec` the behavioural rules also walk the **state starts**, one run per
+machine state with a way out, begun in that state (`Owner=State`, see "State
+machines"), after the failure runs and before the overlap runs: they share
+`--budget` (the overlap sweep's work cap is the overlap runs' own), and `--overlaps`
+and a `deterministic` kind leave them on. A finding only such a run shows names it
+as its witness (`dropped in the Ticket=Done run`). A state start replays the episode
+that brought the machine there, so an event on a way from the machine's initial
+state to the start state that arrives again (`<Opened>` meeting a `{Ticket}` begun in
+`Done`) is that replay, not an event dropped (`event-ignored`, SGC203, skips it).
+*Invariant* rules check the document's own `@inv` lines where
 the head is a recognised one (see "Recognised invariants" under "Invariants,
 capabilities, resource ownership"); any other `@inv` is listed as unchecked, never
 failed. A dialect can add rules and `@inv` heads of its own (see "Dialects").
@@ -1098,7 +1118,7 @@ and the run. It is a hint, but a **warning in `#!spec`**: a spec whose runs were
 cut does not pass the spec check or the export gate until the limit is raised or
 the cut is acknowledged on the line of the entry whose episode was cut. SGC090 also
 says, as a hint, when the budget (`--budget`) or the overlap sweep's work cap left
-runs unrun.
+runs unrun (failure combinations, state starts or overlap runs).
 
 **A finding is resolved in one of two ways only:**
 
@@ -1199,6 +1219,15 @@ a component with a home, makes both ends' systems depend on `{D}`'s system (not 
 their own, nor on one enclosing them). Data named only in payloads has no home and
 makes no dependency. Dependencies enter no hash.
 
+A system's dependencies are its own flows' only; a nested system also uses what the
+systems enclosing it depend on outside themselves, since its members make them up.
+A re-export therefore marks a system whose body is unchanged for a second look
+(`recheck`) when a system it depends on changed its interface, and also when a
+system an enclosing system depends on, outside that enclosing system, did: the
+delta names the changed system and the enclosing system it came through. The
+manifest records each system's enclosing system (`parent`) so the delta can read
+that from the manifests alone.
+
 **Descriptions** are the document's `#` comments, read as the drawing reads its
 notes:
 
@@ -1211,6 +1240,16 @@ notes:
   line right below it whose `#` sits in the same column continues it (as do more
   such lines); without that alignment it is a comment above the next statement. A
   `# accepts:` line never continues one;
+- a comment-only line right below a statement line that holds no comment and opens
+  no block (no `{` last), indented deeper than that line's first column, is that
+  line's trailing comment, and the lines below it with their `#` in the same column
+  continue it. `[Web] -> [Api] : get({Id}) => {Page}`, then `  # read-only,` and
+  `  # cached for a minute` under it, describes `[Web]` as "read-only, cached for a
+  minute", exactly as a trailing comment would; it says nothing about the statement
+  after. Under a continuation line (one starting with an arrow) it goes where a
+  trailing comment on that line would. A comment at the statement's own column, one
+  under a block opener, or one between a line and the continuation line below it,
+  stays a comment above what follows. A `# accepts:` line never starts one;
 - a comment above an expansion `X := {` describes both the node `X` and the
   system `X`; a comment set apart by blank lines elsewhere describes nothing.
 
@@ -1626,7 +1665,8 @@ GLYPH ∈ `{ [ ( { < | }`, matched by its closing counterpart.
   walks a design's pathways for a reader — tokens along the flows, one scenario at a
   time (happy path, each failure route, branch arm, race, two entries overlapping) —
   but its choices (written order, entries one after another unless a scenario starts
-  one at a tick, bounded loops and recursion, the first member wins by default) are
+  one at a tick, machines in their initial state unless a scenario begins one in
+  another, bounded loops and recursion, the first member wins by default) are
   the viewer's reading, not part of the language.
 - **No schema syntax for data *entities*** — a `{X}` entity payload is named, not schema'd; expand it elsewhere if you need a full record shape. (A payload *may* carry a concrete **value** — a literal/ref from the closed value vocabulary; see "Payloads & values". That is a value, not an entity schema.)
 - **No absolute layout / visual coordinates** — Sigil is textual; placement is the renderer's concern. (A dialect may describe **relational** layout intent; none names coordinates or pixel sizes.)

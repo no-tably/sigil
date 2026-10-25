@@ -341,6 +341,9 @@ are errors); in sketch they are hidden (`--all` shows them).
    A behavioural finding names its witness run; one named `Entry@t` (`race: … in
    the Bob@0 run`) is two entries running at once — replay it with
    `sigil view FILE --once --run --sim Bob@0` and show the user where they meet.
+   One named `Owner=State` (spec mode walks these too) began that machine in a
+   later state: `--sim Ticket=Done` replays it. Ask what the state should do with
+   the event, as for any dropped event.
 3. Resolve it in one of two ways only:
    - **declare** the handling in the notation the spec already has — `@timeout(t)`,
      `@deadline(t)`, `×N` with `@after(…)`, `@fallback(x)`, a `!>` route, a
@@ -382,6 +385,11 @@ run it to find out what the design does, not only to show the user.
    a later entry started at tick t while an earlier entry's episode still runs, at
    the moments it reaches something that episode is busy with. `--sim list` lists
    them all; `a+b` combines two for a single run (`Builder.claim:fallback+Author@25`).
+   After them come the state starts, `Owner=State` (`starts with {Ticket} in Done`):
+   that machine begun in a later state, so a way out of it is walked, which a run
+   from the initial state may never reach. Any state the owner's block names runs
+   by name (not `+` or `$`; an unknown one lists the owner's states) and combines
+   with `+` (`Ticket.kind=urgent+Ticket=Done`).
 2. Judge each row against the intent: every failure ends somewhere intended (a
    `routes:` entry, a fallback, or a `failed` the user accepts — `failed` with no
    route is a failure nobody handles); machines end in the expected `states:`; a
@@ -440,7 +448,10 @@ unacknowledged. The tool enforces that gate itself.
    depend on `{D}`'s system. Descriptions come from the `#` comments:
    a header comment needs a blank line after it to describe the top system, or it
    describes the first statement's node. A trailing comment describes its line's
-   first node, and a comment-only line aligned under it continues it. `# accepts:`
+   first node, and a comment-only line aligned under it continues it. A
+   comment-only line indented under a statement line with no comment (and no `{`
+   opening a block) is that line's trailing comment, not the next statement's
+   header; at the statement's own column it is the next one's. `# accepts:`
    lines show under the component's Requirements.
 2. `python3 scripts/bin/sigil export FILE --out DIR`. If it exits 2 it prints what blocks
    it (lint errors, findings, a non-spec mode line) and writes nothing; take those
@@ -450,7 +461,8 @@ unacknowledged. The tool enforces that gate itself.
    no target-language types), `system.json` the same as data, `README.md` the
    index. **`manifest.json` is the contract**: per system its interface hash (the
    flows across its boundary), body hash (everything in it), components, each
-   component's interface and body hash, and depends_on; with a dialect loaded, the
+   component's interface and body hash, depends_on (its own flows) and parent (the
+   enclosing system); with a dialect loaded, the
    dialect's name and version. `system.json` adds each component's and flow's spec
    `lines` and the system's `#&` declarations. No hash reads line numbers or the
    top system's name. The manifest is written last, so a folder without it is no
@@ -459,7 +471,8 @@ unacknowledged. The tool enforces that gate itself.
    preview). The delta (printed, and in `delta.json`, which every export writes; a
    first export lists every system as `added`; `--json` for data) is the work
    to redo: `rebuild` systems changed inside; `recheck` systems are unchanged but
-   depend on one whose interface moved, so their calls into it need a second look;
+   depend on one whose interface moved, so their calls into it need a second look
+   (or sit inside a system that depends on it from outside itself: `X (via Outer)`);
    `added` / `removed` are new or gone; `unchanged` need nothing. Reformatting or
    reordering the spec changes no hash. Tell the user these lists.
 5. Building against the export happens outside sigil: `sigil export` writes the folder

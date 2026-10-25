@@ -2,6 +2,60 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
+## 0.6.5 — unreleased
+
+A run can begin a state machine in a later state, so the ways out of that state get
+walked and checked; a comment written under a line belongs to that line; and a
+re-export asks for a second look at the systems nested inside one whose outside
+dependency changed.
+
+### New
+
+- **Begin a state machine in any state.** A scenario part `Owner=State` starts that
+  machine in State and plays the episode from its entry as usual: `--sim
+  Ticket=Done` walks what `Done` does with each event, which a run from the initial
+  state might never reach. It combines with the other parts through `+` (listed
+  names, `Entry@t`, field choices: `Ticket.kind=urgent+Ticket=Done`), and the run's
+  narration opens with `{Ticket} starts in Done`. An unknown state is refused with
+  the owner's states listed; `+` and `$` are no states to begin in.
+
+- **The state starts are listed.** After the overlap runs, the scenario list
+  (`--sim list`, `--sim all`, the plugin panes, the playground) holds one run per
+  machine state, other than the initial one, that a transition leaves, labelled
+  `starts with {Ticket} in Done`.
+
+- **A spec check walks the state starts.** In `#!spec` the behavioural rules run
+  them after the failure runs and before the overlap runs, within `--budget` (the
+  overlap work cap stays the overlap runs' own), whatever `--overlaps` or the `#%`
+  kind says. A finding only such a run shows names it as its witness (`<Nudge>`
+  reaches `{Ticket}` while it is `Done` and is dropped in the `Ticket=Done` run),
+  and the SGC090 hint counts any it left unrun. An event on the machine's way to
+  its start state, arriving again, is the replay of how it got there, not an
+  `event-ignored` drop. Sketch and craft checks are unchanged.
+
+### Fixes
+
+- **A comment indented under a line describes that line.** A comment-only line right
+  below a statement line that holds no comment and opens no block, indented deeper
+  than the statement, is that line's trailing comment (lines below it in the same
+  column continue it), as if written at the end of the line. Before, it described
+  the next statement instead, and the last statement of a block or file lost it.
+  Under a continuation line it goes where that line's trailing comment would. A
+  comment at the statement's own column, under a block opener, or between a line and
+  its continuation is a comment above what follows, as before. Every view's notes
+  and the export's descriptions read it the same way. *Moves:* the body hash of the
+  components (and their systems) whose description changes.
+
+- **A re-export rechecks the systems inside one whose outside dependency changed.**
+  A nested system's members make up the systems enclosing it, so they use what
+  those depend on. When a system an enclosing system depends on, outside that
+  enclosing system, changes its interface, the nested system is now `recheck`
+  (before: `unchanged`); `because` names the changed system and the new `via` the
+  enclosing system it came through (`Store (via Outer)` in the summary). The
+  manifest's systems gain `parent` so the delta reads the nesting from the
+  manifests; an older manifest without it still compares. `depends_on` stays the
+  system's own flows, and no hash moves.
+
 ## 0.6.4 — 2026-10-25
 
 Fixes for what large real specs ran into: the export reads homes, the top and

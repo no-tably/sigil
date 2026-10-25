@@ -220,7 +220,8 @@ def _check_parser(dialect, check) -> argparse.ArgumentParser:
     ap.add_argument("--mode", choices=check.MODES, help="check as this mode")
     ap.add_argument("--k", type=int, help="failure combinations per scenario")
     ap.add_argument("--budget", type=int,
-                    help="runs one exploration may make (deviations, then overlap runs)")
+                    help="runs one exploration may make (deviations, then in spec the "
+                         "state starts, then overlap runs)")
     ap.add_argument("--overlaps", type=overlaps_arg, metavar="off|listed|all|N",
                     help="overlap runs to make: none, the listed starts, every start "
                          "tick, or every tick but at most N runs (default: all in spec, "

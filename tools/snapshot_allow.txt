@@ -241,3 +241,16 @@ lint-deep/tests/fixtures/coverage.sigil
 mermaid-d1/language.md/block-37.sigil
 mermaid-d2/language.md/block-37.sigil
 mermaid-subgraphs/language.md/block-37.sigil
+
+# patch-0.6.5 (vs main after the 0.6.5 design commits; .claude/campaigns/patch-0.6.5/baseline):
+# F1: the scenario list ends with the state starts `Owner=State` (one per machine state, other than the
+# initial one, that a transition leaves): 04-orders gains Checkout=Busy and Order=Open (4 -> 6 scenarios),
+# 07-export gains Packer=Packing and Packer=Idle (4 -> 6 scenarios)
+sim-json/site/examples/04-orders.sigil
+sim-json/site/examples/07-export.sigil
+# K1: spec check walks the state starts — language.md Example 5 (block-37): in the Job=Pending run (and
+# others) <ok> lands in a state with no transition for it, so event-ignored joins SGC146's "also:" list
+check-spec/language.md/block-37.sigil
+# K1: coverage.sigil's state starts take 3 runs of the --budget 256 before the overlap runs, so SGC090's
+# unrun overlap count goes 5706 -> 5709
+check-spec/tests/fixtures/coverage.sigil

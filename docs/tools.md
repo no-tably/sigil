@@ -95,10 +95,17 @@ binding rules errors. The line format and [exit codes](#exit-codes) match lint.
 - `--mode sketch|craft|spec` checks as another mode.
 - `--k N` explores up to N failures per run.
 - `--budget N` caps the runs one exploration may make: the failure combinations
-  first, then the overlap runs (each later entry started at every tick of an earlier
-  entry's episode; see [Runs that overlap](../README.md#runs-that-overlap)), so a
-  race between two entries is found and its witness names the `Entry@t` run. A
-  check that ran out of budget says so (SGC090, a hint) and names `--budget N`.
+  first, then (in `#!spec`) the state starts, then the overlap runs (each later
+  entry started at every tick of an earlier entry's episode; see [Runs that
+  overlap](../README.md#runs-that-overlap)), so a race between two entries is found
+  and its witness names the `Entry@t` run. A state start begins one state machine in
+  a later state (`Owner=State`, one run per state a transition leaves; see `--sim`
+  under [`sigil view`](#sigil-view-file)), so a way out of that state is walked; a
+  finding only it shows names it as the witness. They run whatever `--overlaps` or
+  the `#%` kind says, and an event on the machine's way to that state arriving
+  again is the replay, not an `event-ignored` (SGC203) drop. A check that ran out
+  of budget says so (SGC090, a hint, counting the unrun combinations, state starts
+  and overlap runs) and names `--budget N`.
   The overlap runs also stop at a **work cap**: 400 frames a run × the budget (a
   budget below the default 256 counts as 256), so a large spec's sweep takes
   seconds, not minutes. When the cap stops the sweep, SGC090 says how many overlap
@@ -225,6 +232,7 @@ state machine, when it has one). No target-language types.
 {"sigil_export": 1, "spec": <file name>, "spec_hash": …, "top": <key>,
  "dialect": {"name": …, "version": …},
  "systems": {name: {"path", "interface", "body", "components", "depends_on",
+                    "parent",
                     "component_hashes": {glyph: {"interface", "body"}}}}}
 ```
 
@@ -234,8 +242,11 @@ state machine, when it has one). No target-language types.
 (as text) when the dialect module defines one; with no dialect the key is absent.
 `path` is the system's folder, `components` its glyphs, `depends_on` the systems
 its flows reach, the ones nested in it, and the systems that hold the data its flows
-carry (a homed `{D}` named in a payload, op arguments or return; not hashed), `component_hashes` each component's
-two hashes, in the order of `components`.
+carry (a homed `{D}` named in a payload, op arguments or return; not hashed);
+only the system's own flows, never what it inherits from the systems enclosing it.
+`parent` is the enclosing system's key (null for the top), as `system.json` has it,
+so a delta reads the nesting from the manifests alone; no hash reads it.
+`component_hashes` each component's two hashes, in the order of `components`.
 
 **The hashes.** A system's `interface` is the hash of the flows that cross its
 boundary, with their payloads and returns; its `body` the hash of everything in it:
@@ -303,14 +314,21 @@ in DIR and sorts every system into one list:
 | `added` | in the new export only |
 | `removed` | in the old one only; its folder is deleted |
 | `rebuild` | its body hash changed |
-| `recheck` | its body is unchanged, but a system it depends on changed its interface |
+| `recheck` | its body is unchanged, but a system it depends on changed its interface, or a system an enclosing system depends on (outside that enclosing system) did |
 | `unchanged` | neither |
 
 `delta.json`: `{"sigil_delta": 1, "spec", "from": <old spec_hash>, "to": <new
 spec_hash>, "renamed", "added", "removed", "rebuild", "recheck", "unchanged",
-"systems": {name: {"status", "old", "new", "because"?}}}`, where `old` / `new` are
-`{"interface", "body"}` (or null) and `because` lists, for a recheck, the systems
-whose interface changed. `renamed` is `{"from", "to"}` when the top system's key
+"systems": {name: {"status", "old", "new", "because"?, "via"?}}}`, where `old` /
+`new` are `{"interface", "body"}` (or null) and `because` lists, for a recheck, the
+systems whose interface changed: its own dependencies first, then those it inherits
+from the systems enclosing it. `via` (only when it inherits one) maps each inherited
+one to the nearest enclosing system it came through, and the summary in words says
+it the same way (`recheck    Leaf (interface changed: Store (via Outer))`). A nested
+system's members make up the systems enclosing it, so they use what those depend on;
+`depends_on` still lists only its own flows, and no hash moves. An old manifest
+without `parent` fields (before 0.6.5) still compares: the nesting is read from the
+new one. `renamed` is `{"from", "to"}` when the top system's key
 moved (another `--name`, or the spec renamed), else null: the top is then compared
 with its old entry, so the rename alone adds, removes or rechecks nothing. Each file is written only when its content changed, so an unchanged
 system's files are left alone, and in a changed system only the files that differ
@@ -377,7 +395,10 @@ Options:
   but isn't directly above it is the document's own note. It is listed first as `¶`
   and tagged on nothing. A comment-only line right below a trailing comment, its `#` in
   the same column, continues that comment (one note on the line above, not a note
-  on the next statement); a `# accepts:` line never does.
+  on the next statement); a `# accepts:` line never does. So does a comment-only
+  line right below a statement line with no comment of its own that opens no block,
+  its `#` deeper than that line's first column: it is that line's note (lines below
+  in its column go on with it), not the next statement's.
 - `--sim SCENARIO` runs one pathway of the design and draws its last frame, then the
   outcome and the run in plain words, one `tNNN …` line per step (`[API] calls
   [Payments] with charge(total) — attempt 2 of 4`; see
@@ -388,8 +409,14 @@ Options:
   prints the scenarios, one per line with its label: `happy`, the deviations, then
   the overlap scenarios `Entry@t` (a later entry started at tick t, while an earlier
   one's episode is touching something it touches; at most 3 per pair of entries, 12
-  in all). Any `Entry@t` runs by name and combines with `+`
-  (`Builder.claim:fallback+Author@25`). `--sim all` runs every scenario
+  in all), then the state starts `Owner=State` (a state machine begun in State, so a
+  way out of a later state is walked: one per state, other than the initial one,
+  that a transition leaves; label `starts with {Ticket} in Done`; the narration's
+  first line says `{Ticket} starts in Done`). Any `Entry@t` runs by name, as does
+  any `Owner=State` whose state the owner's block names (`+` and `$` are not
+  states to begin in; an unknown state is refused with the owner's states listed),
+  and each combines with `+` (`Builder.claim:fallback+Author@25`,
+  `Ticket.kind=urgent+Ticket=Done`). `--sim all` runs every scenario
   and prints no drawing: a line per run (name, outcome, frames, label), indented
   facts (`states:` each machine's end state, `failed:`, `routes:` the failure routes
   taken, `ignored:` events a state had no transition for, `waiting:`, `open:` joins
@@ -675,8 +702,9 @@ The tool's input:
   timeline: the scenario's, else the happy one).
 - `depth` — a number, or `"all"`.
 - `scenario` — a scenario to simulate, as `--sim` names it: a listed name, or
-  `Entry@t` to start that entry at tick t while earlier episodes still run,
-  combined with `+` (`Api.charge:fails+Author@40`). `""` ends the run.
+  `Entry@t` to start that entry at tick t while earlier episodes still run, or
+  `Owner=State` to begin a state machine in State, combined with `+`
+  (`Api.charge:fails+Author@40`). `""` ends the run.
 - `frame` — the frame of the run to show: a 0-based number, as the viewer's
   `--frame` counts them, or `"last"`. A new run starts on its last frame. The
   pane and widget play every frame of a run, however long, drawing it a window
