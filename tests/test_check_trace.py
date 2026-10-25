@@ -141,8 +141,9 @@ def probe_b13(case):
 
 
 def probe_ng6(case):
-    (run,) = runs_of(fixture("trace-fix-ng6.sigil"))
-    case.assertEqual(run.end["machines"], {"X_data": "X_state_Done"})
+    runs = runs_of(fixture("trace-fix-ng6.sigil"))
+    case.assertEqual([r.scenario.name for r in runs if not r.scenario.machines], ["happy"])
+    case.assertEqual(runs[0].end["machines"], {"X_data": "X_state_Done"})   # the rest: state starts
 
 
 def probe_q3(case):

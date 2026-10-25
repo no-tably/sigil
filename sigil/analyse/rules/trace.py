@@ -5,14 +5,17 @@ Not a command: sigil.analyse.check loads it (RULE_MODULES) and calls `rules(ck)`
 `exploration_causes(ck)` and `extend_rules(ck, rules)` with itself as `ck`, so
 this module never imports it. Every rule here reads the runs of the
 document's bounded exploration (sim.combinations over the canonical scene, up
-to `doc.k` deviations at once, then the overlap runs — the listed overlap
+to `doc.k` deviations at once, then — in spec (`doc.state_starts`) — the state
+starts (sim.state_starts: a machine begun in a later state, `Owner=State`, on
+the default choices), then the overlap runs — the listed overlap
 starts (sim.overlaps), then those with each deviated run's choices, then each
 later entry started at every tick of each earlier entry's busy window
 (sim.overlap_runs), round-robin over the windows — at most
-`doc.budget` runs in all (default BUDGET), the overlap runs also stopping once
-their frames reach the work cap (work_cap), each under `doc.limits`) and reports a
-candidate as a trace Hit: its witness is the scenario that shows it (`B@t`, or
-`dev+B@t`, for an overlap run), `k` the deviations that scenario takes
+`doc.budget` runs in all (default BUDGET), the overlap runs also stopping
+once their frames reach the work cap (work_cap), each under
+`doc.limits`) and reports a candidate as a trace Hit: its witness is the
+scenario that shows it (`B@t`, or `dev+B@t`, for an overlap run; `Owner=State`
+for a state start), `k` the deviations that scenario takes
 (rfcs/0003-composition-checks.catalog.md §3).
 
 Rules this module registers:
@@ -128,11 +131,12 @@ class Run(NamedTuple):
 
 class Explored(NamedTuple):
     """One bounded exploration: the runs kept (happy first, fewest deviations
-    first, then the overlap runs), what the budget left unrun (deviation
-    combinations, overlap runs), and the bounds it ran under: `limits` as the
-    runs had them (sim.sized: the defaults grown to the document), `work` the
-    frames the overlap runs made and `work_cut` whether the work cap stopped
-    them (what is left unrun then counts in overlaps_left_out)."""
+    first, then the state starts, then the overlap runs), what the budget left
+    unrun (deviation combinations, state starts, overlap runs), and the bounds it
+    ran under: `limits` as the runs had them (sim.sized: the defaults grown to the
+    document), `work` the frames the overlap runs made and `work_cut` whether
+    the work cap stopped them (what is left unrun then counts in
+    overlaps_left_out)."""
     runs: tuple
     left_out: int
     k: int
@@ -141,26 +145,36 @@ class Explored(NamedTuple):
     overlaps_left_out: int = 0
     work: int = 0
     work_cut: bool = False
+    states_left_out: int = 0
 
 
-def explore(sim, sc, k: int, budget: int, limits, overlaps="all") -> Explored:
-    """The runs of up to k deviations at once (sim.combinations), then the
-    overlap runs (overlap_scenarios) `overlaps` asks for — "off" none, "listed"
-    the listed starts alone and with each deviation, "all" those then the sweep,
-    a number N "all" but at most N runs — at most `budget` runs in all (the
-    happy run aside), the overlap runs stopping too once their frames reach
-    work_cap(budget), each under `limits` (a sim.Limits). A run that repeats an
-    earlier one's log and outcome is dropped."""
+def explore(sim, sc, k: int, budget: int, limits, overlaps="all",
+            states: bool = False) -> Explored:
+    """The runs of up to k deviations at once (sim.combinations), then — with
+    `states` — the state starts (sim.state_starts: a machine begun in a later
+    state, `Owner=State`, on the default choices), then the overlap runs
+    (overlap_scenarios) `overlaps` asks for — "off" none, "listed" the listed
+    starts alone and with each deviation, "all" those then the sweep, a number N
+    "all" but at most N runs — at most `budget` runs in all (the happy run
+    aside), the overlap runs stopping too once their frames reach
+    work_cap(budget), each under `limits` (a sim.Limits). The state starts are
+    listed runs, one per machine state with a way out, so like the deviations
+    only the budget bounds them. A run that repeats an earlier one's log and
+    outcome is dropped."""
     ex = sim.combinations(sc, k, limits=limits, budget=budget)
     runs = tuple(Run(t.scenario, t.end, t.outcome) for t in ex.traces)
-    made = len(ex.traces) - 1 + ex.duplicates
+    room = budget - (len(ex.traces) - 1 + ex.duplicates)
+    simulate = lambda s: sim.simulate(sc, s, limits=limits, keep=False)
+    seen = {signature(r) for r in runs}
+    machines = sim.state_starts(sc) if states else []
+    st = run_new(simulate, machines, room, seen)
+    room -= len(machines) - st.left
     starts = ([] if overlaps == "off" else
               overlap_scenarios(sim, sc, runs[1:], limits, sweep=overlaps != "listed"))
-    room = budget - made if isinstance(overlaps, str) else min(budget - made, overlaps)
-    simulate = lambda s: sim.simulate(sc, s, limits=limits, keep=False)
-    ran = run_new(simulate, starts, room, {signature(r) for r in runs}, work_cap(budget))
-    return Explored(runs + ran.runs, ex.left_out, k, budget, sim.sized(limits, sc),
-                    ran.left, ran.work, ran.work_cut)
+    ran = run_new(simulate, starts, room if isinstance(overlaps, str) else min(room, overlaps),
+                  seen, work_cap(budget))
+    return Explored(runs + st.runs + ran.runs, ex.left_out, k, budget, sim.sized(limits, sc),
+                    ran.left, ran.work, ran.work_cut, st.left)
 
 
 # ---------------------------------------------------------------------------
@@ -560,7 +574,8 @@ class TraceFacts:
     @cached_property
     def explored(self) -> Explored:
         return explore(self.doc.sim, self.doc.sc, self.doc.k, self.budget, self.limits,
-                       getattr(self.doc, "overlaps", "all"))
+                       getattr(self.doc, "overlaps", "all"),
+                       getattr(self.doc, "state_starts", False))
 
     @property
     def runs(self) -> tuple:
@@ -671,13 +686,34 @@ def ignored_hit(ck, st, m, run: Run, d: Delivery):
              f"self-loop `{s} -{d.label}-> {s}` to ignore it on purpose"))
 
 
+def replayed(m, run: Run) -> frozenset:
+    """The events a state start (`Owner=State`: run.scenario.machines) replays
+    for machine m: the triggers of the transitions on a way from where m begins
+    (`+`, or its first states) to the state the run begins it in. The run plays
+    the episode that brought the machine there again, so such an event meeting
+    it in that state or later is that replay, not a new arrival; none for a run
+    that begins m where it begins anyway."""
+    begun = dict(run.scenario.machines).get(m.owner)
+    if begun is None:
+        return frozenset()
+    into = state_rules.bfs([begun], lambda s: [t.src for t in m.transitions if t.dst == s])
+    seeds = list(m.start) + (m.seeds() or list(m.states))
+    out_of = state_rules.bfs(seeds, lambda s: [t.dst for t in m.outgoing(s)])
+    return frozenset(t.label for t in m.transitions if t.dst in into and t.dst != t.src
+                     and (t.src in out_of or t.src in m.any))
+
+
 def events_ignored(ck, doc):
     """SGC203: a drop no reordering explains, outside `+`; one per (machine,
-    event, state), with its first witness."""
+    event, state), with its first witness. In a state start, a drop of an event
+    on the machine's way to its start state is the replay (replayed), not one."""
     tf = trace_facts(ck, doc)
     st, seen = state_rules, set()
     for m, run, ds, pairs in per_machine(tf):
+        again = replayed(m, run)
         for d in drops(m, ds, pairs).always:
+            if d.label in again:
+                continue
             key = (m.owner, d.label, d.state)
             if key not in seen:
                 seen.add(key)
@@ -1065,6 +1101,9 @@ def unrun_parts(ex: Explored) -> list:
     parts = []
     if ex.left_out:
         parts.append(f"{plural(ex.left_out, 'combination')} of up to {ex.k} deviations")
+    if ex.states_left_out:
+        parts.append(f"{plural(ex.states_left_out, 'state start')} (a machine begun in a "
+                     "later state)")
     if ex.overlaps_left_out:
         why = (f"; their frames reached the work cap: {ex.work} of {work_cap(ex.budget)}"
                if ex.work_cut else "")
@@ -1076,6 +1115,7 @@ def unrun_parts(ex: Explored) -> list:
 def short_unrun(ex: Explored) -> str:
     """unrun_parts in a few words, for the question."""
     return " and ".join(f"{n} {what}" for n, what in ((ex.left_out, "combinations"),
+                                                     (ex.states_left_out, "state starts"),
                                                      (ex.overlaps_left_out, "overlap runs"))
                         if n)
 

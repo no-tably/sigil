@@ -21,9 +21,10 @@ Options:
     --mode M     check as mode M (default: the document's mode line; none = sketch)
     --k N        failure combinations explored per scenario (default: 1, spec 2)
     --budget N   runs one exploration may make: deviation combinations, then
-                 overlap runs (default: rules.trace.BUDGET); the overlap runs also
-                 stop once their frames reach rules.trace.work_cap (WORK_PER_RUN
-                 frames per run of the budget, at least BUDGET's)
+                 (in spec) the state starts `Owner=State`, then overlap runs
+                 (default: rules.trace.BUDGET); the overlap runs also stop
+                 once their frames reach rules.trace.work_cap
+                 (WORK_PER_RUN frames per run of the budget, at least BUDGET's)
     --overlaps off|listed|all|N  overlap runs (a later entry started while an
                  earlier one's episode runs) to make: none; the listed starts
                  (sim.overlaps), alone and with each deviation; those, then every
@@ -202,6 +203,10 @@ def group_of(rule_id: str) -> str:
 
 OVERLAPS = ("off", "listed", "all")
 DEFAULT_OVERLAPS = {"sketch": "off", "craft": "off", "spec": "all"}
+# State starts (sim.state_starts: a machine begun in a later state, `Owner=State`)
+# are listed runs on the default choices, one per state with a way out: walked in
+# spec, whatever --overlaps or the system kind says (they race nothing).
+STATE_START_MODES = frozenset({"spec"})
 
 
 # tier → mode → (severity, hidden); None: not emitted (catalog §1.2).
@@ -434,6 +439,11 @@ class Doc:
         start tick of each window) or N ("all", at most N runs); default: the
         mode's (DEFAULT_OVERLAPS)."""
         return DEFAULT_OVERLAPS.get(self.mode, "off") if self._overlaps is None else self._overlaps
+
+    @property
+    def state_starts(self) -> bool:
+        """Whether the exploration walks the state starts (STATE_START_MODES)."""
+        return self.mode in STATE_START_MODES
 
     @cached_property
     def limits(self):
