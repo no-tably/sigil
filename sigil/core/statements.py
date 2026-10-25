@@ -348,20 +348,69 @@ def collect_comments(lines: list, marker) -> dict:
     comment: a comment-only line right below a trailing comment (or below a line
     that continues one) whose marker sits at the same column continues it — its
     text joins that trailing comment's, on the trailing comment's line, and the
-    line holds no comment of its own. A `# accepts:` line never continues one."""
+    line holds no comment of its own. A comment-only line right below a statement
+    line that holds no comment and opens no block (_bare_statement_col), its
+    marker deeper than that line's first column, starts that line's trailing
+    comment the same way (lines below it at its column continue it); at the
+    line's own column, under a block opener, or above a continuation line (an
+    arrow first: the statement goes on below it), it stays a header for what
+    follows, as before. A `# accepts:` line never continues one nor starts one."""
     out, root, col = {}, None, None     # the trailing comment being continued
+    bare = None                         # (index, first column) of a bare statement line
+    inside = _above_a_continuation(lines, marker)
     for k, line in enumerate(lines):
         c = _comment_at(line, marker)
         if c is None:
             root = None
+            bare = _bare_statement_col(line)
+            bare = (k, bare) if bare is not None else None
             continue
         at, text, own = c
-        if own and root is not None and at == col and not _ACK_LEAD_RE.match(text):
-            out[root] = (f"{out[root][0]} {text}", False)
-            continue
+        below, bare = bare, None
+        if own and not _ACK_LEAD_RE.match(text):
+            if root is not None and at == col:
+                out[root] = (f"{out[root][0]} {text}", False)
+                continue
+            if below is not None and at > below[1] and k not in inside:
+                out[below[0]] = (text, False)
+                root, col = below[0], at
+                continue
         out[k] = (text, own)
         root, col = (None, None) if own else (k, at)
     return out
+
+
+def _above_a_continuation(lines: list, marker) -> set:
+    """The indices of the comment-only lines whose run (of comment-only lines)
+    the next line ends is a continuation line: one whose code starts with an
+    arrow."""
+    out, run = set(), []
+    for k, line in enumerate(lines):
+        c = _comment_at(line, marker)
+        if c is not None and c[2]:
+            run.append(k)
+            continue
+        code = line if c is None else line[:c[0]]
+        if run and ARROW_RE.match(mask_strings(code).strip()):
+            out.update(run)
+        run = []
+    return out
+
+
+def _bare_statement_col(line: str) -> Optional[int]:
+    """The first column of a line `collect_comments` may give a trailing comment
+    written below it (the line holds no comment): one holding a statement or a
+    statement's continuation — not blank, not the mode, kind or a declaration
+    line, not a section header, not a line that closes a block (`}` first) nor
+    one that opens one (`{` last). None for any other line."""
+    lead = line.strip()
+    if (not lead or is_mode_line(line) or is_kind_line(line)
+            or declaration_name(line) is not None or SECTION_RE.match(lead)):
+        return None
+    code = mask_strings(line).strip()
+    if code.startswith("}") or code.endswith("{"):
+        return None
+    return len(line) - len(line.lstrip())
 
 
 # ---------------------------------------------------------------------------

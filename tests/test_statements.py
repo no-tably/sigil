@@ -283,3 +283,82 @@ class ContinuedTrailingComment(unittest.TestCase):
         desc = {nid: list(c.description) for nid, c in m.components.items()}
         self.assertEqual(desc["C_service"], [])
         self.assertEqual(desc["U_actor"], ["first part of the note second part, aligned"])
+
+
+class CommentBelowAStatement(unittest.TestCase):
+    """A comment-only line right below a statement line that holds no comment and
+    opens no block, its marker deeper than that line's first column, starts that
+    line's trailing comment; lines below at its column continue it."""
+
+    PAD = " " * 30
+    DOC = ("#!spec\n"
+           "(U) ~> [S] : open({P})\n"
+           "[S] := {\n"
+           "  [A] -> (D) : read({P}) => {T}\n"
+           f"{PAD}# A note one,\n"
+           f"{PAD}# A note two\n"
+           "  [B] -> (D) : stat({P}) => {M}\n"
+           f"{PAD}# B note\n"
+           "}\n")
+
+    def describe(self, text):
+        from sigil.publish import systems as em
+        m = em.build_model(text, "doc")
+        return {nid: list(c.description) for nid, c in m.components.items()
+                if c.description}
+
+    def notes(self, text):
+        from sigil.core.comments import note_index
+        g = parse.parse_document(text)
+        return {k: [e[1] for e in v] for k, v in note_index(g).items()}
+
+    def test_each_statement_keeps_its_own_note(self):
+        self.assertEqual(self.describe(self.DOC), {"A_service": ["A note one, A note two"],
+                                                   "B_service": ["B note"]})
+
+    def test_the_walk_puts_it_on_the_statement_line(self):
+        self.assertEqual(walk(self.DOC).comments,
+                         {3: ("A note one, A note two", False), 6: ("B note", False)})
+
+    def test_the_last_statement_in_a_block_keeps_it(self):
+        text = self.DOC.replace("  [B] -> (D) : stat({P}) => {M}\n" f"{self.PAD}# B note\n", "")
+        self.assertEqual(self.describe(text), {"A_service": ["A note one, A note two"]})
+
+    def test_the_last_statement_in_the_document_keeps_it(self):
+        text = ("#!sketch\n[A] -> [B]\n[C] -> [D]\n    # about C\n")
+        self.assertEqual(self.notes(text), {"C_service": ["about C"]})
+
+    def test_at_the_statement_column_it_is_a_header(self):
+        text = "#!sketch\n  [A] -> [B]\n  # about C\n  [C] -> [D]\n"
+        self.assertEqual(self.notes(text), {"C_service": ["about C"]})
+
+    def test_under_a_block_opener_it_is_a_header(self):
+        text = "#!sketch\n[S] := {\n      # about A\n  [A] -> [B]\n}\n"
+        self.assertEqual(self.notes(text), {"A_service": ["about A"]})
+
+    def test_below_a_continuation_line_it_reads_as_that_lines_trailing_comment(self):
+        text = "#!sketch\n(U) -> [A] : go({X})\n  !> <Fail>\n      # n\n[C] -> [D]\n"
+        same = "#!sketch\n(U) -> [A] : go({X})\n  !> <Fail>   # n\n[C] -> [D]\n"
+        self.assertEqual(self.notes(text), self.notes(same))
+        self.assertNotIn("C_service", self.notes(text))
+
+    def test_above_a_continuation_line_it_stays_a_header(self):
+        text = "#!sketch\n(U) -> [A] : go({X})\n    # about the route\n  !> <Fail>\n"
+        self.assertEqual(self.notes(text), {"Fail_event": ["about the route"]})
+
+    def test_an_acknowledgement_never_starts_one(self):
+        text = "#!sketch\n[A] -> [B]\n    # accepts: x — y\n[C] -> [D]\n"
+        self.assertEqual(walk(text).comments, {2: ("accepts: x — y", True)})
+
+    def test_a_dialect_marker_starts_one_too(self):
+        import re
+        from sigil.core.statements import collect_comments
+        lines = ["[A] -> [B]", "      // about A", "      // more", "[C] -> [D]"]
+        self.assertEqual(collect_comments(lines, re.compile(r"//")),
+                         {0: ("about A more", False)})
+
+    def test_below_a_section_or_closing_line_nothing_starts(self):
+        from sigil.core.statements import collect_comments
+        for head in ("-- Part --", "}"):
+            self.assertEqual(collect_comments([head, "    # about C", "[C]"], None),
+                             {1: ("about C", True)}, head)
