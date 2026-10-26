@@ -2,7 +2,7 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
-## 0.6.5 — unreleased
+## 0.6.5 — 2026-10-26
 
 A run can begin a state machine in a later state, so the ways out of that state get
 walked and checked; a comment written under a line belongs to that line; and a
