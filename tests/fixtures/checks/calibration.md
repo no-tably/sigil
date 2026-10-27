@@ -70,6 +70,8 @@ store's races.
   noted — hint (catalog §12)
 - language.md · capacity-mismatch · info · `[App] -> [Data]`
   noted — hint (catalog §12)
+- language.md · capacity-mismatch · info · `(Writer) -> [Editor] : open({Path}) => {Doc}`
+  noted — hint (catalog §12); Example 7 shows shapes and a set, not capacity
 - language.md · unbounded-buffer · info · `[Primary] ~> [Replica]×2`
   noted — hint for a `~>` queue (catalog SGC161)
 - language.md · inv-unchecked · info · `} @inv write-only-primary`
