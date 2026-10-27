@@ -165,6 +165,18 @@ upper-case attributes are data.
                            "round" | "heavy";
         "label"            optional callable(node) -> str: the plain-text label
                            (default: node.name). Emitters escape it as needed.
+  THEME: str
+      The colour theme the dialect's drawings and source are coloured with when
+      no theme is asked for: a theme NAME (looked up as `--theme NAME` is:
+      themes/, then $SIGIL_THEME_PATH) or a PATH to a YAML theme file (it ends
+      in .yaml/.yml or holds a path separator), a relative one taken against the
+      folder of the dialect module's own file. It is read as every theme file is
+      (sigil.present.themes: the same YAML subset, `extends` and `$refs`, the same
+      errors; data only, never code). Precedence, in every command that themes
+      (view, frames draw, highlight): an explicit `--theme` (or a `--stream`
+      `{"theme"}` request) wins, then the dialect's THEME, then the default
+      ($SIGIL_THEME, else sigil). `sigil themes` loads no dialect. theme_hook()
+      reads it.
   RENDER_ARROWS: {kind: mermaid_arrow}
       Extra arrow (edge) kinds a tokenizer may produce, and their Mermaid form.
   COMPOSITION_RELATIONS: str
@@ -331,6 +343,20 @@ def _hook(dialect, name: str, default=(), *args):
     if val is None:
         return default
     return val(*args) if callable(val) else val
+
+
+def theme_hook(dialect) -> tuple[str, Path | None] | None:
+    """The dialect's THEME as (the name or path it gives, the folder a relative
+    path is read against: the dialect module's own), or None (no dialect, no
+    THEME). Raises DialectError for a THEME that is not a non-empty string."""
+    value = _hook(dialect, "THEME", None)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise DialectError(f"sigil dialect {getattr(dialect, 'NAME', '?')!r}: THEME must "
+                           f"be a theme name or a path to a YAML theme file, not {value!r}")
+    where = getattr(dialect, "__file__", None)
+    return value.strip(), (Path(where).resolve().parent if where else None)
 
 
 # ---------------------------------------------------------------------------

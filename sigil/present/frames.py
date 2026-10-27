@@ -15,7 +15,9 @@ a terminal. The page (site/build_site.py's frames.json), the playground
 
 `sigil frames draw FILE [--view graph|tree|flow|run] [--depth N|all] [--width N]
 [--height N] [--layout auto|wrap|pan] [--scenario NAME [--from N|last]
-[--count N]] [--payloads] [--theme NAME] [--limit NAME=N]…` prints one JSON object: {"file",
+[--count N]] [--payloads] [--theme NAME] [--dialect D] [--limit NAME=N]…` prints one
+JSON object (the document read with the dialect, coloured with --theme, else the
+dialect's THEME, else the default): {"file",
 "view", "width", "layout" (what was drawn: wrap — fitted to --width — or pan —
 the natural layout; auto picks as the live view does for a --width × --height
 pane, wrap without --height), "styles": [[fg hex|null, bg hex|null, bold]],
@@ -269,20 +271,23 @@ def legend_rows(g, view_name: str, *, depth: int, payloads: bool, events: str, s
 def draw(path: Path, view_name: str = "flow", depth: int = 1, width: int | None = None,
          scenario: str | None = None, payloads: bool = False, theme: str | None = None,
          layout: str = "auto", height: int | None = None, start: int | None = 0,
-         count: int = WINDOW, limits=None) -> dict:
+         count: int = WINDOW, limits=None, dialect=None) -> dict:
     """The JSON object `sigil frames draw` prints (see the module docstring); a
     run's frames are window(start, count, its last frame). `limits`: the
     simulator's bounds (--limit NAME=N; None: its defaults), for the run drawn and
-    the scenarios listed, as `sigil view` and `sigil check` use them."""
+    the scenarios listed, as `sigil view` and `sigil check` use them. `dialect`:
+    a loaded dialect the document is read and linted with, whose THEME colours it
+    when no `theme` is given."""
     try:
-        kit.use_theme(theme)
+        kit.use_theme(theme, dialect)
     except ValueError as exc:
         return {"error": str(exc)}
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
         return {"error": f"{path}: {exc.strerror or exc}"}
-    g = parse_document(text)
+    kit.use_dialect(dialect)
+    g = parse_document(text, dialect=dialect)
     events = app.DEFAULT_EVENTS.get(view_name, "land")
     kw = dict(depth=depth, payloads=payloads, notes="off", triggers=True, spaced=True,
               width=width, access=False, mods=False, events=events)
@@ -323,7 +328,7 @@ def draw(path: Path, view_name: str = "flow", depth: int = 1, width: int | None 
     legend = legend_rows(g, view_name, depth=depth, payloads=payloads, events=events,
                          sim=bool(scenario))
     out["legend"] = packed([ln for r in legend for ln in app.wrap_legend(r, cols)], styles)
-    diags = kit.run_lint(text)
+    diags = kit.run_lint(text, dialect)
     mode = kit.doc_mode(text)
     out["summary"] = (f"{path.name}: {len(g.nodes)} nodes, {len(g.edges)} edges"
                       + (f" · {mode}" if mode else "") + " · " + lint_line(diags))

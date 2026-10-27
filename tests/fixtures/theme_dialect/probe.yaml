@@ -1,0 +1,15 @@
+# A probe theme a dialect names as its THEME (tests/test_dialect_theme.py): the
+# sigil theme with services and operators in one colour of its own, so a drawing
+# or a source coloured by it is told apart from the default at a glance.
+name: probe
+label: Probe
+extends: sigil
+
+palette:
+  probe: "#123456"
+
+kinds:
+  service: $probe
+
+syntax:
+  operator: $probe

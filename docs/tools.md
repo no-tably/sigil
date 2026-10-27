@@ -916,7 +916,7 @@ What the Claude Code pane and the pi widget run; not meant to be typed.
 
 - `sigil frames draw FILE [--view graph|tree|flow|run] [--depth N|all] [--width N]
   [--height N] [--layout auto|wrap|pan] [--scenario NAME [--from N|last] [--count N]]
-  [--payloads] [--theme NAME] [--limit NAME=N]` prints the drawing as one JSON
+  [--payloads] [--theme NAME] [--dialect D] [--limit NAME=N]` prints the drawing as one JSON
   object of packed rows (text and a style id per run, a style table with hex
   colours), with the legend, summary, lint and scenarios, and for a run its frames
   a window at a time. `--limit` raises one simulator limit (repeatable), as `sigil
@@ -934,13 +934,19 @@ What the Claude Code pane and the pi widget run; not meant to be typed.
 ## Themes
 
 The viewer loads a colour theme from `themes/<name>.yaml`: `sigil view --theme NAME`
-or `SIGIL_THEME=NAME` picks one, and the web page reads the same files.
+or `SIGIL_THEME=NAME` picks one, and the web page reads the same files. A dialect
+may name its own theme (its `THEME` hook: a theme name, or a YAML path beside the
+dialect module, read as any theme file is). Every command that themes (`view`,
+`frames draw`, `highlight`) takes an explicit `--theme` first, then the loaded
+dialect's `THEME`, then `SIGIL_THEME`, else `sigil`, so a dialect's drawings and
+its source agree; a theme its `THEME` names that cannot be loaded is an error as a
+bad `--theme` is.
 `sigil themes [NAME|PATH]` prints a theme resolved (its `extends` and `$name`
 references filled in) as JSON, and `sigil themes --list` lists the themes found. The format is in the README under [Themes](../README.md#themes).
 
 ## Dialects
 
-`sigil lint`, `check`, `view` and `export` load a dialect (`--dialect NAME` or
+`sigil lint`, `check`, `view`, `export`, `frames draw` and `highlight` load a dialect (`--dialect NAME` or
 `SIGIL_DIALECT`) that extends the linter, Mermaid and the checker. A dialect module imports the core's vocabulary
 from `sigil.core.vocab`, the dialect API, and a dialect's own command calls
 `sigil.cli.main(argv, dialect=NAME)`. See "Dialects" in
@@ -964,7 +970,8 @@ The other hooks keep their names: `lint_passes()`, `lint_payload_checks()` (its
 …) and the check hooks; a `#&` declaration needs no `DECLARATION_BLOCKS` entry.
 `KNOWN_MODIFIERS` and `DEFERRED_MODIFIERS` entries are written with their `@`
 (`{"@at"}` for `@at(…)`); a bare `"at"` matches nothing, and `@at` still draws
-SGL040. Two more attributes reach `sigil export`: an optional `VERSION`, recorded
+SGL040. `THEME` names the dialect's colour theme (see [Themes](#themes)).
+Two more attributes reach `sigil export`: an optional `VERSION`, recorded
 as the manifest's `dialect.version` (as text), and the `Node.attrs` a tokenizer puts
 on a glyph, written as its component's `attrs` (so keep them JSON-like; anything
 else is written as its text).

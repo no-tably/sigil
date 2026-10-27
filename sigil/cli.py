@@ -394,8 +394,8 @@ def _view_parser(dialect, app) -> argparse.ArgumentParser:
                     help="when to colour the output: auto (default: when it goes to a "
                          "terminal), always or never")
     ap.add_argument("--theme", default=None,
-                    help="colour theme: a name in themes/ or a .yaml path (default: "
-                         "$SIGIL_THEME, else sigil)")
+                    help="colour theme: a name in themes/ or a .yaml path (default: the "
+                         "dialect's THEME, else $SIGIL_THEME, else sigil)")
     return ap
 
 
@@ -425,8 +425,8 @@ def _view(argv: list, dialect) -> int:
     from sigil.present import app, kit
     a = _view_parser(dialect, app).parse_args(argv)
     try:
-        kit.use_theme(a.theme)
         loaded = load_dialect(a.dialect)
+        kit.use_theme(a.theme, loaded)     # --theme, else the dialect's THEME, else the default
         limits = _limits(a.limit)
     except ValueError as exc:
         say("view", str(exc))
@@ -720,7 +720,10 @@ def _frames(argv: list, dialect) -> int:
     d.add_argument("--from", dest="start", type=_start, default=0)
     d.add_argument("--count", type=int, default=frames.WINDOW)
     d.add_argument("--payloads", action="store_true")
-    d.add_argument("--theme", default=None)
+    d.add_argument("--theme", default=None,
+                   help="colour theme: a name or a .yaml path (default: the dialect's "
+                        "THEME, else $SIGIL_THEME, else sigil)")
+    _dialect_flag(d, dialect)
     d.add_argument("--limit", action="append", default=[], metavar="NAME=N",
                    help="raise one simulator limit (repeatable; e.g. frames=5000), as "
                         "view and check take it")
@@ -731,11 +734,12 @@ def _frames(argv: list, dialect) -> int:
         return follow(a.control)
     try:
         limits = _limits(a.limit)
+        loaded = load_dialect(a.dialect)
     except ValueError as exc:
         say("frames", str(exc))
         return 2
     out = frames.draw(a.file, a.view, a.depth, a.width, a.scenario, a.payloads, a.theme,
-                      a.layout, a.height, a.start, a.count, limits)
+                      a.layout, a.height, a.start, a.count, limits, dialect=loaded)
     sys.stdout.write(json.dumps(out, ensure_ascii=False) + "\n")
     return 0
 
@@ -772,14 +776,27 @@ line on stdout (flushed), until stdin ends (exit 0):
   {"id": ANY, "lines": [STR, ...], "start": N, "carry": CARRY|null}
     -> {"id": ANY, "start": N, "lines": [[RUN, ...], ...], "carry": [CARRY, ...]}
   {"id": ANY, "theme": NAME|PATH}   -> {"id": ANY, "theme": NAME}
-     (a request may hold both: the theme switches first)
+  {"id": ANY, "dialect": NAME|PATH|null}
+    -> {"id": ANY, "dialect": NAME|null[, "theme": NAME]}
   anything malformed                -> {"id": ANY|null, "error": "..."}
+A request may hold dialect, theme and lines together: the dialect switches
+first, then the theme, then the lines are highlighted with both; the answer
+holds a key for each part. A request that fails in any part answers only
+{"id", "error"} and changes nothing (a dialect that fails to load keeps the old
+one). A dialect is loaded as --dialect loads it (null: core Sigil, no dialect,
+whatever $SIGIL_DIALECT says) and answered by its NAME. Themes: --theme or a
+{"theme"} request is explicit and holds for the rest of the session; until one
+is given the theme is the dialect's THEME, else the default ($SIGIL_THEME, else
+sigil), so a dialect switch also switches the theme, and its answer names the
+theme now in use ("theme"). After an explicit theme a dialect switch leaves the
+theme alone.
 `start` is the index of lines[0] (echoed; default 0), `carry` the carry lines[0]
 starts in (null: a text's start). A line's runs depend only on the line and
 the carry it starts in, so an editor highlights incrementally: after an edit it
 sends the changed lines with the end carry of the line before them, and keeps
 sending the lines that follow until a returned end carry equals the one it held
-for that line; from there on nothing changed. No file is read but the theme."""
+for that line; from there on nothing changed. No file is read but the theme and
+a dialect asked for."""
 
 
 def carry_json(carry) -> list:
@@ -860,11 +877,14 @@ def _one_line(value) -> bool:
 
 
 class StreamSession:
-    """One --stream process's state: the theme it colours with, the lexicon of
-    its dialect. answer() turns one request line into one response object."""
+    """One --stream process's state: the theme it colours with (and whether it
+    was asked for explicitly: --theme or a {"theme"} request), the dialect and
+    its lexicon. answer() turns one request line into one response object; a
+    request that fails changes none of it."""
 
-    def __init__(self, theme: dict, name: str, lx):
+    def __init__(self, theme: dict, name: str, lx, dialect=None, explicit: bool = False):
         self.theme, self.name, self.lx = theme, name, lx
+        self.dialect, self.explicit = dialect, explicit
 
     def answer(self, raw: str) -> dict:
         try:
@@ -881,30 +901,62 @@ class StreamSession:
 
     def _serve(self, req: dict) -> dict:
         from sigil.present import highlight as hl, themes
-        if "theme" not in req and "lines" not in req:
-            raise ValueError("a request holds lines or a theme")
-        out = {}
+        if not {"dialect", "theme", "lines"} & req.keys():
+            raise ValueError("a request holds lines, a theme or a dialect")
+        out: dict = {}
+        dialect, lx, explicit = self.dialect, self.lx, self.explicit
+        theme, name = self.theme, self.name
+        if "dialect" in req:                   # first: the theme may follow the dialect
+            dialect = _stream_dialect(req["dialect"])
+            lx = hl.lexicon(dialect)
+            out["dialect"] = getattr(dialect, "NAME", None) if dialect is not None else None
+            if not explicit and "theme" not in req:
+                theme = themes.load(None, dialect)     # ThemeError is a ValueError
+                name = theme_name(theme, themes.chosen(None, dialect)[0])
+                out["theme"] = name
         if "theme" in req:
             spec = req["theme"]
             if not isinstance(spec, str) or not spec:
                 raise ValueError("theme must be a theme name or path")
-            theme = themes.load(spec)              # ThemeError is a ValueError
-            self.theme, self.name = theme, theme_name(theme, spec)
-            out["theme"] = self.name
-        if "lines" not in req:
-            return out
-        lines, start = req["lines"], req.get("start", 0)
-        if not (isinstance(lines, list) and all(_one_line(s) for s in lines)):
-            raise ValueError("lines must be a list of strings, each without a line break")
-        if type(start) is not int or start < 0:
-            raise ValueError("start must be a line index >= 0")
-        carry = carry_from_json(req.get("carry"))
-        rows, ends = [], []
-        for raw in lines:
-            runs, carry = hl.line(raw, carry, self.lx)
-            rows.append(runs_json(runs, self.theme, self.lx))
-            ends.append(carry_json(carry))
-        return {**out, "start": start, "lines": rows, "carry": ends}
+            theme = themes.load(spec)
+            name, explicit = theme_name(theme, spec), True
+            out["theme"] = name
+        if "lines" in req:
+            out.update(_stream_lines(req, theme, lx))
+        self.dialect, self.lx, self.explicit = dialect, lx, explicit
+        self.theme, self.name = theme, name
+        return out
+
+
+def _stream_dialect(spec):
+    """The dialect a {"dialect"} request names (null: none). Raises ValueError
+    for one that is not a name or path, or cannot be loaded."""
+    if spec is not None and (not isinstance(spec, str) or not spec.strip()):
+        raise ValueError("dialect must be a dialect name or path, or null")
+    try:
+        return load_dialect(spec or "")        # "": core, not $SIGIL_DIALECT
+    except ValueError:
+        raise
+    except Exception as exc:                   # its module failed while it loaded
+        raise ValueError(f"sigil dialect {spec!r} failed to load: "
+                         f"{type(exc).__name__}: {exc}") from None
+
+
+def _stream_lines(req: dict, theme: dict, lx) -> dict:
+    """The answer to a request's lines (HIGHLIGHT_PROTOCOL). Raises ValueError."""
+    from sigil.present import highlight as hl
+    lines, start = req["lines"], req.get("start", 0)
+    if not (isinstance(lines, list) and all(_one_line(s) for s in lines)):
+        raise ValueError("lines must be a list of strings, each without a line break")
+    if type(start) is not int or start < 0:
+        raise ValueError("start must be a line index >= 0")
+    carry = carry_from_json(req.get("carry"))
+    rows, ends = [], []
+    for raw in lines:
+        runs, carry = hl.line(raw, carry, lx)
+        rows.append(runs_json(runs, theme, lx))
+        ends.append(carry_json(carry))
+    return {"start": start, "lines": rows, "carry": ends}
 
 
 def stream(session: StreamSession, inp, out) -> int:
@@ -931,8 +983,8 @@ def _highlight(argv: list, dialect) -> int:
         epilog=HIGHLIGHT_PROTOCOL)
     ap.add_argument("file", nargs="?", help="a .sigil file, or - for stdin")
     ap.add_argument("--theme", default=None,
-                    help="colour theme: a name in themes/ or a .yaml path (default: "
-                         "$SIGIL_THEME, else sigil)")
+                    help="colour theme: a name in themes/ or a .yaml path (default: the "
+                         "dialect's THEME, else $SIGIL_THEME, else sigil)")
     _dialect_flag(ap, dialect)
     ap.add_argument("--json", action="store_true",
                     help="print each line's runs (text, role, colour) as one JSON object")
@@ -946,17 +998,18 @@ def _highlight(argv: list, dialect) -> int:
     from sigil.present import highlight as hl, themes
     try:
         loaded = load_dialect(a.dialect)
-        theme = themes.load(a.theme)
+        theme = themes.load(a.theme, loaded)   # --theme, else the dialect's THEME, else the default
+        name = theme_name(theme, themes.chosen(a.theme, loaded)[0])
     except ValueError as exc:
         say("highlight", str(exc))
         return 2
     lx = hl.lexicon(loaded)
-    name = theme_name(theme, a.theme)
     if a.stream:
         for io in (sys.stdin, sys.stdout):
             if hasattr(io, "reconfigure"):
                 io.reconfigure(encoding="utf-8", errors="replace")
-        return stream(StreamSession(theme, name, lx), sys.stdin, sys.stdout)
+        session = StreamSession(theme, name, lx, loaded, explicit=bool(a.theme))
+        return stream(session, sys.stdin, sys.stdout)
     try:
         text = read_text(a.file)
     except OSError as exc:
