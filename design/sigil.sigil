@@ -33,6 +33,8 @@
   (Agent) -> [ExportCmd] : export({Argv}) => {Delta}          # export --out DIR; --mermaid --spine when refining
   (Author) -> [ViewCmd] : watch({Argv}) => {Drawing}          # a person at a terminal: the live view
   (Host) -> [FramesCmd] : frames({Argv}) => {Frames}          # the Claude Code mod and pi (the agent's viewer tool)
+  (Host) -> [HighlightCmd] : source({Argv}) => {Runs}        # construct's spec pane; any host that shows a .sigil file
+  (Editor) -> [HighlightCmd] : edit({Lines}) => {Runs}       # --stream: one live process; a changed line range in, its runs out (JSON lines)
   (Dialect) -> [LintCmd] : run({Argv}) => {Diagnostics}       # a dialect's wrapper: cli.main(argv, dialect=NAME), any command
   [LintCmd] -> [Analyse] : lint({Text}) => {Diagnostics}      # sigil lint (--deep also runs check)
   [CheckCmd] -> [Analyse] : check({Text}) => {Findings}       # sigil check (--limit, --budget, --overlaps, --export, --all-rules)
@@ -40,6 +42,7 @@
   [ExportCmd] -> [Publish] : export({Text}) => {Delta}        # sigil export (--out DIR --name --limit, or --mermaid [--spine])
   [FramesCmd] -> [Present] : frames({Text}) => {Frames}       # sigil frames draw (packed rows for the hosts, --limit)
   [ThemesCmd] -> [Present] : theme({Name}) => {Palette}       # sigil themes
+  [HighlightCmd] -> [Present] : highlight({Text}) => {Runs}  # sigil highlight FILE|- (--json: each line's runs, role and colour; else ANSI)
   [Follow] -> |Control| : read({Argv}) => {Argv}              # sigil frames follow CONTROL: polled, a change restarts the view
   [Follow] ~> [ViewCmd] : spawn({Argv})                       # a child `sigil view` with that argv (--dialect included)
   (Host) -> |Control| : write({Argv})                         # $TMPDIR/sigil-view-<uuid>.json, the split's request
@@ -48,6 +51,7 @@
 [Cli] -> [Core] : dialect({Name}) => {Hooks}        # every command's --dialect
 [Cli] -> [Analyse] : diagnose({Text}) => {Findings}
 [Cli] -> [Present] : draw({Text}) => {Drawing}
+[Cli] -> [Present] : highlight({Text}) => {Runs}
 [Cli] -> [Publish] : export({Text}) => {Delta}
 [Playground] -> [Present] : frames({Doc}) => {Frames}     # Pyodide imports the package, less NOT_IN_PLAYGROUND
 [Playground] -> [Analyse] : diagnose({Doc}) => {Findings} # check budget CHECK_RUNS
@@ -169,6 +173,15 @@
   [Views] -> [Kit] : cells({Drawing}) => {Canvas}
   [Kit] -> [Analyse] : lint({Text}) => {Diagnostics}           # the lint summary under every drawing
   [Kit] -> [Themes] : theme({Name}) => {Palette}
+  # the source as coloured runs, from the walk's own tokens (one token model with lint and
+  # the views; highlight/ grammars follow it): every character in exactly one run, the runs
+  # of a line joined give the line back, and text that does not lint still highlights
+  # live editing: a line's runs depend only on that line and the carry state it starts in
+  # (inside a `#&` body or a continued comment), so an edit re-highlights from the changed
+  # line until the carry state matches the old one; IDE grammars in highlight/ are tested
+  # against these runs (one corpus), so construct and an IDE colour a file alike
+  [Highlight] -> [Core] : read({Text}) => {Statements}         # tokens with their columns, `#&` and `#%` lines included
+  [Highlight] -> [Themes] : theme({Name}) => {Palette}         # the theme's syntax roles (operator, keyword, modifier …)
   [Themes] -> |ThemeFiles| : read({Yaml}) => {Yaml}
   (Author) -> |ThemeFiles| : edit({Yaml})                      # themes/ beside the package, $SIGIL_THEME_PATH, or a PATH
   # read once per run, whole: a theme applies only once it parses and resolves, so a save

@@ -358,3 +358,37 @@ Delta and one manifest field, no new module, flow, dependency or trust boundary.
 | cure export | 29 systems | 19 gain inherited rechecks (e.g. Vt ← Core via Interact) |
 | construct export | 16 systems | 5 gain inherited rechecks (e.g. Unit ← construct) |
 | hashes | — | unchanged; manifests gain `parent` |
+
+## Round 6: `sigil highlight` (2026-10-27, proposed for 0.6.6)
+
+Asked by the user: construct's spec pane should show `construct.sigil` in sigil's colours.
+Today only the site's JS and the Pygments lexer in `highlight/` colour source; nothing a
+host can call. Modelled: `[HighlightCmd]` in Cli (`(Host)` calls it), `[Highlight]` in
+Present, reading Core's walk and the theme. Readings: lint OK, check 0 findings, sims
+4/4 ok; `--structure`: [Highlight] out 10 in 8, reaches (Dialect) through Core as every
+reader does (a `--dialect` is Python code: the same boundary as view, nothing new).
+
+Proposals (each to settle with the user):
+1. One token model: roles come from Core's walk (the tokens lint reads), not a second
+   lexer; `highlight/lexer.py` stays the Pygments edge and follows it.
+2. Laws: every character in exactly one run; a line's runs joined give the line back;
+   text that does not lint still highlights (never an error for bad text).
+3. Roles: the theme's `syntax` section (operator, keyword, modifier, ref, string, number,
+   punct, tag, cardinality) plus `ui.mode`, `ui.section`, comments as `ui.note`, and a
+   glyph's name in its kind colour (`kinds.service` …), so the source and the drawings
+   agree on what a component looks like.
+4. Output: ANSI by default (a person's `sigil highlight FILE`); `--json` for hosts: per
+   line, runs of `[text, role, "#rrggbb"]`, the theme named, `--theme NAME|PATH` as view.
+5. No new dependency, no new file read beyond FILE and the theme.
+
+Live editing (user: "highlight in construct as well as in an IDE, equally"):
+6. Incremental: a line's runs depend only on the line and the carry state it starts in
+   (inside a `#&` body or a continued comment); an edit re-highlights from the changed
+   line until the carry state matches, so a keystroke costs a line or two.
+7. `--stream`: one long-running process reading JSON-lines requests (a changed line
+   range, with the carry state) and answering runs, so a live editor pays no process
+   start per keystroke; `(Editor)` in Cli. Construct runs it as a child, as it runs view.
+8. Equal in an IDE: the grammars in highlight/ (VS Code tmLanguage, sublime/bat, vim)
+   stay the IDE's instant highlighting; one shared corpus is highlighted by `sigil
+   highlight` and checked against each grammar's scopes (scope → role), so they cannot
+   drift. A semantic-tokens language server over `--stream` is a later step, not now.
