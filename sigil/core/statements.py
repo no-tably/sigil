@@ -5,6 +5,7 @@ reads the text again.
 
     read_document(text, dialect=None, result=None) → Walk
     read_lines(lines, dialect=None, result=None) → Walk
+    read_statement(k, code, lx) → Statement   one statement, as the walk reads it
 
 The reading: the lines with their block strings folded (lex.fold_block_strings)
 and the dialect's prepasses run (`result` takes what a prepass reports; a
@@ -708,59 +709,68 @@ class _Walker:
     # -- statements --------------------------------------------------------------
 
     def statement(self, k: int, code: Code, alias: bool, quiet: bool, shift: int) -> Statement:
-        """Read one statement: its composition branch marker (the model's rule:
-        at its start or after a glyph-only parent), the dialect's strips on what
-        is left, and its tokens."""
-        s = code.text
-        lead = len(s) - len(s.lstrip())
-        cont = bool(ARROW_RE.match(code.raw.strip()))
-        marked = "\\-" in s                  # every branch marker starts `\-`
-        m = BRANCH_RE.search(s, lead) if marked else None
-        if m is not None and m.start() > lead \
-                and not BRANCH_PARENT_RE.match(code.raw[lead:m.start()]):
-            m = None
-        if m is None:
-            marks = []
-            x = BRANCH_ANY_RE.search(s, lead) if marked else None
-            if x is not None and (x.start() == lead
-                                  or BRANCH_PARENT_RE.match(code.raw[lead:x.start()])):
-                marks.append(x.start())
-            body = self._strip(code, lead)
-            toks = tokenize_statement(body, self.lx)
-            return Statement(k + 1, body, alias, tuple(toks), -1, tuple(marks), quiet, shift,
-                             cont)
-        marks = [m.start()] + [x.start() for x in BRANCH_ANY_RE.finditer(s, m.end())]
-        later = [(x.start(), x.end()) for x in BRANCH_RE.finditer(s, m.end())]
-        code = code.blank(later)
-        left = self._strip(code.cut(0, m.start()), lead) if s[lead:m.start()].strip() else None
-        rest = self._strip(code.cut(m.end()), 0)
-        toks = tokenize_statement(left, self.lx) if left is not None else []
-        branch = len(toks)
-        toks.append(Tok("branch", m.group(0), m.start()))
-        toks += _shift(tokenize_statement(rest, self.lx), m.end())
-        whole = Code((left.text if left is not None else code.text[:m.start()])
-                     + code.text[m.start():m.end()] + rest.text,
-                     (left.raw if left is not None else code.raw[:m.start()])
-                     + code.raw[m.start():m.end()] + rest.raw, code.col)
-        return Statement(k + 1, whole, alias, tuple(toks), branch, tuple(marks), quiet, shift,
-                         cont)
+        """Read one statement (read_statement, with this reading's dialect)."""
+        return read_statement(k, code, self.lx, alias, quiet, shift)
 
-    def _strip(self, code: Code, start: int) -> Code:
-        """The code with the dialect's strips run on its text from `start` (they
-        blank, never delete)."""
-        if not self.lx.strips:
-            return code
-        before = code.raw[start:]
-        after = before
-        for strip in self.lx.strips:
-            after = strip(after)
-            if len(after) != len(before):
-                raise DialectError(f"a dialect strip ({_name(strip)}) must keep the "
-                                   "line's length (blank, never delete)")
-        if after == before:
-            return code
-        return code.blank([(start + i, start + i + 1)
-                           for i, (a, b) in enumerate(zip(before, after)) if a != b])
+
+def read_statement(k: int, code: Code, lx: Lexicon = NO_DIALECT, alias: bool = False,
+                   quiet: bool = False, shift: int = 0) -> Statement:
+    """Read one statement (`k`: its 0-based line index): its composition branch
+    marker (the model's rule: at its start or after a glyph-only parent), the
+    dialect's strips on what is left, and its tokens. Pure: it needs no other
+    line, so a reader of one line at a time (sigil.present.highlight) reads a
+    statement exactly as the walk does."""
+    s = code.text
+    lead = len(s) - len(s.lstrip())
+    cont = bool(ARROW_RE.match(code.raw.strip()))
+    marked = "\\-" in s                  # every branch marker starts `\-`
+    m = BRANCH_RE.search(s, lead) if marked else None
+    if m is not None and m.start() > lead \
+            and not BRANCH_PARENT_RE.match(code.raw[lead:m.start()]):
+        m = None
+    if m is None:
+        marks = []
+        x = BRANCH_ANY_RE.search(s, lead) if marked else None
+        if x is not None and (x.start() == lead
+                              or BRANCH_PARENT_RE.match(code.raw[lead:x.start()])):
+            marks.append(x.start())
+        body = _strip(code, lead, lx)
+        toks = tokenize_statement(body, lx)
+        return Statement(k + 1, body, alias, tuple(toks), -1, tuple(marks), quiet, shift,
+                         cont)
+    marks = [m.start()] + [x.start() for x in BRANCH_ANY_RE.finditer(s, m.end())]
+    later = [(x.start(), x.end()) for x in BRANCH_RE.finditer(s, m.end())]
+    code = code.blank(later)
+    left = _strip(code.cut(0, m.start()), lead, lx) if s[lead:m.start()].strip() else None
+    rest = _strip(code.cut(m.end()), 0, lx)
+    toks = tokenize_statement(left, lx) if left is not None else []
+    branch = len(toks)
+    toks.append(Tok("branch", m.group(0), m.start()))
+    toks += _shift(tokenize_statement(rest, lx), m.end())
+    whole = Code((left.text if left is not None else code.text[:m.start()])
+                 + code.text[m.start():m.end()] + rest.text,
+                 (left.raw if left is not None else code.raw[:m.start()])
+                 + code.raw[m.start():m.end()] + rest.raw, code.col)
+    return Statement(k + 1, whole, alias, tuple(toks), branch, tuple(marks), quiet, shift,
+                     cont)
+
+
+def _strip(code: Code, start: int, lx: Lexicon) -> Code:
+    """The code with the dialect's strips run on its text from `start` (they
+    blank, never delete)."""
+    if not lx.strips:
+        return code
+    before = code.raw[start:]
+    after = before
+    for strip in lx.strips:
+        after = strip(after)
+        if len(after) != len(before):
+            raise DialectError(f"a dialect strip ({_name(strip)}) must keep the "
+                               "line's length (blank, never delete)")
+    if after == before:
+        return code
+    return code.blank([(start + i, start + i + 1)
+                       for i, (a, b) in enumerate(zip(before, after)) if a != b])
 
 
 def _name(fn) -> str:

@@ -191,7 +191,7 @@ class Folded(NamedTuple):
     quoted: frozenset = frozenset()
 
 
-def _block_open_pos(raw: str) -> Optional[int]:
+def block_open_pos(raw: str) -> Optional[int]:
     """Index of an opening `\"\"\"` on this line that is NOT comment text, or
     None. A `#!` mode line never opens a block; a `\"\"\"` after the line's
     comment `#` is comment text (`# see \"\"\"` is inert)."""
@@ -217,7 +217,7 @@ def fold_block_strings(lines: list, bodies: Optional[dict] = None) -> Folded:
     quoted = set()
     i = 0
     while i < n:
-        open_pos = _block_open_pos(out[i])
+        open_pos = block_open_pos(out[i])
         if open_pos is None:
             i += 1
             continue
@@ -387,6 +387,26 @@ GLYPH_PATTERNS = {kind: re.compile(glyph_name_source(kind)) for kind in GLYPH_BR
 ANY_GLYPH_RE = re.compile(
     r"(\[[^\[\]]+\]|\{[^\{\}]+\}|<(?!->)[^<>]+>|\([^()]+\)|\|[^|]+\|)"
 )
+
+# The pieces of a shown text — a payload, a modifier's argument, a block header,
+# a section title — finer than a statement's tokens (sigil.core.tokens hands a
+# payload back as one span): strings, `${…}` references, glyphs (with their `~` /
+# `*` prefix), call names, operators, counts, modifiers, the `op` keyword,
+# numbers and punctuation. Only colour reads it (sigil.present.kit's payload runs,
+# sigil.present.highlight); what it reads decides no fact.
+PAYLOAD_PIECE_RE = re.compile(r"""
+    (?P<string>"(?:[^"\\]|\\.)*")
+  | (?P<ref>\$\{[^}]*\})
+  | (?P<glyph>""" + PREFIXES_CLASS + r"""?(?:\[[^\]\s,][^\],]*\]|\{[^}\s:,][^}:,]*\}|<(?!->)[^<>\s][^<>]*>
+                    |(?<!\w)\([^)\s][^)]*\)|\|[^|\s][^|]*\|))
+  | (?P<call>[A-Za-z_][\w.]*)(?=\()
+  | (?P<operator>=>|->|~>|!>|\?>|\*>|<->|\+\+|\|\||[+\-*/])
+  | (?P<cardinality>[×^]\d+\w*)
+  | (?P<modifier>@[A-Za-z_][\w-]*)
+  | (?P<keyword>\bop\b)
+  | (?P<number>\b\d+(?:\.\d+)?\b)
+  | (?P<punct>[(),:{}\[\]])
+""", re.X)
 
 # A hole glyph (`[?]`, `{?}`, `<?>`, `(?)`, `|?|`).
 HOLE_RE = re.compile(r"(\[\?\]|\{\?\}|<\?>|\(\?\)|\|\?\|)")

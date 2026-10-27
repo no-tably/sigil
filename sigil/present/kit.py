@@ -47,7 +47,7 @@ from sigil.core.graph import (  # noqa: F401  (some for the views, as kit.NAME)
     section_of, use_dialect_kinds, walk_breadth as _walk)
 from sigil.core import graph as _graph
 from sigil.core.lex import (
-    BLOCK_SENTINEL, GLYPH_PREFIXES, MODIFIER_RE, PREFIXES_CLASS, declaration_name,
+    BLOCK_SENTINEL, GLYPH_PREFIXES, MODIFIER_RE, PAYLOAD_PIECE_RE, declaration_name,
     first_content, glyph_kind, is_mode_line, net_braces)
 from sigil.core.kinds import is_kind_line
 from sigil.core.statements import comment_of
@@ -1094,28 +1094,10 @@ class Retained:
 
 
 # A payload drawn as code: glyphs with their kind's brackets and an off-white
-# name, calls with coloured ( ), the rest by syntax role.
-#
-# A colouring split of its own, not a second reading of Sigil: core's tokenizer
-# (sigil.core.tokens) reads a whole statement and hands a payload back as one
-# span, while this splits any shown text (a payload, a block header, a section
-# title, a note's code line) finer — strings, `${…}` references, call names,
-# operators, numbers, punctuation — only to pick each piece's colour. It starts
-# from core's glyph reading (lex's prefix class and brackets: a glyph may carry
-# `~` / `*`, lex.glyph_kind names its kind); what it reads decides no fact.
-_PAYLOAD_TOKEN = re.compile(r"""
-    (?P<string>"(?:[^"\\]|\\.)*")
-  | (?P<ref>\$\{[^}]*\})
-  | (?P<glyph>""" + PREFIXES_CLASS + r"""?(?:\[[^\]\s,][^\],]*\]|\{[^}\s:,][^}:,]*\}|<(?!->)[^<>\s][^<>]*>
-                    |(?<!\w)\([^)\s][^)]*\)|\|[^|\s][^|]*\|))
-  | (?P<call>[A-Za-z_][\w.]*)(?=\()
-  | (?P<operator>=>|->|~>|!>|\?>|\*>|<->|\+\+|\|\||[+\-*/])
-  | (?P<cardinality>[×^]\d+\w*)
-  | (?P<modifier>@[A-Za-z_][\w-]*)
-  | (?P<keyword>\bop\b)
-  | (?P<number>\b\d+(?:\.\d+)?\b)
-  | (?P<punct>[(),:{}\[\]])
-""", re.X)
+# name, calls with coloured ( ), the rest by syntax role. The pieces are core's
+# colouring split (sigil.core.lex.PAYLOAD_PIECE_RE), shared with
+# sigil.present.highlight; what it reads decides no fact.
+_PAYLOAD_TOKEN = PAYLOAD_PIECE_RE
 
 
 def glyph_runs(tok: str, kind: str, bold: bool = False, bg=None) -> list:
