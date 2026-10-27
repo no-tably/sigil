@@ -438,3 +438,12 @@ Proposals (each to settle with the user):
 5. Migration: cure writes its data children's shapes (SpecDoc, Task, Builder …), its
    interface hashes stop being empty, and construct's lock updates once. Hashes move only
    for specs that write shapes or tree data.
+
+## Round 7 addendum: the replay rule moves into the sim (2026-10-28, 0.6.8)
+
+Found in K2: SGC203's replay rule (which events a state start replays on its way there) lived in
+the check rules, so `--sim all` and the narration printed those events as `ignored:`. Moved
+along the existing [Rules] -> [Model] facts flow: `sim.replayed` is the one definition, the
+run marks each replayed drop, the log and narration say "replayed", and SGC203 reads the mark.
+No new module, flow or dependency; recorded after the fact (the task's plan called it a fix).
+Equal on all 110 machine-state pairs in the corpus; construct's check output byte-identical.

@@ -2,6 +2,20 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
+## 0.6.8 — unreleased
+
+- **A field is never a node.** In a data shape, `{Meta}`, `{Meta}?` and `rows: {Row}` all name a
+  nested shape and draw nothing, whether the shape is written on one line or several. To make a
+  glyph a part, write it in a flow or give it its own shape. `system.json` keeps a field glyph's
+  name as written (`{Méta}`, `{Page<T>}` were mangled before).
+- **Replayed events say so.** A run that starts a machine in a later state replays the events on
+  its way there; `--sim all`, the log and the narration now say `replayed:` for those, as SGC203
+  already counted them, instead of `ignored:`.
+- **`check --json` lists the state starts** it ran (`"state_starts": {"ran": […], "left_out": N}`,
+  only when there are any).
+- construct's check is ~7% slower than in 0.6.4 because of the seven state-start runs 0.6.5 added
+  (measured: no repeated work); unchanged.
+
 ## 0.6.7 — 2026-10-28
 
 Data can say what it holds: a data glyph's expansion lists its field names, and an

@@ -350,10 +350,10 @@ Payments@10              ok       21 frames
   states: [Checkout] Idle · {Order} Settled
 Checkout=Busy            ok       32 frames  starts with [Checkout] in Busy
   states: [Checkout] Idle · {Order} Settled
-  ignored: <Placed> in [Checkout] Busy
+  replayed: <Placed> in [Checkout] Busy
 Order=Open               ok       32 frames  starts with {Order} in Open
   states: [Checkout] Idle · {Order} Settled
-  ignored: <Placed> in {Order} Open
+  replayed: <Placed> in {Order} Open
 6 scenarios: 5 ok, 1 failed, 0 cut
 ```
 

@@ -102,6 +102,8 @@
   [Sim] := {
     # the run: deterministic, no values computed
     [Scenarios] -> [Engine] : run({Scenario}) => {Trace}        # happy, deviations, overlaps (Entry@t), starts in a state (Owner=State)
+    # the replay rule is the sim's (0.6.8): a start's replayed events are marked on the run, said
+    # as replayed in log and narration, and SGC203 reads the mark (no rule of its own)
     [Engine] -> [Program] : compile({Scene}) => {Units}          # units, machines, triggers
     [Scenarios] -> [Narration] : tell({Trace}) => {Steps}        # beats, the log, run events
     # Starts in a state (0.6.5): a scenario part `Owner=State` begins that owner's machine
