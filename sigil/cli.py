@@ -1045,7 +1045,25 @@ def main(argv=None, dialect=None) -> int:
         return 2
     from sigil.core.dialects import DialectError
     try:
-        return run(argv[1:], dialect)
+        code = run(argv[1:], dialect)
+        sys.stdout.flush()                 # a closed pipe shows here, not at shutdown
+        return code
+    except BrokenPipeError:                # the reader left early (`| less`, `| head`)
+        return _reader_gone()
     except DialectError as exc:            # a dialect hook broke its contract mid-read
         say(argv[0], str(exc))
         return 2
+
+
+def _reader_gone() -> int:
+    """Stdout's reader closed the pipe: point stdout at devnull, so the flush at
+    interpreter shutdown has nowhere to fail, and exit 1 (as Python's docs advise for
+    SIGPIPE: https://docs.python.org/3/library/signal.html#note-on-sigpipe)."""
+    try:
+        fd = sys.stdout.fileno()
+    except (AttributeError, OSError, ValueError):   # an in-process stand-in (StringIO)
+        return 1
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull, fd)
+    os.close(devnull)
+    return 1
