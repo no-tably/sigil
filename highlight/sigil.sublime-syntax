@@ -23,6 +23,7 @@ variables:
 contexts:
   main:
     - include: comments
+    - include: state-block
     - include: branch
     - include: path
     - include: field
@@ -67,6 +68,43 @@ contexts:
     # Inline / whole-line comment (after the mode-line rule).
     - match: '#.*$'
       scope: comment.line.sigil
+
+  state-block:
+    # A state block `state <owner> { … }` (one line or many): its body's bare
+    # names are state names (sigil: kinds.state); `+ $ _` are its anchors; it
+    # ends at the `}` that closes it.
+    - match: '^\s*(state)(?=[\s{])(?:\s*([~*]?)([\[{<(|])([^\[\]{}<>()|\s]+)([\]}>)|]))?[^{\n#]*?(\{)'
+      captures:
+        1: keyword.control.sigil
+        2: keyword.control.sigil.glyph-prefix
+        3: keyword.control.sigil.glyph
+        4: storage.type.sigil
+        5: keyword.control.sigil.glyph
+        6: punctuation.separator.sigil
+      push: state-body
+
+  state-body:
+    - match: '\}'
+      scope: punctuation.separator.sigil
+      pop: true
+    - include: comments
+    - include: block-string
+    - include: refs
+    - include: modifiers
+    - include: transition
+    - include: arrows
+    # The start state `+` (also before a plain `->`).
+    - match: '(?<!\S)\+(?=\s|$)'
+      scope: comment.other.meta.sigil.anchor
+    - include: structural-sigils
+    - include: call-args
+    - include: glyphs
+    - include: values
+    - include: predicates
+    - include: punctuation
+    # A state name.
+    - match: '{{ident}}'
+      scope: storage.type.sigil.state
 
   branch:
     # Composition-tree branch marker `\-` [`*-`] [`(N)-` | `{cond}-`] rel

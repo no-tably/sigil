@@ -208,8 +208,12 @@ class TestControlFlow(unittest.TestCase):
         self.assertTrue(has(block, T.Arrow, "-"))
         self.assertTrue(has(block, T.Glyph.Name, "submit"))
         self.assertTrue(has(block, T.Arrow, "->"))
-        self.assertTrue(has(block, Name.Tag, "Pending"))
+        self.assertTrue(has(block, T.Glyph.Name.State, "Pending"))   # a state name (H4)
         self.assertEqual(errors(block), [])
+        one = "state {S} { + -<Go>-> Run }\n"
+        self.assertTrue(has(one, T.Glyph.Name, "S"))
+        self.assertTrue(has(one, T.Glyph.Name.State, "Run"))
+        self.assertTrue(has(one, Punctuation, "}"))
 
     def test_loop_parallel_branch(self):
         code = ("loop @each x of {Xs} {\n  [A] -> [B]\n}\n"

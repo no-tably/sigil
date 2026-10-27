@@ -11,6 +11,9 @@
       "include": "#comments"
     },
     {
+      "include": "#state-block"
+    },
+    {
       "include": "#branch"
     },
     {
@@ -113,6 +116,88 @@
         {
           "name": "comment.line.sigil",
           "match": "#.*$"
+        }
+      ]
+    },
+    "state-block": {
+      "patterns": [
+        {
+          "comment": "A state block state <owner> { … } (one line or many): its body's bare names are state names (sigil: kinds.state); + $ _ are its anchors; it ends at the } that closes it.",
+          "begin": "^\\s*(state)(?=[\\s{])(?:\\s*([~*]?)([\\[{<(|])([^\\[\\]{}<>()|\\s]+)([\\]}>)|]))?[^{\\n#]*?(\\{)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.sigil"
+            },
+            "2": {
+              "name": "keyword.control.sigil.glyph-prefix"
+            },
+            "3": {
+              "name": "keyword.control.sigil.glyph"
+            },
+            "4": {
+              "name": "storage.type.sigil"
+            },
+            "5": {
+              "name": "keyword.control.sigil.glyph"
+            },
+            "6": {
+              "name": "punctuation.separator.sigil"
+            }
+          },
+          "end": "\\}",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.separator.sigil"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "include": "#block-string"
+            },
+            {
+              "include": "#refs"
+            },
+            {
+              "include": "#modifiers"
+            },
+            {
+              "include": "#transition"
+            },
+            {
+              "include": "#arrows"
+            },
+            {
+              "comment": "The start state + (also before a plain ->).",
+              "name": "comment.other.meta.sigil.anchor",
+              "match": "(?<!\\S)\\+(?=\\s|$)"
+            },
+            {
+              "include": "#structural-sigils"
+            },
+            {
+              "include": "#call-args"
+            },
+            {
+              "include": "#glyphs"
+            },
+            {
+              "include": "#values"
+            },
+            {
+              "include": "#predicates"
+            },
+            {
+              "include": "#punctuation"
+            },
+            {
+              "comment": "A state name.",
+              "name": "storage.type.sigil.state",
+              "match": "[A-Za-z_][\\w-]*"
+            }
+          ]
         }
       ]
     },

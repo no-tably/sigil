@@ -83,6 +83,20 @@
 
     <dict>
       <key>name</key>
+      <string>Sigil state name in a state block (cyan, theme kinds.state)</string>
+      <key>scope</key>
+      <string>storage.type.sigil.state</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#5ccfe6</string>
+        <key>fontStyle</key>
+        <string>italic</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
       <string>Sigil external op name (op ns.verb, periwinkle)</string>
       <key>scope</key>
       <string>entity.name.function.sigil</string>

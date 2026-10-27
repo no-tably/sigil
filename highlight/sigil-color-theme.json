@@ -37,6 +37,16 @@
       }
     },
     {
+      "name": "State name in a state block (cyan, theme kinds.state)",
+      "scope": [
+        "storage.type.sigil.state"
+      ],
+      "settings": {
+        "foreground": "#5ccfe6",
+        "fontStyle": "italic"
+      }
+    },
+    {
       "name": "External op name — op ns.verb (periwinkle)",
       "scope": [
         "entity.name.function.sigil"

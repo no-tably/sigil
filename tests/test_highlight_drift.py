@@ -142,7 +142,7 @@ PYGMENTS_CLASSES = (
 # comparisons, sigilMeta the hole `?`.
 VIM_CLASSES = {
     "sigilKeyword": "syntax.keyword", "sigilGlyphDelim": "syntax.keyword",
-    "sigilTypeName": "kinds", "sigilGlyph": "kinds", "sigilBranchCond": "kinds",
+    "sigilTypeName": "kinds", "sigilStateName": "kinds", "sigilGlyph": "kinds", "sigilBranchCond": "kinds",
     "sigilModifier": "syntax.modifier", "sigilOperator": "syntax.operator",
     "sigilBranch": "syntax.operator", "sigilCard": "syntax.cardinality",
     "sigilBranchWeight": "syntax.number", "sigilNumber": "syntax.number",
@@ -216,13 +216,6 @@ EXCEPTIONS = (
         "grammars give every parenthesis one punctuation scope (the call-args rule "
         "cannot tell a call's from a modifier's).",
         lambda d: d.role == "syntax.call" and d.grammar == "syntax.punct" and d.ch in "()"),
-    Exception_(
-        "state-names", "open",
-        "A state name inside a `state … { }` body: sigil colours it kinds.state; the "
-        "grammars have no state-block context and read a bare name. A state-block region "
-        "in the four grammars would close this (and the one-line `state {S} { + -<Go>-> "
-        "Run }`, which the grammars read as a {data} glyph).",
-        lambda d: d.role == "kinds.state" and d.grammar == "syntax.tag"),
     Exception_(
         "on-of-words", "by design",
         "`on` / `of` away from `branch on` / `loop … of` (prose: `subgraph of facts`): sigil "

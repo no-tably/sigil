@@ -78,6 +78,7 @@ T_SecName        = T.Doc.Section.Name   # the section name
 # position.
 T_Glyph          = T.Glyph              # [ ] { } < > ( ) | |  + the ~ * prefixes
 T_GlyphName      = T.Glyph.Name         # the identifier inside a glyph
+T_StateName      = T.Glyph.Name.State   # a state name in a `state` block's body
 
 # Control keywords (state / loop / parallel / branch, + on / of / op).
 T_Keyword        = T.Keyword
@@ -151,6 +152,25 @@ class SigilLexer(RegexLexer):
         ],
 
         'root': [
+            # A state block `state <owner> {` (one line or many): its body's
+            # bare names are state names; `+ $ _` its anchors; it ends at the
+            # `}` that closes it.
+            (r'^([ \t]*)(state)(?=[ \t{])(?:([ \t]*)([~*]?)([\[{<(|])([^\[\]{}<>()|\s]+)([\]}>)|]))?'
+             r'([^{\n#]*?)(\{)',
+             bygroups(Whitespace, T_Keyword, Whitespace, T_Glyph, T_Glyph, T_GlyphName,
+                      T_Glyph, Token.Text, Punctuation), 'statebody'),
+            include('code'),
+            include('names'),
+        ],
+
+        'statebody': [
+            (r'\}', Punctuation, '#pop'),
+            (r'(?<!\S)\+(?=\s|$)', T_Anchor),     # the start state (also before `->`)
+            include('code'),
+            (_IDENT, T_StateName),
+        ],
+
+        'code': [
             include('common'),
 
             # Composition-tree branch marker — only at a line start (after the
@@ -241,7 +261,9 @@ class SigilLexer(RegexLexer):
 
             # Punctuation glue: `:` `,` `.`.
             (r'[:,.]', Punctuation),
+        ],
 
+        'names': [
             # A call's name, right before its `(`: `charge({Order})`, `walk(.children)`.
             (r'[A-Za-z_][\w.]*(?:-[\w.]+)*(?=\()', T_CallName),
             # Bare identifier — a state name, branch arm label, alias name, map key.
@@ -320,6 +342,7 @@ _COLORS = {
     # Signature roles.
     T_Glyph:           "#c850e0",                # structure brackets (magenta)
     T_GlyphName:       "italic #8aa0ff",         # name in type position (periwinkle)
+    T_StateName:       "italic #5ccfe6",         # a state name (cyan, theme kinds.state)
     T_Keyword:         "bold #c850e0",           # control keyword (magenta, bold)
     T_Arrow:           "#e85d9e",                # operator (pink)
     T_Join:            "#e85d9e",                # joins read as operators

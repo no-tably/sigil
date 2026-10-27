@@ -12,6 +12,8 @@ endif
 
 " --- Bare names: states / labels / verbs / map keys (lowest priority) -------
 syn match sigilTag "[A-Za-z_][[:alnum:]_-]*"
+" A state name, in a state block's body (sigilStateBody, below) in sigilTag's place.
+syn match sigilStateName "[A-Za-z_][[:alnum:]_-]*" contained containedin=sigilStateBody
 " A call's name, right before its `(`: charge({Order}), walk(.children).
 syn match sigilCallName "[A-Za-z_][[:alnum:]_.]*\%(-[[:alnum:]_.]\+\)*\ze("
 
@@ -88,6 +90,15 @@ syn match sigilRef "\${[^}]*}" contains=sigilRefBrace
 syn match sigilRefBrace "\${" contained
 syn match sigilRefBrace "}" contained
 
+" --- State blocks ----------------------------------------------------------
+" `state <owner> {` … `}` (one line or many): from after the keyword to the `}`
+" that closes the body (the owner glyph's own `}` is inside its glyph). In the
+" body a bare name is a state name (sigilStateName, defined with sigilTag so
+" every other item still wins over it), `+ $ _` its anchors.
+syn region sigilStateBody start="\%(^\s*state\)\@<=\ze\%(\s[^#]*\)\={" matchgroup=sigilPunct end="}"
+      \ transparent contains=TOP,sigilTag
+syn match sigilMeta "\%(^\|\s\)\zs+\ze\%(\s\|$\)" contained containedin=sigilStateBody
+
 " --- Control keywords + the external op-call name --------------------------
 syn keyword sigilKeyword state loop parallel branch on of op
 syn match sigilOpName "\%(\<op\s\+\)\@<=[A-Za-z_][[:alnum:]_-]*\%(\.[A-Za-z_][[:alnum:]_-]*\)\+"
@@ -109,6 +120,7 @@ syn match sigilKeyword "\%(^\|[^[:alnum:]_-]\)\@1<=\%(service\|library\|daemon\|
 hi def link sigilKeyword        Statement
 hi def link sigilGlyphDelim     Statement
 hi def link sigilTypeName       Type
+hi def link sigilStateName      Type
 hi def link sigilModifier       StorageClass
 hi def link sigilOperator       Operator
 hi def link sigilCard           Operator

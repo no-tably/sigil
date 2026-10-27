@@ -85,6 +85,7 @@ CORE_SCOPES = {
     "keyword.control.sigil.glyph",
     "keyword.control.sigil.glyph-prefix",
     "storage.type.sigil",
+    "storage.type.sigil.state",
     "entity.name.tag.sigil",
     # keywords + op-call
     "keyword.control.sigil",
@@ -401,7 +402,7 @@ class TestVim(unittest.TestCase):
     """The vim syntax defines, links and colours every group it uses."""
 
     EXPECTED_GROUPS = {
-        "sigilKeyword", "sigilGlyphDelim", "sigilTypeName", "sigilModifier",
+        "sigilKeyword", "sigilGlyphDelim", "sigilTypeName", "sigilStateName", "sigilModifier",
         "sigilOperator", "sigilCard", "sigilBranch", "sigilBranchCond", "sigilBranchWeight",
         "sigilOpName", "sigilCallName", "sigilShebang",
         "sigilSecName", "sigilSecRail", "sigilSecLevel", "sigilRef",
@@ -423,7 +424,7 @@ class TestVim(unittest.TestCase):
     def test_every_used_group_is_linked(self):
         # Transparent containers take no colour of their own.
         used = set(re.findall(r"\b(sigil[A-Z]\w*)", self.syn)) - {"sigilGlyph", "sigilArgs",
-                                                                  "sigilKindLine"}
+                                                                  "sigilKindLine", "sigilStateBody"}
         linked = set(re.findall(r"^hi def link (sigil\w+)", self.syn, re.M))
         self.assertEqual(used - linked, set())
 
@@ -513,6 +514,8 @@ class TestRender(unittest.TestCase):
         self.assertEqual(at(3, "×3", line3), "sigilCard")
         self.assertEqual(at(4, "state"), "sigilKeyword")
         self.assertEqual(at(5, "+"), "sigilMeta")
+        self.assertEqual(at(5, "Run"), "sigilStateName")
+        self.assertEqual(at(6, "}"), "sigilPunct")
         self.assertEqual(at(8, "\\-"), "sigilBranch")
         self.assertEqual(at(8, "hit"), "sigilBranchCond")
         self.assertEqual(at(8, "-?"), "sigilBranch")
