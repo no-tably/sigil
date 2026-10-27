@@ -86,6 +86,10 @@
   # daemon ending, in-process network, deterministic concurrency; the Doc carries the Kind
   # a comment-only line whose `#` sits under the previous line's trailing `#`
   # continues that comment (its node's note); `# accepts:` never continues
+  # round 7: a glyph name never holds a comma: `{a, b}` is a set (a value: Lex's set token,
+  # no node), wherever it stands; a data expansion's bare names are its shape:
+  # `{Doc} := { path, text, note? }` (field names, `?` optional, a glyph for a nested shape;
+  # no types), carried on the Doc as shapes
 }
 
 [Model] := {
@@ -122,6 +126,7 @@
 [Analyse] := {
   # diagnosis: lint (form) and checks (meaning), one finding shape
   [Lint] -> [Core] : read({Text}) => {Statements}             # rules over tokens and statements, and a dialect's lint rules
+  # round 7: a set as a flow's end, a bare name outside a data expansion, a field written twice
   # Lint on the kind line: an unknown word, two words of one choice, a `#%` not after the
   # mode line; `deterministic` beside `parallel @any` or a `&?` race (a claim the design breaks)
   [Check] -> [Core] : parse({Text}) => {Doc}
@@ -158,6 +163,8 @@
   [Mermaid] -> [Core] : parse({Text}) => {Doc}                 # any mode, no gate; an unlisted dialect kind → core shape
   [Spine] -> [Model] : systems({Doc}) => {Spine}               # --spine: a subgraph per system
   [Spine] -> [Mermaid] : chart({Doc}) => {Chart}
+  # round 7: a component's interface hash covers the shapes of the data its flows carry
+  # (a field added to {X} rechecks every part that sends or takes {X}); comments stay body only
   # Hashes: no line numbers, order, spacing or top name; `#&` declarations in the
   # body hash; a dialect's attrs as written; system.json adds lines per component and flow
   # manifest: top, dialect {name, version}, systems {interface, body, components,

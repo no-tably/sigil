@@ -400,3 +400,41 @@ wins): an explicit `--theme` (or a stream `{"theme"}`), then $SIGIL_THEME, then 
 THEME, else sigil. It
 applies to every command that themes (view, frames, highlight), so a dialect's drawings and
 its source agree. A file naming its own dialect stays a later round.
+
+## Round 7: sets and data shapes (2026-10-27, proposed for 0.6.7)
+
+Found while building 0.6.6 (H6) and cure's S2. Readings (scratchpad repros):
+- `{pending, active}` in `branch on`, `@while`, a `?>` guard, or `[A] -> {B, C}` is read as a
+  data glyph named "pending, active" (lex GLYPH_PATTERNS / tokens.glyph_spans allow commas);
+  `export --mermaid` draws it as a node. language.md calls it a set (a value). The grammars
+  (H6) already read it as a set, so sigil and the editors disagree there.
+- `{Doc} := { path, text, note }` lints clean, but the bare names vanish (0 members), and
+  the expansion becomes an export **system** "Doc" with an empty interface.
+- A tree-described system has no interface: cure's Board, OrchestratorTab and Controls
+  all export interface `4f53cda18c2baa0c` = sha256("[]"). Their shape is `\-&` data children
+  whose fields live in comments, so SpecDoc gaining `note` moved only body hashes. Nothing
+  downstream can tell an interface change from an edit.
+- No spec in use writes either form (construct, cure, sigil.sigil, site examples: grep).
+
+Modelled: comments in [Core] (Lex's set token; shapes on the Doc), [Lint] (three rules),
+[Publish] Hashes (shapes in the interface). No new module, flow or dependency. Readings:
+lint OK, check 0 findings.
+
+Proposals (each to settle with the user):
+1. A glyph name never holds a comma: `{a, b}` is a set, a value, wherever it stands. It
+   makes no node and draws no Mermaid node. Lint: a set as a flow's end is an error (write
+   one flow per glyph).
+2. Data shapes: a data expansion's bare names are its fields: `{Doc} := { path, text, note? }`.
+   Only names: `?` marks a field optional, and a glyph names a nested shape (`rows: {Rows}`
+   or just `{Rows}`). There are no types (language.md's "no schema syntax" stays true for
+   types). A data expansion is the data's shape, not a system: no export folder.
+3. Interface covers shapes: a component's interface hash covers its flows plus the shapes
+   of the data they carry. A system's interface covers its boundary flows plus the shapes
+   of the data crossing its boundary or held by its face's tree (`\-&` data children).
+   Adding a field then rechecks every part that sends or takes that data. Comments stay
+   body only.
+4. Lint: a bare name outside a data expansion (warn; today it is dropped silently), and a
+   field written twice (error).
+5. Migration: cure writes its data children's shapes (SpecDoc, Task, Builder …), its
+   interface hashes stop being empty, and construct's lock updates once. Hashes move only
+   for specs that write shapes or tree data.
