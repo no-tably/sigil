@@ -19,6 +19,7 @@
 # dialect: Python code from a path, $SIGIL_DIALECT_PATH or ../sigil-NAME, executed inside
 #   lint, check, view and export (prepasses, strips, tokenizers, `#&` declarations, rules, rule packs)
 # themes: YAML from themes/ or $SIGIL_THEME_PATH, or a PATH; values are strings, no code
+#   or the theme a loaded dialect names (THEME), read the same way: still data, no code
 # export folder: written and deleted under the manifest rule (below, Publish)
 # hosts: argv on a spawned `sigil`; the split's control file names the argv `sigil view` runs
 # Pyodide: the visitor's text only; no files, no dialect, no export
@@ -34,7 +35,7 @@
   (Author) -> [ViewCmd] : watch({Argv}) => {Drawing}          # a person at a terminal: the live view
   (Host) -> [FramesCmd] : frames({Argv}) => {Frames}          # the Claude Code mod and pi (the agent's viewer tool)
   (Host) -> [HighlightCmd] : source({Argv}) => {Runs}        # construct's spec pane; any host that shows a .sigil file
-  (Editor) -> [HighlightCmd] : edit({Lines}) => {Runs}       # --stream: one live process; a changed line range in, its runs out (JSON lines)
+  (Editor) -> [HighlightCmd] : edit({Lines}) => {Runs}       # --stream: one live process; a changed line range in, its runs out (JSON lines); {theme} and {dialect} requests switch them
   (Dialect) -> [LintCmd] : run({Argv}) => {Diagnostics}       # a dialect's wrapper: cli.main(argv, dialect=NAME), any command
   [LintCmd] -> [Analyse] : lint({Text}) => {Diagnostics}      # sigil lint (--deep also runs check)
   [CheckCmd] -> [Analyse] : check({Text}) => {Findings}       # sigil check (--limit, --budget, --overlaps, --export, --all-rules)
@@ -183,6 +184,7 @@
   [Highlight] -> [Core] : read({Text}) => {Statements}         # tokens with their columns, `#&` and `#%` lines included
   [Highlight] -> [Themes] : theme({Name}) => {Palette}         # the theme's syntax roles (operator, keyword, modifier …)
   [Themes] -> |ThemeFiles| : read({Yaml}) => {Yaml}
+  [Themes] -> [Core] : dialect({Name}) => {Hooks}             # a dialect's THEME (a theme name, or a YAML path beside the dialect): the default when no --theme is given
   (Author) -> |ThemeFiles| : edit({Yaml})                      # themes/ beside the package, $SIGIL_THEME_PATH, or a PATH
   # read once per run, whole: a theme applies only once it parses and resolves, so a save
   # caught half-written stops the run (exit 2), never draws half a theme
