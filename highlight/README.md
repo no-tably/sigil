@@ -23,7 +23,7 @@ scopes with neutral values.
 | arrows · `:=` · joins · value operators | `-> ~> <-> => !> ?> *> →`, `:=`, `&` `&?`, `++ \|\| + - * /` | `keyword.operator.sigil.*` | pink `#e85d9e` |
 | cardinality / stream cap | `×3` `xN` `^10k` | `keyword.operator.sigil.cardinality` | soft pink `#f59cc4` |
 | modifiers | `@inv @sla @timeout @fallback @cap @owns @borrow @read @write @each @all …`, critical `!`, optional `?` | `storage.modifier.sigil` | less-gold `#ffe0b0` |
-| external op-call name | `db.insert` in `op db.insert(…)` | `entity.name.function.sigil.op` | periwinkle |
+| external op-call name | `db.insert` in `op db.insert(…)` | `entity.name.function.sigil.op` | rose `#f08cac` (a call's name: theme `syntax.call_name`, as sigil highlights it) |
 | call name | `charge` in `charge({Order})`, `walk(.children)` | `entity.name.function.sigil.call` | rose `#f08cac` |
 | mode line | `#!spec` `#!sketch` `#!craft` (a line-leading `#!` holds its whole line) | `keyword.other.sigil.shebang` | gold `#e3c000` bold |
 | kind line | `#% daemon in-process` | mark `keyword.other.sigil.shebang` · known words `keyword.control.sigil` | gold · magenta |

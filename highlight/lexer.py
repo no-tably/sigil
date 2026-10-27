@@ -375,7 +375,7 @@ _COLORS = {
     T_Mod:             "#ffe0b0",                # modifiers (less-gold)
     T_Card:            "#f59cc4",                # cardinality (soft pink)
     T_Branch:          "#5abea0",                # composition-tree branch marker (teal)
-    T_OpName:          "#8aa0ff",                # external op ns.verb (periwinkle)
+    T_OpName:          "#f08cac",                # external op ns.verb (rose, as a call's name)
     T_CallName:        "#f08cac",                # a call's name (rose)
 
     # Structural sigils — muted.

@@ -1,7 +1,7 @@
 {
   "name": "Sigil",
   "type": "dark",
-  "comment": "VSCode/TextMate color theme for core Sigil. Maps the scopes emitted by sigil.tmLanguage.json to the palette hexes: magenta structure (glyph delimiters non-bold, control keyword bold) · periwinkle names · less-gold modifiers · pink operator + soft-pink cardinality · first-class mode line (gold) and section header (slate rails / violet level / near-white name). Universal roles (refs, strings, numbers, constants, comments, punctuation) use neutral shared values.",
+  "comment": "VSCode/TextMate color theme for core Sigil. Maps the scopes emitted by sigil.tmLanguage.json to the palette hexes: magenta structure (glyph delimiters non-bold, control keyword bold) · periwinkle names · rose call names (an op's verb too) · less-gold modifiers · pink operator + soft-pink cardinality · first-class mode line (gold) and section header (slate rails / violet level / near-white name). Universal roles (refs, strings, numbers, constants, comments, punctuation) use neutral shared values.",
   "colors": {
     "editor.background": "#0d1117",
     "editor.foreground": "#c9d1d9"
@@ -47,18 +47,9 @@
       }
     },
     {
-      "name": "External op name — op ns.verb (periwinkle)",
+      "name": "Call name — charge({Order}) and the external op ns.verb (rose, theme syntax.call_name)",
       "scope": [
         "entity.name.function.sigil"
-      ],
-      "settings": {
-        "foreground": "#8aa0ff"
-      }
-    },
-    {
-      "name": "Call name — charge({Order}) (rose)",
-      "scope": [
-        "entity.name.function.sigil.call"
       ],
       "settings": {
         "foreground": "#f08cac"

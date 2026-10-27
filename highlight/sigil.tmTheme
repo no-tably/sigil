@@ -97,21 +97,9 @@
 
     <dict>
       <key>name</key>
-      <string>Sigil external op name (op ns.verb, periwinkle)</string>
+      <string>Sigil call name: charge({Order}) and the external op ns.verb (rose, theme syntax.call_name)</string>
       <key>scope</key>
       <string>entity.name.function.sigil</string>
-      <key>settings</key>
-      <dict>
-        <key>foreground</key>
-        <string>#8aa0ff</string>
-      </dict>
-    </dict>
-
-    <dict>
-      <key>name</key>
-      <string>Sigil call name (charge({Order}), rose)</string>
-      <key>scope</key>
-      <string>entity.name.function.sigil.call</string>
       <key>settings</key>
       <dict>
         <key>foreground</key>

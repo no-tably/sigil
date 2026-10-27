@@ -330,7 +330,7 @@ class TestThemes(unittest.TestCase):
             "keyword.control.sigil.glyph": "#c850e0",
             "keyword.control.sigil": "#c850e0",
             "storage.type.sigil": "#8aa0ff",
-            "entity.name.function.sigil": "#8aa0ff",
+            "entity.name.function.sigil": "#f08cac",   # an op's verb is a call's name
             "storage.modifier.sigil": "#ffe0b0",
             "keyword.operator.sigil": "#e85d9e",
             "keyword.operator.sigil.cardinality": "#f59cc4",

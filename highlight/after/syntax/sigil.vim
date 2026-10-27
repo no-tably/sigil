@@ -14,7 +14,7 @@ hi sigilKeyword       guifg=#c850e0 gui=bold    ctermfg=170 cterm=bold
 hi sigilGlyphDelim    guifg=#c850e0 gui=NONE    ctermfg=170 cterm=NONE
 hi sigilTypeName      guifg=#8aa0ff gui=italic  ctermfg=111 cterm=italic
 hi sigilStateName     guifg=#5ccfe6 gui=italic  ctermfg=80  cterm=italic
-hi sigilOpName        guifg=#8aa0ff gui=NONE    ctermfg=111 cterm=NONE
+hi sigilOpName        guifg=#f08cac gui=NONE    ctermfg=211 cterm=NONE
 hi sigilCallName      guifg=#f08cac gui=NONE    ctermfg=211 cterm=NONE
 hi sigilModifier      guifg=#ffe0b0 gui=NONE    ctermfg=223 cterm=NONE
 hi sigilOperator      guifg=#e85d9e gui=NONE    ctermfg=168 cterm=NONE
