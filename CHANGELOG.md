@@ -2,7 +2,7 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
-## 0.6.7 — unreleased
+## 0.6.7 — 2026-10-28
 
 Data can say what it holds: a data glyph's expansion lists its field names, and an
 export counts those shapes in the interface, so a field added reaches every part
