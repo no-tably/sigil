@@ -395,7 +395,8 @@ Live editing (user: "highlight in construct as well as in an IDE, equally"):
 
 Round 6 addendum (user, 2026-10-27): a dialect switch in `--stream` (`{"dialect": NAME|PATH}`,
 like `{"theme"}`), and a dialect may carry its own theme: a `THEME` hook (a theme name, or
-a YAML path beside the dialect module), read by [Themes] as data. Precedence: an explicit
-`--theme` (or a stream `{"theme"}`) wins, then the dialect's THEME, then the default. It
+a YAML path beside the dialect module), read by [Themes] as data. Precedence (user: SIGIL_THEME
+wins): an explicit `--theme` (or a stream `{"theme"}`), then $SIGIL_THEME, then the dialect's
+THEME, else sigil. It
 applies to every command that themes (view, frames, highlight), so a dialect's drawings and
 its source agree. A file naming its own dialect stays a later round.
