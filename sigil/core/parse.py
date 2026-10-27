@@ -633,8 +633,14 @@ class _Builder:
     each body Doc it needs built and is sent that body's Graph back, so nesting
     grows a stack (_build), not the Python call stack."""
 
-    def __init__(self, walk: Walk, doc: Doc, dialect, hole_seq: Optional[list] = None):
+    def __init__(self, walk: Walk, doc: Doc, dialect, hole_seq: Optional[list] = None,
+                 shape: bool = False):
         self.walk, self.doc, self.dialect = walk, doc, dialect
+        # A data expansion's body: its own level's field lines are its shape
+        # (_shape), no flows, so a field makes no node however it is written
+        # (`{Meta}` alone, `rows: {Row}`, one line or many).
+        self.shape = shape
+        self.body_shape = False           # whether the body run() yields is a shape
         self.graph = Graph()
         if hole_seq is not None:
             self.graph.hole_seq = hole_seq
@@ -691,7 +697,11 @@ class _Builder:
     def run(self):
         for it in self.doc.items:
             if isinstance(it, Flow):            # the most common item first
-                self._flow_line(it.line, it.statement, it.arm)
+                if self.shape and not self.frames and it.statement is not None \
+                        and read_fields(it.statement) is not None:
+                    self._field_line(it.line)
+                else:
+                    self._flow_line(it.line, it.statement, it.arm)
             elif isinstance(it, NoteItem):
                 self.above.append((it.text, self.ln(it.line)))
             elif isinstance(it, Blank):          # a blank line detaches waiting comments
@@ -706,6 +716,7 @@ class _Builder:
                 self._section(it)
             elif isinstance(it, Definition):
                 head = self._definition(it)
+                self.body_shape = is_shape(it)
                 sub = (yield it.body) if it.closed else None
                 self._defined(it, head, sub)
             elif isinstance(it, StateHead):
@@ -920,8 +931,9 @@ class _Builder:
         out = []
         for st in level_statements(body):
             for name, optional, glyph in read_fields(st) or ():
-                shape = parse_glyph(glyph, self.layer).id if glyph else None
-                out.append(Field(field_name(name, glyph), optional, shape))
+                node = parse_glyph(glyph, self.layer) if glyph else None
+                out.append(Field(field_name(name, glyph), optional,
+                                 node.id if node else None, node.name if node else None))
         return tuple(out)
 
     def _state_head(self, it: StateHead):
@@ -1022,6 +1034,15 @@ class _Builder:
             _add_mod(b.modifiers, p)
 
     # -- flows ----------------------------------------------------------------
+
+    def _field_line(self, k: int):
+        """A line of fields in a data shape (line index k): read by _shape, it
+        draws nothing; it is a statement, so the comments waiting above it are
+        its own (they describe no node)."""
+        self.anchor = None
+        self.last_src = None
+        self.after_block = None
+        self.attach(None, k)
 
     def _flow_line(self, k: int, st, arm: Optional[str], out: Optional[dict] = None,
                    in_header: bool = False):
@@ -1174,7 +1195,8 @@ def _build(walk: Walk, dialect) -> Graph:
             value = stop.value
             continue
         value = None
-        child = _Builder(walk, doc, dialect, builders[-1].graph.hole_seq)
+        child = _Builder(walk, doc, dialect, builders[-1].graph.hole_seq,
+                         builders[-1].body_shape)
         builders.append(child)
         runs.append(child.run())
 

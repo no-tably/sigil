@@ -152,6 +152,29 @@ class InterfaceCoversShapes(unittest.TestCase):
         self.assertNotEqual(iface(nested)[0]["Core"], iface(deeper)[0]["Core"])
         self.assertNotEqual(iface(nested)[1]["Store_service"], iface(deeper)[1]["Store_service"])
 
+    def test_a_nested_glyph_alone_reads_the_same_inline_or_on_its_own_line(self):
+        # a field is no node in either form (K1): the same components, homes and hashes
+        inline = EDITOR.replace("{ path, text }", "{ path, text, {Meta} }")
+        lines = EDITOR.replace("{ path, text }", "{\n  path\n  text\n  {Meta}\n}")
+        a, b = model(inline), model(lines)
+        self.assertNotIn("Meta_data", a.components)
+        self.assertEqual(sorted(a.systems), sorted(b.systems))
+        for k in a.systems:
+            self.assertEqual((a.systems[k].interface_hash, a.systems[k].body_hash),
+                             (b.systems[k].interface_hash, b.systems[k].body_hash), k)
+        self.assertEqual({k: (c.home, c.interface_hash, c.body_hash)
+                          for k, c in a.components.items()},
+                         {k: (c.home, c.interface_hash, c.body_hash)
+                          for k, c in b.components.items()})
+        self.assertIn({"glyph": "{Doc}", "fields": [{"name": "Meta", "shape": "{Meta}"},
+                                                    {"name": "path"}, {"name": "text"}]},
+                      shapes(inline, "Core"))
+
+    def test_a_field_s_glyph_is_named_as_written(self):
+        odd = EDITOR.replace("{ path, text }", "{ path, rows: {Méta}, {Page<T>} }")
+        got = shapes(odd, "Core")[0]["fields"]
+        self.assertEqual([f.get("shape") for f in got], ["{Page<T>}", None, "{Méta}"])
+
     def test_an_empty_shape_differs_from_none(self):
         empty = EDITOR.replace("{ path, text }", "{ }")
         self.assertIn({"glyph": "{Doc}", "fields": [], "held": True}, shapes(empty, "Panel"))

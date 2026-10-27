@@ -4,7 +4,8 @@ optional, a data glyph `{Rows}` or `rows: {Rows}` a nested shape, comma- or
 newline-separated, in written order. The parsed document carries them as
 Graph.shapes (data id → (Field, …)). A data expansion is the data's shape, no
 export system: it gets no folder, {Doc} stays a component homed as before, and a
-nested glyph its shape names lives in the system the shape is written in. Lint:
+field is never a node (`{Meta}` alone or `meta: {Meta}`, one line or many): a
+glyph a shape names only in a field is no component. Lint:
 a bare name outside a data expansion is a warn (SGL191; the parser drops it), a
 field written twice in one shape an error (SGL192)."""
 
@@ -64,7 +65,12 @@ class Reading(unittest.TestCase):
         f = Field("path")
         with self.assertRaises(Exception):
             f.name = "other"            # frozen
-        self.assertEqual((f.name, f.optional, f.shape), ("path", False, None))
+        self.assertEqual((f.name, f.optional, f.shape, f.glyph), ("path", False, None, None))
+
+    def test_a_nested_field_keeps_its_glyph_s_name_as_written(self):
+        got = shapes("#!sketch\n{Doc} := { rows: {Méta}, {Page<T>}? }\n")["Doc_data"]
+        self.assertEqual([(f.name, f.glyph) for f in got],
+                         [("rows", "Méta"), ("Page<T>", "Page<T>")])
 
     def test_lines_that_are_no_fields(self):
         for line in ("[A] -> [B]", "a b", "x: y", "rows: [Row]", "_", "{a, b}",
@@ -98,7 +104,52 @@ class Reading(unittest.TestCase):
 
     def test_the_bare_names_make_no_nodes(self):
         g = render.parse_document("#!sketch\n{Doc} := { path, text, {Meta} }\n")
-        self.assertEqual(set(g.expansions["Doc_data"].nodes), {"Meta_data"})
+        self.assertEqual(set(g.expansions["Doc_data"].nodes), set())
+
+
+class FieldIsNoNode(unittest.TestCase):
+    """One rule (patch-0.6.8 K1): a field is never a node, a nested glyph written
+    alone or after a name, on one line or its own: a shape is data about the
+    data, not a part."""
+
+    FORMS = ("{Doc} := { path, {Meta} }",
+             "{Doc} := { path, {Meta}? }",
+             "{Doc} := { path, meta: {Meta} }",
+             "{Doc} := {\n  path\n  {Meta}\n}",
+             "{Doc} := {\n  path\n  {Meta}?\n}",
+             "{Doc} := {\n  path\n  meta: {Meta}\n}",
+             "{Doc} := {\n  path, {Meta}\n}")
+
+    def test_every_form_makes_no_node(self):
+        for form in self.FORMS:
+            with self.subTest(form=form):
+                g = render.parse_document("#!sketch\n[A] -> [B] : f({Doc})\n" + form + "\n")
+                self.assertEqual(g.expansions["Doc_data"].nodes, {})
+                self.assertNotIn("Meta_data", g.nodes)
+                self.assertEqual(g.shapes["Doc_data"][1].shape, "Meta_data")
+
+    def test_a_comment_on_a_field_describes_no_node(self):
+        g = render.parse_document("#!sketch\n{Doc} := {\n  # the header\n"
+                                  "  {Meta}   # who wrote it\n}\n")
+        self.assertEqual([n for gg in (g, *g.expansions.values()) for n in gg.notes], [])
+
+    def test_a_flow_in_the_shape_still_draws_the_glyph(self):
+        g = render.parse_document("#!sketch\n{Doc} := {\n  {Meta}\n  [A] -> {Meta}\n}\n")
+        self.assertEqual(set(g.expansions["Doc_data"].nodes), {"A_service", "Meta_data"})
+        self.assertEqual([f.name for f in g.shapes["Doc_data"]], ["Meta"])
+
+    def test_a_glyph_alone_inside_a_control_block_is_still_drawn(self):
+        g = render.parse_document("#!sketch\n{Doc} := {\n  loop @each x {\n"
+                                  "    {Meta}\n  }\n}\n")
+        self.assertIn("Meta_data", g.expansions["Doc_data"].nodes)
+        self.assertEqual(g.shapes["Doc_data"], ())
+
+    def test_outside_a_shape_a_glyph_alone_is_still_a_node(self):
+        for text in ("#!sketch\n{Meta}\n", "#!sketch\n[Api] := {\n  {Meta}\n}\n"):
+            with self.subTest(text=text):
+                g = render.parse_document(text)
+                self.assertTrue(any("Meta_data" in gg.nodes
+                                    for gg in (g, *g.expansions.values())))
 
 
 class Export(unittest.TestCase):
@@ -110,9 +161,21 @@ class Export(unittest.TestCase):
         self.assertEqual(list(m.systems), ["d"])
         self.assertIn("Doc_data", m.components)
         self.assertEqual(m.components["Doc_data"].home, "d")
-        # the nested glyph lives where the shape is written
-        self.assertEqual(m.components["Meta_data"].home, "d")
+        # a glyph named only in a field is no part: no component
+        self.assertNotIn("Meta_data", m.components)
         self.assertEqual(m.shared, ())
+
+    def test_a_glyph_named_alone_or_by_name_exports_alike(self):
+        alone = self.model(DOC + "{Doc} := {\n  path\n  {Meta}\n}\n")
+        named = self.model(DOC + "{Doc} := { path, Meta: {Meta} }\n")
+        self.assertEqual(sorted(alone.components), sorted(named.components))
+        self.assertEqual(
+            {k: (c.home, c.interface_hash) for k, c in alone.components.items()},
+            {k: (c.home, c.interface_hash) for k, c in named.components.items()})
+
+    def test_a_shaped_nested_glyph_is_homed_where_its_shape_is(self):
+        m = self.model(DOC + "{Doc} := { path, {Meta} }\n{Meta} := { author }\n")
+        self.assertEqual(m.components["Meta_data"].home, "d")
 
     def test_a_service_expansion_still_is_a_system(self):
         m = self.model(DOC + "[Api] := {\n  [Parse] -> [Load]\n}\n")
@@ -137,7 +200,8 @@ class Export(unittest.TestCase):
         g = render.parse_document(DOC + "{Doc} := { path, {Meta} }\n")
         units = structure.structure_of(g, "d").units
         self.assertEqual([u.key for u in units], ["d"])
-        self.assertIn("{Meta}", units[0].members)
+        self.assertNotIn("{Meta}", units[0].members)       # a field is no member
+        self.assertIn("{Doc}", units[0].members)
 
 
 class Lint(unittest.TestCase):

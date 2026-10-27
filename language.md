@@ -740,6 +740,10 @@ whole document).
   or after a name (`tags: {Tag}`). Either may be optional (`tags?: {Tag}` or
   `{Meta}?`). A nested glyph with no shape of its own is still a field; its shape is
   just not written.
+- A field is **never a node**, whichever way it is written: a shape is data about
+  the data, not a part. A glyph a shape names only in its fields is drawn nowhere
+  and exports as no component; write it in a flow, or give it a shape of its own,
+  to make it one.
 - There are **no types**, no defaults and no values: a shape says which fields the
   data has, not what they hold. Say more in a comment.
 - A flow written inside the shape is drawn as usual and adds no field. A line inside

@@ -138,8 +138,9 @@ from sigil.core.lex import GLYPH_BRACKETS
 #   shapes      {data id: (Field, …)}: the shape of each data expansion (`{Doc}
 #               := { path, text, note?, rows: {Row} }`), its fields in written
 #               order (Field). A data expansion is a shape, not a system (export
-#               makes no folder of it); a body line that reads as no field (a
-#               flow) is still drawn in its expansion graph. A graph lists the
+#               makes no folder of it); a field draws nothing (a nested glyph
+#               it names is no node of the body), a body line that reads as no
+#               field (a flow) is still drawn in its expansion graph. A graph lists the
 #               data expansions hung on it; the document's graph lists every
 #               level's (where two give one data id a shape: at one level the
 #               last written, as for its expansion; across levels the outer).
@@ -277,10 +278,13 @@ class Field:
     `{Meta}`, is named after the glyph: "Meta"). `optional`: a `?` follows it
     (`note?`, `rows: {Row}?`). `shape`: the node id of the data glyph whose shape
     the field holds (`rows: {Row}` and `{Row}` → "Row_data"), None for a plain
-    name. Names only: a field has no type (language.md "Data shapes")."""
+    name; `glyph`: that glyph's name as written ("Row"). A field is no node, in
+    either form: a glyph a shape names only here is named by `glyph` alone. Names
+    only: a field has no type (language.md "Data shapes")."""
     name: str
     optional: bool = False
     shape: Optional[str] = None
+    glyph: Optional[str] = None
 
 
 @dataclass

@@ -29,10 +29,10 @@ SYSTEMS (inferred, no syntax of their own)
   tree       every composition-tree root (a glyph with `\\-` branches) is a
              system holding every node of its tree below it.
 
-  A data expansion's header, and a nested data glyph its shape names as a field
-  (`{Meta}`, a field and nothing else there), are no place the data is written
-  when any other level writes it: they are where its shape is written, and
-  the level is its candidate only when nothing else writes it.
+  A data expansion's header is no place the data is written when any other
+  level writes it: it is where its shape is written, and the level is its
+  candidate only when nothing else writes it. A field is no node (`{Meta}` alone
+  or `rows: {Meta}`): a glyph a shape names only in its fields is no component.
 
   An expansion whose owner its level writes only on the `X := {` header (no
   flow, branch or other statement there names X) is the inside of the X written
@@ -373,7 +373,7 @@ class Layout:
                                         # graph of that level writes it otherwise
     shaped: list = field(default_factory=list)       # (node id, system key) where a
                                         # level writes the node only as a data shape's
-                                        # header or a field: a candidate only when
+                                        # header: a candidate only when
                                         # nothing else writes it (see shape_owner)
     follow: list = field(default_factory=list)       # expansion owners written as
                                         # such a reference where their header is: their
@@ -518,10 +518,9 @@ def shape_owner(g, nid: str) -> bool:
         and node.kind == "data"
 
 
-def _lay_graph(g, key: str, lay: Layout, fields: frozenset = frozenset()):
+def _lay_graph(g, key: str, lay: Layout):
     """Record g (written in system `key`): its trees, its nodes' candidates, and
-    then its expansions, depth first. `fields`: when g is a data shape's body,
-    the data glyphs its fields name."""
+    then its expansions, depth first."""
     lay.graph_system[id(g)] = key
     roots = tree_roots(g.tree)
     member = {}
@@ -533,8 +532,7 @@ def _lay_graph(g, key: str, lay: Layout, fields: frozenset = frozenset()):
     for nid in g.nodes:
         if nid not in member:
             local[nid] = key
-            if header_only(g, nid) and shape_owner(g, nid) or nid in fields \
-                    and not any(nid in (e.src, e.dst) for e in g.edges):
+            if header_only(g, nid) and shape_owner(g, nid):
                 lay.shaped.append((nid, key))
                 continue
             if header_only(g, nid):
@@ -563,11 +561,8 @@ def _lay_graph(g, key: str, lay: Layout, fields: frozenset = frozenset()):
         node = g.nodes.get(owner)
         if sub.role == "state":
             lay.machines.setdefault(owner, sub)
-        elif node is None or node.kind == "alias":
+        elif node is None or node.kind == "alias" or shape_owner(g, owner):
             _lay_graph(sub, key, lay)
-        elif shape_owner(g, owner):
-            shape = g.shapes.get(owner, ())
-            _lay_graph(sub, key, lay, frozenset(f.shape for f in shape if f.shape))
         else:
             parent = local.get(owner, key)
             _lay_graph(sub, _system_for(lay, node, "expansion", parent), lay)
@@ -1112,7 +1107,7 @@ def shapes_of(facts: Facts, carried: Iterable[str], held: Iterable[str]) -> tupl
         todo += [f.shape for f in written.get(d, ()) if f.shape in written]
     out = [Shape(data_glyph(d, facts.nodes),
                  None if d not in written else tuple(sorted(
-                     ((f.name, f.optional, data_glyph(f.shape, facts.nodes) if f.shape else None)
+                     ((f.name, f.optional, "{" + f.glyph + "}" if f.shape else None)
                       for f in written[d]), key=lambda x: (x[0], x[1], x[2] or ""))),
                  d in held)
            for d in seen]
@@ -1121,11 +1116,10 @@ def shapes_of(facts: Facts, carried: Iterable[str], held: Iterable[str]) -> tupl
 
 def data_glyph(nid: str, nodes: Mapping) -> str:
     """Data node `nid` as a shape names it, `{Name}` (no `~` or `*`: those are how
-    a flow holds it, not its shape): its name where some level writes the node
-    (component_nodes), else from its id (a glyph named only in a field)."""
-    if nid in nodes:
-        return "{" + nodes[nid][0].name + "}"
-    return "{" + (nid[:-len("_data")] if nid.endswith("_data") else nid) + "}"
+    a flow holds it, not its shape). Every id shapes_of names is a node: data a
+    flow carries or a tree holds, or a shape's owner (a glyph named only in a
+    field is named by Field.glyph)."""
+    return "{" + nodes[nid][0].name + "}"
 
 
 def reached(nid: str, lay: Layout, inside: dict) -> frozenset:

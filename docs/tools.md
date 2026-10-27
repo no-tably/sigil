@@ -281,7 +281,9 @@ so a tree-described system whose tree holds no data and that no flow reaches has
 empty interface (`4f53cda18c2baa0c`, the hash of `[]`), however many members its
 tree lists: counting the members would make an internal reshuffle look like an
 interface change. Write the flow that calls it (`[App] -> [Tab] : view({Board})`).
-A data expansion is the data's shape, not a system: it gets no folder.
+A data expansion is the data's shape, not a system: it gets no folder. A field is
+no node, so a glyph a shape names only in its fields (`{Meta}` alone or `meta:
+{Meta}`) is no component; its name is in the shape.
 
 **`system.json`** is the system's normalised form: `name`, `kind` (`top`,
 `expansion` or `tree`), `face` (the glyph the system is named after), `parent`,
