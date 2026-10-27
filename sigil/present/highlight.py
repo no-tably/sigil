@@ -577,7 +577,7 @@ def _token(t, code: Code, lx: Lexicon, roles: list, first, words: list) -> None:
         _paint(roles, at, end, STRING)
     elif kind == "field":
         _paint(roles, at, end, TAG)
-    elif kind == "evarg":
+    elif kind in ("evarg", "set"):         # a set `{a, b}` reads as held text does
         _pieces(code.raw, at, end, roles)
     elif kind == "op":
         _op(code.raw, at, end, roles)

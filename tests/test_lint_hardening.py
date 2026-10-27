@@ -80,6 +80,7 @@ class Severity(unittest.TestCase):
         "SGL162": "warn", "SGL163": "info", "SGL180": "error", "SGL181": "warn",
         "SGL182": "warn", "SGL183": "warn", "SGL184": "warn", "SGL185": "warn",
         "SGL186": "warn", "SGL187": "info", "SGL188": "warn",
+        "SGL190": "error",      # a set as a flow's end (design/refine-1.md round 7)
     }
 
     def test_table_matches_the_catalog(self):

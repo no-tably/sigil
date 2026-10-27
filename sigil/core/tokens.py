@@ -59,7 +59,7 @@ from sigil.core.lex import (
     GLYPH_PATTERNS, GLYPH_PREFIXES, MODIFIER_RE, MOD_NAME_RE, OPENERS, OPENERS_CLASS, OP_HEAD_RE,
     OP_TARGET_RE, PAYLOAD_RE, PAYLOAD_TAIL_LOOSE_RE, PAYLOAD_TAIL_RE, PREFIXES_CLASS,
     PRINCIPAL_SET_RE, STREAM_BOUND_RE, TAIL_MOD_RE, TAIL_ONLY_RE, balanced_end, code_end,
-    in_string, mask_strings)
+    in_string, is_set, mask_strings)
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +223,7 @@ class Tok(NamedTuple):
     takes as the glyph's cardinality). A payload's `end` is where its text ends
     (its modifiers inside). A dialect glyph carries the dialect's Node."""
     kind: str        # glyph nothing arrow join slash payload mod card bound mark
-                     # field evarg op word str blockopen blockclose alias aref bad
+                     # field evarg op word str set blockopen blockclose alias aref bad
     text: str
     col: int
     problem: str = ""
@@ -879,8 +879,11 @@ def _scan_glyph_token(r: _Reader, i: int):
 
 def _glyph(r: _Reader, i: int, end: int, problem: str) -> tuple:
     """A core glyph token from column i to `end`: the model reads it as a node
-    unless it is broken (unclosed or empty: a void endpoint, flag "void")."""
+    unless it is broken (unclosed or empty: a void endpoint, flag "void"). A set
+    `{a, b}` (lex.is_set) is a `set` token: a value, as a word is, never a node."""
     text = r.code.raw[i:end].replace(_GAP, "")
+    if not problem and is_set(text):
+        return [Tok("set", text, i)], end, False      # `{a, b}`: a value, no node
     flag = "void" if problem in ("unclosed", "empty") else ""
     return [Tok("glyph", text, i, problem, flag=flag)], end, not flag
 

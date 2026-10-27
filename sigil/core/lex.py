@@ -19,7 +19,7 @@ one reading each:
                   CLOSER, OPENERS, CLOSERS and their regex classes,
                   GLYPH_PATTERNS read off it, glyph_name_source),
                   GLYPH_PREFIXES, glyph_kind,
-                  NAME_CHARS, GENERIC,
+                  NAME_CHARS, GENERIC, NOT_A_SET, is_set,
                   GLYPH_RE, GENERIC_RE, ANY_GLYPH_RE, HOLE_RE, DIALECT_COL
     modifiers     PAREN_ARG, FREE_ARG_MODS, ARG_MODIFIERS, MODIFIER_RE,
                   MOD_TOKEN_RE, MOD_NAME_RE, TAIL_ONLY_RE, PRINCIPAL_SET_RE,
@@ -362,9 +362,24 @@ def glyph_kind(text: str) -> Optional[str]:
     return OPEN_TO_KIND.get(text.lstrip(GLYPH_PREFIXES)[:1])
 
 
+# A set (language.md: `{Order}.status ∈ {pending, active}`): braces whose name
+# holds a comma — before any generic `<…>` — are a value, never a data glyph, so
+# a glyph name never holds a comma and a set makes no node wherever it stands.
+# `{Cache<K,V>}` is still a glyph (its comma is a generic's) and `{A}, {B}` is two.
+# NOT_A_SET, written just after a glyph's opening bracket, refuses a `{` set.
+NOT_A_SET = r"(?:(?<!\{)|(?!" + NAME_CHARS + r"*,))"
+_SET_RE = re.compile(r"\{" + NAME_CHARS + r"*,")
+
+
+def is_set(text: str) -> bool:
+    """Whether a bracket group's text (its `~` / `*` prefixes skipped) is a set
+    `{a, b}`: a value, not a data glyph."""
+    return bool(_SET_RE.match(text.lstrip(GLYPH_PREFIXES)))
+
+
 GLYPH_RE = re.compile(
     r"(?P<mut>~)?(?P<stream>\*)?"
-    r"(?P<open>" + OPENERS_CLASS + ")"
+    r"(?P<open>" + OPENERS_CLASS + ")" + NOT_A_SET +
     r"(?P<name>" + NAME_CHARS + r"+(?:" + GENERIC + r")?)"
     r"(?P<close>" + CLOSERS_CLASS + ")"
 )
@@ -376,7 +391,8 @@ def glyph_name_source(kind: str, group: str = "") -> str:
     open_, close = GLYPH_BRACKETS[kind]
     inside = "".join(map(re.escape, dict.fromkeys(open_ + close)))
     cap = f"(?P<{group}>" if group else "("
-    return f"{re.escape(open_)}{cap}[^{inside}]+){re.escape(close)}"
+    not_set = r"(?![^{}<]*,)" if kind == "data" else ""
+    return f"{re.escape(open_)}{not_set}{cap}[^{inside}]+){re.escape(close)}"
 
 
 # One pattern per core glyph kind, group 1 the name (no generics: lint's reading).
@@ -385,7 +401,7 @@ GLYPH_PATTERNS = {kind: re.compile(glyph_name_source(kind)) for kind in GLYPH_BR
 # Any glyph at all (for flow-line analysis). The `<->` bidirectional arrow is
 # never an event glyph `<-…>`.
 ANY_GLYPH_RE = re.compile(
-    r"(\[[^\[\]]+\]|\{[^\{\}]+\}|<(?!->)[^<>]+>|\([^()]+\)|\|[^|]+\|)"
+    r"(\[[^\[\]]+\]|\{(?![^{}<]*,)[^\{\}]+\}|<(?!->)[^<>]+>|\([^()]+\)|\|[^|]+\|)"
 )
 
 # The pieces of a shown text — a payload, a modifier's argument, a block header,

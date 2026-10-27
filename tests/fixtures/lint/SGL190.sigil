@@ -1,0 +1,6 @@
+# expect: SGL190@4 SGL190@5 SGL190@6
+# SGL190 a set `{a, b}` as a flow's end — design/refine-1.md round 7
+#!spec
+[A] -> {B, C}
+{B, C} -> [D]
+[A] -> [X] -> {Y, Z}

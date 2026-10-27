@@ -1,5 +1,5 @@
 """
-Lint hardening (SGL120–188): the lines the parser would misread or drop. The
+Lint hardening (SGL120–188, SGL190): the lines the parser would misread or drop. The
 rules read the document's one reading (sigil.core.statements.read_document):
 each statement's tokens (sigil.core.tokens) and the walk's record of blocks,
 headers, sections, transitions and continuation lines — the same reading the
@@ -13,8 +13,8 @@ from sigil.core import parse as render
 from sigil.core.graph import walk_depth
 from sigil.core.dialects import _hook
 from sigil.core.lex import (
-    ARROWS, CLOSERS_CLASS, MOD_NAME_RE, NAME_CHARS, OPENERS_CLASS, PREFIXES_CLASS, SECTION_RE,
-    glyph_kind)
+    ARROWS, CLOSERS_CLASS, GLYPH_PREFIXES, MOD_NAME_RE, NAME_CHARS, OPENERS_CLASS,
+    PREFIXES_CLASS, SECTION_RE, glyph_kind)
 from sigil.core.statements import StateHead, Statement, Walk, read_document
 from sigil.core.tokens import Code, Tok
 from sigil.core.vocab import LintResult
@@ -45,7 +45,7 @@ HARDENING_SEVERITY = {
     "SGL160": "error", "SGL161": "error", "SGL162": "warn", "SGL163": "info",
     "SGL180": "error", "SGL181": "warn", "SGL182": "warn", "SGL183": "warn",
     "SGL184": "warn", "SGL185": "warn", "SGL186": "warn", "SGL187": "info",
-    "SGL188": "warn",
+    "SGL188": "warn", "SGL190": "error",
 }
 
 
@@ -63,7 +63,7 @@ _RESILIENCE_MODS = {"timeout", "deadline", "fallback"}
 
 
 _STRUCTURAL = {"glyph", "nothing", "arrow", "join", "slash", "payload", "op", "word",
-               "str", "blockopen", "blockclose", "alias", "bad"}
+               "str", "set", "blockopen", "blockclose", "alias", "bad"}
 
 
 def _glyph_findings(toks: list) -> list:
@@ -109,6 +109,26 @@ def _arrow_findings(sig: list) -> list:
                     if nxt.kind == "payload" else f"`{nxt.text}`")
             out.append(("SGL130", f"arrow `{t.text}` has no destination (it is followed by "
                         f"{what}); the parser draws no edge. Name the target glyph or op."))
+    return out
+
+
+def _set_findings(sig: list) -> list:
+    """SGL190 a set `{a, b}` written as a flow's end: a set is a value (it makes
+    no node), so the flow has no glyph there. A set is a flow's end right after an
+    arrow or a join, or leading the statement before an arrow; after anything else
+    (`?> {O}.s ∈ {a, b} -> [E]`) it is a condition's value."""
+    out = []
+    for k, t in enumerate(sig):
+        if t.kind != "set":
+            continue
+        prev = sig[k - 1] if k else None
+        nxt = sig[k + 1] if k + 1 < len(sig) else None
+        if (prev is not None and prev.kind in ("arrow", "join")) or \
+                (prev is None and nxt is not None and nxt.kind in ("arrow", "join")):
+            names = t.text.lstrip(GLYPH_PREFIXES)[1:-1].split(",")
+            items = ", ".join(f"`{{{x.strip()}}}`" for x in names if x.strip())
+            out.append(("SGL190", f"`{t.text}`: a set is a value, not a flow end: write one "
+                        f"flow per glyph ({items}); the parser draws no edge to a set."))
     return out
 
 
@@ -250,7 +270,8 @@ def statement_findings(st: Statement, target=None) -> list:
     if first_broken is not None:
         # A broken glyph throws the rest of the line out of step: report it alone.
         return [Finding(line, rule, msg) for rule, msg in _glyph_findings([first_broken])]
-    pairs = (_glyph_findings(toks) + _arrow_findings(sig) + _join_findings(sig, is_alias)
+    pairs = (_glyph_findings(toks) + _arrow_findings(sig) + _set_findings(sig)
+             + _join_findings(sig, is_alias)
              + _payload_findings(toks, sig, is_alias) + _argument_findings(toks)
              + _trailing_findings(toks, sig) + _marker_findings(toks))
     return [Finding(line, rule, msg) for rule, msg in pairs]

@@ -21,3 +21,13 @@ state {Ticket} {
 }
 [Desk] @inv routes({Ticket}.state ∈ {Open, Closed})
 [Desk] -> [Store] : {open, closed}
+# sets standing in a statement: values, never data glyphs (no node)
+branch on {Ticket}.state ∈ {Open, Closed} {
+  yes => [Desk]
+  _   => [Store]
+}
+loop @while {Ticket}.state ∈ {Open, Closed} {
+  [Desk] -> [Store]
+}
+[Desk] ?> {Ticket}.state ∈ {Open,Closed} -> [Store]
+{Ticket}, {Row} -> [Desk]

@@ -201,8 +201,10 @@ class GlyphRefsReadCore(unittest.TestCase):
         for kind, (open_, close) in lex.GLYPH_BRACKETS.items():
             inside = "".join(map(re.escape, dict.fromkeys(open_ + close)))
             with self.subTest(kind=kind):
+                # round 7: a data glyph's name holds no comma (`{a, b}` is a set)
+                not_set = r"(?![^{}<]*,)" if kind == "data" else ""
                 self.assertEqual(lex.GLYPH_PATTERNS[kind].pattern,
-                                 f"{re.escape(open_)}([^{inside}]+){re.escape(close)}")
+                                 f"{re.escape(open_)}{not_set}([^{inside}]+){re.escape(close)}")
 
 
 class AccessListsReadCore(unittest.TestCase):

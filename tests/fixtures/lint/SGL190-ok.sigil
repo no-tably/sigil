@@ -1,0 +1,9 @@
+# expect: none
+# SGL190 a set `{a, b}` as a flow's end — design/refine-1.md round 7
+#!spec
+[A] -> {B}
+[A] -> {C}
+{B}, {C} -> [D]
+[D] ?> {B}.status ∈ {open, closed} -> [E]
+[E] -> [F] : send({B}, {x, y})
+[F] -> {Cache<K,V>}
