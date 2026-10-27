@@ -44,8 +44,10 @@ contexts:
     - include: bare-name
 
   comments:
-    # Mode line `#!spec` / `#!sketch` / `#!craft` — first-class (gold).
-    - match: '#!(?:spec|sketch|craft)\b'
+    # Mode line: a line-leading `#!` holds the whole line (sigil.core.lex
+    # .is_mode_line; trailing text is lint's SGL001, still the mode line) —
+    # first-class (gold).
+    - match: '^\s*#!.*$'
       scope: keyword.other.sigil.shebang
     # Section header `--- [L<n>:] Name ---` — split rails / level / name.
     - match: '(-{3,})([ \t]*)(?:(L\d+)([ \t]*:[ \t]*))?([^\n]*?)([ \t]*)(-{3,})?[ \t]*$'
@@ -65,9 +67,36 @@ contexts:
           pop: true
         - match: '(?<![\w-])(?:{{kind_words}})(?![\w-])'
           scope: keyword.control.sigil
+    # Dialect declaration `#& name …` (line-leading; language.md "Dialects"):
+    # the mark first-class (gold), the name a keyword, what it holds dialect
+    # text core does not read (sigil: ui.payload), a `{ … }` body over as many
+    # lines as its braces take (a brace in a `"…"` string is text).
+    - match: '^\s*(#&)\s*([^\s~\[\]{}<>()|]*)'
+      captures:
+        1: keyword.other.sigil.shebang
+        2: keyword.control.sigil
+      push: declaration
     # Inline / whole-line comment (after the mode-line rule).
     - match: '#.*$'
       scope: comment.line.sigil
+
+  declaration:
+    - meta_scope: meta.declaration.sigil
+    - match: '$'
+      pop: true
+    - include: declaration-body
+
+  declaration-body:
+    # A string: its braces are text.
+    - match: '"(?:[^"\\]|\\.)*"'
+    # A `{ … }` of the body, to the `}` that balances it.
+    - match: '\{'
+      push: declaration-braces
+
+  declaration-braces:
+    - match: '\}'
+      pop: true
+    - include: declaration-body
 
   state-block:
     # A state block `state <owner> { … }` (one line or many): its body's bare

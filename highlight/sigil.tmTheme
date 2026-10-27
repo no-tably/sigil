@@ -225,6 +225,18 @@
       </dict>
     </dict>
 
+    <dict>
+      <key>name</key>
+      <string>Sigil dialect declaration's text (#&amp; name …, muted as theme ui.payload)</string>
+      <key>scope</key>
+      <string>meta.declaration.sigil</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#8b949e</string>
+      </dict>
+    </dict>
+
     <!-- ===== Sigil universal roles (neutral shared values) ===== -->
 
     <dict>

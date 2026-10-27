@@ -19,7 +19,10 @@ somewhere (a stale one fails).
 The corpus: the fenced Sigil blocks of language.md and examples.md (the
 collector of tests/test_highlight.py) that lint without errors — the formal
 grammar block, a mode line with trailing text and a mode line under a heading
-are not Sigil to compare — plus site/examples/*.sigil and design/sigil.sigil.
+are not Sigil to compare — plus site/examples/*.sigil, design/sigil.sigil and
+tests/highlight_drift_extra.sigil (the lines the documents hold few of or none:
+a mode line with a trailing comment, a `#%` kind line, `#&` declarations with a
+body over several lines, one-line and many-line state blocks).
 
     python3 tests/test_highlight_drift.py     prints each grammar's agreement and
                                               the exceptions it meets
@@ -67,6 +70,7 @@ def corpus() -> list:
                 if not any(d.severity == "error" for d in lint.lint(text).diagnostics)]
     files = sorted((_ROOT / "site" / "examples").glob("*.sigil"))
     files.append(_ROOT / "design" / "sigil.sigil")
+    files.append(_ROOT / "tests" / "highlight_drift_extra.sigil")
     out += [(p.relative_to(_ROOT).as_posix(), p.read_text(encoding="utf-8")) for p in files]
     return out
 
@@ -83,6 +87,7 @@ SCOPE_CLASSES = (
     ("punctuation.definition.sigil.section", "ui.section"),
     ("markup.heading.sigil", "ui.section"),
     ("comment.line.sigil", "ui.note"),
+    ("meta.declaration.sigil", "ui.payload"),          # what a `#&` declaration holds
     ("keyword.control.sigil", "syntax.keyword"),       # glyph brackets, prefixes, keywords
     ("storage.type.sigil", "kinds"),                   # a glyph's name
     ("comment.other.meta.sigil.hole", "kinds"),        # `?` (sigil: kinds.hole)
@@ -124,7 +129,7 @@ def sigil_class(role: Optional[str]) -> Optional[str]:
 
 # The Pygments token types (highlight/lexer.py) → role class, most specific first.
 PYGMENTS_CLASSES = (
-    ("Sigil.Doc.Shebang", "ui.mode"), ("Sigil.Doc.Section", "ui.section"),
+    ("Sigil.Doc.Shebang", "ui.mode"), ("Sigil.Doc.Declaration", "ui.payload"), ("Sigil.Doc.Section", "ui.section"),
     ("Sigil.Glyph.Name", "kinds"), ("Sigil.Glyph", "syntax.keyword"),
     ("Sigil.Keyword", "syntax.keyword"), ("Sigil.Branch", "syntax.operator"),
     ("Sigil.Arrow", "syntax.operator"), ("Sigil.Card", "syntax.cardinality"),
@@ -147,7 +152,8 @@ VIM_CLASSES = {
     "sigilBranch": "syntax.operator", "sigilCard": "syntax.cardinality",
     "sigilBranchWeight": "syntax.number", "sigilNumber": "syntax.number",
     "sigilOpName": "syntax.call_name", "sigilCallName": "syntax.call_name",
-    "sigilShebang": "ui.mode", "sigilSecName": "ui.section", "sigilSecRail": "ui.section",
+    "sigilShebang": "ui.mode", "sigilDeclMark": "ui.mode", "sigilDeclName": "syntax.keyword",
+    "sigilDecl": "ui.payload", "sigilSecName": "ui.section", "sigilSecRail": "ui.section",
     "sigilSecLevel": "ui.section", "sigilRef": "syntax.ref", "sigilRefBrace": "syntax.ref",
     "sigilString": "syntax.string", "sigilConst": "constant", "sigilComment": "ui.note",
     "sigilMeta": "syntax.punct", "sigilPunct": "syntax.punct", "sigilTag": "syntax.tag",

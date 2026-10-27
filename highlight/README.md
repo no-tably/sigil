@@ -25,8 +25,9 @@ scopes with neutral values.
 | modifiers | `@inv @sla @timeout @fallback @cap @owns @borrow @read @write @each @all …`, critical `!`, optional `?` | `storage.modifier.sigil` | less-gold `#ffe0b0` |
 | external op-call name | `db.insert` in `op db.insert(…)` | `entity.name.function.sigil.op` | periwinkle |
 | call name | `charge` in `charge({Order})`, `walk(.children)` | `entity.name.function.sigil.call` | rose `#f08cac` |
-| mode line | `#!spec` `#!sketch` `#!craft` | `keyword.other.sigil.shebang` | gold `#e3c000` bold |
+| mode line | `#!spec` `#!sketch` `#!craft` (a line-leading `#!` holds its whole line) | `keyword.other.sigil.shebang` | gold `#e3c000` bold |
 | kind line | `#% daemon in-process` | mark `keyword.other.sigil.shebang` · known words `keyword.control.sigil` | gold · magenta |
+| dialect declaration | `#& header { address: a/b }` (line-leading; a `{ … }` body may span lines) | mark `keyword.other.sigil.shebang` · name `keyword.control.sigil` · the rest `meta.declaration.sigil` | gold · magenta · muted `#8b949e` (theme `ui.payload`) |
 | section header | `--- L2: [Core] ---` | rails `punctuation.definition.sigil.section` · level (with its `:`) `markup.heading.sigil.level` · name `markup.heading.sigil.name` | slate · violet · near-white |
 | comment | `# note` | `comment.line.sigil` | grey italic |
 | refs | `${state.count}` | `variable.interpolation` + `punctuation.definition.template-expression` | violet |

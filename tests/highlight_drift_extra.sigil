@@ -1,0 +1,16 @@
+#!spec   # a mode line with a trailing comment (lint: SGL001), still the mode line
+#% daemon in-process   # the system's kind
+#& header { address: a/b }
+#&probe one two
+  #& route ~{
+    path: "/a}"            # a brace in a string is text
+    nested { deep }
+  } tail
+--- Core ---
+[Api] -> [Store] : put({Row})  #& after code: a comment
+state {Job} { + -<Go>-> Run }
+state [Worker] {
+  + -> Idle
+  Idle -<Task>-> Busy
+  Busy -> Idle
+}

@@ -72,9 +72,9 @@
     "comments": {
       "patterns": [
         {
-          "comment": "Mode line — first-class (gold).",
+          "comment": "Mode line: a line-leading #! holds the whole line (sigil.core.lex.is_mode_line; trailing text is lint's SGL001, still the mode line) — first-class (gold).",
           "name": "keyword.other.sigil.shebang",
-          "match": "#!(?:spec|sketch|craft)\\b"
+          "match": "^\\s*#!.*$"
         },
         {
           "comment": "Section header --- [L<n>:] Name --- — split rails / level / name.",
@@ -114,8 +114,45 @@
           ]
         },
         {
+          "comment": "Dialect declaration #& name … (line-leading; language.md \"Dialects\"): the mark first-class (gold), the name a keyword, what it holds dialect text core does not read (sigil: ui.payload), a { … } body over as many lines as its braces take (a brace in a \"…\" string is text).",
+          "name": "meta.declaration.sigil",
+          "begin": "^\\s*(#&)\\s*([^\\s~\\[\\]{}<>()|]*)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.other.sigil.shebang"
+            },
+            "2": {
+              "name": "keyword.control.sigil"
+            }
+          },
+          "end": "$",
+          "patterns": [
+            {
+              "include": "#declaration-body"
+            }
+          ]
+        },
+        {
           "name": "comment.line.sigil",
           "match": "#.*$"
+        }
+      ]
+    },
+    "declaration-body": {
+      "patterns": [
+        {
+          "comment": "A string: its braces are text.",
+          "match": "\"(?:[^\"\\\\]|\\\\.)*\""
+        },
+        {
+          "comment": "A { … } of the body, to the } that balances it.",
+          "begin": "\\{",
+          "end": "\\}",
+          "patterns": [
+            {
+              "include": "#declaration-body"
+            }
+          ]
         }
       ]
     },

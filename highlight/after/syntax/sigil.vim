@@ -25,6 +25,9 @@ hi sigilBranchWeight  guifg=#79c0ff gui=NONE    ctermfg=75  cterm=NONE
 
 " --- Document markers (first-class) ---------------------------------------
 hi sigilShebang       guifg=#e3c000 gui=bold    ctermfg=178 cterm=bold
+hi sigilDeclMark      guifg=#e3c000 gui=bold    ctermfg=178 cterm=bold
+hi sigilDeclName      guifg=#c850e0 gui=bold    ctermfg=170 cterm=bold
+hi sigilDecl          guifg=#8b949e gui=NONE    ctermfg=245 cterm=NONE
 hi sigilSecRail       guifg=#8b7aad gui=NONE    ctermfg=103 cterm=NONE
 hi sigilSecLevel      guifg=#d2a8ff gui=bold    ctermfg=183 cterm=bold
 hi sigilSecName       guifg=#e6edf3 gui=bold    ctermfg=255 cterm=bold

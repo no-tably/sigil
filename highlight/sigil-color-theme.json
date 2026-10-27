@@ -140,6 +140,15 @@
       }
     },
     {
+      "name": "Dialect declaration's text — #& name … (muted, theme ui.payload)",
+      "scope": [
+        "meta.declaration.sigil"
+      ],
+      "settings": {
+        "foreground": "#8b949e"
+      }
+    },
+    {
       "name": "Ref braces (the ${ } template seam)",
       "scope": [
         "punctuation.definition.template-expression"

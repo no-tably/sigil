@@ -109,12 +109,24 @@ syn region sigilSecName matchgroup=sigilSecRail
       \ start="^-\{3,}" end="-\{3,}\s*$\|$" keepend oneline
       \ contains=sigilSecLevel
 syn match sigilSecLevel "\<L\d\+\>\s*:\?" contained
-syn match sigilShebang "#!\%(spec\|sketch\|craft\)\>"
+" Mode line: a line-leading `#!` holds the whole line (sigil.core.lex
+" .is_mode_line; trailing text is lint's SGL001, still the mode line).
+syn match sigilShebang "^\s*\zs#!.*$"
 " Kind line `#% …` (sigil.core.kinds): the mark first-class, its known words
 " keywords, other words plain; a `#` ends it (a comment).
 syn match sigilKindLine "^\s*#%[^#]*" transparent contains=sigilShebang,sigilKeyword
 syn match sigilShebang "#%" contained
 syn match sigilKeyword "\%(^\|[^[:alnum:]_-]\)\@1<=\%(service\|library\|daemon\|job\|networked\|in-process\|concurrent\|deterministic\)\%([[:alnum:]_-]\)\@!" contained
+" Dialect declaration `#& name …` (line-leading; language.md "Dialects"): the
+" mark first-class, the name a keyword, what it holds dialect text core does not
+" read (sigilDecl), a `{ … }` body over as many lines as its braces take (a brace
+" in a `"…"` string is text).
+syn region sigilDecl matchgroup=sigilDeclMark start="^\s*#&" end="$"
+      \ contains=sigilDeclName,sigilDeclBraces,sigilDeclStr
+syn match sigilDeclName "\%(#&\s*\)\@<=[^[:space:]~[\]{}<>()|]\+" contained
+syn region sigilDeclBraces start="{" end="}" contained transparent
+      \ contains=sigilDeclBraces,sigilDeclStr
+syn match sigilDeclStr +"\%([^"\\]\|\\.\)*"+ contained transparent contains=NONE
 
 " --- hi def link to the standard groups ------------------------------------
 hi def link sigilKeyword        Statement
@@ -130,6 +142,9 @@ hi def link sigilBranchWeight   Number
 hi def link sigilOpName         Function
 hi def link sigilCallName       Function
 hi def link sigilShebang        PreProc
+hi def link sigilDeclMark       PreProc
+hi def link sigilDeclName       Statement
+hi def link sigilDecl           Comment
 hi def link sigilSecName        Title
 hi def link sigilSecRail        Comment
 hi def link sigilSecLevel       Special

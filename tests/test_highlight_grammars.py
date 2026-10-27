@@ -81,6 +81,7 @@ CORE_SCOPES = {
     "markup.heading.sigil.level",
     "markup.heading.sigil.name",
     "comment.line.sigil",
+    "meta.declaration.sigil",
     # glyphs + names
     "keyword.control.sigil.glyph",
     "keyword.control.sigil.glyph-prefix",
@@ -404,8 +405,8 @@ class TestVim(unittest.TestCase):
     EXPECTED_GROUPS = {
         "sigilKeyword", "sigilGlyphDelim", "sigilTypeName", "sigilStateName", "sigilModifier",
         "sigilOperator", "sigilCard", "sigilBranch", "sigilBranchCond", "sigilBranchWeight",
-        "sigilOpName", "sigilCallName", "sigilShebang",
-        "sigilSecName", "sigilSecRail", "sigilSecLevel", "sigilRef",
+        "sigilOpName", "sigilCallName", "sigilShebang", "sigilDeclMark", "sigilDeclName",
+        "sigilDecl", "sigilSecName", "sigilSecRail", "sigilSecLevel", "sigilRef",
         "sigilRefBrace", "sigilString", "sigilNumber", "sigilConst",
         "sigilComment", "sigilMeta", "sigilPunct", "sigilTag",
     }
@@ -424,7 +425,8 @@ class TestVim(unittest.TestCase):
     def test_every_used_group_is_linked(self):
         # Transparent containers take no colour of their own.
         used = set(re.findall(r"\b(sigil[A-Z]\w*)", self.syn)) - {"sigilGlyph", "sigilArgs",
-                                                                  "sigilKindLine", "sigilStateBody"}
+                                                                  "sigilKindLine", "sigilStateBody",
+                                                                  "sigilDeclBraces", "sigilDeclStr"}
         linked = set(re.findall(r"^hi def link (sigil\w+)", self.syn, re.M))
         self.assertEqual(used - linked, set())
 

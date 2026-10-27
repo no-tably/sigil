@@ -72,6 +72,7 @@ T_Shebang        = T.Doc.Shebang        # #!spec / #!sketch / #!craft
 T_Section        = T.Doc.Section        # the `---` rails of a section header
 T_SecLevel       = T.Doc.Section.Level  # the `L<n>` zoom-level marker
 T_SecName        = T.Doc.Section.Name   # the section name
+T_Decl           = T.Doc.Declaration    # what a `#& name …` declaration holds (dialect text)
 
 # Glyph delimiters — the primary lexicon. The five entity kinds + their
 # mutability/stream prefixes share one hue; the NAME inside sits in type
@@ -138,10 +139,17 @@ class SigilLexer(RegexLexer):
             # Kind line `#% …` (sigil.core.kinds): the mark first-class (gold),
             # its known words keywords, other words plain; a `#` ends it.
             (r'^([ \t]*)(#%)', bygroups(Whitespace, T_Shebang), 'kindline'),
+            # Dialect declaration `#& name …` (line-leading; language.md
+            # "Dialects"): the mark first-class, the name a keyword, what it
+            # holds dialect text core does not read, a `{ … }` body over as
+            # many lines as its braces take.
+            (r'^([ \t]*)(#&)([ \t]*)([^\s~\[\]{}<>()|]*)',
+             bygroups(Whitespace, T_Shebang, Whitespace, T_Keyword), 'decl'),
+            # Mode line: a line-leading `#!` holds the whole line
+            # (sigil.core.lex.is_mode_line; trailing text is lint's SGL001).
+            (r'^([ \t]*)(#![^\n]*)', bygroups(Whitespace, T_Shebang)),
             (r'[ \t]+', Whitespace),
             (r'\n',     Whitespace),
-            # Mode line: exactly `#!spec` / `#!sketch` / `#!craft`.
-            (r'#!(?:spec|sketch|craft)\b', T_Shebang),
             # Section header: `--- [L<n>:] Name ---` (trailing `---` optional);
             # split into rails / level / name.
             (r'(-{3,})([ \t]*)(?:(L\d+)([ \t]*:[ \t]*))?([^\n]*?)([ \t]*)(-{3,})?[ \t]*$',
@@ -303,6 +311,22 @@ class SigilLexer(RegexLexer):
             (r'"', String.Double),
         ],
 
+        'decl': [
+            (r'\n', Whitespace, '#pop'),
+            (r'"(?:\\.|[^"\\\n])*"', T_Decl),     # a string: its braces are text
+            (r'\{', T_Decl, 'declbraces'),
+            (r'[^{"\n]+', T_Decl),
+            (r'"', T_Decl),
+        ],
+
+        'declbraces': [
+            (r'\}', T_Decl, '#pop'),
+            (r'\{', T_Decl, '#push'),
+            (r'"(?:\\.|[^"\\\n])*"', T_Decl),
+            (r'[^{}"]+', T_Decl),
+            (r'"', T_Decl),
+        ],
+
         'kindline': [
             (r'\n', Whitespace, '#pop'),
             (r'[ \t]+', Whitespace),
@@ -338,6 +362,7 @@ _COLORS = {
     T_Section:         "#8b7aad",                # `---` rails (slate)
     T_SecLevel:        "bold #d2a8ff",           # `L<n>` level (violet)
     T_SecName:         "bold #e6edf3",           # section name (near-white)
+    T_Decl:            "#8b949e",                # a declaration's text (muted, theme ui.payload)
 
     # Signature roles.
     T_Glyph:           "#c850e0",                # structure brackets (magenta)
