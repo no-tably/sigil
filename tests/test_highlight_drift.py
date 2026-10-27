@@ -414,7 +414,7 @@ class TestDrift(unittest.TestCase):
     """Every difference between a grammar and sigil's highlighter is a named
     exception; the agreement stays above its floor."""
 
-    FLOOR = 0.93
+    FLOOR = 0.95
 
     def check(self, which: str):
         rep = report(which)
