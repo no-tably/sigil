@@ -392,3 +392,10 @@ Live editing (user: "highlight in construct as well as in an IDE, equally"):
    stay the IDE's instant highlighting; one shared corpus is highlighted by `sigil
    highlight` and checked against each grammar's scopes (scope → role), so they cannot
    drift. A semantic-tokens language server over `--stream` is a later step, not now.
+
+Round 6 addendum (user, 2026-10-27): a dialect switch in `--stream` (`{"dialect": NAME|PATH}`,
+like `{"theme"}`), and a dialect may carry its own theme: a `THEME` hook (a theme name, or
+a YAML path beside the dialect module), read by [Themes] as data. Precedence: an explicit
+`--theme` (or a stream `{"theme"}`) wins, then the dialect's THEME, then the default. It
+applies to every command that themes (view, frames, highlight), so a dialect's drawings and
+its source agree. A file naming its own dialect stays a later round.
