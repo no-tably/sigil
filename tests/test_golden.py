@@ -39,6 +39,8 @@ class TestGolden(unittest.TestCase):
         expected = {f"{i.name}/{v.name}.txt" for i in inputs for v in golden.VARIANTS
                     if golden.drawn_in(v, i, runs)}
         expected |= {key for i in inputs for key in golden.chart_input(i)}
+        expected |= {key for i in inputs for key in golden.highlight_input(i)}
+        self.assertLessEqual(set(golden.HIGHLIGHT_INPUTS), {i.name for i in inputs})
         self.assertLessEqual(set(golden.SPINE_INPUTS), {i.name for i in inputs})
         # the export variant: every file `sigil export` writes for each of EXPORT_INPUTS
         self.assertLessEqual(set(golden.EXPORT_INPUTS), {i.name for i in inputs})

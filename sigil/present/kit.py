@@ -243,7 +243,7 @@ def apply_theme(theme: dict) -> None:
 
 def use_theme(spec: str | None = None, dialect=None) -> None:
     """Load a theme by name or path and apply it: `spec` (an explicit --theme)
-    wins, then the dialect's THEME, then $SIGIL_THEME, else sigil (themes.load).
+    wins, then $SIGIL_THEME, then the dialect's THEME, else sigil (themes.load).
     Without sigil.present.themes the built-in sigil colours stay. Raises
     ValueError for a theme that can't be found or read."""
     if themes is not None:

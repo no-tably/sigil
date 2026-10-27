@@ -111,8 +111,8 @@ the browser — write a design, switch views, step through a simulation.
 ## Tools
 
 One command, `sigil`, Python 3 standard library only: run `bin/sigil` (or
-`python3 -m sigil` from the repository). `lint`, `check` and `export --mermaid`
-take `-` for stdin; `view` needs a file, since it redraws on save, and so does the
+`python3 -m sigil` from the repository). `lint`, `check`, `export --mermaid` and
+`highlight` take `-` for stdin; `view` needs a file, since it redraws on save, and so does the
 folder export, since the manifest names the spec file. Every flag and key is in [`docs/tools.md`](./docs/tools.md).
 
 | Command | Does |
@@ -123,8 +123,9 @@ folder export, since the manifest names the spec file. Every flag and key is in 
 | `sigil export SPEC --out DIR` | Exports a ready `#!spec` document as a build skeleton: a folder per system, a file per component, `manifest.json` as the contract. A re-export says which systems changed (see [Export a spec](#export-a-spec)). |
 | `sigil export FILE --mermaid` | Emits a Mermaid `flowchart TD` for docs or review (GitHub, Obsidian, mermaid.live), in any mode. `--spine` groups it by the export's systems, a subgraph each. |
 | `sigil themes [NAME]` | Prints a colour theme from `themes/*.yaml` resolved, as JSON (`--list` lists them); the viewer and the web page share the files. |
-| `--dialect NAME` | `lint`, `check`, `view` and `export` load a dialect that extends the linter, Mermaid and checker. |
-| `highlight/` | Syntax highlighting for bat, nvim, VS Code, Sublime/TextMate. |
+| `sigil highlight FILE` | Prints the source in the theme's colours, as the drawings colour it (see [Highlight a file](#highlight-a-file)); `--json` gives the coloured runs to a host, `--stream` serves a live editor. |
+| `--dialect NAME` | `lint`, `check`, `view`, `export` and `highlight` load a dialect that extends the linter, Mermaid and checker. |
+| `highlight/` | Syntax highlighting for bat, nvim, VS Code, Sublime/TextMate, checked against `sigil highlight`. |
 
 ## Install as an agent skill
 
@@ -468,6 +469,25 @@ system's own flows. `--dry-run` prints the delta and writes nothing; `--json`
 prints it as JSON. Building against the export happens outside sigil. Every flag and
 field is in [`docs/tools.md`](./docs/tools.md#sigil-export-spec---out-dir).
 
+## Highlight a file
+
+`sigil highlight FILE` prints a document's source in colour (plain under
+`NO_COLOR`). It reads each line the way every other command reads it, so a glyph, an
+arrow, a modifier or a mode line is coloured by what sigil takes it to be, in the
+theme's colours, and half-typed text highlights too.
+
+```sh
+sigil highlight shop.sigil              # in the terminal
+sigil highlight shop.sigil --json       # each line's runs: [text, role, "#rrggbb"]
+sigil highlight --stream                # JSON lines in, JSON lines out, for an editor
+```
+
+An editor plugin keeps one `--stream` process: it sends the lines that changed with
+the state the line above ended in, and gets back their runs and end states; the
+protocol is in `sigil highlight --help` and [`docs/tools.md`](./docs/tools.md#sigil-highlight-file-).
+The editor grammars in [`highlight/`](./highlight/README.md) colour instantly
+without a process, and a test keeps them in step with `sigil highlight`.
+
 ## Themes
 
 One YAML file colours both the terminal viewer and the web page:
@@ -478,6 +498,8 @@ chrome), `run` (a colour per episode, for runs that overlap) and `site`. A value
 `$name` refers to `palette.name`, so a role follows its palette colour; a new theme can start with `extends: sigil` and override
 only what it changes. Drop it in `themes/` or a directory on `SIGIL_THEME_PATH`;
 `sigil themes NAME` prints it resolved and `sigil themes --list` lists what it finds.
+`view`, `frames draw` and `highlight` colour with `--theme NAME` if given, else
+`SIGIL_THEME`, else the loaded dialect's own theme (its `THEME`), else `sigil`.
 The format is a small YAML subset (nested maps, scalars, `#` comments) that
 the viewer's theme loader and the page both parse without a YAML library.
 
@@ -544,7 +566,8 @@ layer imports only the layers above it (`tests/test_spine.py` checks every impor
 ```text
 bin/sigil        the command (puts the package on the path, calls sigil.cli)
 sigil/cli.py     one entry point: lint · check · view · export · frames ·
-                 themes; each subcommand imports its layers only when it runs
+                 themes · highlight; each subcommand imports its layers only
+                 when it runs
 sigil/core/      the notation read: lex (the lexical tables, kept once),     ┐
                  tokens · statements · parse (a document → the graph model), │ core
                  graph, comments, dialects, vocab (the dialect API)          ┘
@@ -557,13 +580,14 @@ sigil/analyse/   lint/ (SGLnnn, by rule group), check (SGCnnn: registry,     ┐
 sigil/publish/   mermaid, spine (--mermaid --spine), systems, exporter,      ┐ publish
                  delta: what leaves sigil                                    ┘
 sigil/present/   app (the terminal viewer), views/ (graph · tree · flow ·    ┐ present
-                 run), kit, themes, frames (packed rows for the hosts)       ┘
+                 run), kit, themes, frames (packed rows for the hosts),      │
+                 highlight (the source as coloured runs)                     ┘
 themes/          YAML themes, shared with the page
 build.py         packaging (maintainers only)
 site/  the page and playground · tools/  goldens, doc regeneration, snapshot
 docs/  the tools reference, viewer coverage audit · rfcs/  design records
 design/  sigil drawn in sigil · tests/  unit tests, fixtures and goldens
-highlight/  editor grammars
+highlight/  editor grammars (checked against sigil highlight)
 ```
 
 `core ← model ← analyse ← publish / present ← cli`: publish and present never

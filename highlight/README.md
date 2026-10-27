@@ -4,7 +4,14 @@ Highlighting for `.sigil` files (core Sigil, as defined in
 [`../language.md`](../language.md)) across these tools: **bat · broot · nvim ·
 vscode**, plus a Pygments lexer for Python.
 
-**One token model, many surfaces.** The token model is
+**Checked against `sigil highlight`.** Sigil's own highlighter (`sigil
+highlight FILE`, which reads a document as every other `sigil` command does) is
+the authority; these grammars are the editors' instant highlighting, and a test
+compares them with it character by character over one corpus (see [Keeping the
+surfaces in sync](#keeping-the-surfaces-in-sync)). An editor that can run a
+process can use `sigil highlight --stream` instead and get sigil's own colours.
+
+**One token model, many surfaces.** Within these files the token model is
 [`lexer.py`](./lexer.py) (a Pygments lexer, usable from Python via Rich); the
 grammars here are its *edge* deployments. Every grammar maps the same token
 classes to the same scope / group names, and each theme maps those scopes to

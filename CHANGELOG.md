@@ -2,6 +2,77 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
+## 0.6.6 — unreleased
+
+Sigil colours its own source: a document read the way every other command reads it,
+printed in the theme's colours, handed to a host as runs, or served to a live
+editor. The editor grammars in `highlight/` are checked against it, and a dialect
+can bring its own theme.
+
+### New
+
+- **Highlight a file in the terminal.** `sigil highlight FILE` (or `-` for stdin)
+  prints the source in colour: each glyph, arrow, modifier, payload, comment,
+  section header, mode line, `#%` kind line and `#&` declaration in the colour its
+  role has in the theme, the same colours the drawings use. It reads each line as
+  lint, check and the views do (a dialect's syntax too, with `--dialect`), so the
+  colours say what sigil takes the text to be; half-typed text highlights as well.
+  `--theme` picks the theme, and `NO_COLOR` prints the text plain.
+
+- **Coloured runs for a host.** `sigil highlight FILE --json` prints each line as
+  runs of `[text, role, colour]` (a role is a theme path such as
+  `syntax.operator` or `kinds.service`) and the state each line ends in, for a host
+  that paints the colours itself.
+
+- **A live-editor stream.** `sigil highlight --stream` keeps running and answers
+  JSON-lines requests on stdin: an editor sends the lines that changed with the
+  state the line above ended in, and gets back their runs and end states, so after
+  an edit it highlights only until an end state matches the one it held. A request
+  can also switch the theme or the dialect (`{"dialect": NAME}`, `null` for core
+  Sigil); a request that fails is answered with an error and changes nothing. The
+  protocol is in `sigil highlight --help`.
+
+- **Editor grammars that match.** The grammars in `highlight/` (TextMate for VS
+  Code, sublime-syntax for Sublime and bat, vim, the Pygments lexer) are now checked against `sigil highlight`,
+  character by character, over the Sigil blocks of language.md and examples.md,
+  the site examples and design/sigil.sigil; every remaining difference is named
+  and explained.
+
+- **A dialect's own theme.** A dialect can name a colour theme (its `THEME`: a
+  theme name, or a YAML file beside the dialect module). `view`, `frames draw` and
+  `highlight` use it when the dialect is loaded, so its drawings and its source
+  agree. The order is `--theme`, then `SIGIL_THEME`, then the dialect's `THEME`,
+  else `sigil`; a `THEME` that cannot be loaded is an error, as a bad `--theme` is.
+
+### Fixes in the editor grammars
+
+- A call's name before its `(` (`charge({Order})`) and an op's verb (`db.put` in
+  `op db.put(…)`) are coloured as a call's name (rose), as sigil colours them.
+- The names in a `state` block, on one line or many, read as state names (cyan),
+  and the one-line `state {S} { … }` is no longer taken for a data glyph.
+- `#&` declarations read as sigil reads them: the mark, the name, the rest muted,
+  and a `{ … }` body over several lines. The `#%` kind line has its mark and known
+  words coloured, and a line-leading `#!` mode line holds its whole line (a comment
+  after it included).
+- Held text reads as sigil reads it: numbers with units (`30s`), `[${…}]` as a
+  list, hyphenated words and calls whole, `^N` then `@policy`, a branch marker's
+  `{cond}` and `(N)`, the `_` wildcard, a modifier alias after `×N`.
+- A block's `{ }` and a map or list literal's brackets are punctuation, `{ … }`
+  with a space is no data glyph, `.field` after a glyph is one name, and a section
+  level's `:` belongs to the level.
+
+### For hosts and dialect authors
+
+- `--json` and `--stream` share one shape (`"sigil_highlight": 1`, per line its
+  runs and end carry `[quote, decl, decl_raw, state]`); see `sigil highlight
+  --help` and docs/tools.md.
+- `sigil frames draw` takes `--dialect` (and colours with that dialect's theme).
+- A dialect module may define `THEME` (a theme name, or a YAML path read against
+  the module's folder).
+- `sigil.present.highlight` is the pure core of it: `lines(text, dialect)`,
+  `line(raw, carry, lexicon)`, `edit(…)` (re-highlight after an edit until the
+  carry matches) and `colour(role, theme)`.
+
 ## 0.6.5 — 2026-10-26
 
 A run can begin a state machine in a later state, so the ways out of that state get

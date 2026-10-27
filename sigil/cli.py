@@ -394,7 +394,7 @@ def _view_parser(dialect, app) -> argparse.ArgumentParser:
                     help="when to colour the output: auto (default: when it goes to a "
                          "terminal), always or never")
     ap.add_argument("--theme", default=None,
-                    help="colour theme: a name in themes/ or a .yaml path (default: the "
+                    help="colour theme: a name in themes/ or a .yaml path (default: "
                          "$SIGIL_THEME, else the dialect's THEME, else sigil)")
     return ap
 
@@ -787,9 +787,9 @@ one). A dialect is loaded as --dialect loads it (null: core Sigil, no dialect,
 whatever $SIGIL_DIALECT says) and answered by its NAME. Themes: --theme or a
 {"theme"} request is explicit and holds for the rest of the session; until one
 is given the theme is $SIGIL_THEME if set, else the dialect's THEME, else
-sigil, so (without $SIGIL_THEME) a dialect switch also switches the theme, and its answer names the
-theme now in use ("theme"). After an explicit theme a dialect switch leaves the
-theme alone.
+sigil, so (without $SIGIL_THEME) a dialect switch also switches the theme, and
+its answer names the theme now in use ("theme"). After an explicit theme a
+dialect switch leaves the theme alone.
 `start` is the index of lines[0] (echoed; default 0), `carry` the carry lines[0]
 starts in (null: a text's start). A line's runs depend only on the line and
 the carry it starts in, so an editor highlights incrementally: after an edit it
@@ -983,7 +983,7 @@ def _highlight(argv: list, dialect) -> int:
         epilog=HIGHLIGHT_PROTOCOL)
     ap.add_argument("file", nargs="?", help="a .sigil file, or - for stdin")
     ap.add_argument("--theme", default=None,
-                    help="colour theme: a name in themes/ or a .yaml path (default: the "
+                    help="colour theme: a name in themes/ or a .yaml path (default: "
                          "$SIGIL_THEME, else the dialect's THEME, else sigil)")
     _dialect_flag(ap, dialect)
     ap.add_argument("--json", action="store_true",

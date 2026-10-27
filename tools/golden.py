@@ -34,7 +34,9 @@ Each input gets a directory `tests/golden/<input>/` with one file per variant:
   prints (the happy run's timeline as JSON), for RUN_JSON_INPUTS at RUN_JSON_DEPTHS;
 - `mermaid.txt` — what `sigil export <input>.sigil --mermaid` prints;
 - `mermaid-spine.txt` — what `sigil export <input>.sigil --mermaid --spine` prints
-  (the chart grouped by the export's systems), for SPINE_INPUTS only.
+  (the chart grouped by the export's systems), for SPINE_INPUTS only;
+- `highlight.json` — what `sigil highlight <input>.sigil --json` prints (each
+  line's coloured runs and end carries, sigil theme), for HIGHLIGHT_INPUTS only.
 
 The export variant: for each of EXPORT_INPUTS, `tests/golden/export/<input>/` holds
 every file `sigil export <input>.sigil --out DIR` writes into an empty DIR (the index,
@@ -56,6 +58,7 @@ import argparse
 import contextlib
 import difflib
 import io
+import json
 import os
 import re
 import sys
@@ -70,7 +73,7 @@ from sigil import cli                           # noqa: E402  (the package sits 
 from sigil.core import parse                    # noqa: E402
 from sigil.core.graph import ALL_DEPTH as GRAPH_ALL_DEPTH  # noqa: E402
 from sigil.model import sim as simulator        # noqa: E402
-from sigil.present import app, kit              # noqa: E402
+from sigil.present import app, highlight, kit, themes   # noqa: E402
 from sigil.publish import mermaid, spine        # noqa: E402
 
 GOLDEN_DIR = ROOT / "tests" / "golden"
@@ -93,6 +96,7 @@ FIXTURES = ("coverage.sigil", "executions.sigil")
 EXPORT_DIR = "export"           # tests/golden/export/<input>/: what `sigil export` writes
 EXPORT_INPUTS = ("07-export",)  # the inputs exported (each a ready #!spec document)
 SPINE_INPUTS = ("02-shop", "07-export")   # the inputs charted with `--mermaid --spine`
+HIGHLIGHT_INPUTS = ("07-export",)   # the inputs kept as `sigil highlight --json`
 GOLDEN_SUFFIXES = (".txt", ".md", ".json")   # the files a golden directory holds
 
 
@@ -144,6 +148,7 @@ def _variants() -> tuple[Variant, ...]:
 VARIANTS = _variants()
 MERMAID = "mermaid"
 SPINE = "mermaid-spine"
+HIGHLIGHT = "highlight.json"
 
 
 # ---------------------------------------------------------------------------
@@ -258,6 +263,7 @@ def draw_input(workdir: Path, inp: Input, runs: frozenset = frozenset()) -> dict
     out = {f"{inp.name}/{v.name}.txt": draw(path, v) for v in VARIANTS
            if drawn_in(v, inp, runs)}
     out.update(chart_input(inp))
+    out.update(highlight_input(inp))
     return out
 
 
@@ -269,6 +275,17 @@ def chart_input(inp: Input) -> dict[str, str]:
     if inp.name in SPINE_INPUTS:
         out[f"{inp.name}/{SPINE}.txt"] = spine.spine(inp.text, inp.name, dialect=None) + "\n"
     return out
+
+
+def highlight_input(inp: Input) -> dict[str, str]:
+    """What `sigil highlight <input>.sigil --json` prints, keyed
+    `<input>/HIGHLIGHT`, for HIGHLIGHT_INPUTS (the sigil theme, no dialect)."""
+    if inp.name not in HIGHLIGHT_INPUTS:
+        return {}
+    theme = themes.load(THEME)
+    doc = cli.highlight_json(inp.text, theme, cli.theme_name(theme, THEME),
+                             highlight.lexicon(None))
+    return {f"{inp.name}/{HIGHLIGHT}": json.dumps(doc, ensure_ascii=False) + "\n"}
 
 
 def draw_all(root: Path, only: str | None = None) -> dict[str, str]:

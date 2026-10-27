@@ -2,7 +2,7 @@
 
 Every tool is a subcommand of one command, `sigil`, with no dependencies beyond
 the Python 3 standard library: run `bin/sigil` (or `python3 -m sigil` from the
-repository). `lint`, `check` and `export --mermaid` take `-` for stdin; `view`
+repository). `lint`, `check`, `export --mermaid` and `highlight` take `-` for stdin; `view`
 needs a file, since it redraws on save, and the folder export needs one too, since
 the manifest names the spec file (and its stem is the top system's default name). The [README](../README.md) has the overview.
 
@@ -19,13 +19,15 @@ sigil export FILE --mermaid --spine [--name NAME]
 sigil frames draw FILE [--view V] [--depth N|all] [--width N] [--scenario S] [--limit NAME=N] …
 sigil frames follow CONTROL
 sigil themes [NAME|PATH] [--list]
+sigil highlight FILE|- [--theme NAME|PATH] [--dialect D] [--json]
+sigil highlight --stream [--theme NAME|PATH] [--dialect D]
 ```
 
 `sigil` with no subcommand prints that list (exit 2), and `sigil --help` prints it
 too (exit 0); `sigil CMD --help` gives each subcommand's flags. Each subcommand loads only the parts of
 the package it needs, so `sigil lint` never loads the simulator or the views. Every
-subcommand that reads a document (`lint`, `check`, `view`, `export`) takes
-`--dialect NAME` (see [Dialects](#dialects)).
+subcommand that reads a document (`lint`, `check`, `view`, `export`, `frames draw`,
+`highlight`) takes `--dialect NAME` (see [Dialects](#dialects)).
 
 **The package.** `bin/sigil` puts the package on the path and calls `sigil.cli`.
 The package is `sigil/`, one subpackage per layer, as drawn in
@@ -37,7 +39,7 @@ The package is `sigil/`, one subpackage per layer, as drawn in
 | `sigil/model` | what a design does: `scene`, the simulator `sim/` (`program`, `engine`, `scenarios`, `narration`), `systems` (the export model), `structure` (the design read as units) |
 | `sigil/analyse` | is it sound: `lint/` (SGLnnn, a module per rule group), `check` (SGCnnn: registry, findings, acknowledgements, budget), `rules/` |
 | `sigil/publish` | what leaves sigil: `mermaid`, `spine`, `systems`, `exporter`, `delta` |
-| `sigil/present` | the drawings: `app` (the live viewer), `views/` (graph, tree, flow, run), `kit`, `themes`, `frames` |
+| `sigil/present` | the drawings: `app` (the live viewer), `views/` (graph, tree, flow, run), `kit`, `themes`, `frames`, `highlight` (the source as coloured runs) |
 | `sigil/cli.py` | the command: argument parsing, `lint --deep` (lint and check joined here, not in a layer) |
 
 **The layer rule.** A layer imports only the layers above it:
@@ -931,17 +933,67 @@ What the Claude Code pane and the pi widget run; not meant to be typed.
   nothing and exits 2 when the split closes); see [the viewer plugin
   contract](#the-viewer-plugin-contract).
 
+## `sigil highlight FILE|-`
+
+Prints a document's source in its theme's colours: the text unchanged, each piece
+wrapped in a truecolour escape (plain text when `NO_COLOR` is set). It reads each
+line as every other command reads it (the same tokens, a dialect's syntax too), so a
+glyph, arrow, modifier, payload, comment, section header, mode line, `#%` kind line
+or `#&` declaration gets the colour its role has in the theme, and the colours are
+the ones the drawings use. Any text highlights, half-typed or not linting; nothing is
+checked and nothing else is read but the theme and the dialect.
+
+- `--theme NAME|PATH` picks the theme (see [Themes](#themes) for the default order).
+- `--dialect NAME` reads with a dialect (its glyphs, keywords, declaration blocks,
+  comment markers, and its `THEME` as the default theme).
+- `--json` prints one object for a host to paint:
+
+  ```
+  {"sigil_highlight": 1, "theme": "sigil",
+   "lines": [[["[", "syntax.keyword", "#c850e0"], ["Shop", "kinds.service", "#8aa0ff"],
+              ["]", "syntax.keyword", "#c850e0"], [" ", null, null],
+              ["->", "syntax.operator", "#e85d9e"], …], …],
+   "carry": [[0, 0, 1, 0], …]}
+  ```
+
+  one list of runs per line, each `[text, role, colour]` (a line's texts joined give
+  the line back; `role` is a theme path such as `syntax.operator`, `kinds.service`,
+  `ui.mode`, and `role` and `colour` are `null` for plain text), and per line the
+  carry it ends in.
+- `--stream` (no FILE) answers JSON-lines requests on stdin, one JSON line on stdout
+  each (flushed), until stdin ends (exit 0). A request is `{"id", "lines", "start",
+  "carry"}` (highlight these lines, the first starting in `carry`), `{"id", "theme"}`
+  (switch the theme) or `{"id", "dialect"}` (switch the dialect; `null` for core
+  Sigil), or any of them together; the answer echoes `id` and holds the runs and end
+  carries in `--json`'s shape, the theme or dialect now in use, or only `error` for a
+  request that fails (which changes nothing; the loop goes on). The full protocol is
+  in `sigil highlight --help`.
+
+**The carry.** Three things in Sigil span lines: a `"""…"""` block string, a `#&`
+declaration's `{ … }` body, and a `state` block. A line's carry, `[quote, decl,
+decl_raw, state]`, says which of them the next line starts inside (a text starts
+in `[0, 0, 1, 0]`). A line's runs depend only on the line and the carry it starts
+in, so an editor highlights incrementally: after an edit it sends the changed lines
+with the end carry of the line before them and keeps sending the following lines
+until a returned end carry equals the one it held; from there nothing changed.
+
+The grammars in `highlight/` (TextMate, Sublime, vim, Pygments) are checked
+against this highlighter over one corpus; see
+[`highlight/README.md`](../highlight/README.md).
+
+Exit codes: 0 printed (or the stream ended), 2 bad usage, a theme or dialect that
+cannot be loaded, or a file that cannot be read (or is not UTF-8).
+
 ## Themes
 
 The viewer loads a colour theme from `themes/<name>.yaml`: `sigil view --theme NAME`
 or `SIGIL_THEME=NAME` picks one, and the web page reads the same files. A dialect
 may name its own theme (its `THEME` hook: a theme name, or a YAML path beside the
-dialect module, read as any theme file is). Every command that themes (`view`,
-`frames draw`, `highlight`) takes an explicit `--theme` first, then the loaded
-`SIGIL_THEME` (a person's choice beats a dialect's default), then the loaded
-dialect's `THEME`, else `sigil`, so a dialect's drawings and
-its source agree; a theme its `THEME` names that cannot be loaded is an error as a
-bad `--theme` is.
+dialect module, read as any theme file is). Every command that colours (`view`,
+`frames draw`, `highlight`) takes an explicit `--theme` first, then `SIGIL_THEME`
+(a person's choice beats a dialect's default), then the loaded dialect's `THEME`,
+else `sigil`, so a dialect's drawings and its source agree. A theme the dialect's
+`THEME` names that cannot be loaded is an error, as a bad `--theme` is.
 `sigil themes [NAME|PATH]` prints a theme resolved (its `extends` and `$name`
 references filled in) as JSON, and `sigil themes --list` lists the themes found. The format is in the README under [Themes](../README.md#themes).
 
@@ -984,5 +1036,6 @@ inside a `"…"` string starts no comment.
 
 ## `highlight/`
 
-Syntax highlighting for bat, nvim, VS Code and Sublime / TextMate. See
+Syntax highlighting for bat, nvim, VS Code and Sublime / TextMate, checked against
+[`sigil highlight`](#sigil-highlight-file-). See
 [`highlight/README.md`](../highlight/README.md).
