@@ -258,3 +258,14 @@ check-spec/tests/fixtures/coverage.sigil
 # patch-0.6.7 (vs main after the 0.6.7 design commit; .claude/campaigns/patch-0.6.7/baseline):
 # I1: interfaces cover data shapes — no corpus case differs (no spec in the corpus writes a shape
 # or exports a tree holding data); only the new lint fixtures SGL190–193 are added cases
+# D1: language.md gains Example 7 (data shapes and a set) after Example 6, as block-39; the formal
+# grammar block (block-39 before, now gaining `set`/`shape`/`field`) moves to block-40 (added). No
+# earlier block moves: the sets and "Data shapes" sections give their examples inline.
+check/language.md/block-39.sigil
+check-json/language.md/block-39.sigil
+check-spec/language.md/block-39.sigil
+lint/language.md/block-39.sigil
+lint-deep/language.md/block-39.sigil
+mermaid-d1/language.md/block-39.sigil
+mermaid-d2/language.md/block-39.sigil
+mermaid-subgraphs/language.md/block-39.sigil

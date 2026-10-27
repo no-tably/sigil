@@ -156,8 +156,14 @@ keep `--depth all` for small documents.
    — and keep the wiring in ordinary flows. A flow to a bare name reaches every
    occurrence; a path with no spaces (`[Bullet]/{Transform}`) reaches only the
    occurrences under that parent.
-6. Mark genuine unknowns as holes (sketch/craft only).
-7. Emit in Sigil Normal Form, then run `python3 scripts/bin/sigil lint` and fix what it reports.
+6. Write a shape for data that other parts read: `{Doc} := { path, text, note?,
+   rows: {Row} }` (field names only, `?` optional, a glyph a nested shape; no types,
+   so say more in a comment). A field change then reaches every part that sends,
+   takes or holds `{Doc}` (its interface hash moves on export). Bare names belong
+   only in a data expansion (lint SGL191 elsewhere). `{a, b}` is a set, a value
+   (`∈ {open, closed}`), never a glyph: a flow to two glyphs is two flows (SGL190).
+7. Mark genuine unknowns as holes (sketch/craft only).
+8. Emit in Sigil Normal Form, then run `python3 scripts/bin/sigil lint` and fix what it reports.
 
 Output one code block; first line is the bare mode line. No prose unless asked.
 
@@ -436,7 +442,8 @@ unacknowledged. The tool enforces that gate itself.
    neither enclosing the other) and `untyped-boundary` (SGC402, a flow across a
    system boundary with no payload, or a call across one with no `=> return`).
    Resolve them as any finding — ask the user, then declare or acknowledge; never
-   reshape. Systems are each `X := { … }` expansion, each composition-tree root,
+   reshape. Systems are each `X := { … }` expansion (a data expansion
+   `{X} := { … }` is the data's shape, no system), each composition-tree root,
    and the top level (named after the file, or `--name NAME`); "Ready to export" in
    `references/language.md` has the rules. To make a root service the project
    itself, name the file after it (`[Shop]` in `shop.sigil`, or `--name shop`): its
@@ -446,7 +453,10 @@ unacknowledged. The tool enforces that gate itself.
    `branch on {X}.f` subject, an arm, a borrow, a join), is never its home, so
    `no-home` asks only about parts declared in two sibling units. Data a flow
    carries counts as a dependency: a payload naming a homed `{D}` makes both ends
-   depend on `{D}`'s system. Descriptions come from the `#` comments:
+   depend on `{D}`'s system. An interface is what crosses a boundary: a system
+   described only by its tree, that nobody calls and whose tree holds no data, has an
+   empty one, so write the flow that calls it (`[App] -> [Tab] : view({Board})`) and
+   the shapes of the data it holds or is sent. Descriptions come from the `#` comments:
    a header comment needs a blank line after it to describe the top system, or it
    describes the first statement's node. A trailing comment describes its line's
    first node, and a comment-only line aligned under it continues it. A
@@ -461,11 +471,12 @@ unacknowledged. The tool enforces that gate itself.
    description, interface, requirements, lifecycle, as the spec states them —
    no target-language types), `system.json` the same as data, `README.md` the
    index. **`manifest.json` is the contract**: per system its interface hash (the
-   flows across its boundary), body hash (everything in it), components, each
+   flows across its boundary, the shapes of the data they carry when one is written,
+   and the data its tree holds), body hash (everything in it), components, each
    component's interface and body hash, depends_on (its own flows) and parent (the
    enclosing system); with a dialect loaded, the
    dialect's name and version. `system.json` adds each component's and flow's spec
-   `lines` and the system's `#&` declarations. No hash reads line numbers or the
+   `lines`, the system's `#&` declarations and its `shapes`. No hash reads line numbers or the
    top system's name. The manifest is written last, so a folder without it is no
    finished export.
 4. After the spec changes, export again into the same DIR (`--dry-run` first to
@@ -475,7 +486,9 @@ unacknowledged. The tool enforces that gate itself.
    depend on one whose interface moved, so their calls into it need a second look
    (or sit inside a system that depends on it from outside itself: `X (via Outer)`);
    `added` / `removed` are new or gone; `unchanged` need nothing. Reformatting or
-   reordering the spec changes no hash. Tell the user these lists.
+   reordering the spec changes no hash, nor does reordering a shape's fields; adding
+   a field to `{Doc}` rebuilds the systems that carry or hold it. Tell the user these
+   lists.
 5. Building against the export happens outside sigil: `sigil export` writes the folder
    and stops. Don't run a build loop, track who builds what, or keep a ledger of
    it here; a builder's own files in a system folder are left alone on re-export.

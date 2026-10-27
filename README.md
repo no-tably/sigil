@@ -418,7 +418,8 @@ names every rule it skipped, and `--all-rules` runs them anyway.
 Once a design is final, `sigil export` hands it to whoever builds it: a folder per
 system, a Markdown file per component (kind, description, interface, requirements,
 lifecycle), and `manifest.json`, the contract. Systems come from the design itself,
-no new syntax: each `X := { … }` expansion, each composition-tree root, and the top
+no new syntax: each `X := { … }` expansion (a data expansion is the data's shape, not
+a system), each composition-tree root, and the top
 level (named after the file, or `--name NAME`; a top-level service of that name,
 `[Shop]` in `shop.sigil`, is the top level itself). Only a ready spec exports: its mode
 line is `#!spec`, lint finds no error, and `sigil check --export` leaves no error or
@@ -444,8 +445,9 @@ build/
 ```
 
 Each system, and each component in it, has two hashes: the **interface** (the
-flows that cross its boundary, with their payloads and returns) and the **body**
-(everything in it). Reformatting, reordering or renaming the spec moves neither (a
+flows that cross its boundary, with their payloads and returns, and the shapes of
+the data they carry or its tree holds: `{Doc} := { path, text, note? }`, field names
+only) and the **body** (everything in it). Reformatting, reordering or renaming the spec moves neither (a
 rename moves the top system's key and folder, which `delta.json` reports as
 `renamed`, with no system to rebuild, unless the new name is a top-level service's);
 `system.json` also gives every component and flow its spec `lines`. Export again into the same folder after an

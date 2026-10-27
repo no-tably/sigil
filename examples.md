@@ -74,7 +74,7 @@ visitor while the user's episode still runs (an overlap run).
 
 **Key decisions:**
 - `(User)` is an actor, not a component — external to the system we're describing.
-- `{creds}` is data being passed as a payload; `~{Session}` is mutable (will be refreshed); the 24h TTL is a comment, since entities carry no schema.
+- `{creds}` is data being passed as a payload; `~{Session}` is mutable (will be refreshed); the 24h TTL is a comment, since data carries no types or values (a shape, `{Session} := { … }`, names its fields only).
 - The `!>` continuation line attaches to the `[Auth] -> |UserDB|` flow, not to `[Auth]` generally.
 - `~>` captures "asynchronously emits" cleanly; the audit happens independent of the main flow.
 

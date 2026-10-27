@@ -146,6 +146,23 @@ top-level `:`** (key/value pairs), e.g. `{retries: 3}` or `{ttl: 24h, mode:
 `~{Session}`. Every bare-identifier `{X}` payload is an entity. A body that has a
 top-level `:` but is not pure key/value pairs is ambiguous and rejected (`SGL100`).
 
+### `{a, b}` — a set (a value)
+
+Braces around comma-separated names, `{pending, active}`, are a **set**: a value,
+wherever it stands. That is the right side of `∈` in a `?>` guard, a `branch on`, a
+loop's `@while` or `@until`, an `@inv`, or an argument among a payload's. A glyph
+name never holds a comma, so a set is never a data glyph. It makes no node, no
+drawing or `export --mermaid` diagram shows one, and `sigil highlight` colours it as
+held text. A generic's comma stays inside its glyph (`{Cache<K,V>}` is one data
+glyph), and `{A}, {B}` is two glyphs. Only braces make a set; other brackets read as
+before. So `[Desk] ?> {Order}.status ∈ {pending, active} -> [Packer]` draws
+`[Desk]`, `{Order}` and `[Packer]` and no node for the set, and
+`[Desk] -> [Audit] : flag({Order}, {late, lost})` carries `{Order}` and a set.
+
+A set at a flow's end (`[A] -> {B, C}`) is a lint error (`SGL190`) in every mode,
+since the parser draws no edge to a value: write one flow per glyph
+(`[A] -> {B}`, then `[A] -> {C}`).
+
 ### Multiline block-strings — `"""…"""` (sigil's one multiline construct)
 
 A `str` literal has a **triple-quoted multiline form** `"""…"""` alongside the
@@ -709,6 +726,39 @@ The levels describe one system, not two: above, `[Core] -> |DB|` is the summary 
 
 An expansion's member that reaches a part of an outer level is a dependency the outer level should state: `[App] -> [Data]` inside `[Core] := { … }` wants a link between `[Core]` and `[Data]` above (the check `expansion-escape`, SGC172, asks for it). The check reads membership, not mentions: a part declared inside a unit (a line of its own, a modifier line, a flow it starts, a tree) stays that unit's even when an outer level also reaches it, and a link stated between anything that encloses one end and anything that encloses the other connects them (`[Draw] -> [Core]` covers a member of Draw's `[Paint]` calling Core's `[Buffer]`). The price: a member that also acts at the top level (starts a flow there) is still read as its holder's.
 
+### Data shapes
+
+A data glyph's expansion is its **shape**: the names of its fields,
+`{Doc} := { path, text, note?, {Meta} }`. Write the shape of data that other parts
+read, so a change to it reaches them (see "Ready to export"; Example 7 below has a
+whole document).
+
+- A **field** is a bare name (`path`). Fields go on one line separated by commas, or
+  one or more to a line; the two read the same.
+- `?` after a name marks the field optional (`note?`).
+- A data glyph names a **nested shape**: alone (`{Meta}`, a field named after it),
+  or after a name (`tags: {Tag}`). Either may be optional (`tags?: {Tag}` or
+  `{Meta}?`). A nested glyph with no shape of its own is still a field; its shape is
+  just not written.
+- There are **no types**, no defaults and no values: a shape says which fields the
+  data has, not what they hold. Say more in a comment.
+- A flow written inside the shape is drawn as usual and adds no field. A line inside
+  a control block in a shape is no field either.
+
+A data expansion describes the data, not a unit of the design: an export makes no
+system of it, and `{Doc}` stays a component, homed where it would be without the
+shape. Only a data expansion has fields: bare names in a service's expansion, or at
+the top level, are dropped.
+
+Lint checks the fields and where they are written:
+
+- **SGL191** (warn): a bare name outside a data expansion. The parser drops it. A
+  field belongs in its data's shape, and a part is a glyph.
+- **SGL192** (error): a field written twice in one shape (`{ path, text, path? }`).
+  The same name in two shapes is fine.
+- **SGL193** (warn): a line in a shape that is neither fields nor a flow (`a b`,
+  `x: y`, `rows: {Row} more`). The parser drops it.
+
 ---
 
 ## Composition trees
@@ -1170,7 +1220,8 @@ systems are read off the document; there is no syntax for them:
 
 - every expansion `X := { … }` is a system named `X`, holding the nodes of its body.
   A nested expansion is a system of its own, and its parent depends on it. An alias
-  body is no system, and a `state` machine is its owner's lifecycle, not a system;
+  body is no system, a data expansion `{X} := { … }` is the data's shape (see "Data
+  shapes"), not a system, and a `state` machine is its owner's lifecycle, not a system;
 - every composition-tree root (a glyph with `\-` branches) is a system holding its
   tree;
 - every other node is in the **top** system, named after the file (`--name NAME`
@@ -1212,7 +1263,11 @@ top level and in two units) lives in the outer level, as before. The rule never
 moves an actor: `(Client)` stays where its entry line is written.
 
 A system's **boundary** is the flows with exactly one end in it; its **interface**
-is those flows, with their payloads and returns. System A **depends on** B when a
+is those flows, with their payloads and returns, and the shapes of the data they
+carry or its face's tree holds (see "What the export records"). An interface is what
+crosses a boundary, so a system nobody calls has an empty one, even when its tree
+lists many members: write the flow that calls it (`[App] -> [Tab] : view({Board})`).
+System A **depends on** B when a
 flow leaves A for B, when B is nested in A, and when a flow of A carries data that
 lives in B: a `{D}` named in a flow's payload, op arguments or return, when `{D}` is
 a component with a home, makes both ends' systems depend on `{D}`'s system (not on
@@ -1300,6 +1355,26 @@ body, as `{name, body, line}`, its body in that system's body hash; a dialect's 
 node attributes (`Node.attrs`) go on their component as `attrs`; and the manifest
 names the dialect the spec was read with (its name, and its version when it gives
 one). The field-by-field schema is in [`docs/tools.md`](./docs/tools.md).
+
+**Shapes in the interface.** An interface also covers the shapes of the data that
+crosses it (see "Data shapes"), so a builder reading `{Doc}` hears when a field is
+added:
+
+- data a flow **carries** (a payload, op arguments, a return, a data glyph at one
+  end) counts only when its shape is written;
+- data a system's face **holds** (a `\-& {X}` branch anywhere in the tree under it)
+  counts by name even with no shape written, and with its shape when there is one;
+- a nested shape a field names counts too.
+
+A component's interface covers the shapes its own flows carry, its own shape when
+it is data, and the data its own `\-&` branches hold. Fields count by name and `?`:
+their order, writing them on one line or many, and a comment on the shape move no
+interface hash (the comment is body only), while adding, removing or renaming a field,
+or adding or dropping a `?`, does. Each system's `system.json` lists the shapes its
+interface covers. After a field is added to `{Doc}`, a re-export rebuilds every
+system whose flows carry `{Doc}` or whose tree holds it (its body moved, and its
+interface too when `{Doc}` crosses its boundary or its face holds it), and rechecks
+the systems that depend on one whose interface moved.
 
 ---
 
@@ -1496,6 +1571,38 @@ loop @while |Q|.nonempty {
 } @inv write-only-primary
 ```
 
+### Example 7: Data shapes and a set
+```
+#!sketch
+--- Editor ---
+(Writer) -> [Editor] : open({Path}) => {Doc}
+[Editor] -> [Panel] : show({Doc}) => {Ack}
+loop @while {Doc}.status ∈ {draft, editing} {
+  [Editor] -> |Docs| : save({Doc}) => {Ack}
+} @inv terminates
+
+--- Shapes ---
+{Doc} := { path, text, status, note?, {Meta} }   # names only, no types
+{Meta} := {
+  author
+  tags?: {Tag}
+}
+
+--- Panel ---
+[Panel]
+    \-& {Doc}
+    \-> [Tab]
+```
+
+`{Doc}` has five fields: `note` is optional and `Meta` names the nested shape
+`{Meta}`, written one field to a line. `{Tag}` has no shape written. `{draft,
+editing}` is a set, a value: it makes no node. Neither shape is a system when the
+spec is exported. The Panel system, a tree that holds `{Doc}`, has an interface
+covering `{Doc}`'s shape. A field added to `{Doc}` therefore moves Panel's interface
+(and a re-export rebuilds Panel and the top system, whose flows carry `{Doc}`), and
+the interfaces of `{Doc}` itself and of every part a flow carrying it touches:
+`(Writer)`, `[Editor]`, `[Panel]` and `|Docs|`.
+
 ---
 
 ## Common pitfalls
@@ -1528,7 +1635,7 @@ loop @while |Q|.nonempty {
 
 14. **Writing prose verbs inside flow lines.** Every connector between glyphs must be an arrow (`->`, `~>`, `=>`, `!>`, `?>`, `*>`, `<->`). Do not write English verbs like "excludes", "surfaces", "returns", "calls", "reads" as if they were operators. Wrong: `[MCP] excludes (superseded) ∪ (retracted)`. Right: model the filter as an invariant (`[MCP] @inv excludes({Entity}.state ∈ {superseded, retracted})`), a branch, or a comment — never inline prose posing as notation.
 
-15. **Inventing keywords or modifiers.** The core spec defines the full core vocabulary: the five glyphs (with holes `?`, wildcard `_`, generics, the `~` mutability and `*` stream prefixes), the closed arrow set, the modifiers (`@inv`, `@sla`, `@cap`, `@owns`, `@borrow`, `@timeout`, `@after`, `@deadline`, `@fallback`, `@grants`, `@requires`, `@loc`, `!`, `?`, `.field`, `×N`), the **call-resilience** trio (`@timeout` · `×N` · `@fallback` — a call's error policy, see "Call resilience"), the **composition-tree** branches (`\-` with relation `>` `&` `?` `$` `@` `!` `=` `_`, the `*-` spawn, `(N)-` weight and `{cond}-` prefixes, and qualified paths `[A]/{B}` — see "Composition trees"), the **permission-graph access modifiers** `@read(…)` / `@write(…)` (principal lists on a store — see "Permission graph"), the payload forms (entity glyph, internal op-call, value literal / `${ref}` / map / list / `"""…"""` block-string, the value operators `++` `||` `+ - * /`, and the external-op **`op`** keyword — see "Payloads & values"), the stream bound `^N@policy`, the structure tokens (`:=`, `name { … }`, section headers, `/`, `&`, `&?`), mode lines, and the control blocks (`state`, `loop`, `parallel`, `branch`). Do not invent new ones — no `composes:`, no `@notify`, no `@reacts`. **For the permission graph specifically, do NOT invent a `swarm`/`agents`/`acl` block, an `agents:` roster key, or a topology/control-policy keyword** (`flat`/`hierarchical`/`coordinated`/`single-owner`/`lww`): the topology and write-discipline **emerge** from the `@read(…)` / `@write(…)` edges and their cardinality (one writer ⇒ single-owner, many ⇒ shared), delegation is `@borrow`, and dynamic membership is a generic role. Local-component composition is `:= { ... }`. Async emission is `~>`. **Dialects extend this vocabulary** (see "Dialects"): a dialect's own document lists what it adds, and that vocabulary is valid only when the dialect is selected — do not use it in a core document, and do not invent vocabulary a dialect doesn't define either. If a concept genuinely lacks notation, demote it to an inline comment (`# ...`) rather than inventing syntax.
+15. **Inventing keywords or modifiers.** The core spec defines the full core vocabulary: the five glyphs (with holes `?`, wildcard `_`, generics, the `~` mutability and `*` stream prefixes), the closed arrow set, the modifiers (`@inv`, `@sla`, `@cap`, `@owns`, `@borrow`, `@timeout`, `@after`, `@deadline`, `@fallback`, `@grants`, `@requires`, `@loc`, `!`, `?`, `.field`, `×N`), the **call-resilience** trio (`@timeout` · `×N` · `@fallback` — a call's error policy, see "Call resilience"), the **composition-tree** branches (`\-` with relation `>` `&` `?` `$` `@` `!` `=` `_`, the `*-` spawn, `(N)-` weight and `{cond}-` prefixes, and qualified paths `[A]/{B}` — see "Composition trees"), the **permission-graph access modifiers** `@read(…)` / `@write(…)` (principal lists on a store — see "Permission graph"), the payload forms (entity glyph, internal op-call, value literal / `${ref}` / map / list / set `{a, b}` / `"""…"""` block-string, the value operators `++` `||` `+ - * /`, and the external-op **`op`** keyword — see "Payloads & values"), the stream bound `^N@policy`, the structure tokens (`:=`, a data shape's field names `{X} := { a, b? }`, `name { … }`, section headers, `/`, `&`, `&?`), mode lines, and the control blocks (`state`, `loop`, `parallel`, `branch`). Do not invent new ones — no `composes:`, no `@notify`, no `@reacts`. **For the permission graph specifically, do NOT invent a `swarm`/`agents`/`acl` block, an `agents:` roster key, or a topology/control-policy keyword** (`flat`/`hierarchical`/`coordinated`/`single-owner`/`lww`): the topology and write-discipline **emerge** from the `@read(…)` / `@write(…)` edges and their cardinality (one writer ⇒ single-owner, many ⇒ shared), delegation is `@borrow`, and dynamic membership is a generic role. Local-component composition is `:= { ... }`. Async emission is `~>`. **Dialects extend this vocabulary** (see "Dialects"): a dialect's own document lists what it adds, and that vocabulary is valid only when the dialect is selected — do not use it in a core document, and do not invent vocabulary a dialect doesn't define either. If a concept genuinely lacks notation, demote it to an inline comment (`# ...`) rather than inventing syntax.
 
 16. **Statement separators.** Sigil has no `;` — each statement is on its own line. Inline conditionals use `?>` or `branch on X { ... }`. Wrong: `Δhash -> re-render ; =hash -> reuse`. Right: a `branch on {Concept}.hash { … }` block with one arm per line (`changed => …`, `_ => …`), or two separate statements.
 
@@ -1603,9 +1710,14 @@ STR         := '"' char* '"' | '"""' any* '"""'    # single-line | multiline blo
 
 # Disambiguation: a `{…}` payload is a MAP LITERAL iff its body has a top-level
 # `:` (key/value pairs), e.g. `{retries: 3}`; otherwise it is the DATA-GLYPH
-# `{X}` (entity). Every bare-identifier `{X}` stays an entity.
+# `{X}` (entity). Every bare-identifier `{X}` stays an entity. Braces around a
+# comma list, `{pending, active}`, are a SET (a value, never a node).
+set         := '{' name (',' name)+ '}'
 
 alias       := name ':=' (expr | '{' stmt* '}' (mod)*)
+shape       := DATA ':=' '{' (fields | flow)* '}' (mod)*   # a data expansion: its fields
+fields      := field (',' field)*
+field       := name '?'? (':' DATA '?'?)? | DATA '?'?       # names only, no types
 block       := name '{' stmt* '}' (mod)*
 # Any block's closing `}` may carry modifiers for the whole block
 # (`} @deadline(3s)`, `} @inv terminates`); an expansion's go to its entity.
@@ -1668,7 +1780,7 @@ GLYPH ∈ `{ [ ( { < | }`, matched by its closing counterpart.
   one at a tick, machines in their initial state unless a scenario begins one in
   another, bounded loops and recursion, the first member wins by default) are
   the viewer's reading, not part of the language.
-- **No schema syntax for data *entities*** — a `{X}` entity payload is named, not schema'd; expand it elsewhere if you need a full record shape. (A payload *may* carry a concrete **value** — a literal/ref from the closed value vocabulary; see "Payloads & values". That is a value, not an entity schema.)
+- **No types for data *entities*: names only** — a `{X}` entity payload is named, not typed; a shape is written as the data's expansion, its field names only (`{X} := { id, rows?: {Row} }`, see "Data shapes"). (A payload *may* carry a concrete **value** — a literal/ref from the closed value vocabulary; see "Payloads & values". That is a value, not an entity schema.)
 - **No absolute layout / visual coordinates** — Sigil is textual; placement is the renderer's concern. (A dialect may describe **relational** layout intent; none names coordinates or pixel sizes.)
 - **No module/import system** — use `:=` expansions and section headers for scoping.
 - **No reverse arrow** — all flows written source-to-sink.

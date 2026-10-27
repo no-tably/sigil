@@ -2,6 +2,63 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
+## 0.6.7 — unreleased
+
+Data can say what it holds: a data glyph's expansion lists its field names, and an
+export counts those shapes in the interface, so a field added reaches every part
+that reads the data. Sets like `{pending, active}` are values everywhere, and a
+command piped into `less` or `head` stops quietly.
+
+### New
+
+- **Data shapes.** `{Doc} := { path, text, note? }` names the fields of `{Doc}`:
+  bare names, comma-separated or one or more to a line. `?` marks a field optional,
+  and a data glyph names a nested shape (`rows: {Row}`, or `{Meta}` alone). Shapes
+  hold names only, no types or values. A data expansion is the data's shape, not a
+  system: an export gives it no folder, and `{Doc}` stays a component where it was.
+  See "Data shapes" in language.md.
+
+- **Interfaces cover shapes.** A system's interface hash now covers the shapes of
+  the data its boundary flows carry and the data its face's tree holds (`\-& {X}`
+  at any depth); a component's covers the shapes its flows carry, its own shape, and
+  its own `\-&` data. Carried data counts only when its shape is written; held data
+  counts by name even without one. Field order, one line or many, and comments move
+  no interface hash; adding, removing or renaming a field, or a `?`, does. So after
+  a field is added, a re-export rebuilds the systems that carry or hold the data and
+  rechecks the systems that depend on them. `system.json` lists each system's and
+  component's `shapes`.
+
+- **What moves for an existing spec.** A spec with no shapes and no tree data
+  exports the same hashes as before. A system whose tree holds data (a face with
+  `\-& {X}` children) now has an interface: its interface and body hashes move once,
+  so a re-export rebuilds it and rechecks the systems that depend on it. A data
+  expansion `{X} := { … }` an earlier export made a system of is `removed`. A system
+  described only by a tree, with no data held and no flow in or out, still has an
+  empty interface: an interface is what crosses a boundary, so write the flow that
+  calls it (`[App] -> [Tab] : view({Board})`).
+
+### Fixes
+
+- **A set is a value, never a glyph.** `{pending, active}` in a `?>` guard,
+  `branch on`, `@while`, `@inv` or a payload was read as a data glyph named
+  "pending, active", drawn as a node and as a Mermaid node. A glyph name now never
+  holds a comma, so a set makes no node anywhere, and `sigil highlight` colours it
+  as the editor grammars already did. `{Cache<K,V>}` stays one glyph, and `{A}, {B}`
+  two.
+- **A closed pipe ends quietly.** When the reader of a command's output leaves
+  early (`sigil highlight FILE | less` quit before the end, `| head`), every
+  command now stops with exit 1 and no `BrokenPipeError` traceback.
+
+### New lint rules
+
+- **SGL190** (error): a set as a flow's end (`[A] -> {B, C}`). Write one flow per
+  glyph.
+- **SGL191** (warn): a bare name outside a data expansion. It used to be dropped
+  without a word; a field belongs in its data's shape.
+- **SGL192** (error): a field written twice in one shape.
+- **SGL193** (warn): a line in a shape that is neither fields nor a flow
+  (`rows: {Row} more`). The parser drops it.
+
 ## 0.6.6 — 2026-10-27
 
 Sigil colours its own source: a document read the way every other command reads it,

@@ -64,6 +64,10 @@ Two exceptions: `sigil view --once` exits 1 on a lint error, since the drawing i
 output, and `sigil export` exits 1 when it cannot write the folder and 2 when the spec
 is not ready to export.
 
+When the reader of stdout leaves early (`sigil highlight FILE | less` quit before
+the end, `| head`), any subcommand stops quietly with exit 1: no traceback, and
+nothing more is written.
+
 ## `sigil lint FILE|-`
 
 Validates a document and prints one `severity:line:rule: message` line per issue.
@@ -251,18 +255,33 @@ so a delta reads the nesting from the manifests alone; no hash reads it.
 `component_hashes` each component's two hashes, in the order of `components`.
 
 **The hashes.** A system's `interface` is the hash of the flows that cross its
-boundary, with their payloads and returns; its `body` the hash of everything in it:
-interface, members, internal flows, control blocks, descriptions and its `#&`
-declarations. A component's `interface` covers its flows in and out, with their
-modifiers; its `body` its whole form: kind, home, the other systems it is written
-in, a dialect's `attrs`, description, interface, requirements and lifecycle. A
-component's hashes enter no system's hash (both are read off the same form). All
-are sha256 over a normalised JSON form, first 16 hex digits. No line number,
-whitespace, statement order or top system name enters any of them, so reformatting,
-reordering or renaming the spec changes none; changing a payload, a modifier, a
-description, a state or a declaration's body does (a declaration's body is kept as
-written, so even its spacing counts). The manifest's hashes are the truth; written
-last, it is what marks a finished export.
+boundary, with their payloads and returns, and of its `shapes` (below); its `body`
+the hash of everything in it: interface, members, internal flows, control blocks,
+descriptions and its `#&` declarations. A component's `interface` covers its flows
+in and out, with their modifiers, and its `shapes`; its `body` its whole form: kind,
+home, the other systems it is written in, a dialect's `attrs`, description,
+interface, requirements and lifecycle. A component's hashes enter no system's hash
+(both are read off the same form). All are sha256 over a normalised JSON form, first
+16 hex digits. No line number, whitespace, statement order or top system name enters
+any of them, so reformatting, reordering or renaming the spec changes none; changing
+a payload, a modifier, a description, a state or a declaration's body does (a
+declaration's body is kept as written, so even its spacing counts). The manifest's
+hashes are the truth; written last, it is what marks a finished export.
+
+Data shapes (`{Doc} := { path, text, note? }`, see "Data shapes" in
+[`language.md`](../language.md)) enter the interface, so a field added to `{Doc}`
+reaches every part that sends, takes or holds it. Data a flow **carries** (a
+payload, op arguments, a return, a data glyph at one end) counts only when its
+shape is written; with none, the interface is the flows' alone, as before. Data a
+face's tree **holds** (a `\-& {X}` branch at any depth under it) counts by name even
+with no shape written. A nested shape a field names counts as well. Fields count by
+name and `?`: their order, one line or many, and a comment on the shape move no
+interface hash (the comment is body only). An interface is what crosses a boundary,
+so a tree-described system whose tree holds no data and that no flow reaches has an
+empty interface (`4f53cda18c2baa0c`, the hash of `[]`), however many members its
+tree lists: counting the members would make an internal reshuffle look like an
+interface change. Write the flow that calls it (`[App] -> [Tab] : view({Board})`).
+A data expansion is the data's shape, not a system: it gets no folder.
 
 **`system.json`** is the system's normalised form: `name`, `kind` (`top`,
 `expansion` or `tree`), `face` (the glyph the system is named after), `parent`,
