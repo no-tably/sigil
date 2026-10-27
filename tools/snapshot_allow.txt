@@ -254,3 +254,7 @@ check-spec/language.md/block-37.sigil
 # K1: coverage.sigil's state starts take 3 runs of the --budget 256 before the overlap runs, so SGC090's
 # unrun overlap count goes 5706 -> 5709
 check-spec/tests/fixtures/coverage.sigil
+
+# patch-0.6.7 (vs main after the 0.6.7 design commit; .claude/campaigns/patch-0.6.7/baseline):
+# I1: interfaces cover data shapes — no corpus case differs (no spec in the corpus writes a shape
+# or exports a tree holding data); only the new lint fixtures SGL190–193 are added cases

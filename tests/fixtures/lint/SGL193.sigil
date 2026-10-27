@@ -1,0 +1,10 @@
+# expect: SGL193@5 SGL193@6 SGL193@7 SGL193@8
+# SGL193 a data shape's line that is neither fields nor a flow (the parser drops it)
+#!spec
+{Doc} := {
+  a b
+  x: y
+  rows: {Row} more
+  {Meta} extra
+  path, note?
+}

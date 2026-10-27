@@ -123,6 +123,8 @@ COMPONENTS
                 core leaves it empty), its instances' merged, the first written
                 first
   lines         the lines it is written on (as for its acknowledgements)
+  shapes        the shapes of the data it carries, holds or is (SHAPES, by
+                shapes_of): part of its interface
 
 DECLARATIONS
 
@@ -143,7 +145,9 @@ BOUNDARIES AND DEPENDENCIES
   {D}'s (its own system when it is a face) unless that is the end's own or
   encloses it (payload_dependencies). A flow to or from an actor makes no
   system depend on another (its other end still depends on the data it
-  carries). A dependency is no part of any hash. A boundary flow
+  carries). A system's shapes are those of the data its boundary flows carry and
+  its face's tree holds (`\\-&` data children, by name even with no shape
+  written): in its interface. A dependency is no part of any hash. A boundary flow
   with no payload (neither end a data or event glyph either) or a synchronous
   call with no `=> return` is listed in Model.untyped (SGC402).
 """
@@ -193,6 +197,16 @@ class Flow:
 
 
 @dataclass(frozen=True)
+class Shape:
+    """A data glyph's shape as an interface reads it (see SHAPES): its glyph, its
+    fields ((name, optional, nested glyph or None), …) sorted by name, or None
+    when no shape is written for it; `held`: a tree holds it (`\\-& {X}`)."""
+    glyph: str
+    fields: Optional[tuple]
+    held: bool = False
+
+
+@dataclass(frozen=True)
 class Lifecycle:
     states: tuple
     initial: tuple
@@ -217,6 +231,7 @@ class Component:
     lifecycle: Optional[Lifecycle]
     lines: tuple                        # the lines it is written on
     attrs: dict = field(default_factory=dict)   # a dialect's Node.attrs, merged
+    shapes: tuple = ()                  # Shape of the data it carries, holds or is
     interface_hash: str = ""
     body_hash: str = ""
 
@@ -236,6 +251,7 @@ class System:
     depends_on: tuple
     accepts: tuple = ()                 # document-wide acknowledgements (top only)
     declarations: tuple = ()            # graph.Declared in its scope, document order
+    shapes: tuple = ()                  # Shape of the data crossing it or its face's tree holds
     interface_hash: str = ""
     body_hash: str = ""
 
@@ -306,7 +322,8 @@ def model_of(graph, stem: str, accepts: Iterable[Accepted] = (),
     flows = collect_flows(graph, nodes)
     facts = Facts(graph, layout, homes, flows,
                   {nid: glyph([n], kinds) for g in walk(graph) for nid, n in g.nodes.items()},
-                  tuple(accepts), kinds)
+                  tuple(accepts), kinds,
+                  nodes)
     appears = merged(graph_lines(graph, nodes), head_lines(graph, nodes))
     components = {nid: make_component(nid, insts, appears[nid], facts)
                   for nid, insts in nodes.items()}
@@ -327,6 +344,7 @@ class Facts(NamedTuple):
     glyphs: dict                        # node id → glyph, every node
     accepts: tuple                      # Accepted, document order
     kinds: Mapping = {}                 # the dialect's NODE_KINDS
+    nodes: Mapping = {}                 # node id → [Node instances], every component
 
 
 # ---------------------------------------------------------------------------
@@ -754,7 +772,10 @@ def make_component(nid: str, insts: list, lines: tuple, facts: Facts) -> Compone
                       if not a.document and set(lines) & a.span),
         lifecycle=lifecycle(lay.machines.get(nid)),
         lines=lines,
-        attrs=merged_attrs(insts))
+        attrs=merged_attrs(insts),
+        shapes=shapes_of(facts, [d for f in facts.flows if nid in (f.src, f.dst)
+                                 for d in flow_data(f, facts.nodes)] + [nid],
+                         held_data(facts.graph, nid, facts.nodes, deep=False)))
 
 
 def merged_attrs(insts: list) -> dict:
@@ -954,6 +975,10 @@ def make_systems(facts: Facts, components: dict, inside: dict) -> dict:
             depends_on=tuple(sorted(deps.get(key, ()))),
             accepts=doc_accepts if kind == "top" else (),
             declarations=system_declarations(graph, lay, key))
+        holder = face if face is not None else lay.top_face if kind == "top" else None
+        sysm = replace(sysm, shapes=shapes_of(
+            facts, [d for f in sysm.interface for d in flow_data(f, facts.nodes)],
+            held_data(graph, holder, facts.nodes) if holder is not None else ()))
         out[key] = sysm
     return out
 
@@ -1028,6 +1053,79 @@ def carried_data(f: Flow) -> list:
             if node is not None and node.id not in ids:
                 ids.append(node.id)
     return ids
+
+
+def flow_data(f: Flow, nodes: Mapping) -> list:
+    """The data f carries (carried_data), then a data glyph at either end of it (a
+    flow into or out of `{D}` carries {D}); `nodes`: component_nodes."""
+    return carried_data(f) + [end for end in (f.src, f.dst) if is_data(end, nodes)]
+
+
+def is_data(nid: str, nodes: Mapping) -> bool:
+    return nid in nodes and nodes[nid][0].kind == "data"
+
+
+# ---------------------------------------------------------------------------
+# Shapes
+# ---------------------------------------------------------------------------
+#
+# SHAPES. A data expansion's fields (Graph.shapes) enter interfaces: a
+# component's shapes are those of the data its flows carry (payload, op
+# arguments, return, or a data end), its own when it is data, and the data its
+# tree holds (its `\-& {X}` children); a system's, those of the data its
+# boundary flows carry and the data its face's tree holds (every `\-&` data
+# entry of it). Each nested shape a field names counts too (followed once: a
+# shape naming itself, at any depth, ends there). Carried data counts only when
+# it has a shape; held data counts by name even with none (so a system a tree
+# describes has an interface). Fields are sorted by name: the order they are
+# written in moves no hash.
+
+def held_data(graph, nid: str, nodes: Mapping, deep: bool = True) -> list:
+    """The data glyphs the trees node `nid` roots hold: every `\\-&` data entry
+    below it (deep), or only its own children (not deep), first written first;
+    `nodes`: component_nodes."""
+    out = []
+    for g in walk(graph):
+        roots = tree_roots(g.tree)
+        for i, e in enumerate(g.tree):
+            if e.rel != "&" or e.parent is None or not is_data(e.node, nodes):
+                continue
+            top = g.tree[roots[i]].node if deep else g.tree[e.parent].node
+            if top == nid and e.node not in out:
+                out.append(e.node)
+    return out
+
+
+def shapes_of(facts: Facts, carried: Iterable[str], held: Iterable[str]) -> tuple:
+    """The Shapes an interface covers (see SHAPES): the `carried` data ids that
+    have a shape, every `held` one, and each shape the fields of those name, by
+    glyph."""
+    written = facts.graph.shapes
+    held = list(dict.fromkeys(held))
+    todo = held + [d for d in dict.fromkeys(carried) if d in written and d not in held]
+    seen = []
+    while todo:
+        d = todo.pop(0)
+        if d in seen:
+            continue
+        seen.append(d)
+        todo += [f.shape for f in written.get(d, ()) if f.shape in written]
+    out = [Shape(data_glyph(d, facts.nodes),
+                 None if d not in written else tuple(sorted(
+                     ((f.name, f.optional, data_glyph(f.shape, facts.nodes) if f.shape else None)
+                      for f in written[d]), key=lambda x: (x[0], x[1], x[2] or ""))),
+                 d in held)
+           for d in seen]
+    return tuple(sorted(out, key=lambda s: (s.glyph, repr(s))))
+
+
+def data_glyph(nid: str, nodes: Mapping) -> str:
+    """Data node `nid` as a shape names it, `{Name}` (no `~` or `*`: those are how
+    a flow holds it, not its shape): its name where some level writes the node
+    (component_nodes), else from its id (a glyph named only in a field)."""
+    if nid in nodes:
+        return "{" + nodes[nid][0].name + "}"
+    return "{" + (nid[:-len("_data")] if nid.endswith("_data") else nid) + "}"
 
 
 def reached(nid: str, lay: Layout, inside: dict) -> frozenset:

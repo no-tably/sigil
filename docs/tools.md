@@ -266,10 +266,20 @@ last, it is what marks a finished export.
 
 **`system.json`** is the system's normalised form: `name`, `kind` (`top`,
 `expansion` or `tree`), `face` (the glyph the system is named after), `parent`,
-`depends_on`, `description`, `interface` and `flows` (the flows inside), `blocks`,
-`components`, `accepts` (the acknowledgements on it), `declarations` and `hashes`
-(`{"interface", "body"}`). Keys with no value are left out. `blocks` are the
+`depends_on`, `description`, `interface` and `flows` (the flows inside), `shapes`,
+`blocks`, `components`, `accepts` (the acknowledgements on it), `declarations` and
+`hashes` (`{"interface", "body"}`). Keys with no value are left out. `blocks` are the
 control blocks written in it, `[{"kind", "header", "mods"}]`.
+
+`shapes` are the data shapes its interface covers: those of the data its boundary
+flows carry (a payload, op arguments, a return, or a data glyph at one end) that have
+a shape written (`{Doc} := { path, note? }`), the data its face's tree holds (every
+`\-& {X}` below the face, listed even with no shape written), and each nested shape
+a field of those names. Each is `{"glyph", "fields", "held"}`: `glyph` the data's
+glyph (`{Doc}`); `fields` sorted by name, each `{"name", "optional", "shape"}`
+(`optional` only when `?` marks it, `shape` the nested glyph a field names, `rows:
+{Row}` or `{Row}`), `[]` for a shape with no fields and left out when none is
+written; `held` true when the face's tree holds it. The list is sorted by glyph.
 
 A flow holds:
 
@@ -293,7 +303,9 @@ brackets), `home`, `also_in` (the other systems it is written in), `attrs`,
 `description` (its comment lines), `interface` (flows, as above), `requirements`
 (`{"modifiers": [[name, arg]…], "access": [[store, mode]…], "accepts": [text…]}`),
 `lifecycle` (`{"states", "initial", "terminal", "transitions": [{"from", "to", "on",
-"mods"}]}`), `lines` and `hashes`.
+"mods"}]}`), `shapes` (as a system's: the shaped data its flows carry, its own shape
+when it is data, and the data its tree holds, its own `\-&` children), `lines` and
+`hashes`.
 
 - `lines` are the 1-based lines of the spec that write a flow or a component, to
   jump back to the source. No hash reads them.

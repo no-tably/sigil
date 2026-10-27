@@ -12,10 +12,13 @@ adds what sigil export writes.
 HASHES
 
   sha256 of canonical JSON (sorted keys, compact separators), first 16 hex.
-  A system's interface_hash covers its boundary flows; its body_hash everything
-  in it (interface, members, internal flows, control blocks, descriptions, its
+  A system's interface_hash covers its boundary flows and the shapes of the data
+  they carry or its face's tree holds; its body_hash everything in it
+  (interface, shapes, members, internal flows, control blocks, descriptions, its
   `#&` declarations). A component's interface_hash covers its flows in and out
-  (with their modifiers); its body_hash everything about it (kind, home,
+  (with their modifiers) and the shapes of the data it carries, holds or is
+  (sigil.model.systems, SHAPES: fields by name, so their order moves no hash; a
+  comment is body only); its body_hash everything about it (kind, home,
   description, interface, requirements, lifecycle, a dialect's attrs). No line
   numbers (`lines`, a declaration's `line`), whitespace or order from the source
   enter either, nor the top system's name (the file stem or `--name`): renaming
@@ -110,6 +113,7 @@ def component_json(c: Component, components: dict) -> dict:
             "transitions": [_compact({"from": a, "to": b, "on": on,
                                       "mods": [list(m) for m in mods]})
                             for a, b, on, mods in lc.transitions]},
+        "shapes": shapes_json(c.shapes),
         "lines": list(c.lines),
         "hashes": {"interface": c.interface_hash, "body": c.body_hash}
         if c.body_hash else None})
@@ -123,6 +127,7 @@ def system_json(s: System, components: dict) -> dict:
         "parent": s.parent, "depends_on": list(s.depends_on),
         "description": list(s.description),
         "interface": _sorted([flow_json(f, components) for f in s.interface]),
+        "shapes": shapes_json(s.shapes),
         "flows": _sorted([flow_json(f, components) for f in s.internal]),
         "blocks": [_compact({"kind": k, "header": h, "mods": [list(m) for m in mods]})
                    for k, h, mods in s.blocks],
@@ -135,12 +140,37 @@ def system_json(s: System, components: dict) -> dict:
         if s.body_hash else None})
 
 
+def shapes_json(shapes: Iterable[systems.Shape]) -> list:
+    """Shapes as system.json lists them: each `glyph`, its `fields` (each `name`,
+    `optional` when it is, the nested `shape`'s glyph; [] for a shape with no
+    fields; left out when no shape is written) and `held` when a tree holds it.
+    Already in their canonical order (by glyph; fields by name)."""
+    out = []
+    for sh in shapes:
+        entry = {"glyph": sh.glyph}
+        if sh.fields is not None:
+            entry["fields"] = [_compact({"name": n, "optional": o, "shape": g})
+                               for n, o, g in sh.fields]
+        if sh.held:
+            entry["held"] = True
+        out.append(entry)
+    return out
+
+
+def interface_digest(body: dict) -> str:
+    """The interface hash of a component's or system's form as the hashes read it:
+    its interface flows and, when it has any, the shapes they carry or it holds
+    (with none, the flows alone, as before shapes counted)."""
+    flows, shapes = body.get("interface", []), body.get("shapes")
+    return digest({"interface": flows, "shapes": shapes} if shapes else flows)
+
+
 def component_hashed(c: Component, components: dict, top: str) -> Component:
-    """c with its interface hash (its flows in and out) and body hash (its whole
-    form); `top`: the top system's key, which enters neither."""
+    """c with its interface hash (its flows in and out, the shapes of the data it
+    carries, holds or is) and body hash (its whole form); `top`: the top system's
+    key, which enters neither."""
     body = hash_form(component_json(c, components), top)
-    return replace(c, interface_hash=digest(body.get("interface", [])),
-                   body_hash=digest(body))
+    return replace(c, interface_hash=interface_digest(body), body_hash=digest(body))
 
 
 def with_hashes(s: System, components: dict, top: str) -> System:
@@ -149,8 +179,7 @@ def with_hashes(s: System, components: dict, top: str) -> System:
     body = hash_form(system_json(s, components), top)
     for k in ("parent", "depends_on") + (("name",) if s.kind == "top" else ()):
         body.pop(k, None)
-    return replace(s, interface_hash=digest(body.get("interface", [])),
-                   body_hash=digest(body))
+    return replace(s, interface_hash=interface_digest(body), body_hash=digest(body))
 
 
 UNHASHED = frozenset({"lines", "line", "hashes"})   # where it is written, and hashes

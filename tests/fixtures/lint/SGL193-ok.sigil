@@ -1,0 +1,10 @@
+# expect: none
+# SGL193 a data shape's line that is neither fields nor a flow (the parser drops it)
+#!spec
+{Doc} := {
+  path, note?
+  rows: {Row}, {Meta}?
+  {Doc} -> |Log| : append({Doc})
+}
+{Row}
+{Meta}

@@ -1,5 +1,5 @@
 """
-Lint hardening (SGL120–188, SGL190–192): the lines the parser would misread or drop. The
+Lint hardening (SGL120–188, SGL190–193): the lines the parser would misread or drop. The
 rules read the document's one reading (sigil.core.statements.read_document):
 each statement's tokens (sigil.core.tokens) and the walk's record of blocks,
 headers, sections, transitions and continuation lines — the same reading the
@@ -47,6 +47,7 @@ HARDENING_SEVERITY = {
     "SGL180": "error", "SGL181": "warn", "SGL182": "warn", "SGL183": "warn",
     "SGL184": "warn", "SGL185": "warn", "SGL186": "warn", "SGL187": "info",
     "SGL188": "warn", "SGL190": "error", "SGL191": "warn", "SGL192": "error",
+    "SGL193": "warn",
 }
 
 
@@ -322,13 +323,21 @@ def walk_findings(walk: Walk, dialect=None) -> list:
 def shape_findings(walk: Walk) -> list:
     """SGL191 a bare name outside a data expansion (the parser drops it: only a
     data expansion's own level reads bare names, as its fields) · SGL192 a field
-    written twice in one data shape (statements.read_fields, data_shapes)."""
+    written twice in one data shape (statements.read_fields, data_shapes) ·
+    SGL193 a line of a data shape that is neither fields nor a flow (`a b`, `x:
+    y`): the parser drops it."""
     out, in_shape = [], set()
     for _definition, sts in data_shapes(walk.doc):
         seen = set()
         for st in sts:
             in_shape.add(id(st))
-            for name, _optional, glyph in read_fields(st) or ():
+            fields = read_fields(st)
+            if fields is None and not st.quiet and stray_in_shape(st):
+                out.append(Finding(st.line, "SGL193", "this line of a data shape is "
+                                   "neither fields nor a flow: the parser drops it. Write "
+                                   "fields as names (`path, note?`, `rows: {Row}`), "
+                                   "comma-separated, or a flow with an arrow."))
+            for name, _optional, glyph in fields or ():
                 name = field_name(name, glyph)
                 if name in seen:
                     out.append(Finding(st.line, "SGL192", f"field `{name}` is written twice "
@@ -344,6 +353,14 @@ def shape_findings(walk: Walk) -> list:
                                f"data's shape (`{{Data}} := {{ {bare[0]}, … }}`); a part "
                                "is a glyph."))
     return out
+
+
+def stray_in_shape(st: Statement) -> bool:
+    """Whether a data shape's line that reads as no fields is dropped: it has no
+    arrow (no flow) and a bare word or a `: …` part (what a field would be), so a
+    glyph's declaration (`[Part]`) and a modifier line stay as they are."""
+    kinds = {t.kind for t in st.toks}
+    return "arrow" not in kinds and bool(kinds & {"word", "payload"})
 
 
 def _block_findings(blocks: tuple) -> list:
@@ -531,7 +548,7 @@ def target_words(words):
 
 
 def lint_hardening(walk: Walk, result: LintResult, dialect=None, graph=None):
-    """Report the hardening findings (SGL120–SGL192) on `result`. `walk` is the
+    """Report the hardening findings (SGL120–SGL193) on `result`. `walk` is the
     document's reading; `graph` the parsed document (render.parse_document), or
     None when it could not be parsed."""
     # A dialect owns its vocabulary: one that has not said which bare words it
