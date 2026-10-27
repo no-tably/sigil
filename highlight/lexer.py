@@ -243,7 +243,7 @@ class SigilLexer(RegexLexer):
             (r'[:,.]', Punctuation),
 
             # A call's name, right before its `(`: `charge({Order})`, `walk(.children)`.
-            (r'[A-Za-z_][\w.]*(?=\()', T_CallName),
+            (r'[A-Za-z_][\w.]*(?:-[\w.]+)*(?=\()', T_CallName),
             # Bare identifier — a state name, branch arm label, alias name, map key.
             (_IDENT, Name.Tag),
         ],

@@ -300,7 +300,7 @@ contexts:
 
   bare-name:
     # A call's name, right before its `(`: `charge({Order})`, `walk(.children)`.
-    - match: '[A-Za-z_][\w.]*(?=\()'
+    - match: '[A-Za-z_][\w.]*(?:-[\w.]+)*(?=\()'
       scope: entity.name.function.sigil.call
     # A state name, branch arm label, alias name, map key.
     - match: '{{ident}}'

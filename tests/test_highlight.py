@@ -321,6 +321,28 @@ class TestRoles(unittest.TestCase):
         self.assertIn(("op", "syntax.keyword"), runs)
         self.assertIn(("db.put", "syntax.call_name"), runs)
 
+    def test_read_as_the_grammars_read(self):
+        """The readings settled with the editor grammars (tests/test_highlight_drift.py)."""
+        runs, _ = roles_of("[A] -> [B] : f({X}) @timeout(2s) @after(exp-backoff, cap=1min)")
+        self.assertIn(("2s", "syntax.number"), runs)
+        self.assertIn(("1min", "syntax.number"), runs)
+        self.assertIn(("exp-backoff", None), runs)
+        runs, _ = roles_of("[A] @inv surfaces-flagged({E}.s = x)")
+        self.assertIn(("surfaces-flagged", "syntax.call_name"), runs)
+        runs, _ = roles_of("<t> -> ~|H| : ${s} ++ [${out}]")
+        self.assertEqual(runs[-3:], [("[", "syntax.punct"), ("${out}", "syntax.ref"),
+                                     ("]", "syntax.punct")])
+        runs, _ = roles_of("[I] => *<Raw>^10k@drop")
+        self.assertEqual(runs[-2:], [("^10k", "syntax.cardinality"), ("@drop", "syntax.modifier")])
+        runs, _ = roles_of("  \\-{hit}-? [Shard]")
+        self.assertEqual(runs[0:3], [("\\-{", "syntax.operator"), ("hit", "kinds.data"),
+                                     ("}-?", "syntax.operator")])
+        runs, _ = roles_of("  \\-(3)-> [Zone]")
+        self.assertEqual(runs[0:3], [("\\-(", "syntax.operator"), ("3", "syntax.number"),
+                                     (")->", "syntax.operator")])
+        runs, _ = roles_of("  _ => <Rejected>")
+        self.assertEqual(runs[0], ("_", "syntax.punct"))
+
 
 class TestDialect(unittest.TestCase):
     @classmethod

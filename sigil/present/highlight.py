@@ -21,7 +21,8 @@ dialect's strips, sigil.core.tokens' tokens with their columns), a `state` block
 line by statements.read_transition's pattern, section headers by lex.SECTION_RE,
 the mode, `#%` kind and `#&` declaration lines by lex / kinds, comments where
 lex.code_end cuts the code, and a payload's or argument's finer pieces by
-lex.PAYLOAD_PIECE_RE (the split kit draws payloads with). Nothing here decides
+lex.PAYLOAD_PIECE_RE (the split kit draws payloads with, read a little finer:
+_piece_re). Nothing here decides
 what text means; it only names a colour for each character.
 
 Laws (tests/test_highlight.py): every character of a line is in exactly one
@@ -47,25 +48,28 @@ Definitions, control blocks and branch arms need none: their lines read as
 statements whatever encloses them.
 
 Roles (a theme section and key):
-    syntax.operator      arrows, `:=`, joins `&` `&?` `/`, branch markers `\\-…`,
-                         a transition's `-<` `>->`
+    syntax.operator      arrows, `:=`, joins `&` `&?` `/`, branch markers `\\-…`
+                         (but their `{cond}` and `(N)`), a transition's `-<` `>->`
     syntax.keyword       glyph brackets and `~` / `*` prefixes, `state loop
                          parallel branch` (+ `on`, `op`, a dialect's
                          BLOCK_KEYWORDS), a `#%` line's known words, a `#&`
                          declaration's name
-    syntax.modifier      `@name`, `!`, `?`, an alias reference after `×N`
-    syntax.cardinality   `×N`, `xN`, `^N@policy`
+    syntax.modifier      `@name` (the `@policy` of `^N@policy` too), `!`, `?`, an
+                         alias reference after `×N`
+    syntax.cardinality   `×N`, `xN`, `^N`
     syntax.string        `"…"` and block strings
     syntax.ref           `${…}`
-    syntax.number        numbers in payloads and arguments, number words
+    syntax.number        numbers in payloads and arguments (with a unit: `2s`,
+                         `1min`, `99.95%`), number words, a branch's `(N)` weight
     syntax.punct         `:`, `{` `}` of blocks, `( ) , [ ]` in payloads, `()`,
-                         state anchors `+ $ _`
+                         state anchors `+ $ _`, the wildcard `_` (a default arm)
     syntax.tag           bare words: state names outside a `state` block,
                          branch labels, `.field`
     syntax.call          a call's `( )` in a payload; syntax.call_name its name
     kinds.<kind>         a glyph's name in its kind's colour (service, data,
                          event, actor, store, hole, a dialect's kinds); a state
-                         name in a `state` block is kinds.state
+                         name in a `state` block is kinds.state, a branch
+                         marker's `{cond}` kinds.data
     ui.mode              the `#!mode` line, the `#%` and `#&` marks
     ui.section           a `--- section ---` header
     ui.note_tag          a comment's marker (`#`, a dialect's markers)
@@ -253,6 +257,31 @@ STATE = "kinds.state"
 
 # Words that open a control block (lex.LOOP_HEAD_RE, STATE_OPEN_RE's `state`).
 _BLOCK_WORDS = frozenset({"state", "loop", "parallel", "branch"})
+
+
+def _piece_re() -> "re.Pattern":
+    """lex.PAYLOAD_PIECE_RE read finer, as the editor grammars read held text
+    (highlight/README.md): a `[` that opens `${…}` is a list, not a glyph
+    (`[${out}]`); a hyphenated word is one word (`exp-backoff`, a call
+    `surfaces-flagged(…)`), its `-` no operator; a number takes its unit (`2s`,
+    `1min`, `99.95%`). kit's drawings keep PAYLOAD_PIECE_RE as it is (their
+    goldens would move), so the difference lives here, each step checked."""
+    rx = PAYLOAD_PIECE_RE.pattern
+    for old, new in ((r"(?:\[[^\]\s,]", r"(?:\[(?!\$\{)[^\]\s,]"),
+                     (r"(?P<call>[A-Za-z_][\w.]*)", r"(?P<call>[A-Za-z_][\w.]*(?:-[\w.]+)*)"),
+                     (r"[+\-*/])", r"[+*/]|(?<!\w)-|-(?!\w))"),
+                     (r"(?P<number>\b\d+(?:\.\d+)?\b)",
+                      r"(?P<number>\b\d+(?:\.\d+)?(?:[A-Za-z%]+\b|%|\b))")):
+        if rx.count(old) != 1:
+            raise AssertionError(f"PAYLOAD_PIECE_RE changed: {old!r} not found once")
+        rx = rx.replace(old, new)
+    return re.compile(rx, PAYLOAD_PIECE_RE.flags)
+
+
+_PIECE_RE = _piece_re()
+# A branch marker's interior: `\-{cond}-…` (its cond a data name) or `\-(N)-…`
+# (its weight a number); the rest of the marker is its operator.
+_BRANCH_INNER_RE = re.compile(r"\\-(?:\*-)?(?:\{(?P<cond>[^{}]*)\}-|\((?P<weight>\d+)\)-)")
 # A state block's anchors: the start `+`, the end `$`, any state `_`.
 _ANCHORS = frozenset({"+", "$", "_"})
 
@@ -524,10 +553,17 @@ def _token(t, code: Code, lx: Lexicon, roles: list, first, words: list) -> None:
         _pieces(code.raw, at + 1, stop, roles)
     elif kind == "glyph":
         _glyph(code.raw[at:end], at, roles, t.node, lx)
-    elif kind in ("arrow", "join", "slash", "alias", "branch"):
+    elif kind in ("arrow", "join", "slash", "alias"):
         _paint(roles, at, end, OPERATOR)
+    elif kind == "branch":
+        _branch(t.text, at, roles)
     elif kind in ("card", "bound"):
-        _paint(roles, at, end, CARD)
+        # `^10k@drop`: the bound, then its overflow policy (a modifier, as every
+        # `@`-word reads)
+        cut = t.text.find("@")
+        cut = len(t.text) if cut < 0 else cut
+        _paint(roles, at, at + cut, CARD)
+        _paint(roles, at + cut, end, MODIFIER)
     elif kind in ("mark", "aref"):
         _paint(roles, at, end, MODIFIER)
     elif kind == "mod":
@@ -565,7 +601,22 @@ def _word_role(t, first, words: list, lx: Lexicon) -> str:
         return KEYWORD
     if text[:1].isdigit():
         return "syntax.number"
+    if text == "_":                         # the wildcard (a branch's default arm)
+        return PUNCT
     return TAG
+
+
+def _branch(text: str, at: int, roles: list) -> None:
+    """A composition-tree marker: an operator, its `{cond}` name a data glyph's
+    name and its `(N)` weight a number (as the grammars read them)."""
+    _paint(roles, at, at + len(text), OPERATOR)
+    m = _BRANCH_INNER_RE.match(text)
+    if m is None:
+        return
+    if m.group("cond") is not None:
+        _paint(roles, at + m.start("cond"), at + m.end("cond"), "kinds.data")
+    else:
+        _paint(roles, at + m.start("weight"), at + m.end("weight"), "syntax.number")
 
 
 def _glyph(text: str, at: int, roles: list, node=None, lx: Lexicon = CORE) -> None:
@@ -601,7 +652,7 @@ def _pieces(raw: str, start: int, end: int, roles: list) -> None:
     if start >= end:
         return
     parens, pending = [], False
-    for m in PAYLOAD_PIECE_RE.finditer(raw, start, end):
+    for m in _PIECE_RE.finditer(raw, start, end):
         role, a, b = m.lastgroup, m.start(), m.end()
         tok = m.group()
         if role == "glyph":

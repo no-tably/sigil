@@ -595,7 +595,7 @@
         {
           "comment": "A call's name, right before its ( — charge({Order}), walk(.children), excludes(…).",
           "name": "entity.name.function.sigil.call",
-          "match": "[A-Za-z_][\\w.]*(?=\\()"
+          "match": "[A-Za-z_][\\w.]*(?:-[\\w.]+)*(?=\\()"
         },
         {
           "comment": "State name / branch label / alias / internal op verb / map key.",

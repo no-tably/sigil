@@ -202,11 +202,12 @@ EXCEPTIONS = (
         "draw it in the foreground colour (theme syntax.tag = $fg).",
         lambda d: d.grammar == "syntax.tag" and d.sigil is None),
     Exception_(
-        "held-marks", "open",
+        "held-marks", "by design",
         "Comparisons (`> <= = ∈`), `true false null`, `.` `,` `&` `+` inside held text or "
-        "a definition's prose, and the `...` elision: sigil leaves them plain (no "
-        "PAYLOAD_PIECE_RE class), the grammars colour them as predicate / constant / "
-        "punctuation / operator. Decide whether sigil's held-text pieces should class them.",
+        "a definition's prose, and the `...` elision: sigil leaves them plain, the grammars "
+        "colour them as predicate / constant / punctuation / operator. The theme's syntax "
+        "section has no role for a constant or a comparison (none is added for this), so "
+        "sigil draws them as the text they are held in.",
         lambda d: d.sigil is None and d.grammar in
         ("predicate", "constant", "syntax.punct", "syntax.operator")),
     Exception_(
@@ -223,53 +224,11 @@ EXCEPTIONS = (
         "Run }`, which the grammars read as a {data} glyph).",
         lambda d: d.role == "kinds.state" and d.grammar == "syntax.tag"),
     Exception_(
-        "unit-numbers", "open",
-        "A number with a unit in held text (`@timeout(2s)`, `cap=1min`): the grammars read "
-        "it as a number (README: `30s` is a number); sigil's PAYLOAD_PIECE_RE number needs "
-        "a word boundary after the digits, so it stays plain.",
-        lambda d: d.grammar == "syntax.number" and d.sigil is None
-        and d.within(r"\d+(?:\.\d+)?[A-Za-z%]+")),
-    Exception_(
-        "branch-interior", "open",
-        "Inside a composition-tree marker `\\-{cond}-?` / `\\-(N)->`: the grammars read the "
-        "cond as a glyph name and the weight as a number (README, test_lexer, vim test); "
-        "sigil colours the whole marker as one operator token.",
-        lambda d: d.sigil == "syntax.operator" and d.grammar in ("kinds", "syntax.number")
-        and d.within(r"\\-(?:\*-)?(?:\{[A-Za-z0-9_-]+\}-|\(\d+\)-)")),
-    Exception_(
-        "list-of-refs", "open",
-        "A list literal of references `[${out}]`: the grammars read a list opener and a "
-        "ref; sigil's PAYLOAD_PIECE_RE tries a glyph before a ref, so it reads a [service] "
-        "glyph named `${out}`.",
-        lambda d: d.role in ("kinds.service", "syntax.keyword")
-        and d.within(r"\[\$\{[^}]*\}\]")),
-    Exception_(
-        "hyphenated-words", "open",
-        "A hyphenated word in held text (`exp-backoff`, `surfaces-flagged(…)`, "
-        "`write-only-primary`): the grammars keep the word whole (their names allow `-`); "
-        "sigil's piece reader reads the `-` as an operator and the last part before `(` "
-        "as the call's name.",
-        lambda d: d.grammar == "syntax.tag" and d.sigil in (None, "syntax.operator",
-                                                             "syntax.call_name")
-        and d.within(r"[A-Za-z_]\w*(?:-\w+)+")),
-    Exception_(
-        "stream-policy", "open",
-        "The overflow policy of a stream cap `^10k@drop`: sigil reads `^N@policy` as one "
-        "cardinality token (its bound); the grammars read `^10k` then a modifier `@drop` "
-        "(test_lexer pins `@drop` as a modifier).",
-        lambda d: d.role == "syntax.cardinality" and d.grammar == "syntax.modifier"
-        and d.within(r"\^\d+[A-Za-z]*@[A-Za-z][\w-]*")),
-    Exception_(
         "on-of-words", "by design",
         "`on` / `of` away from `branch on` / `loop … of` (prose: `subgraph of facts`): sigil "
         "makes them keywords only there; a word-level grammar makes them keywords always.",
         lambda d: d.grammar == "syntax.keyword" and d.sigil == "syntax.tag"
         and d.within(r"\b(?:on|of)\b")),
-    Exception_(
-        "underscore-arm", "open",
-        "A `_` default arm of a `branch` block: the grammars read the wildcard `_` (muted "
-        "meta); sigil reads a bare word (a state block's `_` is punctuation in both).",
-        lambda d: d.ch == "_" and d.grammar == "syntax.punct" and d.sigil == "syntax.tag"),
     Exception_(
         "lists-in-brackets", "open",
         "A comma list inside one bracket pair — a trigger list `-<Paid, Declined>->`, a set "

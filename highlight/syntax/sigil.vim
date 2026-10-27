@@ -13,7 +13,7 @@ endif
 " --- Bare names: states / labels / verbs / map keys (lowest priority) -------
 syn match sigilTag "[A-Za-z_][[:alnum:]_-]*"
 " A call's name, right before its `(`: charge({Order}), walk(.children).
-syn match sigilCallName "[A-Za-z_][[:alnum:]_.]*\ze("
+syn match sigilCallName "[A-Za-z_][[:alnum:]_.]*\%(-[[:alnum:]_.]\+\)*\ze("
 
 " --- Punctuation, predicates, suffix modifiers -----------------------------
 syn match sigilPunct "[:,.]"
