@@ -20,11 +20,12 @@ from sigil.core.lex import (  # noqa: F401  (also read as parse.<name> by the mo
     ALIAS_REF, BLOCK_SENTINEL, BRANCH_RE, GLYPH_BRACKETS, GLYPH_RE, OP_TARGET_RE,
     OPEN_TO_KIND, strip_comment)
 from sigil.core.graph import (  # noqa: F401  (also read as parse.<name>)
-    Access, Block, Declared, Dropped, Edge, Graph, Join, Node, Note, Section, TreeEntry, Trigger,
-    mk_id, walk_depth)
+    Access, Block, Declared, Dropped, Edge, Field, Graph, Join, Node, Note, Section, TreeEntry,
+    Trigger, mk_id, walk_breadth, walk_depth)
 from sigil.core.statements import (
     BlockClose, BlockMods, BlockOpen, Blank, Declaration, Definition, Doc, Flow,
-    Note as NoteItem, SectionHead, StateEnd, StateHead, Walk, read_document)
+    Note as NoteItem, SectionHead, StateEnd, StateHead, Walk, field_name, is_shape,
+    level_statements, read_document, read_fields)
 from sigil.core.tokens import lexicon, mod_pair, scan_mods
 
 # ---------------------------------------------------------------------------
@@ -648,6 +649,7 @@ class _Builder:
         # notes and heads were given, a dialect glyph's node or None) and (owner
         # Node, state graph, `} @mods` pairs).
         self.pending_expansions = []
+        self.pending_shapes = {}          # index into pending_expansions → (Field, …)
         self.pending_states = []
         self.state_owner = None
         # Open control blocks, innermost last; and the block whose subject
@@ -777,6 +779,8 @@ class _Builder:
             if sub_graph is not None:
                 home.expansions[target_id] = sub_graph
                 by_level.setdefault(level, []).append(sub_graph)
+                if i in self.pending_shapes:  # a data expansion: its shape too
+                    home.shapes[target_id] = self.pending_shapes[i]
 
         for owner, machine in self.pending_states:
             node = graph.nodes.setdefault(owner.id, owner)
@@ -796,6 +800,9 @@ class _Builder:
             b.refs += [r for r in getattr(b, "_owned", ()) if r in graph.nodes
                        and r not in b.refs]
         if self.top:                        # top level: wire events to transitions
+            for g2 in walk_breadth(graph):  # every level's shapes, the outer first
+                for did, fields in g2.shapes.items():
+                    graph.shapes.setdefault(did, fields)
             for g2, _o, _l in walk_depth(graph):  # access lists inside expansions may
                 _resolve_access(g2, graph)   # name a top-level principal / store
             _place_borrowed(graph)
@@ -901,8 +908,21 @@ class _Builder:
                                             [] if flow else scan_mods(it.rhs),
                                             self.ln(it.line), nid, glyph))
         else:
+            if is_shape(it):
+                self.pending_shapes[len(self.pending_expansions)] = self._shape(it.body)
             self.pending_expansions.append((it.name, kind, sub, self.layer, scan_mods(it.tail),
                                             self.ln(it.line), nid, glyph))
+
+    def _shape(self, body: Doc) -> tuple:
+        """A data expansion's shape: the fields its body's own level writes
+        (statements.read_fields), in written order; a line that is no field (a
+        flow) adds none."""
+        out = []
+        for st in level_statements(body):
+            for name, optional, glyph in read_fields(st) or ():
+                shape = parse_glyph(glyph, self.layer).id if glyph else None
+                out.append(Field(field_name(name, glyph), optional, shape))
+        return tuple(out)
 
     def _state_head(self, it: StateHead):
         """`state {X} { … }` — a state machine of entity X, built into its own graph

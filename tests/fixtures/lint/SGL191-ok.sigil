@@ -1,0 +1,10 @@
+# expect: none
+# SGL191 a bare name outside a data expansion — design/refine-1.md round 7
+#!spec
+[Api] -> [Store] : save({Doc})
+{Doc} := { path, text, note? }
+{Batch} := {
+  id
+  rows: {Row}, {Meta}?
+}
+{Meta}

@@ -1,0 +1,10 @@
+# expect: SGL192@4 SGL192@8
+# SGL192 a field written twice in one data shape — design/refine-1.md round 7
+#!spec
+{Doc} := { path, text, path? }
+{Batch} := {
+  id
+  rows: {Row}
+  rows: {Rows}
+}
+[Api] -> [Store] : save({Doc}, {Batch})

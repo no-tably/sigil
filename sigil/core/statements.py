@@ -6,6 +6,8 @@ reads the text again.
     read_document(text, dialect=None, result=None) → Walk
     read_lines(lines, dialect=None, result=None) → Walk
     read_statement(k, code, lx) → Statement   one statement, as the walk reads it
+    read_fields(st) → fields | None           a data expansion's line as its fields
+    level_statements(doc), data_shapes(doc)   where those lines are
 
 The reading: the lines with their block strings folded (lex.fold_block_strings)
 and the dialect's prepasses run (`result` takes what a prepass reports; a
@@ -306,6 +308,133 @@ class Walk(NamedTuple):
     spans: tuple = ()
     quoted: frozenset = frozenset()
     declared: frozenset = frozenset()
+
+
+# ---------------------------------------------------------------------------
+# Data shapes
+# ---------------------------------------------------------------------------
+#
+# A data expansion's bare names are its fields (language.md "Data shapes"):
+# `{Doc} := { path, text, note?, rows: {Row}, {Meta} }`, comma- or
+# newline-separated, in written order. A field is a name, a name with `?`
+# (optional), a data glyph (a nested shape, named after the glyph) or `name:
+# {Glyph}` (a named nested shape), `?` after either making it optional. Names
+# only: there are no types.
+
+_FIELD_NAME_RE = re.compile(r"[^\W\d][\w-]*")
+_FIELD_TOKENS = frozenset({"word", "mark", "glyph", "payload"})
+
+
+def read_fields(st: Statement) -> Optional[tuple]:
+    """The fields a statement writes, ((name, optional, glyph text), …) in written
+    order, when every comma-separated piece of it is a field; None when it is
+    anything else (a flow, a declaration with modifiers, a piece that is no
+    field). `name` is None for a glyph written alone (`{Meta}`: a field named
+    after the glyph, field_name), `glyph` None for a plain name. Whether the line is in a data expansion is the caller's to know
+    (level_statements, data_shapes)."""
+    if not st.toks or st.alias or st.branch >= 0 \
+            or any(t.kind not in _FIELD_TOKENS or (t.kind == "mark" and t.text != "?")
+                   for t in st.toks):
+        return None
+    out = []
+    for piece in _split_commas(st.code.text):
+        f = _field(piece.strip())
+        if f is None:
+            return None
+        out.append(f)
+    return tuple(out)
+
+
+def _split_commas(text: str) -> list:
+    """`text` split at each comma outside a bracket (`{Cache<K,V>}` is one piece)."""
+    out, depth, cur = [], 0, []
+    for ch in text:
+        if ch in "<([{":
+            depth += 1
+        elif ch in ">)]}":
+            depth -= 1
+        if ch == "," and depth <= 0:
+            out.append("".join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+    out.append("".join(cur))
+    return out
+
+
+def _field(piece: str) -> Optional[tuple]:
+    """One field as read_fields gives it, or None (no field)."""
+    optional = piece.endswith("?")
+    if optional:
+        piece = piece[:-1].rstrip()
+    if _data_glyph(piece) is not None:
+        return None, optional, piece
+    name, sep, glyph = piece.partition(":")
+    name, glyph = name.strip(), glyph.strip()
+    if sep:
+        if name.endswith("?"):              # `rows?: {Row}`
+            if optional:
+                return None
+            optional, name = True, name[:-1].rstrip()
+        g = _data_glyph(glyph)
+        if g is None or not _FIELD_NAME_RE.fullmatch(name) or name == "_":
+            return None
+        return name, optional, glyph
+    if not _FIELD_NAME_RE.fullmatch(name) or name == "_":
+        return None
+    return name, optional, None
+
+
+def field_name(name: Optional[str], glyph: Optional[str]) -> str:
+    """A field's name: as written, or its glyph's name for a glyph written alone."""
+    return name if name is not None else _data_glyph(glyph)
+
+
+def _data_glyph(text: str) -> Optional[str]:
+    """The name of a plain data glyph `{Row}` (no `~` / `*` prefix), or None."""
+    m = GLYPH_RE.fullmatch(text)
+    if m is None or m.group("open") != "{" or m.group("close") != "}" \
+            or m.group("mut") or m.group("stream"):
+        return None
+    return m.group("name").strip()
+
+
+def level_statements(doc: "Doc") -> tuple:
+    """The statements a document level writes outside every control block, in
+    order: where a data expansion's fields are written."""
+    out, depth = [], 0
+    for it in doc.items:
+        if isinstance(it, BlockOpen):
+            depth += 1
+        elif isinstance(it, BlockClose):
+            depth = max(depth - 1, 0)
+        elif isinstance(it, Flow) and it.statement is not None and depth == 0:
+            out.append(it.statement)
+    return tuple(out)
+
+
+def is_shape(it) -> bool:
+    """Whether a walk item is a data expansion `{X} := { … }` (a closed or open
+    block body of a core data glyph)."""
+    return isinstance(it, Definition) and it.kind == "data" and it.glyph is None \
+        and it.form == "block" and it.body is not None
+
+
+def data_shapes(doc: "Doc") -> list:
+    """[(Definition, statements)]: every data expansion of a document (the walk's
+    `doc`), every level, in reading order, with its level_statements."""
+    out, todo = [], [doc]
+    while todo:
+        d = todo.pop()
+        found = []
+        for it in d.items:
+            if isinstance(it, Definition) and it.body is not None:
+                if is_shape(it):
+                    out.append((it, level_statements(it.body)))
+                found.append(it.body)
+        todo.extend(reversed(found))
+    out.sort(key=lambda p: p[0].line)
+    return out
 
 
 # ---------------------------------------------------------------------------

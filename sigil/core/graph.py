@@ -2,7 +2,7 @@
 of it every layer above shares. No drawing here.
 
     records         Node, Edge, Graph, Trigger, Note, TreeEntry, Join, Access,
-                    Block, Dropped, Section (described under THE MODEL below);
+                    Block, Dropped, Section, Field (described under THE MODEL below);
                     mk_id (a node's id from its name)
     glyph text      node_label(n) (`[Api]`, `~{Session}`, `●` for a start
                     pseudo-state, a dialect kind's own brackets or label),
@@ -135,6 +135,14 @@ from sigil.core.lex import GLYPH_BRACKETS
 #               (`branch on …`, `loop …`, `parallel …`, a scoped `name {`), or,
 #               for a comment block detached from every statement before the
 #               first one (a document header), to the document itself.
+#   shapes      {data id: (Field, …)}: the shape of each data expansion (`{Doc}
+#               := { path, text, note?, rows: {Row} }`), its fields in written
+#               order (Field). A data expansion is a shape, not a system (export
+#               makes no folder of it); a body line that reads as no field (a
+#               flow) is still drawn in its expansion graph. A graph lists the
+#               data expansions hung on it; the document's graph lists every
+#               level's (where two give one data id a shape: at one level the
+#               last written, as for its expansion; across levels the outer).
 #   role        what this graph is when it hangs off a node: "expansion"|"state".
 #   mods        a `state` machine's modifiers written after its `}` (`} @inv
 #               ordered(id)`): its own record of them; its owner node has them too.
@@ -258,6 +266,21 @@ class Graph:
     mods: list = field(default_factory=list)
     # The `#&` declarations written at this graph's level (Declared), in order.
     declarations: list = field(default_factory=list)
+    # Data shapes: data id → (Field, …) (see "shapes" above).
+    shapes: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class Field:
+    """One field of a data shape (`{Doc} := { path, note?, rows: {Row}, {Meta} }`).
+    `name`: the field's name as written (`path`; a nested glyph written alone,
+    `{Meta}`, is named after the glyph: "Meta"). `optional`: a `?` follows it
+    (`note?`, `rows: {Row}?`). `shape`: the node id of the data glyph whose shape
+    the field holds (`rows: {Row}` and `{Row}` → "Row_data"), None for a plain
+    name. Names only: a field has no type (language.md "Data shapes")."""
+    name: str
+    optional: bool = False
+    shape: Optional[str] = None
 
 
 @dataclass

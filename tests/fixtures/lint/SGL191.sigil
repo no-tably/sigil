@@ -1,0 +1,9 @@
+# expect: SGL191@4 SGL191@6 SGL191@7
+# SGL191 a bare name outside a data expansion — design/refine-1.md round 7
+#!spec
+path
+[Api] := {
+  token, user
+  rows: {Row}
+  [Api] -> [Store] : save({Doc})
+}

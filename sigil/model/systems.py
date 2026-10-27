@@ -21,9 +21,18 @@ SYSTEMS (inferred, no syntax of their own)
              holding the nodes of its body. A nested expansion is a system of
              its own; its parent depends on it. An alias body (`name := …`) is
              no system: its nodes belong to the system it is written in. A
-             `state` machine is no system: it is its owner's lifecycle.
+             `state` machine is no system: it is its owner's lifecycle. A data
+             expansion (`{Doc} := { path, note? }`) is no system either: it is
+             the data's shape (Graph.shapes); {Doc} stays a component, homed as
+             before, and what else its body writes belongs to the system it is
+             written in.
   tree       every composition-tree root (a glyph with `\\-` branches) is a
              system holding every node of its tree below it.
+
+  A data expansion's header, and a nested data glyph its shape names as a field
+  (`{Meta}`, a field and nothing else there), are no place the data is written
+  when any other level writes it: they are where its shape is written, and
+  the level is its candidate only when nothing else writes it.
 
   An expansion whose owner its level writes only on the `X := {` header (no
   flow, branch or other statement there names X) is the inside of the X written
@@ -344,6 +353,10 @@ class Layout:
                                         # as an end of its flows (see reference_only)
     strong: set = field(default_factory=set)         # (node id, system key) where a
                                         # graph of that level writes it otherwise
+    shaped: list = field(default_factory=list)       # (node id, system key) where a
+                                        # level writes the node only as a data shape's
+                                        # header or a field: a candidate only when
+                                        # nothing else writes it (see shape_owner)
     follow: list = field(default_factory=list)       # expansion owners written as
                                         # such a reference where their header is: their
                                         # system nests under their home
@@ -356,6 +369,9 @@ def lay_out(graph, stem: str) -> Layout:
     lay = Layout(stem, {stem: (stem, "top", None, None)}, {}, {}, {}, {},
                  top_face=top_face_of(graph, stem))
     _lay_graph(graph, stem, lay)
+    for nid, key in lay.shaped:         # written only where a shape is
+        if not lay.candidates.get(nid):
+            lay.candidates[nid] = [key]
     nest_headers(lay)
     return renamed(lay, named_keys(lay))
 
@@ -476,9 +492,18 @@ def home_candidates(lay: Layout, nid: str) -> list:
     return list(cands)          # no home left: the outer levels stay (no new SGC401)
 
 
-def _lay_graph(g, key: str, lay: Layout):
+def shape_owner(g, nid: str) -> bool:
+    """Whether node `nid` of g owns a data expansion there (`{Doc} := { … }`):
+    the data's shape, no system."""
+    sub, node = g.expansions.get(nid), g.nodes.get(nid)
+    return sub is not None and sub.role != "state" and node is not None \
+        and node.kind == "data"
+
+
+def _lay_graph(g, key: str, lay: Layout, fields: frozenset = frozenset()):
     """Record g (written in system `key`): its trees, its nodes' candidates, and
-    then its expansions, depth first."""
+    then its expansions, depth first. `fields`: when g is a data shape's body,
+    the data glyphs its fields name."""
     lay.graph_system[id(g)] = key
     roots = tree_roots(g.tree)
     member = {}
@@ -490,6 +515,10 @@ def _lay_graph(g, key: str, lay: Layout):
     for nid in g.nodes:
         if nid not in member:
             local[nid] = key
+            if header_only(g, nid) and shape_owner(g, nid) or nid in fields \
+                    and not any(nid in (e.src, e.dst) for e in g.edges):
+                lay.shaped.append((nid, key))
+                continue
             if header_only(g, nid):
                 lay.headers.append((nid, key))
                 continue
@@ -500,7 +529,7 @@ def _lay_graph(g, key: str, lay: Layout):
             elif (nid, key) not in lay.strong:
                 was = lay.refs.get((nid, key))
                 lay.refs[(nid, key)] = max(ref, was or ref, key=REF_RANK.index)
-            if ref == "owner" and nid not in lay.follow:
+            if ref == "owner" and nid not in lay.follow and not shape_owner(g, nid):
                 lay.follow.append(nid)
             _add(lay.candidates, nid, key)
             _tree_face(g, nid, key, roots, lay)
@@ -518,6 +547,9 @@ def _lay_graph(g, key: str, lay: Layout):
             lay.machines.setdefault(owner, sub)
         elif node is None or node.kind == "alias":
             _lay_graph(sub, key, lay)
+        elif shape_owner(g, owner):
+            shape = g.shapes.get(owner, ())
+            _lay_graph(sub, key, lay, frozenset(f.shape for f in shape if f.shape))
         else:
             parent = local.get(owner, key)
             _lay_graph(sub, _system_for(lay, node, "expansion", parent), lay)

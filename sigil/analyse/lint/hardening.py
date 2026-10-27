@@ -1,5 +1,5 @@
 """
-Lint hardening (SGL120–188, SGL190): the lines the parser would misread or drop. The
+Lint hardening (SGL120–188, SGL190–192): the lines the parser would misread or drop. The
 rules read the document's one reading (sigil.core.statements.read_document):
 each statement's tokens (sigil.core.tokens) and the walk's record of blocks,
 headers, sections, transitions and continuation lines — the same reading the
@@ -15,7 +15,8 @@ from sigil.core.dialects import _hook
 from sigil.core.lex import (
     ARROWS, CLOSERS_CLASS, GLYPH_PREFIXES, MOD_NAME_RE, NAME_CHARS, OPENERS_CLASS,
     PREFIXES_CLASS, SECTION_RE, glyph_kind)
-from sigil.core.statements import StateHead, Statement, Walk, read_document
+from sigil.core.statements import (
+    StateHead, Statement, Walk, data_shapes, field_name, read_document, read_fields)
 from sigil.core.tokens import Code, Tok
 from sigil.core.vocab import LintResult
 from sigil.analyse.lint.payloads import _classify_payload
@@ -45,7 +46,7 @@ HARDENING_SEVERITY = {
     "SGL160": "error", "SGL161": "error", "SGL162": "warn", "SGL163": "info",
     "SGL180": "error", "SGL181": "warn", "SGL182": "warn", "SGL183": "warn",
     "SGL184": "warn", "SGL185": "warn", "SGL186": "warn", "SGL187": "info",
-    "SGL188": "warn", "SGL190": "error",
+    "SGL188": "warn", "SGL190": "error", "SGL191": "warn", "SGL192": "error",
 }
 
 
@@ -314,7 +315,35 @@ def walk_findings(walk: Walk, dialect=None) -> list:
             + _section_findings(walk.sections, walk.definitions)
             + _state_findings(walk.transitions, ownerless_heads(walk.doc, dialect))
             + _bare_branch_findings(walk.bare_branches)
-            + _continuation_findings(walk.continuations))
+            + _continuation_findings(walk.continuations)
+            + shape_findings(walk))
+
+
+def shape_findings(walk: Walk) -> list:
+    """SGL191 a bare name outside a data expansion (the parser drops it: only a
+    data expansion's own level reads bare names, as its fields) · SGL192 a field
+    written twice in one data shape (statements.read_fields, data_shapes)."""
+    out, in_shape = [], set()
+    for _definition, sts in data_shapes(walk.doc):
+        seen = set()
+        for st in sts:
+            in_shape.add(id(st))
+            for name, _optional, glyph in read_fields(st) or ():
+                name = field_name(name, glyph)
+                if name in seen:
+                    out.append(Finding(st.line, "SGL192", f"field `{name}` is written twice "
+                                       "in this data shape: write each field once."))
+                seen.add(name)
+    for st in walk.statements:
+        if id(st) in in_shape or st.quiet:
+            continue
+        bare = [name for name, _optional, _glyph in read_fields(st) or () if name is not None]
+        if bare:
+            out.append(Finding(st.line, "SGL191", f"bare name `{bare[0]}` outside a data "
+                               "expansion: the parser drops it. A field belongs in its "
+                               f"data's shape (`{{Data}} := {{ {bare[0]}, … }}`); a part "
+                               "is a glyph."))
+    return out
 
 
 def _block_findings(blocks: tuple) -> list:
@@ -502,7 +531,7 @@ def target_words(words):
 
 
 def lint_hardening(walk: Walk, result: LintResult, dialect=None, graph=None):
-    """Report the hardening findings (SGL120–SGL188) on `result`. `walk` is the
+    """Report the hardening findings (SGL120–SGL192) on `result`. `walk` is the
     document's reading; `graph` the parsed document (render.parse_document), or
     None when it could not be parsed."""
     # A dialect owns its vocabulary: one that has not said which bare words it

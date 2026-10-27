@@ -81,6 +81,8 @@ class Severity(unittest.TestCase):
         "SGL182": "warn", "SGL183": "warn", "SGL184": "warn", "SGL185": "warn",
         "SGL186": "warn", "SGL187": "info", "SGL188": "warn",
         "SGL190": "error",      # a set as a flow's end (design/refine-1.md round 7)
+        "SGL191": "warn",       # a bare name outside a data expansion (round 7)
+        "SGL192": "error",      # a field written twice in one data shape (round 7)
     }
 
     def test_table_matches_the_catalog(self):

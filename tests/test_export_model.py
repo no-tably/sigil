@@ -144,8 +144,9 @@ class TestSystems(unittest.TestCase):
 
 
     def test_same_named_systems_keyed_by_kind_not_order(self):
+        # (a data expansion is a shape, no system: a data glyph's tree stands in)
         svc = "[Pay] := {\n  [A] -> [B] : {X}\n}\n"
-        data = "{Pay} := {\n  [C] -> [D] : {Y}\n}\n"
+        data = "{Pay}\n    \\-& {C}\n\n"
         keys = [sorted((k, s.face) for k, s in model(t, "t").systems.items())
                 for t in (svc + data, data + svc)]
         self.assertEqual(keys[0], keys[1])
