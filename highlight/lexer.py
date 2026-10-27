@@ -110,6 +110,8 @@ T_Null           = T.Null
 T_Ref            = T.Ref
 T_RefBrace       = T.Ref.Brace
 T_OpName         = T.OpName             # the dotted ns.verb of an external op-call
+T_CallName       = T.CallName           # a call's name right before its `(`: charge({Order})
+T_KindWord       = T.Keyword.Kind       # a known word of a `#%` kind line
 
 
 # --- Lexer ------------------------------------------------------------------
@@ -118,6 +120,8 @@ T_OpName         = T.OpName             # the dotted ns.verb of an external op-c
 # `op` of the external op-call).
 _BLOCK_KW = r'(?:state|loop|parallel|branch|on|of|op)'
 _IDENT    = r'[A-Za-z_][\w-]*'
+# The words of a `#%` kind line (sigil.core.kinds.CHOICES).
+_KIND_WORDS = r'(?:service|library|daemon|job|networked|in-process|concurrent|deterministic)'
 
 
 class SigilLexer(RegexLexer):
@@ -130,6 +134,9 @@ class SigilLexer(RegexLexer):
 
     tokens = {
         'common': [
+            # Kind line `#% …` (sigil.core.kinds): the mark first-class (gold),
+            # its known words keywords, other words plain; a `#` ends it.
+            (r'^([ \t]*)(#%)', bygroups(Whitespace, T_Shebang), 'kindline'),
             (r'[ \t]+', Whitespace),
             (r'\n',     Whitespace),
             # Mode line: exactly `#!spec` / `#!sketch` / `#!craft`.
@@ -137,7 +144,7 @@ class SigilLexer(RegexLexer):
             # Section header: `--- [L<n>:] Name ---` (trailing `---` optional);
             # split into rails / level / name.
             (r'(-{3,})([ \t]*)(?:(L\d+)([ \t]*:[ \t]*))?([^\n]*?)([ \t]*)(-{3,})?[ \t]*$',
-             bygroups(T_Section, Whitespace, T_SecLevel, Punctuation,
+             bygroups(T_Section, Whitespace, T_SecLevel, T_SecLevel,
                       T_SecName, Whitespace, T_Section)),
             # Inline / whole-line comment (after the mode-line rule).
             (r'#.*$', Comment.Single),
@@ -159,6 +166,9 @@ class SigilLexer(RegexLexer):
             # glyph (`[Bullet]/{Transform}`). A spaced ` / ` stays the
             # alternative value operator.
             (r'(?<=[\]})>|])/(?=[~*]?[\[{<(|])', T_Path),
+            # A `.field` hugging a closing glyph (`{Order}.total`) — one bare
+            # name, the dot included.
+            (r'(?<=[\]})>|])\.' + _IDENT, Name.Tag),
 
             # Multiline block-string (triple double-quote) — the one multiline
             # construct. `${…}` inside is template text, so the body stays a string.
@@ -202,9 +212,10 @@ class SigilLexer(RegexLexer):
             # values (not as an actor glyph) until the matching `)`.
             (r'(?<=\w)\(', Punctuation, 'opargs'),
             # Map literal `{k: v, …}` (a top-level `:` before the close) and list
-            # literal `[v, …]` openers: bare delimiters, the body lexes as values.
-            (r'\{(?=[^{}\n]*:)', T_Glyph),
-            (r'\[(?=\s*(?:\$\{|"|-?\d|true\b|false\b|null\b|\]))', T_Glyph),
+            # literal `[v, …]` openers: bare openers (punctuation, as a block's
+            # brace), the body lexes as values.
+            (r'\{(?=[^{}\n]*:)', Punctuation),
+            (r'\[(?=\s*(?:\$\{|"|-?\d|true\b|false\b|null\b|\]))', Punctuation, 'listargs'),
 
             # Entity glyphs (single line: open + name + close). A `{`/`[` that
             # opens a multi-line block has no close on the line, so it falls
@@ -214,9 +225,12 @@ class SigilLexer(RegexLexer):
             (r'(\()([^()\n]*?)(\))',   bygroups(T_Glyph, T_GlyphName, T_Glyph)),
             (r'(\|)([^|\n]*?)(\|)',    bygroups(T_Glyph, T_GlyphName, T_Glyph)),
             (r'(\[)([^\[\]\n]*?)(\])', bygroups(T_Glyph, T_GlyphName, T_Glyph)),
-            (r'(\{)([^{}\n]*?)(\})',   bygroups(T_Glyph, T_GlyphName, T_Glyph)),
+            # A data glyph's name starts at its brace: `{ … }` is a block's braces.
+            (r'(\{)(?=[^\s{}])([^{}\n]*?)(\})', bygroups(T_Glyph, T_GlyphName, T_Glyph)),
             (r'(<)([^<>\n]*?)(>)',     bygroups(T_Glyph, T_GlyphName, T_Glyph)),
-            (r'[\[\]{}|()]', T_Glyph),
+            (r'[\[\]|()]', T_Glyph),
+            # A block's `{ }` (definition, control block, state block, an open map).
+            (r'[{}]', Punctuation),
 
             include('values'),
 
@@ -228,8 +242,9 @@ class SigilLexer(RegexLexer):
             # Punctuation glue: `:` `,` `.`.
             (r'[:,.]', Punctuation),
 
-            # Bare identifier — a state name, branch arm label, alias name,
-            # internal op verb, map key.
+            # A call's name, right before its `(`: `charge({Order})`, `walk(.children)`.
+            (r'[A-Za-z_][\w.]*(?=\()', T_CallName),
+            # Bare identifier — a state name, branch arm label, alias name, map key.
             (_IDENT, Name.Tag),
         ],
 
@@ -240,6 +255,10 @@ class SigilLexer(RegexLexer):
 
             # Cardinality / retries / fan-out `×N` / `xN`; stream cap `^N`
             # (optional magnitude unit, e.g. `^10k`).
+            # Cardinality then modifier-alias references to the end of the
+            # payload (`charge ×3 Retry`): the names read as modifiers.
+            (r'(×(?:\d+|[A-Za-z]\w*)|\bx\d+\b)((?:[ \t]+' + _IDENT + r')+)(?=[ \t]*(?:[#@!]|$))',
+             bygroups(T_Card, T_Mod)),
             (r'×(?:\d+|[A-Za-z]\w*)', T_Card),
             (r'\bx\d+\b', T_Card),
             (r'\^\d+[a-zA-Z]*', T_Card),
@@ -260,6 +279,19 @@ class SigilLexer(RegexLexer):
             (r'"""', String.Double, '#pop'),
             (r'[^"]+', String.Double),
             (r'"', String.Double),
+        ],
+
+        'kindline': [
+            (r'\n', Whitespace, '#pop'),
+            (r'[ \t]+', Whitespace),
+            (r'#.*$', Comment.Single, '#pop'),
+            (r'(?<![\w-])' + _KIND_WORDS + r'(?![\w-])', T_KindWord),
+            (r'[^\s#]+', Token.Text),
+        ],
+
+        'listargs': [
+            (r'\]', Punctuation, '#pop'),
+            include('root'),
         ],
 
         'opargs': [
@@ -296,6 +328,7 @@ _COLORS = {
     T_Card:            "#f59cc4",                # cardinality (soft pink)
     T_Branch:          "#5abea0",                # composition-tree branch marker (teal)
     T_OpName:          "#8aa0ff",                # external op ns.verb (periwinkle)
+    T_CallName:        "#f08cac",                # a call's name (rose)
 
     # Structural sigils — muted.
     T_Hole:            "italic #6e7681",

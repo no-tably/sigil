@@ -46,6 +46,15 @@
       }
     },
     {
+      "name": "Call name — charge({Order}) (rose)",
+      "scope": [
+        "entity.name.function.sigil.call"
+      ],
+      "settings": {
+        "foreground": "#f08cac"
+      }
+    },
+    {
       "name": "@-modifiers (less-gold)",
       "scope": [
         "storage.modifier.sigil"

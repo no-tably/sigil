@@ -95,6 +95,18 @@
 
     <dict>
       <key>name</key>
+      <string>Sigil call name (charge({Order}), rose)</string>
+      <key>scope</key>
+      <string>entity.name.function.sigil.call</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key>
+        <string>#f08cac</string>
+      </dict>
+    </dict>
+
+    <dict>
+      <key>name</key>
       <string>Sigil @-modifiers (less-gold)</string>
       <key>scope</key>
       <string>storage.modifier.sigil</string>

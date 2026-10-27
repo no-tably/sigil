@@ -17,12 +17,15 @@ variables:
   ident: '[A-Za-z_][\w-]*'
   # Control-flow keywords (+ `on`/`of` of branch/loop, `op` of the op-call).
   block_kw: 'state|loop|parallel|branch|on|of|op'
+  # The words of a `#%` kind line (sigil.core.kinds.CHOICES).
+  kind_words: 'service|library|daemon|job|networked|in-process|concurrent|deterministic'
 
 contexts:
   main:
     - include: comments
     - include: branch
     - include: path
+    - include: field
     - include: block-string
     - include: refs
     - include: modifiers
@@ -48,9 +51,19 @@ contexts:
       captures:
         1: punctuation.definition.sigil.section
         3: markup.heading.sigil.level
-        4: punctuation.separator.sigil
+        4: markup.heading.sigil.level
         5: markup.heading.sigil.name
         7: punctuation.definition.sigil.section
+    # Kind line `#% …` (sigil.core.kinds): the mark first-class (gold), its
+    # known words keywords, other words plain; a `#` ends it (a comment).
+    - match: '^\s*(#%)'
+      captures:
+        1: keyword.other.sigil.shebang
+      push:
+        - match: '(?=#)|$'
+          pop: true
+        - match: '(?<![\w-])(?:{{kind_words}})(?![\w-])'
+          scope: keyword.control.sigil
     # Inline / whole-line comment (after the mode-line rule).
     - match: '#.*$'
       scope: comment.line.sigil
@@ -79,6 +92,12 @@ contexts:
     # value operator.
     - match: '(?<=[\]})>|])/(?=[~*]?[\[{<(|])'
       scope: keyword.operator.sigil.path
+
+  field:
+    # A `.field` hugging a closing glyph (`{Order}.total`) — one bare name,
+    # the dot included.
+    - match: '(?<=[\]})>|])\.{{ident}}'
+      scope: entity.name.tag.sigil
 
   block-string:
     # Multiline triple-quoted block string — the one multiline construct.
@@ -165,11 +184,20 @@ contexts:
 
   literal-openers:
     # Map literal `{k: v}` (a top-level `:` before the close) and list literal
-    # `[v, …]` openers — bare delimiters; the body lexes as values.
+    # `[v, …]` openers — bare openers (punctuation, as a block's brace); the
+    # body lexes as values.
     - match: '\{(?=[^{}\n]*:)'
-      scope: keyword.control.sigil.glyph
+      scope: punctuation.separator.sigil
     - match: '\[(?=\s*(?:\$\{|"|-?\d|true\b|false\b|null\b|\]))'
-      scope: keyword.control.sigil.glyph
+      scope: punctuation.separator.sigil
+      push: list
+
+  list:
+    # A list literal's body, up to its `]` (punctuation too).
+    - match: '\]'
+      scope: punctuation.separator.sigil
+      pop: true
+    - include: main
 
   glyphs:
     # `||` map merge — never an (empty) store glyph.
@@ -191,7 +219,9 @@ contexts:
         1: keyword.control.sigil.glyph
         2: storage.type.sigil
         3: keyword.control.sigil.glyph
-    - match: '(\{)([^{}\n]*?)(\})'
+    # A data glyph's name starts at its brace: `{ … }` with a space is a
+    # block's braces.
+    - match: '(\{)(?=[^\s{}])([^{}\n]*?)(\})'
       captures:
         1: keyword.control.sigil.glyph
         2: storage.type.sigil
@@ -201,9 +231,12 @@ contexts:
         1: keyword.control.sigil.glyph
         2: storage.type.sigil
         3: keyword.control.sigil.glyph
-    # Bare (unbalanced / block-opening) glyph delimiters.
-    - match: '[\[\]{}|()]'
+    # Bare (unbalanced) glyph delimiters.
+    - match: '[\[\]|()]'
       scope: keyword.control.sigil.glyph
+    # A block's `{ }` (definition, control block, state block, an open map).
+    - match: '[{}]'
+      scope: punctuation.separator.sigil
 
   values:
     - match: '\btrue\b'
@@ -212,6 +245,12 @@ contexts:
       scope: constant.language.boolean.false.sigil
     - match: '\bnull\b'
       scope: constant.language.null.sigil
+    # Cardinality then modifier-alias references to the end of the payload
+    # (`charge ×3 Retry`) — the names read as modifiers.
+    - match: '(×(?:\d+|[A-Za-z]\w*)|\bx\d+\b)((?:[ \t]+{{ident}})+)(?=[ \t]*(?:[#@!]|$))'
+      captures:
+        1: keyword.operator.sigil.cardinality
+        2: storage.modifier.sigil
     # Cardinality `×N` / `xN` + stream cap `^N`.
     - match: '×(?:\d+|[A-Za-z]\w*)'
       scope: keyword.operator.sigil.cardinality
@@ -260,6 +299,9 @@ contexts:
       scope: punctuation.separator.sigil
 
   bare-name:
-    # A state name, branch arm label, alias name, internal op verb, map key.
+    # A call's name, right before its `(`: `charge({Order})`, `walk(.children)`.
+    - match: '[A-Za-z_][\w.]*(?=\()'
+      scope: entity.name.function.sigil.call
+    # A state name, branch arm label, alias name, map key.
     - match: '{{ident}}'
       scope: entity.name.tag.sigil

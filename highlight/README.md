@@ -24,15 +24,18 @@ scopes with neutral values.
 | cardinality / stream cap | `×3` `xN` `^10k` | `keyword.operator.sigil.cardinality` | soft pink `#f59cc4` |
 | modifiers | `@inv @sla @timeout @fallback @cap @owns @borrow @read @write @each @all …`, critical `!`, optional `?` | `storage.modifier.sigil` | less-gold `#ffe0b0` |
 | external op-call name | `db.insert` in `op db.insert(…)` | `entity.name.function.sigil.op` | periwinkle |
+| call name | `charge` in `charge({Order})`, `walk(.children)` | `entity.name.function.sigil.call` | rose `#f08cac` |
 | mode line | `#!spec` `#!sketch` `#!craft` | `keyword.other.sigil.shebang` | gold `#e3c000` bold |
-| section header | `--- L2: [Core] ---` | rails `punctuation.definition.sigil.section` · level `markup.heading.sigil.level` · name `markup.heading.sigil.name` | slate · violet · near-white |
+| kind line | `#% daemon in-process` | mark `keyword.other.sigil.shebang` · known words `keyword.control.sigil` | gold · magenta |
+| section header | `--- L2: [Core] ---` | rails `punctuation.definition.sigil.section` · level (with its `:`) `markup.heading.sigil.level` · name `markup.heading.sigil.name` | slate · violet · near-white |
 | comment | `# note` | `comment.line.sigil` | grey italic |
 | refs | `${state.count}` | `variable.interpolation` + `punctuation.definition.template-expression` | violet |
 | strings | `"x"`, `'x'`, triple-quoted block strings | `string.quoted.sigil.*` | `#a5d6ff` |
 | numbers · constants | `3` `0.5` `30s`, `true false null` | `constant.numeric` · `constant.language.*` | blue · green / red / grey |
 | state-block anchors · holes · wildcards | `+` `$`, `?`, `_` | `comment.other.meta.sigil.*` | muted |
 | state transition | `-<trigger>->` | arrow + event glyph | pink + magenta |
-| bare names | state names, branch labels, verbs, map keys | `entity.name.tag.sigil` | `#c9d1d9` |
+| bare names · fields | state names, branch labels, map keys, `.total` in `{Order}.total` | `entity.name.tag.sigil` | `#c9d1d9` |
+| punctuation | `: , .`, a block's `{ }`, the `{` / `[ ]` of a map or list literal | `punctuation.separator.sigil` | `#586e75` |
 
 Anything outside core Sigil gets no special treatment: an unfamiliar `@word`
 reads as a modifier, an unfamiliar word as a bare name. A dialect of Sigil may
@@ -145,7 +148,15 @@ text = lex_to_text("[A] -> [B] : ${x}")       # a rich.text.Text
 
 ## Keeping the surfaces in sync
 
-The lexer is the authority. When a token rule changes, change it in every
-grammar (sublime, tmLanguage, vim) and keep every scope mapped by both themes;
-`../tests/test_highlight_grammars.py` checks the grammars and themes stay
-consistent, and `../tests/test_lexer.py` pins the token model.
+Sigil's own highlighter (`sigil highlight`, `sigil/present/highlight.py`, which
+reads with Core's tokens) is the authority; these grammars are the editors'
+instant highlighting. When a token rule changes, change it in every grammar
+(sublime, tmLanguage, vim, `lexer.py`) and keep every scope mapped by both
+themes. `../tests/test_highlight_drift.py` highlights one corpus (the Sigil
+blocks of language.md and examples.md, site/examples, design/sigil.sigil) with
+sigil and with each grammar — tmLanguage and sublime-syntax through a small
+stdlib TextMate reader (`../tests/_textmate.py`), Pygments, one headless vim —
+and compares every character's role class (scope → role in `SCOPE_CLASSES`);
+each difference must be one of its named exceptions (by design, or open for a
+decision). `../tests/test_highlight_grammars.py` checks the grammars and themes
+stay consistent, and `../tests/test_lexer.py` pins the lexer's tokens.

@@ -89,6 +89,7 @@ CORE_SCOPES = {
     # keywords + op-call
     "keyword.control.sigil",
     "entity.name.function.sigil.op",
+    "entity.name.function.sigil.call",
     # operators
     "keyword.operator.sigil.arrow",
     "keyword.operator.sigil.alias",
@@ -135,6 +136,7 @@ THEMED_HEXES = {
     "#5abea0",  # composition-tree branch marker (teal)
     "#e3c000",  # mode line (gold)
     "#8b7aad", "#d2a8ff", "#e6edf3",  # section rails / level / name
+    "#f08cac",  # a call's name (rose, the theme's syntax.call_name)
 }
 UNIVERSAL_HEXES = {
     "#bc8cff", "#a371f7", "#a5d6ff", "#79c0ff",
@@ -401,7 +403,7 @@ class TestVim(unittest.TestCase):
     EXPECTED_GROUPS = {
         "sigilKeyword", "sigilGlyphDelim", "sigilTypeName", "sigilModifier",
         "sigilOperator", "sigilCard", "sigilBranch", "sigilBranchCond", "sigilBranchWeight",
-        "sigilOpName", "sigilShebang",
+        "sigilOpName", "sigilCallName", "sigilShebang",
         "sigilSecName", "sigilSecRail", "sigilSecLevel", "sigilRef",
         "sigilRefBrace", "sigilString", "sigilNumber", "sigilConst",
         "sigilComment", "sigilMeta", "sigilPunct", "sigilTag",
@@ -419,7 +421,9 @@ class TestVim(unittest.TestCase):
         self.assertEqual(coloured, self.EXPECTED_GROUPS)
 
     def test_every_used_group_is_linked(self):
-        used = set(re.findall(r"\b(sigil[A-Z]\w*)", self.syn)) - {"sigilGlyph", "sigilArgs"}
+        # Transparent containers take no colour of their own.
+        used = set(re.findall(r"\b(sigil[A-Z]\w*)", self.syn)) - {"sigilGlyph", "sigilArgs",
+                                                                  "sigilKindLine"}
         linked = set(re.findall(r"^hi def link (sigil\w+)", self.syn, re.M))
         self.assertEqual(used - linked, set())
 

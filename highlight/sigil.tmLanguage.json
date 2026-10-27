@@ -17,6 +17,9 @@
       "include": "#path"
     },
     {
+      "include": "#field"
+    },
+    {
       "include": "#block-string"
     },
     {
@@ -81,7 +84,7 @@
               "name": "markup.heading.sigil.level"
             },
             "4": {
-              "name": "punctuation.separator.sigil"
+              "name": "markup.heading.sigil.level"
             },
             "5": {
               "name": "markup.heading.sigil.name"
@@ -90,6 +93,22 @@
               "name": "punctuation.definition.sigil.section"
             }
           }
+        },
+        {
+          "comment": "Kind line #% … (sigil.core.kinds): the mark first-class (gold), its known words keywords, other words plain; a # ends it (a comment).",
+          "begin": "^\\s*(#%)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.other.sigil.shebang"
+            }
+          },
+          "end": "(?=#)|$",
+          "patterns": [
+            {
+              "name": "keyword.control.sigil",
+              "match": "(?<![\\w-])(?:service|library|daemon|job|networked|in-process|concurrent|deterministic)(?![\\w-])"
+            }
+          ]
         },
         {
           "name": "comment.line.sigil",
@@ -142,6 +161,15 @@
           "comment": "Qualified-path separator: a / hugging a closing and an opening glyph ([Bullet]/{Transform}, no spaces). A spaced / stays the alternative value operator.",
           "name": "keyword.operator.sigil.path",
           "match": "(?<=[\\]})>|])/(?=[~*]?[\\[{<(|])"
+        }
+      ]
+    },
+    "field": {
+      "patterns": [
+        {
+          "comment": "A .field hugging a closing glyph ({Order}.total, [Doc].walk) — one bare name, the dot included.",
+          "name": "entity.name.tag.sigil",
+          "match": "(?<=[\\]})>|])\\.[A-Za-z_][\\w-]*"
         }
       ]
     },
@@ -328,14 +356,29 @@
     "literal-openers": {
       "patterns": [
         {
-          "comment": "Map literal {k: v} (a top-level : before the close) — bare opener, body lexes as values.",
-          "name": "keyword.control.sigil.glyph",
+          "comment": "Map literal {k: v} (a top-level : before the close) — a bare opener (punctuation, as a block's brace), body lexes as values.",
+          "name": "punctuation.separator.sigil",
           "match": "\\{(?=[^{}\\n]*:)"
         },
         {
-          "comment": "List literal [v, …] — bare opener.",
-          "name": "keyword.control.sigil.glyph",
-          "match": "\\[(?=\\s*(?:\\$\\{|\\\"|-?\\d|true\\b|false\\b|null\\b|\\]))"
+          "comment": "List literal [v, …] — a bare opener (punctuation); the body lexes as values up to its ] (punctuation too).",
+          "begin": "\\[(?=\\s*(?:\\$\\{|\\\"|-?\\d|true\\b|false\\b|null\\b|\\]))",
+          "end": "\\]",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.separator.sigil"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.separator.sigil"
+            }
+          },
+          "patterns": [
+            {
+              "include": "$self"
+            }
+          ]
         }
       ]
     },
@@ -389,7 +432,7 @@
           }
         },
         {
-          "match": "(\\{)([^{}\\n]*?)(\\})",
+          "match": "(\\{)(?=[^\\s{}])([^{}\\n]*?)(\\})",
           "captures": {
             "1": {
               "name": "keyword.control.sigil.glyph"
@@ -400,7 +443,8 @@
             "3": {
               "name": "keyword.control.sigil.glyph"
             }
-          }
+          },
+          "comment": "A data glyph's name starts at its brace: { … } with a space is a block's braces."
         },
         {
           "match": "(<)([^<>\\n]*?)(>)",
@@ -417,9 +461,14 @@
           }
         },
         {
-          "comment": "Bare (unbalanced / block-opening) glyph delimiters.",
+          "comment": "Bare (unbalanced) glyph delimiters.",
           "name": "keyword.control.sigil.glyph",
-          "match": "[\\[\\]{}|()]"
+          "match": "[\\[\\]|()]"
+        },
+        {
+          "comment": "A block's { } (definition, control block, state block, an open map) — punctuation.",
+          "name": "punctuation.separator.sigil",
+          "match": "[{}]"
         }
       ]
     },
@@ -436,6 +485,18 @@
         {
           "name": "constant.language.null.sigil",
           "match": "\\bnull\\b"
+        },
+        {
+          "comment": "Cardinality then modifier-alias references to the end of the payload (charge ×3 Retry) — the names read as modifiers.",
+          "match": "(×(?:\\d+|[A-Za-z]\\w*)|\\bx\\d+\\b)((?:[ \\t]+[A-Za-z_][\\w-]*)+)(?=[ \\t]*(?:[#@!]|$))",
+          "captures": {
+            "1": {
+              "name": "keyword.operator.sigil.cardinality"
+            },
+            "2": {
+              "name": "storage.modifier.sigil"
+            }
+          }
         },
         {
           "comment": "Cardinality ×N / xN + stream cap ^N.",
@@ -531,6 +592,11 @@
     },
     "bare-name": {
       "patterns": [
+        {
+          "comment": "A call's name, right before its ( — charge({Order}), walk(.children), excludes(…).",
+          "name": "entity.name.function.sigil.call",
+          "match": "[A-Za-z_][\\w.]*(?=\\()"
+        },
         {
           "comment": "State name / branch label / alias / internal op verb / map key.",
           "name": "entity.name.tag.sigil",

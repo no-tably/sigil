@@ -12,9 +12,13 @@ endif
 
 " --- Bare names: states / labels / verbs / map keys (lowest priority) -------
 syn match sigilTag "[A-Za-z_][[:alnum:]_-]*"
+" A call's name, right before its `(`: charge({Order}), walk(.children).
+syn match sigilCallName "[A-Za-z_][[:alnum:]_.]*\ze("
 
 " --- Punctuation, predicates, suffix modifiers -----------------------------
 syn match sigilPunct "[:,.]"
+" A .field hugging a closing glyph ({Order}.total) — one bare name, the dot included.
+syn match sigilTag "\%([]})>|]\)\@1<=\.[A-Za-z_][[:alnum:]_-]*"
 syn match sigilPunct "!=\|>=\|<=\|=\|∈\|∉\|∪\|∩\|[<>]"
 syn match sigilModifier "[!?]"
 
@@ -25,26 +29,31 @@ syn match sigilOperator "++\|||\|[-+*/]"
 syn match sigilCard "×\%(\d\+\|[A-Za-z]\w*\)"
 syn match sigilCard "\<x\d\+\>"
 syn match sigilCard "\^\d\+[a-zA-Z]*"
+" Modifier-alias references after a cardinality, to the end of the payload
+" (charge ×3 Retry): each name reads as a modifier.
+syn match sigilModifier "\%(\%(×\%(\d\+\|[A-Za-z]\w*\)\|\<x\d\+\>\)\%([ \t]\+[A-Za-z_][[:alnum:]_-]*\)*[ \t]\+\)\@<=[A-Za-z_][[:alnum:]_-]*\ze\%([ \t]\+[A-Za-z_][[:alnum:]_-]*\)*[ \t]*\%([#@!]\|$\)"
 syn region sigilString start=+"+ skip=+\\.+ end=+"+ oneline
 syn region sigilString start=+'+ skip=+''+ end=+'+ oneline
 " Multiline triple-quoted block string (the one multiline construct).
 syn region sigilString start=+"""+ end=+"""+ keepend
 
 " --- Glyphs: delimiters (keyword) + inner name (type position) --------------
-" Bare (unbalanced / block-opening) delimiters — overridden by the regions below.
-syn match sigilGlyphDelim "[][{}|()]"
+" Bare (unbalanced) delimiters — overridden by the regions below; a block's
+" { } is punctuation.
+syn match sigilGlyphDelim "[][|()]"
+syn match sigilPunct "[{}]"
 syn region sigilGlyph matchgroup=sigilGlyphDelim start="\[" end="\]" oneline contains=sigilTypeName
 syn region sigilGlyph matchgroup=sigilGlyphDelim start="(" end=")" oneline contains=sigilTypeName
 syn region sigilGlyph matchgroup=sigilGlyphDelim start="|" end="|" oneline contains=sigilTypeName
-syn region sigilGlyph matchgroup=sigilGlyphDelim start="{" end="}" oneline contains=sigilTypeName
+syn region sigilGlyph matchgroup=sigilGlyphDelim start="{\s\@!" end="}" oneline contains=sigilTypeName
 syn region sigilGlyph matchgroup=sigilGlyphDelim start="<" end=">" oneline contains=sigilTypeName
 syn match sigilTypeName "[^][(){}|<>]\+" contained
 " Mutability / stream prefixes hugging a glyph.
 syn match sigilGlyphDelim "[~*]\ze[[{<(|]"
-" Map literal {k: v} and list literal [v, …] openers: bare delimiters, the
-" body highlights as values.
-syn match sigilGlyphDelim "{\ze[^{}]*:"
-syn match sigilGlyphDelim "\[\ze\s*\%(\${\|\"\|-\=\d\|true\>\|false\>\|null\>\|]\)"
+" Map literal {k: v} and list literal [v, …] openers: bare openers
+" (punctuation, as a block's brace), the body highlights as values.
+syn match sigilPunct "{\ze[^{}]*:"
+syn region sigilArgs matchgroup=sigilPunct start="\[\ze\s*\%(\${\|\"\|-\=\d\|true\>\|false\>\|null\>\|]\)" end="]" transparent contains=TOP
 " `||` map merge — never an (empty) store glyph.
 syn match sigilOperator "||"
 " Call parens verb(…) / @mod(…): the arguments highlight as values.
@@ -90,6 +99,11 @@ syn region sigilSecName matchgroup=sigilSecRail
       \ contains=sigilSecLevel
 syn match sigilSecLevel "\<L\d\+\>\s*:\?" contained
 syn match sigilShebang "#!\%(spec\|sketch\|craft\)\>"
+" Kind line `#% …` (sigil.core.kinds): the mark first-class, its known words
+" keywords, other words plain; a `#` ends it (a comment).
+syn match sigilKindLine "^\s*#%[^#]*" transparent contains=sigilShebang,sigilKeyword
+syn match sigilShebang "#%" contained
+syn match sigilKeyword "\%(^\|[^[:alnum:]_-]\)\@1<=\%(service\|library\|daemon\|job\|networked\|in-process\|concurrent\|deterministic\)\%([[:alnum:]_-]\)\@!" contained
 
 " --- hi def link to the standard groups ------------------------------------
 hi def link sigilKeyword        Statement
@@ -102,6 +116,7 @@ hi def link sigilBranch         Operator
 hi def link sigilBranchCond     Type
 hi def link sigilBranchWeight   Number
 hi def link sigilOpName         Function
+hi def link sigilCallName       Function
 hi def link sigilShebang        PreProc
 hi def link sigilSecName        Title
 hi def link sigilSecRail        Comment
