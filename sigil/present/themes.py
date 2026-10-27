@@ -18,9 +18,10 @@ SIGIL_THEME, else "sigil". An `extends` value that is a path is resolved against
 the folder of the theme that names it; a bare name uses the lookup above.
 
 A command that loads a dialect (view, frames draw, highlight) colours with
-load(spec, dialect): an explicit spec (--theme) wins, then the dialect's THEME
-hook (sigil.core.dialects.theme_hook: a name, or a path taken against the
-dialect module's folder), read exactly as any theme file is, then the default.
+load(spec, dialect): an explicit spec (--theme) wins, then env SIGIL_THEME (the
+person's choice), then the dialect's THEME hook (sigil.core.dialects.theme_hook:
+a name, or a path taken against the dialect module's folder), read exactly as
+any theme file is, else "sigil".
 `sigil themes` itself loads no dialect. Standard library only.
 
 The YAML subset (the site's JavaScript parser implements the same rules):
@@ -285,19 +286,23 @@ def load_raw(spec: str, _seen: tuple[Path, ...] = (), _base: Path | None = None)
 def chosen(spec: str | None = None, dialect=None) -> tuple[str, Path | None, bool]:
     """Which theme a command colours with: (the name or path, the folder a
     relative path is read against, whether it is the dialect's THEME). An
-    explicit `spec` wins, then the dialect's THEME, then $SIGIL_THEME, else sigil.
+    explicit `spec` wins, then $SIGIL_THEME (the person's choice), then the
+    dialect's THEME, else sigil.
     Raises DialectError (a ValueError) for a THEME that is not a string."""
     if spec:
         return spec, None, False
+    env = os.environ.get("SIGIL_THEME")
+    if env:
+        return env, None, False
     hooked = dialects.theme_hook(dialect)
     if hooked is not None:
         return hooked[0], hooked[1], True
-    return os.environ.get("SIGIL_THEME") or DEFAULT, None, False
+    return DEFAULT, None, False
 
 
 def load(spec: str | None = None, dialect=None) -> dict:
     """Load and resolve a theme by name or path, as chosen() picks it (no spec:
-    the dialect's THEME, else $SIGIL_THEME or sigil). A dialect's THEME that
+    $SIGIL_THEME, else the dialect's THEME, else sigil). A dialect's THEME that
     cannot be found, read or parsed is a ThemeError naming the dialect."""
     name, base, by_dialect = chosen(spec, dialect)
     try:

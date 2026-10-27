@@ -395,7 +395,7 @@ def _view_parser(dialect, app) -> argparse.ArgumentParser:
                          "terminal), always or never")
     ap.add_argument("--theme", default=None,
                     help="colour theme: a name in themes/ or a .yaml path (default: the "
-                         "dialect's THEME, else $SIGIL_THEME, else sigil)")
+                         "$SIGIL_THEME, else the dialect's THEME, else sigil)")
     return ap
 
 
@@ -426,7 +426,7 @@ def _view(argv: list, dialect) -> int:
     a = _view_parser(dialect, app).parse_args(argv)
     try:
         loaded = load_dialect(a.dialect)
-        kit.use_theme(a.theme, loaded)     # --theme, else the dialect's THEME, else the default
+        kit.use_theme(a.theme, loaded)     # --theme, $SIGIL_THEME, the dialect's THEME, sigil
         limits = _limits(a.limit)
     except ValueError as exc:
         say("view", str(exc))
@@ -721,8 +721,8 @@ def _frames(argv: list, dialect) -> int:
     d.add_argument("--count", type=int, default=frames.WINDOW)
     d.add_argument("--payloads", action="store_true")
     d.add_argument("--theme", default=None,
-                   help="colour theme: a name or a .yaml path (default: the dialect's "
-                        "THEME, else $SIGIL_THEME, else sigil)")
+                   help="colour theme: a name or a .yaml path (default: $SIGIL_THEME, "
+                        "else the dialect's THEME, else sigil)")
     _dialect_flag(d, dialect)
     d.add_argument("--limit", action="append", default=[], metavar="NAME=N",
                    help="raise one simulator limit (repeatable; e.g. frames=5000), as "
@@ -786,8 +786,8 @@ holds a key for each part. A request that fails in any part answers only
 one). A dialect is loaded as --dialect loads it (null: core Sigil, no dialect,
 whatever $SIGIL_DIALECT says) and answered by its NAME. Themes: --theme or a
 {"theme"} request is explicit and holds for the rest of the session; until one
-is given the theme is the dialect's THEME, else the default ($SIGIL_THEME, else
-sigil), so a dialect switch also switches the theme, and its answer names the
+is given the theme is $SIGIL_THEME if set, else the dialect's THEME, else
+sigil, so (without $SIGIL_THEME) a dialect switch also switches the theme, and its answer names the
 theme now in use ("theme"). After an explicit theme a dialect switch leaves the
 theme alone.
 `start` is the index of lines[0] (echoed; default 0), `carry` the carry lines[0]
@@ -984,7 +984,7 @@ def _highlight(argv: list, dialect) -> int:
     ap.add_argument("file", nargs="?", help="a .sigil file, or - for stdin")
     ap.add_argument("--theme", default=None,
                     help="colour theme: a name in themes/ or a .yaml path (default: the "
-                         "dialect's THEME, else $SIGIL_THEME, else sigil)")
+                         "$SIGIL_THEME, else the dialect's THEME, else sigil)")
     _dialect_flag(ap, dialect)
     ap.add_argument("--json", action="store_true",
                     help="print each line's runs (text, role, colour) as one JSON object")
@@ -998,7 +998,7 @@ def _highlight(argv: list, dialect) -> int:
     from sigil.present import highlight as hl, themes
     try:
         loaded = load_dialect(a.dialect)
-        theme = themes.load(a.theme, loaded)   # --theme, else the dialect's THEME, else the default
+        theme = themes.load(a.theme, loaded)   # --theme, $SIGIL_THEME, the dialect's THEME, sigil
         name = theme_name(theme, themes.chosen(a.theme, loaded)[0])
     except ValueError as exc:
         say("highlight", str(exc))

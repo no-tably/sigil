@@ -938,7 +938,8 @@ or `SIGIL_THEME=NAME` picks one, and the web page reads the same files. A dialec
 may name its own theme (its `THEME` hook: a theme name, or a YAML path beside the
 dialect module, read as any theme file is). Every command that themes (`view`,
 `frames draw`, `highlight`) takes an explicit `--theme` first, then the loaded
-dialect's `THEME`, then `SIGIL_THEME`, else `sigil`, so a dialect's drawings and
+`SIGIL_THEME` (a person's choice beats a dialect's default), then the loaded
+dialect's `THEME`, else `sigil`, so a dialect's drawings and
 its source agree; a theme its `THEME` names that cannot be loaded is an error as a
 bad `--theme` is.
 `sigil themes [NAME|PATH]` prints a theme resolved (its `extends` and `$name`

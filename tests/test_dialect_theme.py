@@ -100,6 +100,9 @@ class TestHook(_Doc):
         self.assertIsNone(dialects.theme_hook(None))
         self.assertIsNone(dialects.theme_hook(types.SimpleNamespace(NAME="plain")))
         with mock.patch.dict(os.environ, {"SIGIL_THEME": "sigil"}):
+            self.assertEqual(themes.chosen(None, d)[0], "sigil")   # the person's SIGIL_THEME wins
+        clean = {k: v for k, v in os.environ.items() if k != "SIGIL_THEME"}
+        with mock.patch.dict(os.environ, clean, clear=True):
             self.assertEqual(themes.chosen(None, d)[0], "probe.yaml")
             self.assertEqual(themes.chosen(None, None)[0], "sigil")
 

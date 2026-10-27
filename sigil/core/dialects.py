@@ -174,8 +174,8 @@ upper-case attributes are data.
       (sigil.present.themes: the same YAML subset, `extends` and `$refs`, the same
       errors; data only, never code). Precedence, in every command that themes
       (view, frames draw, highlight): an explicit `--theme` (or a `--stream`
-      `{"theme"}` request) wins, then the dialect's THEME, then the default
-      ($SIGIL_THEME, else sigil). `sigil themes` loads no dialect. theme_hook()
+      `{"theme"}` request) wins, then $SIGIL_THEME (the person's choice), then
+      the dialect's THEME, else sigil. `sigil themes` loads no dialect. theme_hook()
       reads it.
   RENDER_ARROWS: {kind: mermaid_arrow}
       Extra arrow (edge) kinds a tokenizer may produce, and their Mermaid form.

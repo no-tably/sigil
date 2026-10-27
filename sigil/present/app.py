@@ -19,7 +19,7 @@ Options:
                      when lint reports an error. Also used when stdout is not a tty.
     --color WHEN     auto (default: colour when stdout is a tty) | always | never.
     --theme NAME     Colour theme: a name in themes/ or a .yaml path (default:
-                     the dialect's THEME, else env SIGIL_THEME, else sigil). See
+                     env SIGIL_THEME, else the dialect's THEME, else sigil). See
                      sigil themes.
     --events MODE    land | nodes: how a pass-through event is drawn. land: where
                      it lands — no row / box of its own, each emitter wired straight
