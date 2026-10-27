@@ -13,6 +13,7 @@ endif
 hi sigilKeyword       guifg=#c850e0 gui=bold    ctermfg=170 cterm=bold
 hi sigilGlyphDelim    guifg=#c850e0 gui=NONE    ctermfg=170 cterm=NONE
 hi sigilTypeName      guifg=#8aa0ff gui=italic  ctermfg=111 cterm=italic
+hi sigilTriggerName   guifg=#8aa0ff gui=italic  ctermfg=111 cterm=italic
 hi sigilStateName     guifg=#5ccfe6 gui=italic  ctermfg=80  cterm=italic
 hi sigilOpName        guifg=#f08cac gui=NONE    ctermfg=211 cterm=NONE
 hi sigilCallName      guifg=#f08cac gui=NONE    ctermfg=211 cterm=NONE

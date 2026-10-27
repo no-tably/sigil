@@ -208,9 +208,10 @@ class SigilLexer(RegexLexer):
             # `@`-modifiers (any `@`-word; the core set is listed in language.md).
             (r'@[A-Za-z][\w-]*', T_Mod),
 
-            # State-block transition `-<trigger>->`: dash + event glyph + arrow.
-            (r'(-)(<)([^<>\n]*)(>)(->)',
-             bygroups(T_Arrow, T_Glyph, T_GlyphName, T_Glyph, T_Arrow)),
+            # State-block transition `-<trigger>->`: dash + event glyph + arrow;
+            # a trigger list `-<A, B>->` splits at its commas (each item its own
+            # name, the comma punctuation).
+            (r'(-)(<)(?=[^<>\n]*>->)', bygroups(T_Arrow, T_Glyph), 'triggers'),
 
             # Arrows + `:=` (longest first so `<->` wins over `<`).
             (r'<->|->|~>|=>|!>|\?>|\*>|→', T_Arrow),
@@ -253,6 +254,10 @@ class SigilLexer(RegexLexer):
             (r'(\()([^()\n]*?)(\))',   bygroups(T_Glyph, T_GlyphName, T_Glyph)),
             (r'(\|)([^|\n]*?)(\|)',    bygroups(T_Glyph, T_GlyphName, T_Glyph)),
             (r'(\[)([^\[\]\n]*?)(\])', bygroups(T_Glyph, T_GlyphName, T_Glyph)),
+            # A set `{a, b}` (a comma before its close, as in `{Order}.status ∈
+            # {pending, active}`): a bare opener (punctuation, as a map's), its
+            # items lex as values — no data glyph.
+            (r'\{(?=[^{}\n]*,[^{}\n]*\})', Punctuation),
             # A data glyph's name starts at its brace: `{ … }` is a block's braces.
             (r'(\{)(?=[^\s{}])([^{}\n]*?)(\})', bygroups(T_Glyph, T_GlyphName, T_Glyph)),
             (r'(<)([^<>\n]*?)(>)',     bygroups(T_Glyph, T_GlyphName, T_Glyph)),
@@ -333,6 +338,14 @@ class SigilLexer(RegexLexer):
             (r'#.*$', Comment.Single, '#pop'),
             (r'(?<![\w-])' + _KIND_WORDS + r'(?![\w-])', T_KindWord),
             (r'[^\s#]+', Token.Text),
+        ],
+
+        'triggers': [
+            # A transition's trigger list, up to its `>->`.
+            (r'(>)(->)', bygroups(T_Glyph, T_Arrow), '#pop'),
+            (r',', Punctuation),
+            (r'[ \t]+', Whitespace),
+            (r'[^,\s<>]+', T_GlyphName),
         ],
 
         'listargs': [

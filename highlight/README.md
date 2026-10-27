@@ -41,10 +41,10 @@ scopes with neutral values.
 | strings | `"x"`, `'x'`, triple-quoted block strings | `string.quoted.sigil.*` | `#a5d6ff` |
 | numbers · constants | `3` `0.5` `30s`, `true false null` | `constant.numeric` · `constant.language.*` | blue · green / red / grey |
 | state-block anchors · holes · wildcards | `+` `$`, `?`, `_` | `comment.other.meta.sigil.*` | muted |
-| state transition | `-<trigger>->` | arrow + event glyph | pink + magenta |
+| state transition | `-<trigger>->`, a trigger list `-<Paid, Declined>->` (split at its commas) | arrow + event glyph | pink + magenta |
 | state names in a state block | `Pending` in `state {Order} { Pending -<Paid>-> Paid }` (one line or many, up to the `}` that closes it) | `storage.type.sigil.state` | cyan `#5ccfe6` italic (theme `kinds.state`) |
 | bare names · fields | branch labels, map keys, state names outside a state block, `.total` in `{Order}.total` | `entity.name.tag.sigil` | `#c9d1d9` |
-| punctuation | `: , .`, a block's `{ }`, the `{` / `[ ]` of a map or list literal | `punctuation.separator.sigil` | `#586e75` |
+| punctuation | `: , .`, a block's `{ }`, the `{` / `[ ]` of a map or list literal, the `{ }` of a set `{pending, active}` | `punctuation.separator.sigil` | `#586e75` |
 
 Anything outside core Sigil gets no special treatment: an unfamiliar `@word`
 reads as a modifier, an unfamiliar word as a bare name. A dialect of Sigil may

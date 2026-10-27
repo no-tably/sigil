@@ -403,7 +403,7 @@ class TestVim(unittest.TestCase):
     """The vim syntax defines, links and colours every group it uses."""
 
     EXPECTED_GROUPS = {
-        "sigilKeyword", "sigilGlyphDelim", "sigilTypeName", "sigilStateName", "sigilModifier",
+        "sigilKeyword", "sigilGlyphDelim", "sigilTypeName", "sigilTriggerName", "sigilStateName", "sigilModifier",
         "sigilOperator", "sigilCard", "sigilBranch", "sigilBranchCond", "sigilBranchWeight",
         "sigilOpName", "sigilCallName", "sigilShebang", "sigilDeclMark", "sigilDeclName",
         "sigilDecl", "sigilSecName", "sigilSecRail", "sigilSecLevel", "sigilRef",

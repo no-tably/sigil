@@ -50,11 +50,18 @@ syn region sigilGlyph matchgroup=sigilGlyphDelim start="|" end="|" oneline conta
 syn region sigilGlyph matchgroup=sigilGlyphDelim start="{\s\@!" end="}" oneline contains=sigilTypeName
 syn region sigilGlyph matchgroup=sigilGlyphDelim start="<" end=">" oneline contains=sigilTypeName
 syn match sigilTypeName "[^][(){}|<>]\+" contained
+" A transition's trigger list -<A, B>->: split at its commas (each item its own
+" name, the comma punctuation).
+syn region sigilGlyph matchgroup=sigilGlyphDelim start="-\@1<=<\ze[^<>]*>->" end=">\ze->" oneline contains=sigilTriggerName,sigilPunct
+syn match sigilTriggerName "[^][(){}|<>,[:space:]]\+" contained
 " Mutability / stream prefixes hugging a glyph.
 syn match sigilGlyphDelim "[~*]\ze[[{<(|]"
 " Map literal {k: v} and list literal [v, …] openers: bare openers
 " (punctuation, as a block's brace), the body highlights as values.
 syn match sigilPunct "{\ze[^{}]*:"
+" A set {a, b} (a comma before its close, as in {Order}.status ∈ {pending,
+" active}): a bare opener too, its items highlight as values — no data glyph.
+syn match sigilPunct "{\ze[^{}]*,[^{}]*}"
 syn region sigilArgs matchgroup=sigilPunct start="\[\ze\s*\%(\${\|\"\|-\=\d\|true\>\|false\>\|null\>\|]\)" end="]" transparent contains=TOP
 " `||` map merge — never an (empty) store glyph.
 syn match sigilOperator "||"
@@ -132,6 +139,7 @@ syn match sigilDeclStr +"\%([^"\\]\|\\.\)*"+ contained transparent contains=NONE
 hi def link sigilKeyword        Statement
 hi def link sigilGlyphDelim     Statement
 hi def link sigilTypeName       Type
+hi def link sigilTriggerName    Type
 hi def link sigilStateName      Type
 hi def link sigilModifier       StorageClass
 hi def link sigilOperator       Operator

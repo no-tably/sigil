@@ -191,14 +191,25 @@ contexts:
       scope: storage.modifier.sigil
 
   transition:
-    # State-block transition `-<trigger>->`.
-    - match: '(-)(<)([^<>\n]*)(>)(->)'
+    # State-block transition `-<trigger>->`; a trigger list `-<A, B>->` splits
+    # at its commas (each item its own name, the comma punctuation).
+    - match: '(-)(<)(?=[^<>\n]*>->)'
       captures:
         1: keyword.operator.sigil.arrow
         2: keyword.control.sigil.glyph
-        3: storage.type.sigil
-        4: keyword.control.sigil.glyph
-        5: keyword.operator.sigil.arrow
+      push: triggers
+
+  triggers:
+    # A transition's trigger list, up to its `>->`.
+    - match: '(>)(->)'
+      captures:
+        1: keyword.control.sigil.glyph
+        2: keyword.operator.sigil.arrow
+      pop: true
+    - match: ','
+      scope: punctuation.separator.sigil
+    - match: '[^,\s<>]+'
+      scope: storage.type.sigil
 
   arrows:
     # The closed arrow set — longest first so `<->` wins over `<`.
@@ -286,6 +297,11 @@ contexts:
         1: keyword.control.sigil.glyph
         2: storage.type.sigil
         3: keyword.control.sigil.glyph
+    # A set `{a, b}` (a comma before its close, as in `{Order}.status ∈
+    # {pending, active}`): a bare opener (punctuation, as a map's), its items
+    # lex as values — no data glyph.
+    - match: '\{(?=[^{}\n]*,[^{}\n]*\})'
+      scope: punctuation.separator.sigil
     # A data glyph's name starts at its brace: `{ … }` with a space is a
     # block's braces.
     - match: '(\{)(?=[^\s{}])([^{}\n]*?)(\})'

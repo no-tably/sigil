@@ -346,25 +346,35 @@
     "transition": {
       "patterns": [
         {
-          "comment": "State-block transition -<trigger>->.",
-          "match": "(-)(<)([^<>\\n]*)(>)(->)",
-          "captures": {
+          "comment": "State-block transition -<trigger>->; a trigger list -<A, B>-> splits at its commas (each item its own name, the comma punctuation).",
+          "begin": "(-)(<)(?=[^<>\\n]*>->)",
+          "beginCaptures": {
             "1": {
               "name": "keyword.operator.sigil.arrow"
             },
             "2": {
               "name": "keyword.control.sigil.glyph"
-            },
-            "3": {
-              "name": "storage.type.sigil"
-            },
-            "4": {
+            }
+          },
+          "end": "(>)(->)",
+          "endCaptures": {
+            "1": {
               "name": "keyword.control.sigil.glyph"
             },
-            "5": {
+            "2": {
               "name": "keyword.operator.sigil.arrow"
             }
-          }
+          },
+          "patterns": [
+            {
+              "name": "punctuation.separator.sigil",
+              "match": ","
+            },
+            {
+              "name": "storage.type.sigil",
+              "match": "[^,\\s<>]+"
+            }
+          ]
         }
       ]
     },
@@ -552,6 +562,11 @@
               "name": "keyword.control.sigil.glyph"
             }
           }
+        },
+        {
+          "comment": "A set {a, b} (a comma before its close, as in {Order}.status ∈ {pending, active}): a bare opener (punctuation, as a map's), its items lex as values — no data glyph.",
+          "name": "punctuation.separator.sigil",
+          "match": "\\{(?=[^{}\\n]*,[^{}\\n]*\\})"
         },
         {
           "match": "(\\{)(?=[^\\s{}])([^{}\\n]*?)(\\})",

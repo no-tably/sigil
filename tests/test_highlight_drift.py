@@ -22,7 +22,8 @@ grammar block, a mode line with trailing text and a mode line under a heading
 are not Sigil to compare — plus site/examples/*.sigil, design/sigil.sigil and
 tests/highlight_drift_extra.sigil (the lines the documents hold few of or none:
 a mode line with a trailing comment, a `#%` kind line, `#&` declarations with a
-body over several lines, one-line and many-line state blocks).
+body over several lines, one-line and many-line state blocks, trigger lists
+and sets `{a, b}` in held text).
 
     python3 tests/test_highlight_drift.py     prints each grammar's agreement and
                                               the exceptions it meets
@@ -147,7 +148,7 @@ PYGMENTS_CLASSES = (
 # comparisons, sigilMeta the hole `?`.
 VIM_CLASSES = {
     "sigilKeyword": "syntax.keyword", "sigilGlyphDelim": "syntax.keyword",
-    "sigilTypeName": "kinds", "sigilStateName": "kinds", "sigilGlyph": "kinds", "sigilBranchCond": "kinds",
+    "sigilTypeName": "kinds", "sigilTriggerName": "kinds", "sigilStateName": "kinds", "sigilGlyph": "kinds", "sigilBranchCond": "kinds",
     "sigilModifier": "syntax.modifier", "sigilOperator": "syntax.operator",
     "sigilBranch": "syntax.operator", "sigilCard": "syntax.cardinality",
     "sigilBranchWeight": "syntax.number", "sigilNumber": "syntax.number",
@@ -228,14 +229,6 @@ EXCEPTIONS = (
         "makes them keywords only there; a word-level grammar makes them keywords always.",
         lambda d: d.grammar == "syntax.keyword" and d.sigil == "syntax.tag"
         and d.within(r"\b(?:on|of)\b")),
-    Exception_(
-        "lists-in-brackets", "open",
-        "A comma list inside one bracket pair — a trigger list `-<Paid, Declined>->`, a set "
-        "`{superseded, retracted}` in an argument: a grammar's glyph name runs to the "
-        "closing bracket, commas included; sigil splits at the commas (a set is no glyph).",
-        lambda d: (d.ch == "," and d.grammar == "kinds" and d.sigil == "syntax.punct")
-        or (d.grammar in ("kinds", "syntax.keyword") and d.sigil in (None, "syntax.punct")
-            and d.within(r"\{[^{}\n]*,[^{}\n]*\}"))),
 )
 
 

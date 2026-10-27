@@ -60,6 +60,8 @@ can bring its own theme.
 - A block's `{ }` and a map or list literal's brackets are punctuation, `{ … }`
   with a space is no data glyph, `.field` after a glyph is one name, and a section
   level's `:` belongs to the level.
+- A trigger list `-<Paid, Declined>->` and a set `{pending, active}` split at their
+  commas (each name its own, the comma punctuation; a set is no data glyph).
 
 ### For hosts and dialect authors
 

@@ -14,3 +14,10 @@ state [Worker] {
   Idle -<Task>-> Busy
   Busy -> Idle
 }
+state {Ticket} {
+  + -<open>-> Open
+  Open -<close,expire, drop>-> Closed   # a trigger list, one comma unspaced
+  Closed -<close, expire>-> Closed
+}
+[Desk] @inv routes({Ticket}.state ∈ {Open, Closed})
+[Desk] -> [Store] : {open, closed}
