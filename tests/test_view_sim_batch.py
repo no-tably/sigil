@@ -58,6 +58,22 @@ class TestFacts(unittest.TestCase):
         self.assertNotIn("episodes", by["happy"])
         self.assertNotIn("episodes", by["Builder.claim:fallback"])
 
+    def test_a_state_start_lists_its_replay_apart_from_what_it_ignores(self):
+        # {Ticket} begun in Done: <Opened> on its way there is replayed (as SGC203
+        # counts it), <Nudge> is ignored; only a state start has the fact.
+        text = ("#!spec\n(User) -> [Desk] : open({Ticket})\n[Desk] ~> <Opened>\n"
+                "[Desk] ~> <Nudge>\nstate {Ticket} {\n  +    -<Opened>-> Open\n"
+                "  Open -<Nudge>->  Open\n  Open -<Closed>-> Done\n"
+                "  Done -<Reopen>-> Open\n}\n")
+        by = {f["name"]: f for f in map(view.sim_facts, view.run_all(parse_document(text)))}
+        done = by["Ticket=Done"]
+        self.assertEqual((done["ignored"], done["replayed"]),
+                         (["<Nudge> in {Ticket} Done"], ["<Opened> in {Ticket} Done"]))
+        self.assertNotIn("replayed", by["happy"])
+        rows = view.sim_table([done])
+        self.assertIn("  replayed: <Opened> in {Ticket} Done", rows)
+        self.assertIn("  ignored: <Nudge> in {Ticket} Done", rows)
+
     def test_a_failing_call_names_its_wire_and_its_fallback(self):
         by = {f["name"]: f for f in facts(EXECUTIONS)}
         self.assertEqual(by["Crawler.fetch:fallback"]["failed"],
@@ -74,7 +90,8 @@ class TestFacts(unittest.TestCase):
         for path in DOCS:
             for f in facts(path):
                 for k in view.SIM_FACTS:
-                    self.assertEqual(len(f[k]), len(set(f[k])), (path.name, f["name"], k))
+                    got = f.get(k, [])
+                    self.assertEqual(len(got), len(set(got)), (path.name, f["name"], k))
 
     def test_runs_are_deterministic(self):
         self.assertEqual(facts(EXECUTIONS), facts(EXECUTIONS))

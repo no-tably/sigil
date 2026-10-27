@@ -1097,6 +1097,9 @@ def _event_sentence(wd: _Words, ev: dict, scn) -> Optional[str]:
             return (f"{owner} ignores {ev['label']} after its end, on purpose" if dst == "$"
                     else f"{owner} begins again in {dst} on {ev['label']}: a new record")
         return f"{owner} moves {src} → {dst} on {ev['label']}"
+    if kind == "ignored" and ev.get("replayed"):
+        return (f"{wd.name(ev['owner'])} meets {ev['label']} again in "
+                f"{wd.state(ev['state'])}: the replay of its way there")
     if kind == "ignored":
         return (f"{wd.name(ev['owner'])} ignores {ev['label']} in "
                 f"{wd.state(ev['state'])}: no transition leaves it")

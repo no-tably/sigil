@@ -215,7 +215,9 @@ Trace(scenario, frames, outcome, end, scene)
                           A hop still in flight when the run ends has none
               spawn       node, inst (the new key), parent (its parent instance's
                           key), wire
-              ignored     event, label, owner, state
+              ignored     event, label, owner, state; replayed True when a
+                          state start replays it (replayed(): an event on the
+                          machine's way to its start state, not a new arrival)
               iterate     owner (the unit's owner node; None: the document),
                           block (index into its graph's blocks), k (from 1), of
                           (the iterations it runs), act (the one running it;
@@ -297,7 +299,7 @@ from sigil.model.sim.program import (  # noqa: F401  (the package's API)
     PER_SIZE, Decide, Floor, Frame, Group, Instance, Limits, Machine, Program, Region, Scenario,
     Step,
     Token, Trace, TriggerRef, attempts, canonical, carried, doc_size, duration, instances,
-    limits_from, loop_count, mod, program, resilient, returned, route_guard, scaled,
+    limits_from, loop_count, mod, program, replayed, resilient, returned, route_guard, scaled,
     selected_routes, sized,
     _flat, _program_of)        # read by the flow rules and the run view through the package
 from sigil.model.sim.engine import CONVENTIONS, simulate  # noqa: F401

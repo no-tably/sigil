@@ -35,7 +35,9 @@ Options:
                  spawn, activations, …); repeatable
     --json       one JSON object: mode, k, limits (as the runs had them, the
                  defaults grown to the document; with budget), findings,
-                 acknowledged
+                 acknowledged; kind (a `#%` line); state_starts (in spec, when
+                 the document has any: the `Owner=State` runs made, by name, and
+                 how many the budget left unrun)
     --all        also print the findings the mode hides (sketch's info)
     --export     check export readiness too: the readiness rules (EXPORT_MODULES:
                  SGC401 no-home, SGC402 untyped-boundary) run with the others,
@@ -361,6 +363,8 @@ class Report:
     folded: list
     kind: str = ""                   # the `#%` line's words ("": no line)
     off: tuple = ()                  # the ids of the rules the kind turned off
+    state_runs: Optional[tuple] = None   # (names ran, number left unrun) of the state
+                                     # starts the exploration walked (None: it listed none)
 
     @property
     def shown(self) -> list:
@@ -376,6 +380,9 @@ class Report:
                "acknowledged": [f.to_dict() for f in self.acknowledged]}
         if self.kind:
             out["kind"] = {"words": self.kind, "off": list(self.off)}
+        if self.state_runs is not None:
+            ran, left = self.state_runs
+            out["state_starts"] = {"ran": list(ran), "left_out": left}
         return out
 
 
@@ -422,6 +429,8 @@ class Doc:
         self._limits = limits
         self._overlaps = overlaps    # None: the mode's (DEFAULT_OVERLAPS)
         self.off = {}                # rule id → the `#%` words that turned it off
+        self.state_runs = None       # (names ran, number left unrun): the state starts
+                                     # the trace rules' exploration walked, if it listed any
 
     def id_of(self, name: str) -> str:
         """The id of the rule named `name` ("" when no rule has it)."""
@@ -1123,7 +1132,7 @@ def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
         findings=[f for f in roots if not is_acknowledged(f)],
         acknowledged=[f for f in roots if is_acknowledged(f)],
         folded=[f for f in emitted if f.folded_into is not None],
-        kind=kind.text, off=off)
+        kind=kind.text, off=off, state_runs=doc.state_runs)
 
 
 # ---------------------------------------------------------------------------

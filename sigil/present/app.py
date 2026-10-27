@@ -964,7 +964,7 @@ def sim_run(player: SimPlayer, limits=None) -> dict:
 SIM_BATCH = ("list", "all")
 SIM_WIDTH = 100                                 # the table's columns
 SIM_NAME = 24                                   # the name column (a longer name pushes)
-SIM_FACTS = ("states", "failed", "routes", "ignored", "waiting", "open", "bounds")
+SIM_FACTS = ("states", "failed", "routes", "ignored", "replayed", "waiting", "open", "bounds")
 
 
 def run_all(graph, limits=None) -> list:
@@ -989,7 +989,9 @@ def sim_facts(trace, limits=None) -> dict:
     outcome and length, then each fact (SIM_FACTS, lists of text, written order,
     no repeats) — `states` each machine's end state, `failed` what failed (a node,
     or a call `A -> B`, `↩ fallback` / `critical`), `routes` the failure routes
-    taken, `ignored` events a machine's state had no transition for, `waiting`
+    taken, `ignored` events a machine's state had no transition for (`replayed`
+    instead, only in a state start, those on the machine's way to its start
+    state: sim.replayed, the rule SGC203 reads), `waiting`
     nodes still blocked at the end, `open` `&` joins left open, `bounds` every
     simulator bound hit (base case, visit limit, spawn cap, a loop capped or run
     at the cap with no `@times`, a cut). An overlap run (`Entry@t`) also lists
@@ -1012,7 +1014,7 @@ def sim_facts(trace, limits=None) -> dict:
         elif kind == "route":
             facts["routes"].append(wire(ev["wire"]))
         elif kind == "ignored":
-            facts["ignored"].append(f"{name(ev['event'])} in {name(ev['owner'])} "
+            facts["replayed" if ev.get("replayed") else "ignored"].append(f"{name(ev['event'])} in {name(ev['owner'])} "
                                     f"{_state_text(scn, ev['state'])}")
         elif kind == "limit":
             facts["bounds"].append(_bound_text(ev, name, scn))
@@ -1021,6 +1023,8 @@ def sim_facts(trace, limits=None) -> dict:
     facts["open"] = [f"{name(d['target'])} missing "
                      + ", ".join(name(m) for m in d["missing"]) for d in end["deposits"]]
     facts = {k: list(dict.fromkeys(v)) for k, v in facts.items()}
+    if not sc.machines:     # only a state start replays
+        del facts["replayed"]
     out = {"name": sc.name, "label": sc.label, "outcome": trace.outcome,
            "frames": trace.frames[-1].tick + 1, **facts}
     if sc.starts:   # an overlap run: when each episode began
@@ -1095,7 +1099,7 @@ def sim_table(facts: list, width: int = SIM_WIDTH) -> list[str]:
     for f in facts:
         head = f"{kit.ljust_cells(f['name'], SIM_NAME)} {f['outcome']:<6} {f['frames']:>4} frames  "
         out += _fit(head, f["label"], width)
-        out += [ln for k in SIM_FACTS if f[k] for ln in _fact_lines(k, f[k], width)]
+        out += [ln for k in SIM_FACTS if f.get(k) for ln in _fact_lines(k, f[k], width)]
     return out + [sim_summary(facts)]
 
 

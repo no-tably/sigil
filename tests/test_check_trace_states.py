@@ -126,14 +126,42 @@ class StateStartRuns(unittest.TestCase):
         d = make_doc(TICKET)
         ex = ct.explore(sim, d.sc, 1, ct.BUDGET, d.limits, "off", states=True)
         done = next(r for r in ex.runs if r.scenario.name == "Ticket=Done")
-        dropped = [e["label"] for e in done.events if e["kind"] == "ignored"]
-        self.assertEqual(sorted(dropped), ["<Nudge>", "<Opened>"])     # both dropped in Done
-        (m,) = ct.trace_facts(ck, d).machines.values()
-        self.assertEqual(ct.replayed(m, done), frozenset({"<Opened>", "<Closed>", "<Reopen>"}))
-        self.assertEqual(ct.replayed(m, ex.runs[0]), frozenset())      # happy: none
+        dropped = {e["label"]: e.get("replayed", False) for e in done.events
+                   if e["kind"] == "ignored"}
+        self.assertEqual(dropped, {"<Nudge>": False, "<Opened>": True})  # both dropped in Done
+        (m,) = sim._program_of(d.sc.graph).machines.values()
+        done_id = dict(done.scenario.machines)[m.owner]
+        self.assertEqual(sim.replayed(m, done_id), frozenset({"<Opened>", "<Closed>", "<Reopen>"}))
+        self.assertEqual(sim.replayed(m, None), frozenset())           # happy: none
+        self.assertFalse(any(e.get("replayed") for e in ex.runs[0].events))
         self.assertEqual([f.hit.statement.split(" reaches")[0]
                           for f in of(ck.check(TICKET, registry=REGISTRY), "SGC203")],
                          ["`<Nudge>`"])
+
+    def test_the_run_says_the_replay_as_the_check_counts_it(self):
+        d = make_doc(TICKET)
+        tr = sim.simulate(d.sc, sim.scenario(d.sc, "Ticket=Done"))
+        log = [ln for f in tr.frames for ln in f.log]
+        self.assertTrue(any("replayed: <Opened> — {Ticket} in Done" in ln for ln in log), log)
+        self.assertTrue(any("ignored: <Nudge> — {Ticket} in Done" in ln for ln in log), log)
+        said = " ".join(b.text for b in sim.narrate(tr))
+        self.assertIn("{Ticket} meets <Opened> again in Done: the replay of its way there", said)
+        self.assertIn("{Ticket} ignores <Nudge> in Done: no transition leaves it", said)
+        self.assertNotIn("ignores <Opened>", said)
+
+    def test_json_lists_the_state_starts_it_ran(self):
+        keys = ["mode", "k", "limits", "findings", "acknowledged"]
+        out = ck.check(TICKET, registry=REGISTRY).to_dict()
+        self.assertEqual(list(out), keys + ["state_starts"])        # the others unchanged
+        self.assertEqual(out["state_starts"], {"ran": ["Ticket=Open", "Ticket=Done"],
+                                               "left_out": 0})
+        cut = ck.check(TICKET, budget=1, registry=REGISTRY).to_dict()
+        self.assertEqual(cut["state_starts"], {"ran": ["Ticket=Open"], "left_out": 1})
+        for mode in ("sketch", "craft"):                             # not walked: not listed
+            self.assertEqual(list(ck.check(TICKET, mode=mode, registry=REGISTRY).to_dict()),
+                             keys)
+        plain = "#!spec\n(User) -> [Desk] : open({Ticket})\n"       # no machine: not listed
+        self.assertEqual(list(ck.check(plain, registry=REGISTRY).to_dict()), keys)
 
     def test_off_by_default_in_explore(self):
         d = make_doc(TICKET)

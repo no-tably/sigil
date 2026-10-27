@@ -136,7 +136,8 @@ class Explored(NamedTuple):
     ran under: `limits` as the runs had them (sim.sized: the defaults grown to the
     document), `work` the frames the overlap runs made and `work_cut` whether
     the work cap stopped them (what is left unrun then counts in
-    overlaps_left_out)."""
+    overlaps_left_out); `state_starts` the names of the state starts it ran (a
+    repeat of an earlier run is run, but not kept in `runs`)."""
     runs: tuple
     left_out: int
     k: int
@@ -146,6 +147,7 @@ class Explored(NamedTuple):
     work: int = 0
     work_cut: bool = False
     states_left_out: int = 0
+    state_starts: tuple = ()
 
 
 def explore(sim, sc, k: int, budget: int, limits, overlaps="all",
@@ -174,7 +176,8 @@ def explore(sim, sc, k: int, budget: int, limits, overlaps="all",
     ran = run_new(simulate, starts, room if isinstance(overlaps, str) else min(room, overlaps),
                   seen, work_cap(budget))
     return Explored(runs + st.runs + ran.runs, ex.left_out, k, budget, sim.sized(limits, sc),
-                    ran.left, ran.work, ran.work_cut, st.left)
+                    ran.left, ran.work, ran.work_cut, st.left,
+                    tuple(s.name for s in machines[:len(machines) - st.left]))
 
 
 # ---------------------------------------------------------------------------
@@ -362,6 +365,7 @@ class Delivery(NamedTuple):
     state: str
     accepted: bool
     at_send: bool            # a drop judged at send time, against the heading state
+    replayed: bool = False   # a drop the run marks as a state start's replay (sim.replayed)
 
 
 def sender_of(task: int, event: str, forks: dict, at: int) -> tuple:
@@ -395,7 +399,7 @@ def deliveries(events: list, clocks: list) -> list:
             accepted = kind == "transition"
             out.append(Delivery(ev["owner"], ev["label"], clock, sender, at, i,
                                 ev["src"] if accepted else ev["state"], accepted,
-                                at_send and not accepted))
+                                at_send and not accepted, bool(ev.get("replayed"))))
     return out
 
 
@@ -573,9 +577,14 @@ class TraceFacts:
 
     @cached_property
     def explored(self) -> Explored:
-        return explore(self.doc.sim, self.doc.sc, self.doc.k, self.budget, self.limits,
-                       getattr(self.doc, "overlaps", "all"),
-                       getattr(self.doc, "state_starts", False))
+        """The exploration; the state starts it ran and left unrun are told to the
+        document (doc.state_runs, which --json reports) when it lists any."""
+        ex = explore(self.doc.sim, self.doc.sc, self.doc.k, self.budget, self.limits,
+                     getattr(self.doc, "overlaps", "all"),
+                     getattr(self.doc, "state_starts", False))
+        if ex.state_starts or ex.states_left_out:
+            self.doc.state_runs = (ex.state_starts, ex.states_left_out)
+        return ex
 
     @property
     def runs(self) -> tuple:
@@ -686,33 +695,16 @@ def ignored_hit(ck, st, m, run: Run, d: Delivery):
              f"self-loop `{s} -{d.label}-> {s}` to ignore it on purpose"))
 
 
-def replayed(m, run: Run) -> frozenset:
-    """The events a state start (`Owner=State`: run.scenario.machines) replays
-    for machine m: the triggers of the transitions on a way from where m begins
-    (`+`, or its first states) to the state the run begins it in. The run plays
-    the episode that brought the machine there again, so such an event meeting
-    it in that state or later is that replay, not a new arrival; none for a run
-    that begins m where it begins anyway."""
-    begun = dict(run.scenario.machines).get(m.owner)
-    if begun is None:
-        return frozenset()
-    into = state_rules.bfs([begun], lambda s: [t.src for t in m.transitions if t.dst == s])
-    seeds = list(m.start) + (m.seeds() or list(m.states))
-    out_of = state_rules.bfs(seeds, lambda s: [t.dst for t in m.outgoing(s)])
-    return frozenset(t.label for t in m.transitions if t.dst in into and t.dst != t.src
-                     and (t.src in out_of or t.src in m.any))
-
-
 def events_ignored(ck, doc):
     """SGC203: a drop no reordering explains, outside `+`; one per (machine,
     event, state), with its first witness. In a state start, a drop of an event
-    on the machine's way to its start state is the replay (replayed), not one."""
+    on the machine's way to its start state is the replay (the run marks it by
+    sim.replayed, the one replay rule, as its narration says it), not one."""
     tf = trace_facts(ck, doc)
     st, seen = state_rules, set()
     for m, run, ds, pairs in per_machine(tf):
-        again = replayed(m, run)
         for d in drops(m, ds, pairs).always:
-            if d.label in again:
+            if d.replayed:
                 continue
             key = (m.owner, d.label, d.state)
             if key not in seen:

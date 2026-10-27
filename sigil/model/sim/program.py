@@ -216,6 +216,45 @@ class Machine(NamedTuple):
     transitions: tuple         # (src state, dst state, label, transition wire ident)
     states: tuple = ()         # the state node ids its block names (no `+`, `$`, `_`),
                                # in written order
+    start: frozenset = frozenset()   # its `+` ids
+    any: frozenset = frozenset()     # its `_` ids
+    end: frozenset = frozenset()     # its `$` ids
+
+
+def replayed(m: Machine, begun: Optional[str]) -> frozenset:
+    """The replay rule: the events a state start (`Owner=State`, Scenario.machines)
+    replays for machine m begun in `begun` — the triggers of the transitions on a
+    way from where m begins (`+`, or its first states) to `begun`. The run plays
+    the episode that brought the machine there again, so such an event meeting it
+    in that state or later is that replay, not a new arrival (the run marks its
+    drop `replayed`; SGC203 counts no such drop). None for begun None (m begins
+    where it begins anyway). A way out of a state is its own transitions then the
+    `_` ones; out of `$` its own then the `+` ones."""
+    if begun is None:
+        return frozenset()
+    trans = [(src, dst, label) for src, dst, label, _w in m.transitions]
+
+    def reach(seeds, step) -> set:
+        seen, queue = dict.fromkeys(seeds), list(seeds)
+        while queue:
+            x = queue.pop(0)
+            for y in step(x):
+                if y not in seen:
+                    seen[y] = None
+                    queue.append(y)
+        return set(seen)
+
+    def leaving(s):
+        after = m.start if s in m.end else m.any
+        return [d for src, d, _l in trans if src == s] + [d for src, d, _l in trans if src in after]
+
+    entered = {d for _s, d, _l in trans}
+    firsts = ([d for src, d, _l in trans if src in m.start] if m.start
+              else [s for s in m.states if s not in entered])
+    into = reach([begun], lambda s: [src for src, d, _l in trans if d == s])
+    out_of = reach(list(m.start) + (firsts or list(m.states)), leaving)
+    return frozenset(label or "" for src, dst, label in trans if dst in into and dst != src
+                     and (src in out_of or src in m.any))
 
 
 class TriggerRef(NamedTuple):
@@ -677,7 +716,9 @@ def _machines(sc, units: list) -> dict:
         initial = start or first
         if initial is not None:
             states = tuple(nid for nid, n in g.nodes.items() if not n.attrs.get("pseudo"))
-            out[u.owner] = Machine(u.owner, initial, trans, states)
+            kinds = {k: frozenset(nid for nid, n in g.nodes.items() if n.attrs.get("pseudo") == k)
+                     for k in ("start", "any", "end")}
+            out[u.owner] = Machine(u.owner, initial, trans, states, **kinds)
     return out
 
 

@@ -17,7 +17,7 @@ from sigil.model.sim.program import (
     Decide, Frame, Group, Instance, Limits, Program, Region, Scenario, Step, Token, Trace, TriggerRef,
     _alias_of, _beneath, _declared_times, _detached, _flat, _gate_of, _guards, _home,
     _one_of_groups, _owned_stores, _program_of, _pseudo, _running, _select, _summed, _tally,
-    attempts, carried, instances, loop_count, mod, resilient, returned,
+    attempts, carried, instances, loop_count, mod, replayed, resilient, returned,
     scaled, selected_routes)
 
 
@@ -118,6 +118,8 @@ class _Run:
         self.status: dict = {}
         self.taken, self.failed_w, self.routes = set(), set(), []
         self.machines = _initial_states(prog, sc.machines)
+        self.replays = {o: replayed(prog.machines[o], st)     # the replay rule, per state start
+                        for o, st in dict(sc.machines).items()}
         self.bound: dict = {}          # owner → [state, …]: in-flight triggers' targets, FIFO
         self.changed, self.lit_now, self.ghosts = set(), set(), []
         self.insts = list(instances(prog, limits))     # every instance, spawned ones after
@@ -1181,6 +1183,14 @@ class _Run:
                             if _pseudo(self.prog, r.trigger.src) == fallback]
 
     def _ignored(self, task: _Task, event: str, label: str, owner: str, state) -> None:
+        """No transition takes the event. In a state start an event on the machine's
+        way to its start state is the replay of how it got there (program.replayed):
+        the event says `replayed`, the log `replayed:` — not a new arrival dropped."""
+        if label in self.replays.get(owner, ()):
+            self._event("ignored", task, event=event, label=label, owner=owner, state=state,
+                        replayed=True)
+            self._log(f"replayed: {label} — {self._name(owner)} in {self._state_name(state)}")
+            return
         self._event("ignored", task, event=event, label=label, owner=owner, state=state)
         self._log(f"ignored: {label} — {self._name(owner)} in {self._state_name(state)}")
 

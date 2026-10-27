@@ -269,3 +269,26 @@ lint-deep/language.md/block-39.sigil
 mermaid-d1/language.md/block-39.sigil
 mermaid-d2/language.md/block-39.sigil
 mermaid-subgraphs/language.md/block-39.sigil
+
+# patch-0.6.8 (vs .claude/campaigns/patch-0.6.7/baseline):
+# K2: `check --json` of a spec with state starts gains a last key `state_starts` ({"ran": the
+# `Owner=State` runs made, by name; "left_out": how many the budget left unrun}); every other key
+# and every text output unchanged
+check-json/examples.md/block-13.sigil
+check-json/site/examples/07-export.sigil
+check-json/tests/fixtures/checks/trace-203-after-end.sigil
+check-json/tests/fixtures/checks/trace-203-after-end-declared.sigil
+check-json/tests/fixtures/checks/trace-203-inflight-async.sigil
+check-json/tests/fixtures/checks/trace-203-inflight-sync.sigil
+check-json/tests/fixtures/checks/trace-205-booking.sigil
+check-json/tests/fixtures/checks/trace-205-declared.sigil
+check-json/tests/fixtures/checks/trace-205-fifo.sigil
+check-json/tests/fixtures/checks/trace-205-flagged.sigil
+check-json/tests/fixtures/export-edit.sigil
+check-json/tests/fixtures/lint/SGL161-ok.sigil
+# K2: `--sim all --json` of a state start splits `replayed` from `ignored` (the events on the
+# machine's way to its start state, by the replay rule SGC203 reads): 04-orders' Checkout=Busy and
+# Order=Open runs move their drops to `replayed`; 07-export's two state starts gain `replayed: []`.
+# Runs that are no state start have no `replayed` key (already allowed above, listed for the record)
+sim-json/site/examples/04-orders.sigil
+sim-json/site/examples/07-export.sigil
