@@ -2,7 +2,7 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
-## 0.6.6 — unreleased
+## 0.6.6 — 2026-10-27
 
 Sigil colours its own source: a document read the way every other command reads it,
 printed in the theme's colours, handed to a host as runs, or served to a live
