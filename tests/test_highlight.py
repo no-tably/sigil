@@ -179,6 +179,17 @@ class TestEdit(unittest.TestCase):
         self.assertEqual(stop, 4)
         self.assertTrue(all(ln.start.quote for ln in got[2:]))
 
+    def test_edit_of_a_part_starts_in_its_carry(self):
+        # --stream highlights the lines a client sends from the carry the first
+        # one starts in: edit() over a new text with that carry
+        text = '#!spec\n[A] -> [B] : """\nstill a string\n"""\n[C] -> [D]\n'
+        whole = hl.lines(text)
+        part = text.splitlines()[2:]
+        got, stop = hl.edit([], part, 0, len(part), carry=whole[2].start)
+        self.assertEqual(stop, len(part))
+        self.assertEqual(got, whole[2:])
+        self.assertEqual(hl.edit([], part, 0, len(part))[0][0].start, hl.PLAIN)
+
 
 _SYMBOLS = list('[]{}<>()|~*@:="#&!?^×\\-$.,/ ') + ['"""', "->", "~>", "=>", "!>", "#&", "#%",
                                                    "#!", "state {", "\\-&", "op ", "${"]

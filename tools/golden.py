@@ -283,8 +283,8 @@ def highlight_input(inp: Input) -> dict[str, str]:
     if inp.name not in HIGHLIGHT_INPUTS:
         return {}
     theme = themes.load(THEME)
-    doc = cli.highlight_json(inp.text, theme, cli.theme_name(theme, THEME),
-                             highlight.lexicon(None))
+    doc = highlight.highlight_json(inp.text, theme, highlight.theme_name(theme, THEME),
+                                     highlight.lexicon(None))
     return {f"{inp.name}/{HIGHLIGHT}": json.dumps(doc, ensure_ascii=False) + "\n"}
 
 

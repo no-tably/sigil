@@ -754,224 +754,15 @@ def _themes(argv: list, dialect) -> int:
 # sigil highlight — the source as coloured runs (ANSI, --json, or --stream)
 # ---------------------------------------------------------------------------
 
-HIGHLIGHT_VERSION = 1       # "sigil_highlight" in --json: the shape below
-
-HIGHLIGHT_PROTOCOL = """\
---json prints one object:
-  {"sigil_highlight": 1, "theme": NAME,
-   "lines": [[[TEXT, ROLE|null, "#rrggbb"|null], ...], ...],
-   "carry": [CARRY, ...]}
-one list of runs per line (its texts joined give the line back) and the carry
-each line ends in (the one the next line starts in). ROLE is a theme path
-(syntax.operator, kinds.service, ui.mode ...); the colour is that role's in
-the theme, null for plain text.
-
-CARRY is [quote, decl, decl_raw, state], four integers: quote 1 inside a
-\"\"\"...\"\"\" block string; decl the brace depth inside a `#&` declaration's
-body (0: none); decl_raw 1 when that body's braces count on the raw line;
-state the brace depth inside a `state` block. A text starts in [0, 0, 1, 0].
-
---stream reads JSON-lines requests on stdin and answers each with one JSON
-line on stdout (flushed), until stdin ends (exit 0):
-  {"id": ANY, "lines": [STR, ...], "start": N, "carry": CARRY|null}
-    -> {"id": ANY, "start": N, "lines": [[RUN, ...], ...], "carry": [CARRY, ...]}
-  {"id": ANY, "theme": NAME|PATH}   -> {"id": ANY, "theme": NAME}
-  {"id": ANY, "dialect": NAME|PATH|null}
-    -> {"id": ANY, "dialect": NAME|null[, "theme": NAME]}
-  anything malformed                -> {"id": ANY|null, "error": "..."}
-A request may hold dialect, theme and lines together: the dialect switches
-first, then the theme, then the lines are highlighted with both; the answer
-holds a key for each part. A request that fails in any part answers only
-{"id", "error"} and changes nothing (a dialect that fails to load keeps the old
-one). A dialect is loaded as --dialect loads it (null: core Sigil, no dialect,
-whatever $SIGIL_DIALECT says) and answered by its NAME. Themes: --theme or a
-{"theme"} request is explicit and holds for the rest of the session; until one
-is given the theme is $SIGIL_THEME if set, else the dialect's THEME, else
-sigil, so (without $SIGIL_THEME) a dialect switch also switches the theme, and
-its answer names the theme now in use ("theme"). After an explicit theme a
-dialect switch leaves the theme alone.
-`start` is the index of lines[0] (echoed; default 0), `carry` the carry lines[0]
-starts in (null: a text's start). A line's runs depend only on the line and
-the carry it starts in, so an editor highlights incrementally: after an edit it
-sends the changed lines with the end carry of the line before them, and keeps
-sending the lines that follow until a returned end carry equals the one it held
-for that line; from there on nothing changed. No file is read but the theme and
-a dialect asked for."""
-
-
-def carry_json(carry) -> list:
-    """A highlight Carry as its stable JSON form [quote, decl, decl_raw, state]."""
-    return [int(carry.quote), carry.decl, int(carry.decl_raw), carry.state]
-
-
-def carry_from_json(value):
-    """The Carry a JSON value names (None: a text's start). Raises ValueError."""
-    from sigil.present import highlight as hl
-    if value is None:
-        return hl.PLAIN
-    if not (isinstance(value, list) and len(value) == 4
-            and all(type(v) is int and v >= 0 for v in value)
-            and value[0] in (0, 1) and value[2] in (0, 1)):
-        raise ValueError("carry must be null or [quote 0|1, decl >= 0, decl_raw 0|1, "
-                         "state >= 0]")
-    return hl.Carry(bool(value[0]), value[1], bool(value[2]), value[3])
-
-
-def runs_json(runs, theme: dict, lx) -> list:
-    """A line's runs as [text, role, colour] triples."""
-    from sigil.present import highlight as hl
-    return [[text, role, hl.colour(role, theme, lx)] for text, role in runs]
-
-
-def ansi_line(runs, theme: dict, lx) -> str:
-    """A line's runs with a truecolour SGR around each coloured one."""
-    from sigil.present import highlight as hl
-    out = []
-    for text, role in runs:
-        hexa = hl.colour(role, theme, lx)
-        if hexa is None or not text:
-            out.append(text)
-        else:
-            r, g, b = (int(hexa[k:k + 2], 16) for k in (1, 3, 5))
-            out.append(f"\x1b[38;2;{r};{g};{b}m{text}\x1b[0m")
-    return "".join(out)
-
-
-def theme_name(theme: dict, spec) -> str:
-    """The name a loaded theme goes by (its `name`, else what was asked for)."""
-    name = theme.get("name") if isinstance(theme, dict) else None
-    return name if isinstance(name, str) and name else str(spec or "sigil")
-
-
 def no_colour() -> bool:
     """NO_COLOR set and not empty (no-color.org): print plain text."""
     return bool(os.environ.get("NO_COLOR"))
 
 
-def highlight_text(text: str, theme: dict, lx, colour: bool = True) -> str:
-    """`text` with its lines highlighted in ANSI, every line ending kept as it is
-    (the lines split as str.splitlines splits them, as highlight.lines does)."""
-    from sigil.present import highlight as hl
-    out, carry = [], hl.PLAIN
-    for whole in text.splitlines(keepends=True):
-        body = (whole.splitlines() or [""])[0]
-        runs, carry = hl.line(body, carry, lx)
-        out.append((ansi_line(runs, theme, lx) if colour else body) + whole[len(body):])
-    return "".join(out)
-
-
-def highlight_json(text: str, theme: dict, name: str, lx) -> dict:
-    """The --json object of a text (HIGHLIGHT_PROTOCOL)."""
-    from sigil.present import highlight as hl
-    rows, ends, carry = [], [], hl.PLAIN
-    for raw in text.splitlines():
-        runs, carry = hl.line(raw, carry, lx)
-        rows.append(runs_json(runs, theme, lx))
-        ends.append(carry_json(carry))
-    return {"sigil_highlight": HIGHLIGHT_VERSION, "theme": name, "lines": rows,
-            "carry": ends}
-
-
-def _one_line(value) -> bool:
-    return isinstance(value, str) and value.splitlines() in ([], [value])
-
-
-class StreamSession:
-    """One --stream process's state: the theme it colours with (and whether it
-    was asked for explicitly: --theme or a {"theme"} request), the dialect and
-    its lexicon. answer() turns one request line into one response object; a
-    request that fails changes none of it."""
-
-    def __init__(self, theme: dict, name: str, lx, dialect=None, explicit: bool = False):
-        self.theme, self.name, self.lx = theme, name, lx
-        self.dialect, self.explicit = dialect, explicit
-
-    def answer(self, raw: str) -> dict:
-        try:
-            req = json.loads(raw)
-        except ValueError as exc:
-            return {"id": None, "error": f"not JSON: {exc}"}
-        if not isinstance(req, dict):
-            return {"id": None, "error": "a request is a JSON object"}
-        rid = req.get("id")
-        try:
-            return {"id": rid, **self._serve(req)}
-        except ValueError as exc:
-            return {"id": rid, "error": str(exc)}
-
-    def _serve(self, req: dict) -> dict:
-        from sigil.present import highlight as hl, themes
-        if not {"dialect", "theme", "lines"} & req.keys():
-            raise ValueError("a request holds lines, a theme or a dialect")
-        out: dict = {}
-        dialect, lx, explicit = self.dialect, self.lx, self.explicit
-        theme, name = self.theme, self.name
-        if "dialect" in req:                   # first: the theme may follow the dialect
-            dialect = _stream_dialect(req["dialect"])
-            lx = hl.lexicon(dialect)
-            out["dialect"] = getattr(dialect, "NAME", None) if dialect is not None else None
-            if not explicit and "theme" not in req:
-                theme = themes.load(None, dialect)     # ThemeError is a ValueError
-                name = theme_name(theme, themes.chosen(None, dialect)[0])
-                out["theme"] = name
-        if "theme" in req:
-            spec = req["theme"]
-            if not isinstance(spec, str) or not spec:
-                raise ValueError("theme must be a theme name or path")
-            theme = themes.load(spec)
-            name, explicit = theme_name(theme, spec), True
-            out["theme"] = name
-        if "lines" in req:
-            out.update(_stream_lines(req, theme, lx))
-        self.dialect, self.lx, self.explicit = dialect, lx, explicit
-        self.theme, self.name = theme, name
-        return out
-
-
-def _stream_dialect(spec):
-    """The dialect a {"dialect"} request names (null: none). Raises ValueError
-    for one that is not a name or path, or cannot be loaded."""
-    if spec is not None and (not isinstance(spec, str) or not spec.strip()):
-        raise ValueError("dialect must be a dialect name or path, or null")
-    try:
-        return load_dialect(spec or "")        # "": core, not $SIGIL_DIALECT
-    except ValueError:
-        raise
-    except Exception as exc:                   # its module failed while it loaded
-        raise ValueError(f"sigil dialect {spec!r} failed to load: "
-                         f"{type(exc).__name__}: {exc}") from None
-
-
-def _stream_lines(req: dict, theme: dict, lx) -> dict:
-    """The answer to a request's lines (HIGHLIGHT_PROTOCOL). Raises ValueError."""
-    from sigil.present import highlight as hl
-    lines, start = req["lines"], req.get("start", 0)
-    if not (isinstance(lines, list) and all(_one_line(s) for s in lines)):
-        raise ValueError("lines must be a list of strings, each without a line break")
-    if type(start) is not int or start < 0:
-        raise ValueError("start must be a line index >= 0")
-    carry = carry_from_json(req.get("carry"))
-    rows, ends = [], []
-    for raw in lines:
-        runs, carry = hl.line(raw, carry, lx)
-        rows.append(runs_json(runs, theme, lx))
-        ends.append(carry_json(carry))
-    return {"start": start, "lines": rows, "carry": ends}
-
-
-def stream(session: StreamSession, inp, out) -> int:
-    """The --stream loop: a response per non-blank request line, flushed, until EOF."""
-    while True:
-        raw = inp.readline()
-        if not raw:
-            return 0
-        if not raw.strip():
-            continue
-        out.write(json.dumps(session.answer(raw)) + "\n")
-        out.flush()
-
-
 def _highlight(argv: list, dialect) -> int:
+    """`sigil highlight`: argv, stdin/stdout and the exit codes; the theme, the
+    output and the --stream session are sigil.present.highlight's."""
+    from sigil.present import highlight as hl
     ap = argparse.ArgumentParser(
         prog=SAID["highlight"],
         usage="sigil highlight FILE|- [--theme NAME|PATH] [--dialect D] [--json]\n"
@@ -980,7 +771,7 @@ def _highlight(argv: list, dialect) -> int:
         description="Print a Sigil document's source in its theme's colours (ANSI "
                     "truecolour; plain\nwhen NO_COLOR is set), or as runs for a host "
                     "(--json) or a live editor (--stream).",
-        epilog=HIGHLIGHT_PROTOCOL)
+        epilog=hl.HIGHLIGHT_PROTOCOL)
     ap.add_argument("file", nargs="?", help="a .sigil file, or - for stdin")
     ap.add_argument("--theme", default=None,
                     help="colour theme: a name in themes/ or a .yaml path (default: "
@@ -995,11 +786,9 @@ def _highlight(argv: list, dialect) -> int:
         ap.error("--stream reads requests on stdin: no FILE, no --json")
     if not a.stream and a.file is None:
         ap.error("a file is required (or --stream)")
-    from sigil.present import highlight as hl, themes
     try:
         loaded = load_dialect(a.dialect)
-        theme = themes.load(a.theme, loaded)   # --theme, $SIGIL_THEME, the dialect's THEME, sigil
-        name = theme_name(theme, themes.chosen(a.theme, loaded)[0])
+        theme, name = hl.theme_for(a.theme, loaded)   # --theme, $SIGIL_THEME, the dialect's THEME, sigil
     except ValueError as exc:
         say("highlight", str(exc))
         return 2
@@ -1008,8 +797,7 @@ def _highlight(argv: list, dialect) -> int:
         for io in (sys.stdin, sys.stdout):
             if hasattr(io, "reconfigure"):
                 io.reconfigure(encoding="utf-8", errors="replace")
-        session = StreamSession(theme, name, lx, loaded, explicit=bool(a.theme))
-        return stream(session, sys.stdin, sys.stdout)
+        return hl.serve(sys.stdin, sys.stdout, theme, name, lx, loaded, explicit=bool(a.theme))
     try:
         text = read_text(a.file)
     except OSError as exc:
@@ -1020,11 +808,7 @@ def _highlight(argv: list, dialect) -> int:
         return 2
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
-    if a.json:
-        print(json.dumps(highlight_json(text, theme, name, lx), ensure_ascii=False))
-    else:
-        sys.stdout.write(highlight_text(text, theme, lx, colour=not no_colour()))
-        sys.stdout.flush()
+    hl.write_text(text, sys.stdout, theme, name, lx, as_json=a.json, colour=not no_colour())
     return 0
 
 

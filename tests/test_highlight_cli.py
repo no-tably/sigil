@@ -7,7 +7,9 @@ under NO_COLOR; stdin `-`; the --json shape (runs joined give each line, colours
 resolved from the theme, the carry serialised); --stream driven as one
 subprocess: several requests, an error that keeps the loop going, a theme
 switch, and an editor's incremental session whose lines equal a whole --json
-run after each edit.
+run after each edit. The theme, the output and the session are
+sigil.present.highlight's (design/sigil.sigil: [Highlight] -> [Themes]); the
+command keeps argv, stdin/stdout and the exit codes (HostEndTest).
 """
 from __future__ import annotations
 
@@ -158,15 +160,15 @@ class JsonTest(unittest.TestCase):
         self.assertIn(None, roles)
 
     def test_carry_matches_the_module(self):
-        ends = [cli.carry_json(line.end) for line in hl.lines(self.text)]
+        ends = [hl.carry_json(line.end) for line in hl.lines(self.text)]
         self.assertEqual(self.doc["carry"], ends)
         for end in ends:
-            self.assertEqual(cli.carry_json(cli.carry_from_json(end)), end)
-        self.assertEqual(cli.carry_json(hl.PLAIN), [0, 0, 1, 0])
-        self.assertEqual(cli.carry_from_json(None), hl.PLAIN)
+            self.assertEqual(hl.carry_json(hl.carry_from_json(end)), end)
+        self.assertEqual(hl.carry_json(hl.PLAIN), [0, 0, 1, 0])
+        self.assertEqual(hl.carry_from_json(None), hl.PLAIN)
         for bad in ([0, 0, 1], [2, 0, 1, 0], [0, -1, 1, 0], [0, 0, 1, True], "x", {}):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
-                cli.carry_from_json(bad)
+                hl.carry_from_json(bad)
 
 
 def whole(text: str) -> dict:
@@ -315,6 +317,40 @@ class StreamTest(unittest.TestCase):
                 self.assertEqual(ed.ends, doc["carry"])
         self.assertEqual(sent[0], 1)                     # a keystroke costs a line
         self.assertGreater(sent[1], 3)                   # an open string runs on
+
+
+class HostEndTest(unittest.TestCase):
+    """highlight's hosts' end, in-process: what the command calls."""
+
+    def test_the_command_holds_no_session(self):
+        for name in ("StreamSession", "stream", "carry_json", "runs_json", "ansi_line",
+                     "highlight_text", "highlight_json", "theme_name", "HIGHLIGHT_PROTOCOL"):
+            self.assertNotIn(name, vars(cli), name)
+
+    def test_serve_answers_each_request(self):
+        theme, name = hl.theme_for("sigil", None)
+        inp = io.StringIO('{"id": 1, "lines": ["[A] -> [B]"]}\n\n[1]\n'
+                          '{"id": 2, "theme": "sigil"}\n')
+        out = io.StringIO()
+        self.assertEqual(hl.serve(inp, out, theme, name, hl.CORE), 0)
+        got = [json.loads(s) for s in out.getvalue().splitlines()]
+        self.assertEqual([g["id"] for g in got], [1, None, 2])
+        self.assertEqual(got[0]["lines"], [hl.runs_json(hl.line("[A] -> [B]")[0], theme,
+                                                        hl.CORE)])
+        self.assertEqual(got[1]["error"], "a request is a JSON object")
+        self.assertEqual(got[2]["theme"], name)
+
+    def test_write_text_is_the_command_output(self):
+        text = CORPUS.read_text(encoding="utf-8")
+        theme, name = hl.theme_for("sigil", None)
+        for as_json, colour in ((False, True), (False, False), (True, True)):
+            out = io.StringIO()
+            hl.write_text(text, out, theme, name, hl.CORE, as_json=as_json, colour=colour)
+            argv = ["highlight", str(CORPUS), "--theme", "sigil"] + (["--json"] if as_json
+                                                                      else [])
+            env = {"NO_COLOR": "" if colour else "1"}
+            code, printed, _err = run(argv, env=env)
+            self.assertEqual((code, out.getvalue()), (0, printed))
 
 
 if __name__ == "__main__":

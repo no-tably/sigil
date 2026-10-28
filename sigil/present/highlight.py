@@ -1,19 +1,32 @@
 """
 sigil.present.highlight — sigil source as coloured runs: each line split into
 (text, role) runs, a role being a theme path ("syntax.operator", "kinds.service",
-"ui.mode" …) or None for plain text. Pure: no file is read, nothing is printed.
+"ui.mode" …) or None for plain text. The reading is pure: no file is read,
+nothing is printed; only the hosts' end (below) loads a theme or a dialect and
+writes to the stream it is handed.
 
     lexicon(dialect) → Lexicon         what a dialect adds to reading a line
     lines(text, dialect=None) → [Line] every line of a text, highlighted
     line(raw, carry, lx) → (runs, carry)
                                        one line, from the carry state it starts
                                        in to the one the next line starts in
-    edit(old, raws, start, end, lx) → ([Line], stop)
+    edit(old, raws, start, end, lx, carry) → ([Line], stop)
                                        after an edit, only the lines whose runs
                                        can have changed are highlighted again
     colour(role, theme, lx) → "#rrggbb" | None
                                        a role's colour in a resolved theme
                                        (sigil.present.themes.load())
+
+and, for `sigil highlight` (the hosts' end, at the bottom of this module):
+
+    theme_for(spec, dialect) → (theme, name)
+                                       the theme a command colours with
+    write_text(text, out, theme, name, lx, as_json, colour)
+                                       a file in ANSI, or as its --json object
+    serve(inp, out, theme, name, lx, dialect, explicit) → exit status
+                                       the --stream session (HIGHLIGHT_PROTOCOL):
+                                       JSON-lines requests in, answers out; a
+                                       {"dialect"} request loads it through Core
 
 One token model: the roles come from Core's own reading — each statement read by
 sigil.core.statements.read_statement (the walk's reading: branch marker, the
@@ -85,11 +98,13 @@ here is read on its own.
 
 from __future__ import annotations
 
+import json
 import re
 from functools import lru_cache
 from typing import NamedTuple, Optional
 
 from sigil.core.dialects import _hook
+from sigil.core.dialects import load as load_dialect
 from sigil.core.kinds import CHOICE_OF, KIND_MARK, is_kind_line
 from sigil.core.lex import (
     BLOCK_DELIM, DECLARATION_RE, GLYPH_BRACKETS, GLYPH_PREFIXES, MOD_NAME_RE,
@@ -98,6 +113,7 @@ from sigil.core.lex import (
 from sigil.core.statements import TRANSITION_RE, read_statement
 from sigil.core.tokens import NO_DIALECT, Code, code_line, lexicon as core_lexicon
 from sigil.core.tokens import Lexicon as CoreLexicon
+from sigil.present import themes
 
 
 # ---------------------------------------------------------------------------
@@ -180,16 +196,19 @@ def line(raw: str, carry: Carry = PLAIN, lx: Lexicon = CORE) -> tuple:
     return _runs(raw, roles), carry
 
 
-def edit(old: list, raws: list, start: int, end: int, lx: Lexicon = CORE) -> tuple:
+def edit(old: list, raws: list, start: int, end: int, lx: Lexicon = CORE,
+         carry: Carry = PLAIN) -> tuple:
     """Highlight a text again after an edit. `old`: the Lines before it; `raws`:
     every line after it; new lines [start, end) replace old lines [start, end +
     len(old) - len(raws)). Lines before `start` keep their runs; from `start` on
     each line is highlighted again until one past the edit starts in the carry
-    its old line started in — from there on nothing can differ. Returns (the new
+    its old line started in — from there on nothing can differ. `carry`: the
+    state the text's first line starts in (a text's start; a part of a longer
+    text, as --stream gets one, starts where that part does). Returns (the new
     Lines, the index past the last line highlighted again)."""
     shift = len(old) - len(raws)
     out = list(old[:start])
-    carry = out[-1].end if out else PLAIN
+    carry = out[-1].end if out else carry
     j = start
     while j < len(raws):
         k = j + shift
@@ -687,3 +706,243 @@ def _op(raw: str, start: int, end: int, roles: list) -> None:
         _paint(roles, end - 1, end, "syntax.call")
     else:
         _pieces(raw, m.end(), end, roles)
+
+
+# ---------------------------------------------------------------------------
+# Hosts: the theme, ANSI and --json output, the --stream session
+# ---------------------------------------------------------------------------
+# What `sigil highlight` serves (sigil.cli keeps its argv, opening stdin and
+# stdout, and the exit codes). The only part of this module that reads files (a
+# theme, a dialect asked for) or writes (to the stream it is handed).
+
+HIGHLIGHT_VERSION = 1       # "sigil_highlight" in --json: the shape below
+
+HIGHLIGHT_PROTOCOL = """\
+--json prints one object:
+  {"sigil_highlight": 1, "theme": NAME,
+   "lines": [[[TEXT, ROLE|null, "#rrggbb"|null], ...], ...],
+   "carry": [CARRY, ...]}
+one list of runs per line (its texts joined give the line back) and the carry
+each line ends in (the one the next line starts in). ROLE is a theme path
+(syntax.operator, kinds.service, ui.mode ...); the colour is that role's in
+the theme, null for plain text.
+
+CARRY is [quote, decl, decl_raw, state], four integers: quote 1 inside a
+\"\"\"...\"\"\" block string; decl the brace depth inside a `#&` declaration's
+body (0: none); decl_raw 1 when that body's braces count on the raw line;
+state the brace depth inside a `state` block. A text starts in [0, 0, 1, 0].
+
+--stream reads JSON-lines requests on stdin and answers each with one JSON
+line on stdout (flushed), until stdin ends (exit 0):
+  {"id": ANY, "lines": [STR, ...], "start": N, "carry": CARRY|null}
+    -> {"id": ANY, "start": N, "lines": [[RUN, ...], ...], "carry": [CARRY, ...]}
+  {"id": ANY, "theme": NAME|PATH}   -> {"id": ANY, "theme": NAME}
+  {"id": ANY, "dialect": NAME|PATH|null}
+    -> {"id": ANY, "dialect": NAME|null[, "theme": NAME]}
+  anything malformed                -> {"id": ANY|null, "error": "..."}
+A request may hold dialect, theme and lines together: the dialect switches
+first, then the theme, then the lines are highlighted with both; the answer
+holds a key for each part. A request that fails in any part answers only
+{"id", "error"} and changes nothing (a dialect that fails to load keeps the old
+one). A dialect is loaded as --dialect loads it (null: core Sigil, no dialect,
+whatever $SIGIL_DIALECT says) and answered by its NAME. Themes: --theme or a
+{"theme"} request is explicit and holds for the rest of the session; until one
+is given the theme is $SIGIL_THEME if set, else the dialect's THEME, else
+sigil, so (without $SIGIL_THEME) a dialect switch also switches the theme, and
+its answer names the theme now in use ("theme"). After an explicit theme a
+dialect switch leaves the theme alone.
+`start` is the index of lines[0] (echoed; default 0), `carry` the carry lines[0]
+starts in (null: a text's start). A line's runs depend only on the line and
+the carry it starts in, so an editor highlights incrementally: after an edit it
+sends the changed lines with the end carry of the line before them, and keeps
+sending the lines that follow until a returned end carry equals the one it held
+for that line; from there on nothing changed. No file is read but the theme and
+a dialect asked for."""
+
+
+def theme_for(spec, dialect) -> tuple:
+    """(the resolved theme, the name it goes by) for `spec` (--theme or a
+    {"theme"} request; None: $SIGIL_THEME, else the dialect's THEME, else sigil).
+    Raises ValueError (themes.ThemeError, a dialect's bad THEME)."""
+    theme = themes.load(spec, dialect)
+    return theme, theme_name(theme, themes.chosen(spec, dialect)[0])
+
+
+def theme_name(theme: dict, spec) -> str:
+    """The name a loaded theme goes by (its `name`, else what was asked for)."""
+    name = theme.get("name") if isinstance(theme, dict) else None
+    return name if isinstance(name, str) and name else str(spec or "sigil")
+
+
+def carry_json(carry) -> list:
+    """A Carry as its stable JSON form [quote, decl, decl_raw, state]."""
+    return [int(carry.quote), carry.decl, int(carry.decl_raw), carry.state]
+
+
+def carry_from_json(value):
+    """The Carry a JSON value names (None: a text's start). Raises ValueError."""
+    if value is None:
+        return PLAIN
+    if not (isinstance(value, list) and len(value) == 4
+            and all(type(v) is int and v >= 0 for v in value)
+            and value[0] in (0, 1) and value[2] in (0, 1)):
+        raise ValueError("carry must be null or [quote 0|1, decl >= 0, decl_raw 0|1, "
+                         "state >= 0]")
+    return Carry(bool(value[0]), value[1], bool(value[2]), value[3])
+
+
+def runs_json(runs, theme: dict, lx: Lexicon) -> list:
+    """A line's runs as [text, role, colour] triples."""
+    return [[text, role, colour(role, theme, lx)] for text, role in runs]
+
+
+def ansi_line(runs, theme: dict, lx: Lexicon) -> str:
+    """A line's runs with a truecolour SGR around each coloured one."""
+    out = []
+    for text, role in runs:
+        hexa = colour(role, theme, lx)
+        if hexa is None or not text:
+            out.append(text)
+        else:
+            r, g, b = (int(hexa[k:k + 2], 16) for k in (1, 3, 5))
+            out.append(f"\x1b[38;2;{r};{g};{b}m{text}\x1b[0m")
+    return "".join(out)
+
+
+def highlight_text(text: str, theme: dict, lx: Lexicon, colour: bool = True) -> str:
+    """`text` with its lines highlighted in ANSI, every line ending kept as it is
+    (the lines split as str.splitlines splits them, as lines() does)."""
+    out, carry = [], PLAIN
+    for whole in text.splitlines(keepends=True):
+        body = (whole.splitlines() or [""])[0]
+        runs, carry = line(body, carry, lx)
+        out.append((ansi_line(runs, theme, lx) if colour else body) + whole[len(body):])
+    return "".join(out)
+
+
+def highlight_json(text: str, theme: dict, name: str, lx: Lexicon) -> dict:
+    """The --json object of a text (HIGHLIGHT_PROTOCOL)."""
+    rows, ends, carry = [], [], PLAIN
+    for raw in text.splitlines():
+        runs, carry = line(raw, carry, lx)
+        rows.append(runs_json(runs, theme, lx))
+        ends.append(carry_json(carry))
+    return {"sigil_highlight": HIGHLIGHT_VERSION, "theme": name, "lines": rows,
+            "carry": ends}
+
+
+def write_text(text: str, out, theme: dict, name: str, lx: Lexicon, as_json: bool = False,
+               colour: bool = True) -> None:
+    """`sigil highlight FILE`: `text` written to `out` as one --json object (a
+    line), or in ANSI (plain when not `colour`), flushed."""
+    if as_json:
+        out.write(json.dumps(highlight_json(text, theme, name, lx), ensure_ascii=False)
+                  + "\n")
+    else:
+        out.write(highlight_text(text, theme, lx, colour=colour))
+        out.flush()
+
+
+def _one_line(value) -> bool:
+    return isinstance(value, str) and value.splitlines() in ([], [value])
+
+
+class StreamSession:
+    """One --stream process's state: the theme it colours with (and whether it
+    was asked for explicitly: --theme or a {"theme"} request), the dialect and
+    its lexicon. answer() turns one request line into one response object; a
+    request that fails changes none of it."""
+
+    def __init__(self, theme: dict, name: str, lx: Lexicon, dialect=None,
+                 explicit: bool = False):
+        self.theme, self.name, self.lx = theme, name, lx
+        self.dialect, self.explicit = dialect, explicit
+
+    def answer(self, raw: str) -> dict:
+        try:
+            req = json.loads(raw)
+        except ValueError as exc:
+            return {"id": None, "error": f"not JSON: {exc}"}
+        if not isinstance(req, dict):
+            return {"id": None, "error": "a request is a JSON object"}
+        rid = req.get("id")
+        try:
+            return {"id": rid, **self._serve(req)}
+        except ValueError as exc:
+            return {"id": rid, "error": str(exc)}
+
+    def _serve(self, req: dict) -> dict:
+        if not {"dialect", "theme", "lines"} & req.keys():
+            raise ValueError("a request holds lines, a theme or a dialect")
+        out: dict = {}
+        dialect, lx, explicit = self.dialect, self.lx, self.explicit
+        theme, name = self.theme, self.name
+        if "dialect" in req:                   # first: the theme may follow the dialect
+            dialect = _stream_dialect(req["dialect"])
+            lx = lexicon(dialect)
+            out["dialect"] = getattr(dialect, "NAME", None) if dialect is not None else None
+            if not explicit and "theme" not in req:
+                theme, name = theme_for(None, dialect)   # ThemeError is a ValueError
+                out["theme"] = name
+        if "theme" in req:
+            spec = req["theme"]
+            if not isinstance(spec, str) or not spec:
+                raise ValueError("theme must be a theme name or path")
+            theme = themes.load(spec)
+            name, explicit = theme_name(theme, spec), True
+            out["theme"] = name
+        if "lines" in req:
+            out.update(_stream_lines(req, theme, lx))
+        self.dialect, self.lx, self.explicit = dialect, lx, explicit
+        self.theme, self.name = theme, name
+        return out
+
+
+def _stream_dialect(spec):
+    """The dialect a {"dialect"} request names (null: none), loaded by Core as
+    --dialect loads it. Raises ValueError for one that is not a name or path, or
+    cannot be loaded."""
+    if spec is not None and (not isinstance(spec, str) or not spec.strip()):
+        raise ValueError("dialect must be a dialect name or path, or null")
+    try:
+        return load_dialect(spec or "")        # "": core, not $SIGIL_DIALECT
+    except ValueError:
+        raise
+    except Exception as exc:                   # its module failed while it loaded
+        raise ValueError(f"sigil dialect {spec!r} failed to load: "
+                         f"{type(exc).__name__}: {exc}") from None
+
+
+def _stream_lines(req: dict, theme: dict, lx: Lexicon) -> dict:
+    """The answer to a request's lines (HIGHLIGHT_PROTOCOL): the lines sent, as
+    edit() highlights a new text from the carry the first one starts in. Raises
+    ValueError."""
+    lines_, start = req["lines"], req.get("start", 0)
+    if not (isinstance(lines_, list) and all(_one_line(s) for s in lines_)):
+        raise ValueError("lines must be a list of strings, each without a line break")
+    if type(start) is not int or start < 0:
+        raise ValueError("start must be a line index >= 0")
+    done, _stop = edit([], lines_, 0, len(lines_), lx,
+                       carry=carry_from_json(req.get("carry")))
+    return {"start": start, "lines": [runs_json(d.runs, theme, lx) for d in done],
+            "carry": [carry_json(d.end) for d in done]}
+
+
+def stream(session: StreamSession, inp, out) -> int:
+    """The --stream loop: a response per non-blank request line, flushed, until EOF."""
+    while True:
+        raw = inp.readline()
+        if not raw:
+            return 0
+        if not raw.strip():
+            continue
+        out.write(json.dumps(session.answer(raw)) + "\n")
+        out.flush()
+
+
+def serve(inp, out, theme: dict, name: str, lx: Lexicon, dialect=None,
+          explicit: bool = False) -> int:
+    """`sigil highlight --stream`: one session over `inp` and `out`, from the
+    theme and dialect the command started with (`explicit`: --theme was given).
+    Its exit status (0 when `inp` ends)."""
+    return stream(StreamSession(theme, name, lx, dialect, explicit=explicit), inp, out)
