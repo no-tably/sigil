@@ -229,7 +229,9 @@ def _check_parser(dialect, check) -> argparse.ArgumentParser:
                          "tick, or every tick but at most N runs (default: all in spec, "
                          "else off)")
     ap.add_argument("--limit", action="append", default=[], metavar="NAME=N",
-                    help="raise one simulator limit (repeatable; e.g. depth=5)")
+                    help="set one simulator limit over the document's own (its `#%%` "
+                         "line's NAME=N) and the defaults; a flag wins (repeatable; "
+                         "e.g. depth=5)")
     ap.add_argument("--json", action="store_true", help="print one JSON object")
     ap.add_argument("--all", action="store_true", help="also print hidden findings")
     ap.add_argument("--export", action="store_true",
@@ -243,12 +245,13 @@ def _check_parser(dialect, check) -> argparse.ArgumentParser:
     return ap
 
 
-def _limits(pairs: list):
-    """The simulator bounds --limit NAME=N sets (None: none given). Raises ValueError."""
-    if not pairs:
-        return None
+def _limits(pairs: list) -> tuple:
+    """--limit's NAME=N pairs, checked (sim.limits_from raises ValueError for one
+    it refuses), as given: each command lays them over the document's own `#%`
+    limits and the defaults through the one merge (sim.limits_for)."""
     from sigil.model import sim
-    return sim.limits_from(pairs)
+    sim.limits_from(pairs)
+    return tuple(pairs)
 
 
 def _check(argv: list, dialect) -> int:
@@ -374,8 +377,9 @@ def _view_parser(dialect, app) -> argparse.ArgumentParser:
     ap.add_argument("--play", action="store_true",
                     help="live, with --sim: start with the run playing")
     ap.add_argument("--limit", action="append", default=[], metavar="NAME=N",
-                    help="with --sim: raise one of the simulator's bounds, e.g. "
-                         "frames=5000 or depth=5 (repeat for more)")
+                    help="set one of the simulator's bounds over the document's own "
+                         "(its `#%%` line's NAME=N), e.g. frames=5000 or depth=5 "
+                         "(repeat for more)")
     ap.add_argument("--json", action="store_true",
                     help="print JSON instead of a drawing. With --sim list / all: the "
                          "scenarios / every run's facts; with --sim SCENARIO: its facts, "
@@ -483,9 +487,10 @@ def _export_folder(argv: list, dialect) -> int:
     ap.add_argument("--dry-run", action="store_true",
                     help="print the delta and write nothing")
     ap.add_argument("--limit", action="append", default=[], metavar="NAME=N",
-                    help="raise one simulator limit for the gate's check (repeatable; "
-                         "e.g. frames=20000), as `sigil check` takes it: a run cut at "
-                         "a limit blocks the export until raised or acknowledged")
+                    help="set one simulator limit for the gate's check over the "
+                         "document's own (repeatable; e.g. frames=20000), as `sigil "
+                         "check` takes it: a run cut at a limit blocks the export "
+                         "until raised or acknowledged")
     a = ap.parse_args(argv)
     from sigil.analyse import check, lint
     from sigil.publish import exporter
@@ -725,8 +730,8 @@ def _frames(argv: list, dialect) -> int:
                         "else the dialect's THEME, else sigil)")
     _dialect_flag(d, dialect)
     d.add_argument("--limit", action="append", default=[], metavar="NAME=N",
-                   help="raise one simulator limit (repeatable; e.g. frames=5000), as "
-                        "view and check take it")
+                   help="set one simulator limit over the document's own (repeatable; "
+                        "e.g. frames=5000), as view and check take it")
     f = sub.add_parser("follow", help="run `sigil view` live as a control file says")
     f.add_argument("control", type=Path)
     a = ap.parse_args(argv)

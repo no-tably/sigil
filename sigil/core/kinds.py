@@ -10,7 +10,13 @@ malformed line, check reads the groups off.
 The line is read once, by Core's walk (sigil.core.statements.read_lines calls
 read_kind): the Kind rides on the Walk (`walk.kind`) and on the Graph
 (`graph.kind`), with every `#%` line as written (Kind.written), so lint and check
-read the record, never the text again."""
+read the record, never the text again.
+
+A word `name=N` on the line is a limit, not a kind word: `#% daemon
+frames=300000` (or `#% frames=300000` alone). Kinds keeps the pairs as written,
+in order (Kind.limits), and knows only their form (a word holding `=`); which
+names exist and what they bound is the simulator's (sigil.model.sim.program:
+Limits, limits_for), and lint judges each pair with its validator."""
 
 from __future__ import annotations
 
@@ -41,6 +47,20 @@ GROUPS = ("global", "network", "concurrency", "traffic", "ending", "entry")
 CHOICE_OF = {w: c for c, words in CHOICES.items() for w in words}
 
 
+LIMIT_MARK = "="
+
+
+def is_limit_word(word: str) -> bool:
+    """Whether a word of a `#%` line is a limit (`name=N`: it holds `=`)."""
+    return LIMIT_MARK in word
+
+
+def split_words(words) -> tuple:
+    """(kind words, limit pairs) of a `#%` line's words, each in written order."""
+    return (tuple(w for w in words if not is_limit_word(w)),
+            tuple(w for w in words if is_limit_word(w)))
+
+
 class KindLine(NamedTuple):
     """One `#%` line as written: its 0-based `line`, its `words` (every word, in
     order, its trailing `# …` comment cut; kind_words) and whether it is
@@ -53,17 +73,19 @@ class KindLine(NamedTuple):
 
 class Kind(NamedTuple):
     """A document's kind: the word of each choice (the default where the line
-    names none), the read line's words as written, the 0-based line of that
-    `#%` (None: none read), and `written`: every `#%` line of the document
-    (KindLine), in order, read or not. A reading of the words that is not a
-    choice (a word naming no kind, a later `name=N` pair) keeps to `words`:
-    the choices take only the words CHOICE_OF knows."""
+    names none), the read line's kind words as written (every word but the
+    limits), the 0-based line of that `#%` (None: none read), `written`: every
+    `#%` line of the document (KindLine), in order, read or not, and `limits`:
+    the read line's `name=N` words as written, in order (split_words; their
+    meaning is the simulator's). A word naming no kind keeps to `words`: the
+    choices take only the words CHOICE_OF knows."""
     shape: str = "service"
     reach: str = "networked"
     concurrency: str = "concurrent"
     words: tuple = ()
     line: Optional[int] = None
     written: tuple = ()
+    limits: tuple = ()
 
     @property
     def read(self) -> Optional[KindLine]:
@@ -83,7 +105,7 @@ class Kind(NamedTuple):
 
     @property
     def text(self) -> str:
-        """The kind as written after `#%` (the words the line names)."""
+        """The kind as written after `#%` (the kind words the line names, no limits)."""
         return " ".join(self.words)
 
 
@@ -120,16 +142,18 @@ def written_lines(lines: list) -> tuple:
 
 def kind_of(read: Optional[KindLine], written: tuple = ()) -> Kind:
     """The Kind a `#%` line says (`read`; None: the defaults): its known words,
-    one per choice (the first wins; lint reports the rest). `written`: every
-    `#%` line, carried as Kind.written."""
+    one per choice (the first wins; lint reports the rest), and its `name=N`
+    words apart as Kind.limits (split_words). `written`: every `#%` line,
+    carried as Kind.written."""
     if read is None:
         return Kind(written=written)
+    words, limits = split_words(read.words)
     chosen = {}
-    for w in read.words:
+    for w in words:
         c = CHOICE_OF.get(w)
         if c is not None:
             chosen.setdefault(c, w)
-    return Kind(**chosen, words=read.words, line=read.line, written=written)
+    return Kind(**chosen, words=words, line=read.line, written=written, limits=limits)
 
 
 def read_kind(lines: list) -> Kind:

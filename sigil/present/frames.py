@@ -273,9 +273,10 @@ def draw(path: Path, view_name: str = "flow", depth: int = 1, width: int | None 
          layout: str = "auto", height: int | None = None, start: int | None = 0,
          count: int = WINDOW, limits=None, dialect=None) -> dict:
     """The JSON object `sigil frames draw` prints (see the module docstring); a
-    run's frames are window(start, count, its last frame). `limits`: the
-    simulator's bounds (--limit NAME=N; None: its defaults), for the run drawn and
-    the scenarios listed, as `sigil view` and `sigil check` use them. `dialect`:
+    run's frames are window(start, count, its last frame). `limits`: --limit's
+    NAME=N pairs (None: none), laid over the document's own `#%` limits and the
+    defaults (app.doc_limits), for the run drawn and the scenarios listed, as
+    `sigil view` and `sigil check` use them: with no flag, the document's. `dialect`:
     a loaded dialect the document is read and linted with, whose THEME colours it
     when no `theme` is given."""
     try:
@@ -288,6 +289,7 @@ def draw(path: Path, view_name: str = "flow", depth: int = 1, width: int | None 
         return {"error": f"{path}: {exc.strerror or exc}"}
     kit.use_dialect(dialect)
     g = parse_document(text, dialect=dialect)
+    limits = app.doc_limits(g, limits)
     events = app.DEFAULT_EVENTS.get(view_name, "land")
     kw = dict(depth=depth, payloads=payloads, notes="off", triggers=True, spaced=True,
               width=width, access=False, mods=False, events=events)
@@ -336,7 +338,7 @@ def draw(path: Path, view_name: str = "flow", depth: int = 1, width: int | None 
     try:
         canon = simulator.canonical(g)
         out["scenarios"] = [s.name for s in simulator.scenarios(
-            canon, limits=limits or simulator.Limits())]
+            canon, limits=limits)]
     except Exception:                       # a half-written design still draws
         out["scenarios"] = []
     out["frames"], out["styles"] = drawn, styles.table

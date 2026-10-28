@@ -150,7 +150,7 @@ class StateStartRuns(unittest.TestCase):
         self.assertNotIn("ignores <Opened>", said)
 
     def test_json_lists_the_state_starts_it_ran(self):
-        keys = ["mode", "k", "limits", "findings", "acknowledged"]
+        keys = ["mode", "k", "limits", "limit_sources", "findings", "acknowledged"]
         out = ck.check(TICKET, registry=REGISTRY).to_dict()
         self.assertEqual(list(out), keys + ["state_starts"])        # the others unchanged
         self.assertEqual(out["state_starts"], {"ran": ["Ticket=Open", "Ticket=Done"],

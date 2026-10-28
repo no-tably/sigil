@@ -17,7 +17,10 @@ Pure and deterministic: simulate() is a function of its arguments — no clock,
 no randomness, no I/O. Every choice comes from the Scenario; every order is
 written order (the Scene's wire order). Every loop, recursion, cycle, spawn and
 the trace length are bounded by Limits (the default frames and activations limits
-grow with the document: scaled, sized); hitting a bound is logged. No drawing
+grow with the document: scaled, sized). A document may set its own on its `#%`
+line (`#% daemon frames=300000`): limits_for merges the defaults, those and
+--limit's flags (a flag wins), limit_sources says where each came from; hitting a
+bound is logged. No drawing
 code: it reads sigil.model.scene (and through it the parsed model) only.
 
 The package, part by part (program ← engine ← scenarios / narration):
@@ -296,10 +299,11 @@ NARRATION (pure, over a Trace and the scene it names)
 
 
 from sigil.model.sim.program import (  # noqa: F401  (the package's API)
-    PER_SIZE, Decide, Floor, Frame, Group, Instance, Limits, Machine, Program, Region, Scenario,
-    Step,
-    Token, Trace, TriggerRef, attempts, canonical, carried, doc_size, duration, instances,
-    limits_from, loop_count, mod, program, replayed, resilient, returned, route_guard, scaled,
+    LIMIT_SOURCES, PER_SIZE, Decide, Floor, Frame, Group, Instance, Limits, Machine, Program,
+    Region, Scenario, Step,
+    Token, Trace, TriggerRef, attempts, canonical, carried, doc_size, document_limits, duration,
+    flag_names, instances, limit_name, limit_problem, limit_sources, limits_for, limits_from,
+    loop_count, usable_limits, mod, program, replayed, resilient, returned, route_guard, scaled,
     selected_routes, sized,
     _flat, _program_of)        # read by the flow rules and the run view through the package
 from sigil.model.sim.engine import CONVENTIONS, simulate  # noqa: F401

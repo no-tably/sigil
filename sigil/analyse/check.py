@@ -31,10 +31,13 @@ Options:
                  start tick of each earlier episode's busy window; or all but at
                  most N runs. Default: all in spec (the exhaustive check before a
                  spec is final), off in sketch and craft
-    --limit NAME=N  raise one simulator bound (sim.Limits: depth, iterations,
-                 spawn, activations, …); repeatable
+    --limit NAME=N  set one simulator bound (sim.Limits: depth, iterations,
+                 spawn, activations, …), over the document's own (`name=N` on its
+                 `#%` line) and the defaults: a flag wins, raised or lowered;
+                 repeatable
     --json       one JSON object: mode, k, limits (as the runs had them, the
-                 defaults grown to the document; with budget), findings,
+                 defaults grown to the document; with budget), limit_sources
+                 (each limit's source: default, scaled, document or flag), findings,
                  acknowledged; kind (a `#%` line); state_starts (in spec, when
                  the document has any: the `Owner=State` runs made, by name, and
                  how many the budget left unrun)
@@ -365,6 +368,8 @@ class Report:
     off: tuple = ()                  # the ids of the rules the kind turned off
     state_runs: Optional[tuple] = None   # (names ran, number left unrun) of the state
                                      # starts the exploration walked (None: it listed none)
+    limit_sources: dict = None       # sim.Limits field → where it came from
+                                     # (sim.LIMIT_SOURCES; None: not said)
 
     @property
     def shown(self) -> list:
@@ -375,9 +380,11 @@ class Report:
         return 2 if "error" in sev else 1 if "warn" in sev else 0
 
     def to_dict(self) -> dict:
-        out = {"mode": self.mode, "k": self.k, "limits": self.limits,
-               "findings": [f.to_dict() for f in self.findings],
-               "acknowledged": [f.to_dict() for f in self.acknowledged]}
+        out = {"mode": self.mode, "k": self.k, "limits": self.limits}
+        if self.limit_sources is not None:
+            out["limit_sources"] = self.limit_sources
+        out.update({"findings": [f.to_dict() for f in self.findings],
+               "acknowledged": [f.to_dict() for f in self.acknowledged]})
         if self.kind:
             out["kind"] = {"words": self.kind, "off": list(self.off)}
         if self.state_runs is not None:
@@ -426,7 +433,7 @@ class Doc:
         self.findings = []           # first-pass Findings (set before after_acks rules)
         self.ack_used = frozenset()  # lines of the acknowledgements that covered one
         self._budget = budget        # None: the defaults (see budget, limits)
-        self._limits = limits
+        self._limits = limits        # --limit's pairs or a sim.Limits (None: none given)
         self._overlaps = overlaps    # None: the mode's (DEFAULT_OVERLAPS)
         self.off = {}                # rule id → the `#%` words that turned it off
         self.state_runs = None       # (names ran, number left unrun): the state starts
@@ -456,8 +463,17 @@ class Doc:
 
     @cached_property
     def limits(self):
-        """The sim.Limits every run is bounded by (--limit; default: the sim's)."""
-        return self.sim.Limits() if self._limits is None else self._limits
+        """The sim.Limits every run is bounded by: the one merge (sim.limits_for)
+        of the defaults, the document's `#%` limits (Walk.kind.limits) and the
+        given ones (--limit's pairs laid over them; a given sim.Limits as it is)."""
+        return self.sim.limits_for(self.walk.kind.limits, self._limits)
+
+    @cached_property
+    def limit_sources(self) -> dict:
+        """Where each limit of `limits` came from (sim.limit_sources: default,
+        scaled, document, flag), as --json prints it."""
+        return self.sim.limit_sources(self.walk.kind.limits, self._limits, self.limits,
+                                      self.sim.sized(self.limits, self.sc))
 
     @cached_property
     def render(self):
@@ -1088,7 +1104,9 @@ def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
     dialect's rule pack (dialect_pack), whose read verbs, policy words and
     `@inv` heads the rules read; `registry` defaults to the core rules, every rule module beside
     this file and the pack's rules. `budget` (runs per exploration) and `limits`
-    (a sim.Limits) bound the simulator, `overlaps` (OVERLAPS or a number of runs)
+    bound the simulator: --limit's "name=N" pairs, laid over the document's own
+    (its `#%` line's) and the defaults (sim.limits_for), or a sim.Limits used as
+    it is; `overlaps` (OVERLAPS or a number of runs)
     says which overlap runs it makes; None takes the defaults. `export` adds the
     export readiness rules to the default registry (a given `registry` runs as
     it is). `walk`: the document's reading (sigil.core.statements.read_document
@@ -1130,7 +1148,7 @@ def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
     emitted = [f for f in findings if f.severity is not None]
     roots = [f for f in emitted if f.folded_into is None]
     return Report(
-        mode=mode, k=k, limits=limits_of(doc),
+        mode=mode, k=k, limits=limits_of(doc), limit_sources=doc.limit_sources,
         findings=[f for f in roots if not is_acknowledged(f)],
         acknowledged=[f for f in roots if is_acknowledged(f)],
         folded=[f for f in emitted if f.folded_into is not None],

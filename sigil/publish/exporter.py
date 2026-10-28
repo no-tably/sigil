@@ -133,9 +133,10 @@ def ready(text: str, dialect, lint, check, limits=None) -> Gate:
     passes them in). A document that is no spec, or that lint finds errors in,
     is not checked further. Raises ValueError for a rule pack check refuses. The
     document is read and parsed once: lint's reading and model are the ones
-    check judges (and run builds the export's model from). `limits` (a
-    sim.Limits; None: the defaults) bound check's runs, so a run cut at a limit
-    is cleared by raising it (`sigil export --limit NAME=N`)."""
+    check judges (and run builds the export's model from). `limits` (--limit's
+    NAME=N pairs, or a sim.Limits; None: none given), laid over the document's own
+    `#%` limits by check.check, bound check's runs, so a run cut at a limit is
+    cleared by raising it (on the `#%` line, or `sigil export --limit NAME=N`)."""
     mode = check.read_mode(text.splitlines())
     if mode != "spec":
         return Gate((f"mode: the document is `#!{mode}`; only a `#!spec` document exports",))

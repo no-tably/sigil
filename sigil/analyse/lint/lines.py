@@ -19,7 +19,7 @@ from sigil.core.vocab import (
     ANY_GLYPH_RE, ARROW_RE, LintResult, VALID_LOOP_MODS, VALID_MODES,
     VALID_MODIFIERS, VALID_PARALLEL_MODS, VALID_STREAM_POLICIES)
 
-from sigil.core.kinds import CHOICE_OF, CHOICES, Kind
+from sigil.core.kinds import CHOICE_OF, CHOICES, Kind, split_words
 from sigil.core.lex import (HOLE_RE, MOD_TOKEN_RE, comment_col, first_content, is_comment_line,
                             is_mode_line)
 from sigil.core.tokens import glyph_spans
@@ -286,7 +286,8 @@ def lint_kind_line(kind: Kind, lines: list, result: LintResult):
     every `#%` line as written and the one read). SGL093: a word that names no
     kind, two words for one choice, or no word; SGL094: a `#%` line not read (not
     right after the mode line, or a second one); SGL095: `deterministic` beside a
-    race (`lines`: the document's lines, scanned for one)."""
+    race (`lines`: the document's lines, scanned for one); SGL096: a `name=N`
+    limit the simulator refuses or one named twice (lint_kind_limits)."""
     for written in kind.written:
         k = written.line
         if k != kind.line:
@@ -294,8 +295,9 @@ def lint_kind_line(kind: Kind, lines: list, result: LintResult):
                        "a `#%` kind line is read only once, after the mode line and before "
                        "the first statement; this one is ignored.")
             continue
-        words = written.words
-        if not words:
+        words, limits = split_words(written.words)
+        lint_kind_limits(limits, k, result)
+        if not words and not limits:
             result.add("error", k + 1, "SGL093", "`#%` names no kind. Expected words from: "
                        + "; ".join(" | ".join(ws) for ws in CHOICES.values()) + ".")
         seen = {}
@@ -319,6 +321,28 @@ def lint_kind_line(kind: Kind, lines: list, result: LintResult):
                     result.add("warn", j + 1, "SGL095",
                                "a race here, in a system the `#%` line calls `deterministic` "
                                "(one input at a time, in order): drop the race or the claim.")
+
+
+def lint_kind_limits(limits: tuple, k: int, result: LintResult):
+    """SGL096: each `name=N` limit of the read `#%` line (`limits`, Kind.limits;
+    0-based line `k`) that the simulator's validator refuses — an unknown name, a
+    value below 1, not NAME=N — in --limit's own words (sim.limit_problem), and a
+    limit named twice (a run takes the first: sim.usable_limits). The simulator is
+    imported only when the line writes a limit."""
+    if not limits:
+        return
+    from sigil.model.sim.program import limit_name, limit_problem
+    seen = set()
+    for pair in limits:
+        problem = limit_problem(pair)
+        if problem is not None:
+            result.add("error", k + 1, "SGL096", f"limit {problem}.")
+            continue
+        name = limit_name(pair)
+        if name in seen:
+            result.add("error", k + 1, "SGL096",
+                       f"limit {name}: named twice on the `#%` line; a run takes the first.")
+        seen.add(name)
 
 
 def lint_state_block_syntax(transitions: tuple, result: LintResult):

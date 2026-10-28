@@ -556,6 +556,14 @@ class UnknownScenario(LookupError):
     """A scenario name the document doesn't have; the message lists the known ones."""
 
 
+def doc_limits(graph, limits=None):
+    """The simulator's bounds for a run of `graph`: the one merge
+    (sim.limits_for) of the defaults, the document's `#%` limits and `limits`
+    (--limit's "name=N" pairs, laid over them; None: none; a sim.Limits is
+    used as it is, so a merged set passes through unchanged)."""
+    return simulator.limits_for(simulator.document_limits(graph), limits)
+
+
 class SimPlayer:
     """The simulator's controls over one parsed document: its scenarios, the
     chosen one's Trace (on the canonical scene), the frame shown, play / pause
@@ -563,8 +571,10 @@ class SimPlayer:
     SceneOptions draws it (sim.project, cached per options); `at` the frame shown.
 
     `name`: the scenario to start on (None: `happy`; `a+b` combines two and is
-    added to the list); `limits`: the simulator's bounds (None: its defaults).
-    `depth`: the expansion depth the run is drawn to (None: every node drawn) —
+    added to the list); `limits`: --limit's pairs laid over the document's own
+    `#%` limits and the defaults (sim.limits_for; None: no flags; a sim.Limits is
+    used as it is), kept as given (`given`) for a rebuilt player; `self.limits` the
+    merged bounds the runs have. `depth`: the expansion depth the run is drawn to (None: every node drawn) —
     the narration (beats) and the path (hops) name the drawn nodes, a folded
     node by its host (sim.folded_hosts); the owner may change it at any time.
     Raises UnknownScenario for an unknown name."""
@@ -572,7 +582,8 @@ class SimPlayer:
     def __init__(self, graph, name: str | None = None, limits=None,
                  depth: int | None = None):
         self.graph = graph
-        self.limits = limits or simulator.Limits()
+        self.given = limits
+        self.limits = doc_limits(graph, limits)
         self.depth = depth
         self.canon = simulator.canonical(graph)
         self.scenarios = simulator.scenarios(self.canon, limits=self.limits)
@@ -632,9 +643,9 @@ class SimPlayer:
         still exists, else `happy`), depth, position (clamped), play state and
         speed."""
         try:
-            new = SimPlayer(graph, self.scenario.name, self.limits, self.depth)
+            new = SimPlayer(graph, self.scenario.name, self.given, self.depth)
         except UnknownScenario:
-            new = SimPlayer(graph, None, self.limits, self.depth)
+            new = SimPlayer(graph, None, self.given, self.depth)
         new.at = min(self.at, new.last)
         new.playing, new.speed, new.due = self.playing, self.speed, self.due
         return new
@@ -949,7 +960,7 @@ def sim_run(player: SimPlayer, limits=None) -> dict:
     """One run as --sim NAME --json prints it: its facts (sim_facts), then
     "steps" — the run in plain words, [{frame, tick, text}] (sim.narrate) — and
     "log", the simulator's own log lines."""
-    out = sim_facts(player.trace, limits)
+    out = sim_facts(player.trace, player.limits if limits is None else limits)
     out["steps"] = [b._asdict() for b in player.beats]
     out["log"] = list(player.trace.end["log"])
     return out
@@ -970,7 +981,7 @@ SIM_FACTS = ("states", "failed", "routes", "ignored", "replayed", "waiting", "op
 def run_all(graph, limits=None) -> list:
     """[Trace]: every scenario of the document (sim.scenarios), each run once,
     keeping only its final frame (sim_facts reads the rest from `end`)."""
-    limits = limits or simulator.Limits()
+    limits = doc_limits(graph, limits)
     canon = simulator.canonical(graph)
     return [simulator.simulate(canon, sc, limits=limits, keep=False)
             for sc in simulator.scenarios(canon, limits=limits)]
@@ -995,8 +1006,9 @@ def sim_facts(trace, limits=None) -> dict:
     nodes still blocked at the end, `open` `&` joins left open, `bounds` every
     simulator bound hit (base case, visit limit, spawn cap, a loop capped or run
     at the cap with no `@times`, a cut). An overlap run (`Entry@t`) also lists
-    `episodes`: each one's number, entry and start tick, in start order."""
-    limits = limits or simulator.Limits()
+    `episodes`: each one's number, entry and start tick, in start order.
+    `limits`: as doc_limits takes them, for the run's document."""
+    limits = doc_limits(trace.scene.graph, limits)
     scn, end, sc = trace.scene, trace.end, trace.scenario
     name = lambda nid: kit.node_label(scn.nodes[nid].node) if nid in scn.nodes else str(nid)
     wires = {w.ident: w for w in scn.wires}
@@ -1126,11 +1138,12 @@ def sim_batch(path: Path, mode: str, dialect=None, as_json: bool = False,
               limits=None) -> int:
     """--sim list | all: print the scenarios (list) or every run's facts (all),
     as text or JSON; no drawing, no lint. Exit status 0: a run is information,
-    not a verdict. `limits`: the simulator's bounds (None: its defaults)."""
+    not a verdict. `limits`: --limit's pairs (doc_limits; None: none given)."""
     kit.use_dialect(dialect)
     g = kit._call(parse.parse_document, path.read_text(), dialect)
+    limits = doc_limits(g, limits)
     if mode == "list":
-        found = simulator.scenarios(simulator.canonical(g), limits=limits or simulator.Limits())
+        found = simulator.scenarios(simulator.canonical(g), limits=limits)
         text = (json.dumps([{"name": sc.name, "label": sc.label} for sc in found], indent=2,
                            ensure_ascii=False) if as_json else "\n".join(sim_list(found)))
     else:
@@ -1231,7 +1244,7 @@ def sim_json(path: Path, name: str, dialect=None, limits=None,
     kit.use_dialect(dialect)
     g = kit._call(parse.parse_document, path.read_text(), dialect)
     player = SimPlayer(g, name, limits, depth)
-    print(json.dumps(sim_run(player, limits), indent=2, ensure_ascii=False))
+    print(json.dumps(sim_run(player), indent=2, ensure_ascii=False))
     return 0
 
 
@@ -1525,6 +1538,7 @@ def once(path: Path, depth: int | None, payloads: bool, do_lint: bool,
     kit.use_dialect(dialect)
     text = path.read_text()
     g = kit._call(parse.parse_document, text, dialect)
+    limits = doc_limits(g, limits)
     view = start_view(view, tree)
     tree = view == "tree"
     told, depth = depth, drawn_depth(view, depth)
@@ -1668,7 +1682,7 @@ class ViewState:
         `checks`: start with the checks overlay on (key c). `depth` (--depth;
         None: not given, see drawn_depth) the expansion depth (key d gives one)."""
         self.path = path
-        self.limits = limits                   # the simulator's bounds (None: defaults)
+        self.limits = limits                   # --limit's pairs, over the document's own (doc_limits)
         self.show_access = access
         self.show_mods = mods
         self.mode = ""

@@ -71,20 +71,107 @@ class Limits(NamedTuple):
     window: int = 64           # start ticks tried per pair of entries (overlap_runs)
 
 
+def limit_problem(pair: str) -> Optional[str]:
+    """What is wrong with one "name=N" limit (None: nothing), as --limit and
+    the `#%` line both say it, without the `--limit ` that leads the flag's
+    message: a malformed pair, an unknown name or a value below 1."""
+    name, sep, value = pair.partition("=")
+    name = name.strip()
+    if not sep or not value.strip().isdigit():
+        return f"{pair!r}: expected NAME=N"
+    if name not in Limits._fields:
+        return f"{name!r}: unknown (one of {', '.join(Limits._fields)})"
+    if int(value) < 1:
+        return f"{name}: must be at least 1"
+    return None
+
+
+def limit_name(pair: str) -> str:
+    """The name a "name=N" limit sets (as written, spaces cut)."""
+    return pair.partition("=")[0].strip()
+
+
 def limits_from(pairs, base: Limits = Limits()) -> Limits:
     """`base` with each "name=N" of `pairs` set (the tools' --limit). Raises
     ValueError naming a malformed pair, an unknown name or a value below 1."""
     out = base
     for pair in pairs:
-        name, sep, value = pair.partition("=")
-        name = name.strip()
-        if not sep or not value.strip().isdigit():
-            raise ValueError(f"--limit {pair!r}: expected NAME=N")
-        if name not in base._fields:
-            raise ValueError(f"--limit {name!r}: unknown (one of {', '.join(base._fields)})")
-        if int(value) < 1:
-            raise ValueError(f"--limit {name}: must be at least 1")
-        out = out._replace(**{name: int(value)})
+        problem = limit_problem(pair)
+        if problem is not None:
+            raise ValueError(f"--limit {problem}")
+        name, _sep, value = pair.partition("=")
+        out = out._replace(**{name.strip(): int(value)})
+    return out
+
+
+def usable_limits(pairs) -> tuple:
+    """The document's limits a run takes (`pairs`: the `#%` line's, Kind.limits):
+    each one the validator accepts (limit_problem), the first of a name written
+    twice. The others are lint's to report (SGL096); a run ignores them."""
+    out, seen = [], set()
+    for pair in pairs:
+        name = limit_name(pair)
+        if limit_problem(pair) is None and name not in seen:
+            seen.add(name)
+            out.append(pair)
+    return tuple(out)
+
+
+def document_limits(graph) -> tuple:
+    """The `name=N` limits a parsed document's `#%` line writes (Graph.kind.limits;
+    () without a line or a graph)."""
+    return tuple(getattr(getattr(graph, "kind", None), "limits", ()) or ())
+
+
+def flag_names(flags) -> frozenset:
+    """The names `flags` set: each pair's, or a given Limits' fields apart from
+    the defaults (Limits(); a Floor never equals a plain int)."""
+    if flags is None:
+        return frozenset()
+    if isinstance(flags, Limits):
+        return frozenset(f for f in Limits._fields if getattr(flags, f) != getattr(Limits(), f))
+    return frozenset(limit_name(p) for p in flags)
+
+
+def limits_for(doc=(), flags=None) -> Limits:
+    """The one merge: the Limits a run of a document gets. In order, the
+    defaults (Floors, scaled later to the document's size: scaled), the
+    document's limits (`doc`: its `#%` line's pairs, usable_limits; used as
+    given, never scaled), then `flags` (--limit's "name=N" pairs) laid over
+    them: a flag wins, raised or lowered. `flags` may be a Limits instead: a
+    set a caller made itself, used as it is (the document's limits not read).
+    Raises ValueError for a flag the validator refuses (limits_from)."""
+    if isinstance(flags, Limits):
+        return flags
+    return limits_from(flags or (), limits_from(usable_limits(doc)))
+
+
+LIMIT_SOURCES = ("default", "scaled", "document", "flag")
+
+
+def limit_sources(doc=(), flags=None, limits: Optional[Limits] = None,
+                  sized_limits: Optional[Limits] = None) -> dict:
+    """Where each limit of a run came from (LIMIT_SOURCES), field → source:
+    "flag" (flags set it: flag_names), "document" (the `#%` line: usable_limits),
+    "scaled" (a default Floor that `sized_limits` grew past its floor), else
+    "default". `limits`: the merged set (limits_for(doc, flags), the default);
+    `sized_limits`: those as the runs had them (sized; None: as merged)."""
+    limits = limits_for(doc, flags) if limits is None else limits
+    sized_limits = limits if sized_limits is None else sized_limits
+    flagged = flag_names(flags)
+    written = {limit_name(p) for p in usable_limits(doc)} if not isinstance(flags, Limits) \
+        else frozenset()
+    out = {}
+    for f in Limits._fields:
+        if f in flagged:
+            out[f] = "flag"
+        elif f in written:
+            out[f] = "document"
+        elif type(getattr(limits, f)) is Floor and \
+                int(getattr(sized_limits, f)) > int(getattr(limits, f)):
+            out[f] = "scaled"
+        else:
+            out[f] = "default"
     return out
 
 

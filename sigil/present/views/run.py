@@ -931,8 +931,9 @@ def run_timeline(trace, limits=None, show: Optional[int] = None,
                  depth: int = kit.ALL_DEPTH):
     """sim.timeline(trace) for a canonical trace drawn to `depth` (the lanes of
     an expansion folded there in its node's, sim.folded_hosts), cached per
-    trace (a run's frames are drawn from one Timeline)."""
-    limits = limits or sim.Limits()
+    trace (a run's frames are drawn from one Timeline). `limits`: --limit's
+    pairs over the run's document's own (sim.limits_for; a sim.Limits as it is)."""
+    limits = sim.limits_for(sim.document_limits(trace.scene.graph), limits)
     show = sim.RUN_SHOW if show is None else show
     key = (id(trace), show, limits, depth)
     hit = _CACHE.get(key)
@@ -950,8 +951,9 @@ _HAPPY: list = [None, None, None]   # [graph, limits, its happy run]
 
 def happy_run(g, limits=None):
     """The happy run (every default) of a parsed document, on its canonical
-    scene; the last one kept (the view redraws it often)."""
-    limits = limits or sim.Limits()
+    scene; the last one kept (the view redraws it often). `limits`: as
+    run_timeline takes them, over the document's own."""
+    limits = sim.limits_for(sim.document_limits(g), limits)
     if _HAPPY[0] is not g or _HAPPY[1] != limits:
         canon = sim._program_of(g).scene
         run = sim.simulate(canon, sim.scenario(canon, "happy", limits=limits), limits=limits)

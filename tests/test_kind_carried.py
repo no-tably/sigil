@@ -76,12 +76,15 @@ class Carried(unittest.TestCase):
         self.assertEqual([w.line for w in k.written], [1])
 
     def test_the_words_are_kept_as_written_in_order(self):
-        # every word stays in `words` (a later reading, such as a `name=N` pair,
-        # reads them there); the choices take only the words they know
+        # every word stays on the line as written (KindLine.words); a `name=N`
+        # pair is a limit (Kind.limits), the rest are the kind's words, and the
+        # choices take only the words they know
         k = read_document("#!spec\n#% daemon frames=300000 deterministic\n[A] -> [B]\n").kind
-        self.assertEqual(k.words, ("daemon", "frames=300000", "deterministic"))
+        self.assertEqual(k.read.words, ("daemon", "frames=300000", "deterministic"))
+        self.assertEqual(k.words, ("daemon", "deterministic"))
+        self.assertEqual(k.limits, ("frames=300000",))
         self.assertEqual((k.shape, k.concurrency), ("daemon", "deterministic"))
-        self.assertEqual(k.text, "daemon frames=300000 deterministic")
+        self.assertEqual(k.text, "daemon deterministic")
 
 
 class LintReadsTheRecord(unittest.TestCase):

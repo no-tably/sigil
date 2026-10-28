@@ -163,8 +163,8 @@
     [Engine] -> [Program] : compile({Scene}) => {Units}          # units, machines, triggers
     # Program: default frames and activations limits are max(floor, k × nodes+edges)
     # (k 128 / 20, sim.sized); a given limit is used as given. Given, in order: the
-    # document's `#%` limits, then --limit over them (round 9, limits_for; each limit
-    # remembers where it came from: default, scaled, document or flag). Scenarios and
+    # document's `#%` limits, then --limit over them (round 9, limits_for; where each
+    # came from, default, scaled, document or flag, is limit_sources). Scenarios and
     # Narration read its records and limits too (not drawn).
     # the replay rule is the sim's (0.6.8, sim.replayed): a start's replayed events are marked
     # on the run, said as replayed in log and narration, and SGC203 reads the mark (no rule of its own)
