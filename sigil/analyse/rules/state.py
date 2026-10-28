@@ -57,18 +57,33 @@ from sigil.core.lex import GLYPH_BRACKETS, GLYPH_PATTERNS, PREFIXES_CLASS
 # SGC003 ack-unused (catalog §5)
 # ---------------------------------------------------------------------------
 
-def judged(finding) -> bool:
-    """Whether a first-pass finding can make an acknowledgement used: a static one
-    (no witness) or a trace one with a k <= 1 witness. Craft explores at k = 1 and
-    spec at k = 2, so counting a k >= 2-only finding would flip the verdict with
-    the mode. Severity is not looked at: a hidden or unemitted finding counts."""
-    return finding.hit.k is None or finding.hit.k <= 1
+# The rules whose findings a run's deviations witness (trace.trace_hit: a Hit with a
+# k): a check at a smaller k than spec's may not see a finding that spec's
+# exploration finds, so it cannot call an acknowledgement of one of them stale.
+# A rule outside this set whose findings in the check carry a k (a dialect's)
+# counts as one too (deviation_rule).
+DEVIATION_RULES = frozenset({"SGC090", "SGC203", "SGC204", "SGC205", "SGC206"})
 
 
 def covered_names(ack, findings) -> frozenset:
-    """The rule names whose judged findings `ack` covered (check.acknowledge
-    attaches to each finding the acknowledgement that covered it)."""
-    return frozenset(f.rule.name for f in findings if f.ack == ack and judged(f))
+    """The rule names whose findings `ack` covered (check.acknowledge attaches to
+    each finding the acknowledgement that covered it). Every finding of the check
+    counts, whatever its severity or witness: an acknowledgement that covered a
+    finding in this check is never stale."""
+    return frozenset(f.rule.name for f in findings if f.ack == ack)
+
+
+def deviation_rule(name: str, rule_id: str, findings) -> bool:
+    """Whether rule `name` (id `rule_id`) finds things a deeper exploration may
+    add: one of DEVIATION_RULES, or a rule with a finding witnessed at some k."""
+    return rule_id in DEVIATION_RULES or any(
+        f.rule.name == name and f.hit.k is not None for f in findings)
+
+
+def shallow(doc, ck) -> bool:
+    """Whether the check explored fewer deviations than spec does (craft's k = 1
+    against spec's k = 2): a finding only a deeper witness shows is not in it."""
+    return doc.k < ck.DEFAULT_K["spec"]
 
 
 def judgeable_names(ack, known: frozenset, refused: frozenset) -> tuple:
@@ -106,6 +121,19 @@ def stale_hit(ck, ack, name: str, rule_id: str):
                       "line it is about", about=rule_id)
 
 
+def shallow_hit(ck, ack, name: str, rule_id: str, k: int):
+    """SGC003's hit, as a hint, for an acknowledgement of a deviation rule that a
+    check at k below spec's leaves uncovered: spec's deeper runs may need it."""
+    where, deep = ack_scope(ack), ck.DEFAULT_K["spec"]
+    return ck.Hit(ack.line, f"the acknowledgement covers no `{name}` finding {where} at "
+                  f"k = {k}; a witness of {deep} deviations (spec's k) may need it",
+                  f"This acknowledgement covers no `{name}` finding {where} at k = {k}. "
+                  f"Does a check at k = {deep} need it?",
+                  anchor=("comment", ack.line), scopes=(("rule", name),), tier="hint",
+                  fix=f"check at k = {deep} (`sigil check --k {deep}`, spec's default) "
+                      f"before deleting `{name}` from the acknowledgement", about=rule_id)
+
+
 def off_hit(ck, ack, name: str, rule_id: str, kind: str):
     """SGC003's hit for an acknowledgement of a rule the `#%` kind turned off."""
     return ck.Hit(ack.line, f"the acknowledgement names `{name}`, which `#% {kind}` turns off",
@@ -121,8 +149,12 @@ def ack_unused_rule(ck):
             for name in stale_names(ack, doc.findings, doc.known, ck.NOT_ACKNOWLEDGEABLE):
                 rid = doc.id_of(name)
                 kind = getattr(doc, "off", {}).get(rid)
-                yield (stale_hit(ck, ack, name, rid) if kind is None
-                       else off_hit(ck, ack, name, rid, kind))
+                if kind is not None:
+                    yield off_hit(ck, ack, name, rid, kind)
+                elif shallow(doc, ck) and deviation_rule(name, rid, doc.findings):
+                    yield shallow_hit(ck, ack, name, rid, doc.k)
+                else:
+                    yield stale_hit(ck, ack, name, rid)
 
     return ck.Rule(
         "SGC003", "ack-unused", "advisory",

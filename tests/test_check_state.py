@@ -221,11 +221,13 @@ class NeverFlipsOnModeOrK(unittest.TestCase):
         rep = run(self.TEXT, probe(lines=(1,), trace=True, k=1), mode="craft")
         self.assertEqual(stale(rep), [])
 
-    def test_a_k2_only_witness_is_judged_the_same_in_every_mode(self):
+    def test_a_k2_only_witness_counts_in_every_mode(self):
+        # an acknowledgement that covered a finding is never stale (patch-0.6.9 C1;
+        # tests/test_ack_unused.py has the k = 1 / k = 2 cases)
         for mode in ("craft", "spec"):
             with self.subTest(mode=mode):
                 rep = run(self.TEXT, probe(lines=(1,), trace=True, k=2), mode=mode)
-                self.assertEqual([line for line, _ in stale(rep)], [1])
+                self.assertEqual(stale(rep), [])
 
     def test_a_stale_acknowledgement_is_hidden_in_sketch(self):
         rep = run(self.TEXT, probe(), mode="sketch")
