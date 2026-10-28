@@ -99,7 +99,7 @@ from typing import Callable, Iterable, Optional
 
 # Layout and acknowledgements are read in core (check.Ack, check.read_acks, … keep
 # their names here).
-from sigil.core.kinds import read_kind
+from sigil.core.statements import read_document
 from sigil.core.comments import (  # noqa: F401  (re-exported)
     Ack, Layout, RULE_ID_RE, ack_span, parse_ack, read_acks, walk_layout)
 
@@ -1104,7 +1104,9 @@ def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
     if mode not in MODES:
         raise ValueError(f"unknown mode {mode!r} (one of {', '.join(MODES)})")
     k = DEFAULT_K[mode] if k is None else k
-    kind = read_kind(lines)
+    if walk is None:                 # the one reading; Doc and every rule share it
+        walk, graph = read_document(text, dialect), None
+    kind = walk.kind                 # the `#%` kind, as Core's walk read it
     off = () if all_rules else tuple(sorted(
         rid for rid in registry if group_of(rid) in kind.off))
     registry = {rid: r for rid, r in registry.items() if rid not in off}

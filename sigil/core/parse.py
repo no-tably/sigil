@@ -1209,6 +1209,7 @@ def parse_document(text: str, dialect=None, walk: Optional[Walk] = None) -> Grap
     if walk is None:
         walk = read_document(text, dialect)
     graph = _build(walk, dialect)
+    graph.kind = walk.kind
     if walk.bodies:
         _attach_block_strings(graph, {k + 1: body for k, body in walk.bodies.items()})
     return graph

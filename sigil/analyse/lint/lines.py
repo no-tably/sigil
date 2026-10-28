@@ -19,7 +19,7 @@ from sigil.core.vocab import (
     ANY_GLYPH_RE, ARROW_RE, LintResult, VALID_LOOP_MODS, VALID_MODES,
     VALID_MODIFIERS, VALID_PARALLEL_MODS, VALID_STREAM_POLICIES)
 
-from sigil.core.kinds import CHOICE_OF, CHOICES, kind_lines, kind_words, placed
+from sigil.core.kinds import CHOICE_OF, CHOICES, Kind
 from sigil.core.lex import (HOLE_RE, MOD_TOKEN_RE, comment_col, first_content, is_comment_line,
                             is_mode_line)
 from sigil.core.tokens import glyph_spans
@@ -281,19 +281,20 @@ def lint_mode_not_first(lines: list, result: LintResult):
 _RACE_RE = re.compile(r"\bparallel\s+@any\b|&\?")
 
 
-def lint_kind_line(lines: list, result: LintResult):
-    """The `#%` kind line (sigil.core.kinds). SGL093: a word that names no kind,
-    two words for one choice, or no word; SGL094: a `#%` line not read (not right
-    after the mode line, or a second one); SGL095: `deterministic` beside a race."""
-    read = None
-    for k in kind_lines(lines):
-        if read is not None or not placed(lines, k):
+def lint_kind_line(kind: Kind, lines: list, result: LintResult):
+    """The `#%` kind line, from the walk's record of it (Walk.kind: sigil.core.kinds,
+    every `#%` line as written and the one read). SGL093: a word that names no
+    kind, two words for one choice, or no word; SGL094: a `#%` line not read (not
+    right after the mode line, or a second one); SGL095: `deterministic` beside a
+    race (`lines`: the document's lines, scanned for one)."""
+    for written in kind.written:
+        k = written.line
+        if k != kind.line:
             result.add("warn", k + 1, "SGL094",
                        "a `#%` kind line is read only once, after the mode line and before "
                        "the first statement; this one is ignored.")
             continue
-        read = k
-        words = kind_words(lines[k])
+        words = written.words
         if not words:
             result.add("error", k + 1, "SGL093", "`#%` names no kind. Expected words from: "
                        + "; ".join(" | ".join(ws) for ws in CHOICES.values()) + ".")

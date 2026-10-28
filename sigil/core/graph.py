@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import NamedTuple, Optional
 
+from sigil.core.kinds import Kind
 from sigil.core.lex import GLYPH_BRACKETS
 
 
@@ -144,6 +145,9 @@ from sigil.core.lex import GLYPH_BRACKETS
 #               data expansions hung on it; the document's graph lists every
 #               level's (where two give one data id a shape: at one level the
 #               last written, as for its expansion; across levels the outer).
+#   kind        the document's `#%` system kind (sigil.core.kinds.Kind), as the
+#               walk read it once (Walk.kind); top level only (a body's graph
+#               keeps the defaults).
 #   role        what this graph is when it hangs off a node: "expansion"|"state".
 #   mods        a `state` machine's modifiers written after its `}` (`} @inv
 #               ordered(id)`): its own record of them; its owner node has them too.
@@ -269,6 +273,8 @@ class Graph:
     declarations: list = field(default_factory=list)
     # Data shapes: data id → (Field, …) (see "shapes" above).
     shapes: dict = field(default_factory=dict)
+    # The document's `#%` kind (top level only; see "kind" above).
+    kind: Kind = Kind()
 
 
 @dataclass(frozen=True)

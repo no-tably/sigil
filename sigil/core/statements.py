@@ -30,7 +30,7 @@ from bisect import bisect_left
 from dataclasses import dataclass
 from typing import NamedTuple, Optional
 
-from sigil.core.kinds import is_kind_line
+from sigil.core.kinds import Kind, is_kind_line, read_kind
 from sigil.core.dialects import DialectError, _hook
 from sigil.core.lex import (
     ALIAS_RE, ANY_GLYPH_RE, ARM_RE, ARROW_RE, BARE_BRANCH_RE, BLOCK_OPEN_RE,
@@ -288,7 +288,9 @@ class Walk(NamedTuple):
     blocks, `state` blocks, definition bodies, dialect declarations — as they
     close; `quoted`: the indices of the lines a block string's body consumed;
     `declared`: the indices of the lines a declaration holds (a `#&` line or a
-    dialect's opener, and its block's body), which no rule reads."""
+    dialect's opener, and its block's body), which no rule reads. `kind`: the
+    `#%` system kind (sigil.core.kinds.Kind, read here once from `lines`, with
+    every `#%` line as written); lint, check and the Graph read this record."""
     statements: tuple
     blocks: tuple
     headers: tuple
@@ -308,6 +310,7 @@ class Walk(NamedTuple):
     spans: tuple = ()
     quoted: frozenset = frozenset()
     declared: frozenset = frozenset()
+    kind: Kind = Kind()
 
 
 # ---------------------------------------------------------------------------
@@ -674,7 +677,8 @@ class _Walker:
                     tuple(self.headers), tuple(self.sections), tuple(self.transitions),
                     tuple(self.bare), tuple(self.continuations), self.defined, self.codes,
                     doc, lines, comments, bodies, folded.unterminated, self.lx, self.inner,
-                    tuple(self.spans), folded.quoted, frozenset(self.declared))
+                    tuple(self.spans), folded.quoted, frozenset(self.declared),
+                    read_kind(lines))
 
     # -- the document, line by line ----------------------------------------------
 

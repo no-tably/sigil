@@ -88,7 +88,7 @@ def lint_reading(text: str, dialect=None) -> Linted:
     lines = blank_lines(walk.lines, markers)
     mode = lint_mode_line(lines, result)
     lint_mode_not_first(lines, result)
-    lint_kind_line(lines, result)
+    lint_kind_line(walk.kind, lines, result)
     lint_holes_in_spec_mode(views, mode, result)
     lint_actor_as_state(views, state_lines(walk.doc), result)
     lint_prose_verbs(walk.statements, headers, result)
