@@ -18,7 +18,7 @@ from sigil.model import scene as scene_mod
 from sigil.model.sim.program import (
     Decide, Group, Limits, Program, Region, Scenario, Step, Trace, _alias_of, _decides,
     _detached, _flat, _gate_of, _guards, _home, _one_of_groups, _program_of, _pseudo, _running,
-    attempts, loop_count,
+    arm_entry, attempts, landing_arm, loop_count,
     mod, resilient, selected_routes)
 from sigil.model.sim.engine import _simulate
 from sigil.model.sim.narration import _Words
@@ -134,6 +134,7 @@ def _land_ctx(prog: Program, w, arm, scopes: frozenset) -> Optional[_Ctx]:
     if sn is not None and sn.node.kind == "actor":
         return None
     ui = prog.wire_unit.get(id(w), 0)
+    arm = landing_arm(prog, arm, w.dst)
     return _Ctx(ui if arm is not None else _home(prog, ui, w.dst), w.dst, arm,
                 _alias_of(prog, w), scopes)
 
@@ -275,17 +276,20 @@ def _activation(fl: _Flow, fails: dict, ctx: _Ctx) -> _Effect:
     if ctx.alias is not None:
         body = _entry_effect(fl, fails, ctx.alias[0], ctx.alias[1], ctx.scopes)
         return _merge(own, body)
-    at = _Place(ctx.node, ctx.arm, ctx.scopes, True)
     parts = [own]
-    exp = prog.expansions.get((ctx.ui, ctx.node))
-    if exp is not None and ctx.arm is None:
-        parts += [_entry_effect(fl, fails, exp, e, ctx.scopes) for e in prog.entries.get(exp, ())]
-    items = (prog.arm_bodies.get(ctx.arm, {}).get(ctx.node, ()) if ctx.arm
-             else _running(prog, prog.bodies.get((ctx.ui, ctx.node), ())))
-    parts.append(_walk(fl, fails, items, at))
-    if ctx.arm is None:
-        parts += [_branch_effect(fl, fails, ctx.ui, bi, ctx.scopes)
-                  for bi in prog.branches.get((ctx.ui, ctx.node), ())]
+    if ctx.arm is None or ctx.node != arm_entry(prog, ctx.arm):
+        ui = ctx.ui if ctx.arm is None else _home(prog, ctx.ui, ctx.node)
+        exp = prog.expansions.get((ui, ctx.node))
+        if exp is not None:
+            parts += [_entry_effect(fl, fails, exp, e, ctx.scopes)
+                      for e in prog.entries.get(exp, ())]
+        parts.append(_walk(fl, fails, _running(prog, prog.bodies.get((ui, ctx.node), ())),
+                           _Place(ctx.node, None, ctx.scopes, True)))
+        parts += [_branch_effect(fl, fails, ui, bi, ctx.scopes)
+                  for bi in prog.branches.get((ui, ctx.node), ())]
+    if ctx.arm is not None:
+        parts.append(_walk(fl, fails, prog.arm_bodies.get(ctx.arm, {}).get(ctx.node, ()),
+                           _Place(ctx.node, ctx.arm, ctx.scopes, True)))
     return _merge(*parts)
 
 

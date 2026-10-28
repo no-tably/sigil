@@ -472,15 +472,51 @@ def _place_decision(prog: Program, ui: int, bi: int, blocks: list, work: list) -
     mine = [w for w in work if b.parent is None or b.parent in _chain(w.block, blocks)]
     before = [w for w in mine if w.line < lo]
     after = [w for w in mine if w.line > hi]
-    if not before or not after:
+    if not before:
         return False
-    last, first = max(w.line for w in before), min(w.line for w in after)
-    following = {w.src for w in after if w.line == first}
-    src = next((w.src for w in before if w.line == last and w.src in following), None)
+    src = None
+    if after:
+        last, first = max(w.line for w in before), min(w.line for w in after)
+        following = {w.src for w in after if w.line == first}
+        src = next((w.src for w in before if w.line == last and w.src in following), None)
+    if src is None:
+        src = _subject_giver(prog, b, before)
     if src is None or (ui, src) not in prog.bodies:
         return False
     prog.bodies[(ui, src)] = _with_decide(prog.bodies[(ui, src)], Decide(ui, bi), b, blocks)
     return True
+
+
+_SUBJECT_GLYPH = re.compile(r"^\s*\{\s*([^{}]*?)\s*\}")
+
+
+def _subject_giver(prog: Program, b, before: list) -> Optional[str]:
+    """The source of the last flow written before branch b that gives its subject
+    (`{X}` of `branch on {X}.f`: it carries {X}, returns it or flows into {X})
+    and reaches the branch's owner (its source or its target is an arm's entry,
+    the node that acts in the arm). The branch decides in that source's body,
+    right after that flow; None when no such flow is written before it (the
+    branch stays an entry of its unit)."""
+    m = _SUBJECT_GLYPH.match(b.header or "")
+    if not m:
+        return None
+    glyph = re.compile(r"\{\s*" + re.escape(m.group(1)) + r"\s*\}")
+    names = {nid for nid, n in prog.unit_nodes.items()
+             if n.kind == "data" and n.name == m.group(1)}
+
+    owners = {ids[0] for _l, ids in b.arm_nodes if ids}
+
+    def gives(w) -> bool:
+        if w.src not in owners and w.dst not in owners:
+            return False
+        texts = (carried(w), returned(w), w.payload)
+        return w.dst in names or any(t and glyph.search(t) for t in texts)
+
+    giving = [w for w in before if gives(w)]
+    if not giving:
+        return None
+    last = max(giving, key=lambda w: (w.line, prog.order[id(w)]))
+    return last.src
 
 
 def _with_decide(items: tuple, d: Decide, b, blocks: list) -> tuple:
@@ -641,12 +677,16 @@ def _unit_entries(prog: Program, ui: int, wires: list) -> tuple:
     no header glyph at their position — ordered by line."""
     u = prog.units[ui]
     incoming = {w.dst for w in wires if w.src != w.dst}
-    arm_entries = {ids[0] for b in (getattr(u.graph, "blocks", None) or [])
-                   if b.kind == "branch" for _l, ids in b.arm_nodes if ids}
+    arm_entries = {}                    # arm entry → the first line of its branches
+    for b in (getattr(u.graph, "blocks", None) or []):
+        if b.kind == "branch":
+            for _l, ids in b.arm_nodes:
+                if ids:
+                    arm_entries[ids[0]] = min(arm_entries.get(ids[0], b.lines[0]), b.lines[0])
     cands = []
     for nid, n in u.graph.nodes.items():
         body = _flat(prog.bodies.get((ui, nid), ()))
-        if not body or nid in arm_entries:
+        if not body or (nid in arm_entries and body[0].line > arm_entries[nid]):
             continue
         if n.kind == "actor" or nid not in incoming:
             cands.append((body[0].line, prog.order[id(body[0])], nid))
@@ -654,6 +694,24 @@ def _unit_entries(prog: Program, ui: int, wires: list) -> tuple:
         if dui == ui:
             cands.append((u.graph.blocks[bi].lines[0], -1, did))
     return tuple(nid for _line, _k, nid in sorted(cands, key=lambda c: (c[0], c[1])))
+
+
+def arm_entry(prog: Program, arm: Optional[tuple]) -> Optional[str]:
+    """The node an arm ((ui, block index, label)) starts at: the one its branch
+    activates with the arm (it runs only its part of the arm)."""
+    if arm is None:
+        return None
+    ui, bi, label = arm
+    b = prog.units[ui].graph.blocks[bi]
+    return next((ids[0] for lab, ids in b.arm_nodes if lab == label and ids), None)
+
+
+def landing_arm(prog: Program, arm: Optional[tuple], nid: str) -> Optional[tuple]:
+    """The arm a token landing on nid from inside `arm` keeps: the arm when nid has
+    a part of its own in it (an arm wire out of nid), else None. An arm's call is a
+    call like any other: its callee runs its expansion, its body and its branches
+    in its home unit (_home), and then, inside the arm, its part of the arm."""
+    return arm if arm is not None and nid in prog.arm_bodies.get(arm, {}) else None
 
 
 def _nested(units: list, expansions: dict) -> dict:

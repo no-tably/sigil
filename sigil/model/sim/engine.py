@@ -17,8 +17,8 @@ from sigil.model.sim.program import (
     Decide, Frame, Group, Instance, Limits, Program, Region, Scenario, Step, Token, Trace, TriggerRef,
     _alias_of, _beneath, _declared_times, _detached, _flat, _gate_of, _guards, _home,
     _one_of_groups, _owned_stores, _program_of, _pseudo, _running, _select, _summed, _tally,
-    attempts, carried, instances, loop_count, mod, replayed, resilient, returned,
-    scaled, selected_routes)
+    arm_entry, attempts, carried, instances, landing_arm, loop_count, mod, replayed,
+    resilient, returned, scaled, selected_routes)
 
 
 CONVENTIONS = ("conventions: written order; entries one after another; ?> not taken "
@@ -633,18 +633,22 @@ class _Run:
         self._pop(task, act, "visited")
 
     def _body(self, task: _Task, act: _Act, arm):
-        """A node's own work in its unit: its expansion's entries, its body (or its
-        part of a branch arm), then the branches it heads."""
-        exp = self.prog.expansions.get((act.ui, act.node))
-        if exp is not None and arm is None:
-            for e in self.prog.entries.get(exp, ()):
-                yield from self._entry_gen(task, exp, e)
-        items = (self.prog.arm_bodies.get(arm, {}).get(act.node, ()) if arm
-                 else _running(self.prog, self.prog.bodies.get((act.ui, act.node), ())))
-        yield from self._items(task, items, arm)
-        if arm is None:
-            for bi in self.prog.branches.get((act.ui, act.node), ()):
-                yield from self._branch(task, act.ui, bi, act.node)
+        """A node's own work in its unit: its expansion's entries, its body, then
+        the branches it heads. An arm's entry runs only its part of the arm; any
+        other node reached inside an arm does its own work as when called from
+        anywhere (in its home unit), then its part of the arm (landing_arm)."""
+        if arm is None or act.node != arm_entry(self.prog, arm):
+            ui = act.ui if arm is None else _home(self.prog, act.ui, act.node)
+            exp = self.prog.expansions.get((ui, act.node))
+            if exp is not None:
+                for e in self.prog.entries.get(exp, ()):
+                    yield from self._entry_gen(task, exp, e)
+            yield from self._items(task, _running(self.prog, self.prog.bodies.get((ui, act.node), ())),
+                                   None)
+            for bi in self.prog.branches.get((ui, act.node), ()):
+                yield from self._branch(task, ui, bi, act.node)
+        if arm is not None:
+            yield from self._items(task, self.prog.arm_bodies.get(arm, {}).get(act.node, ()), arm)
 
     def _fire_routes(self, task: _Task, act: _Act, f: _Fail):
         """The failed activation's routes, in written order: those
@@ -793,6 +797,7 @@ class _Run:
             self._arrival(task, "base")
             yield ("turn",)
             return
+        arm = landing_arm(self.prog, arm, dst)
         ui = self._ui(w) if arm is not None else _home(self.prog, self._ui(w), dst)
         yield from self._activate(task, ui, dst, w.ident, arm, alias)
 
