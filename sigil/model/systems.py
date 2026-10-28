@@ -69,7 +69,12 @@ HOMES
   {X}.f {`; a branch arm's body; a store it borrows, `[P] @borrow(read) |S|`; a
   join's member) declares it neither: it is a reference as a flow end is, and
   also when another level writes it as a flow end (a borrow beside the
-  writer's flows). It
+  writer's flows). A level that names a node ONLY as a control block's subject
+  (`branch on {X}.f {`, `loop @each x of {Xs} {`: subject_only) reads it: it is
+  no candidate at all, and a node every level names only so is no component
+  (its home, if any, is where it is otherwise written; a shape written for it
+  keeps it a component). The parser keeps the node; only the export model
+  leaves it out. It
   is a reference too into a system nested under it that writes the node in any
   way (an end of that system's own flows as well): `(Client) -> [Transport]` at
   the top level with [Transport] written inside [Remote] homes it in Remote.
@@ -107,8 +112,11 @@ COMPONENTS
 
   One per node that is a service, store, event, actor or data glyph (or a kind
   a dialect adds); holes, aliases and states are none. Each has:
-  description   its `#` comments (render's notes about it), acknowledgements aside
-  interface     every flow in or out of it (Flow), with the peer, arrow, mode
+  description   its `#` comments (render's notes about it), acknowledgements aside;
+                for data, then the comments on its shape's fields (field_comments:
+                "`note?`: one line"), so they move its body hash, not its interface
+  interface     every flow in or out of it (Flow; a flow on from a `?>` guard's
+                data subject is the guard's caller's, guard_callers), with the peer, arrow, mode
                 (sync, async, return, failure, optional), payload, op, return,
                 the call's modifiers (its policy: retries, timeouts, fallbacks)
   requirements  modifiers written on it (`@inv` `@owns` `@read` `×N` `^N` …),
@@ -117,7 +125,9 @@ COMPONENTS
                 verbatim (a line it is on: an edge, access list, join or block
                 header naming it, or a statement it heads — a declaration, a
                 tree root, a `\\-` branch; never a glyph inside a payload or
-                an op's arguments)
+                an op's arguments), except one of a unit's own finding
+                (unit-cycle, large-unit) on a unit's header: that is the
+                unit's (System.accepts) and its face's (unit_acks)
   lifecycle     its state machine (states, initial, terminal, transitions)
   attrs         the metadata a dialect's tokenizer put on its node (Node.attrs;
                 core leaves it empty), its instances' merged, the first written
@@ -249,7 +259,8 @@ class System:
     internal: tuple                     # Flows with both ends in it
     blocks: tuple                       # (kind, header, mods) of its control blocks
     depends_on: tuple
-    accepts: tuple = ()                 # document-wide acknowledgements (top only)
+    accepts: tuple = ()                 # the top: the document-wide acknowledgements;
+                                        # an expansion: its own on its header (unit_acks)
     declarations: tuple = ()            # graph.Declared in its scope, document order
     shapes: tuple = ()                  # Shape of the data crossing it or its face's tree holds
     interface_hash: str = ""
@@ -294,36 +305,44 @@ class Model:
 
 class Accepted(NamedTuple):
     """One acknowledgement as the model keeps it: the lines it covers (`span`),
-    whether it covers the whole document, and its comment's text verbatim."""
+    whether it covers the whole document, its comment's text verbatim and the
+    rule names it gives."""
     span: frozenset
     document: bool
     text: str
+    names: tuple = ()
 
 
 def accepted(acks: Iterable, comments: Mapping) -> tuple:
-    """Each acknowledgement (objects with `line`, `span` and `document`, as
-    check.Ack) with the text of its comment, as [Accepted]. `comments`: the walk's
+    """Each acknowledgement (objects with `line`, `span`, `document` and, when
+    they have them, `names`, as check.Ack) with the text of its comment and its
+    rule names, as [Accepted]. `comments`: the walk's
     comments they were read from, {1-based line: (text, own_line)}
     (check.Doc.comments); the one place the two are paired. A line with no
     comment gives "" (it never holds an acknowledgement)."""
-    return tuple(Accepted(frozenset(a.span), a.document, comments.get(a.line, ("",))[0])
+    return tuple(Accepted(frozenset(a.span), a.document, comments.get(a.line, ("",))[0],
+                          tuple(getattr(a, "names", ())))
                  for a in acks)
 
 
 def model_of(graph, stem: str, accepts: Iterable[Accepted] = (),
-             kinds: Mapping = {}) -> Model:
+             kinds: Mapping = {}, field_notes: Mapping = {}) -> Model:
     """The model of a parsed document; `accepts`: its acknowledgements, each with
     its text (accepted(acks, comments)); `kinds`: the dialect's NODE_KINDS, whose
-    brackets its glyphs are written in."""
+    brackets its glyphs are written in; `field_notes`: the comments on its data
+    shapes' fields (field_comments(graph, reading)), each joining its data's
+    description."""
+    accepts = tuple(accepts)
     layout = lay_out(graph, stem)
-    nodes = component_nodes(graph)
+    nodes = {nid: insts for nid, insts in component_nodes(graph).items()
+             if nid not in layout.reads}
     actors = frozenset(nid for nid, insts in nodes.items() if insts[0].kind == "actor")
     homes, shared_at = resolve_homes(layout, actors)
     flows = collect_flows(graph, nodes)
     facts = Facts(graph, layout, homes, flows,
                   {nid: glyph([n], kinds) for g in walk(graph) for nid, n in g.nodes.items()},
                   tuple(accepts), kinds,
-                  nodes)
+                  nodes, field_notes, unit_acks(graph, layout, accepts))
     appears = merged(graph_lines(graph, nodes), head_lines(graph, nodes))
     components = {nid: make_component(nid, insts, appears[nid], facts)
                   for nid, insts in nodes.items()}
@@ -333,6 +352,34 @@ def model_of(graph, stem: str, accepts: Iterable[Accepted] = (),
                           components[nid].lines) for nid, cands in shared_at.items())
     untyped = untyped_flows(flows, components, inside)
     return Model(stem, layout.top, systems, components, shared, untyped)
+
+
+UNIT_RULES = frozenset({"unit-cycle", "large-unit"})   # rules whose finding is a
+                                        # unit's, acknowledged on its header (SGC176,
+                                        # SGC177: sigil.analyse.rules.structure)
+
+
+def unit_acks(graph, lay: "Layout", accepts: Iterable[Accepted]) -> dict:
+    """{Accepted: system key} of the acknowledgements of a unit's own findings
+    (every rule it names is one of UNIT_RULES) written on an expansion system's
+    header (`[U] := {   # accepts: unit-cycle — …`, on the line above it, or on
+    its `}`): what it accepts is about the unit, not about the members its span
+    covers. The export lists it on the unit's system (System.accepts) and on its
+    face's page, not as a requirement of each member written inside. Any other
+    acknowledgement on a unit's header (`unguarded-call` for every call in it)
+    covers its members' lines, so it stays each member's requirement, as on any
+    block. The top's face's expansion is no unit of its own (its members are the
+    top's): an acknowledgement on its header is copied onto its members."""
+    heads = {}
+    for g in walk(graph):
+        for line, nid in g.heads:
+            key = lay.by_face.get(nid)
+            if nid in g.expansions and key is not None \
+                    and lay.systems[key][1] == "expansion":
+                heads[line] = key
+    return {a: heads[min(a.span)] for a in accepts
+            if not a.document and a.names and set(a.names) <= UNIT_RULES
+            and len(a.span) > 1 and min(a.span) in heads}
 
 
 class Facts(NamedTuple):
@@ -345,6 +392,9 @@ class Facts(NamedTuple):
     accepts: tuple                      # Accepted, document order
     kinds: Mapping = {}                 # the dialect's NODE_KINDS
     nodes: Mapping = {}                 # node id → [Node instances], every component
+    field_notes: Mapping = {}           # data node id → its fields' comments
+    unit_acks: Mapping = {}             # a unit's own acknowledgement → its
+                                        # system key (unit_acks)
 
 
 # ---------------------------------------------------------------------------
@@ -379,6 +429,8 @@ class Layout:
                                         # such a reference where their header is: their
                                         # system nests under their home
     top_face: Optional[str] = None      # the service named as the top (top_face_of)
+    reads: frozenset = frozenset()      # nodes every level names only as a control
+                                        # block's subject (drop_reads): no component
 
 
 def lay_out(graph, stem: str) -> Layout:
@@ -387,11 +439,32 @@ def lay_out(graph, stem: str) -> Layout:
     lay = Layout(stem, {stem: (stem, "top", None, None)}, {}, {}, {}, {},
                  top_face=top_face_of(graph, stem))
     _lay_graph(graph, stem, lay)
+    read = drop_reads(lay)
     for nid, key in lay.shaped:         # written only where a shape is
         if not lay.candidates.get(nid):
             lay.candidates[nid] = [key]
     nest_headers(lay)
+    lay.reads = frozenset(nid for nid in read if not lay.candidates.get(nid))
     return renamed(lay, named_keys(lay))
+
+
+def drop_reads(lay: Layout) -> set:
+    """Take out of each node's candidates the levels that only read it as a
+    control block's subject (subject_only): a branch or loop decides on or walks
+    the node, it writes no part there. Returns the nodes that lost a candidate so
+    (those left with none, once a shape or expansion header has placed them, are
+    Layout.reads: no component)."""
+    read = set()
+    for nid, keys in list(lay.candidates.items()):
+        kept = [k for k in keys if lay.refs.get((nid, k)) != "subject"]
+        if len(kept) == len(keys):
+            continue
+        read.add(nid)
+        if kept:
+            lay.candidates[nid] = kept
+        else:
+            del lay.candidates[nid]
+    return read
 
 
 def top_face_of(graph, stem: str) -> Optional[str]:
@@ -452,6 +525,8 @@ def reference_only(g, nid: str) -> Optional[str]:
     flow_lines = {ln for e in g.edges if nid in (e.src, e.dst) for ln in (e.line, e.cont) if ln}
     if not flow_lines:
         named = not any(h == nid for _line, h in g.heads) and named_in_passing(g, nid)
+        if named and subject_only(g, nid):
+            return "subject"
         return "passing" if named else None
     sub, node = g.expansions.get(nid), g.nodes[nid]
     owner = sub is not None and sub.role != "state" and node.kind != "alias"
@@ -475,7 +550,23 @@ def named_in_passing(g, nid: str) -> bool:
             or any(nid in j.members for j in g.joins))
 
 
-REF_RANK = ("passing", "flow", "owner")  # how a level refers to a node, weakest first
+def subject_only(g, nid: str) -> bool:
+    """Whether g names node `nid` only as the subject of a control block's header
+    (`branch on {X}.f {`, `loop @each x of {Xs} {`, `loop @while |Q|.nonempty {`):
+    no arm's body, access list, join or expansion of g names it, and no owns
+    header (reference_only has already found no flow, statement or tree of g
+    naming it). Such a level READS the node: it is no candidate system for it
+    (lay_out), so a node every level names only so is no component at all."""
+    return (any(nid in b.refs for b in g.blocks if b.kind != "owns")
+            and not any(nid in b.refs for b in g.blocks if b.kind == "owns")
+            and not any(nid in nodes for b in g.blocks for _arm, nodes in b.arm_nodes)
+            and not any(nid in (a.principal, a.store) for a in g.access)
+            and not any(nid in j.members for j in g.joins)
+            and nid not in g.expansions)
+
+
+REF_RANK = ("subject", "passing", "flow", "owner")  # how a level refers to a node,
+                                        # weakest first
 
 
 def home_candidates(lay: Layout, nid: str) -> list:
@@ -758,13 +849,15 @@ def make_component(nid: str, insts: list, lines: tuple, facts: Facts) -> Compone
         id=nid, name=n.name, kind=n.kind, glyph=glyph(insts, facts.kinds),
         home=facts.homes.get(nid, lay.top),
         systems=tuple(lay.candidates.get(nid, (lay.top,))),
-        description=description(facts.graph, nid),
+        description=description(facts.graph, nid) + tuple(facts.field_notes.get(nid, ())),
         flows=tuple(f for f in facts.flows if nid in (f.src, f.dst)),
         modifiers=tuple(sorted({norm_mod(m) for i in insts for m in i.mods},
                                key=_mod_key)),
         access=granted_access(facts.graph, nid, facts.glyphs),
         accepts=tuple(a.text for a in facts.accepts
-                      if not a.document and set(lines) & a.span),
+                      if not a.document and set(lines) & a.span
+                      and facts.unit_acks.get(a, lay.by_face.get(nid)) ==
+                      lay.by_face.get(nid)),
         lifecycle=lifecycle(lay.machines.get(nid)),
         lines=lines,
         attrs=merged_attrs(insts),
@@ -788,6 +881,38 @@ def description(graph, nid: str) -> tuple:
     notes = sorted((n for g in walk(graph) for n in g.notes if n.node == nid),
                    key=lambda n: n.line)
     return _dedup(ws(n.text) for n in notes if not is_ack_text(n.text))
+
+
+def field_comments(graph, reading) -> dict:
+    """{data node id: texts} of the comments written on its shape's fields
+    (`{Entry} := {` then `note?   # one line`): a comment trailing a field line
+    reads "`note?`: one line", one on its own line above a field line is that
+    line's, one with no field line below it in the body is kept as written.
+    The parser keeps no note for a field (a field is no node), so they are read
+    off the document's reading (`reading`, sigil.core.statements.Walk). They join
+    the data's description: its body (and its home system's), not its interface
+    (a shape's fields enter interfaces by name only). Acknowledgements aside."""
+    comments = {**reading.inner, **reading.comments}
+    closes = {head: close for head, close in reading.spans}     # 1-based lines
+    out = {}
+    for g in walk(graph):
+        for head, nid in g.heads:
+            if not shape_owner(g, nid) or closes.get(head, head) <= head + 1:
+                continue
+            body = range(head, closes[head] - 1)               # 0-based body lines
+            texts = []
+            for k in body:
+                if k not in comments or is_ack_text(comments[k][0]):
+                    continue
+                text, own = comments[k]
+                line = k if not own else next(
+                    (j for j in body if j > k and reading.codes[j].text.strip()), None)
+                code = ws(reading.codes[line].raw) if line is not None else ""
+                texts.append(f"`{code}`: {ws(text)}" if code else ws(text))
+            if texts:
+                out.setdefault(nid, [])
+                out[nid] += [t for t in texts if t not in out[nid]]
+    return {nid: tuple(ts) for nid, ts in out.items()}
 
 
 def is_ack_text(text: str) -> bool:
@@ -884,16 +1009,40 @@ def merged(*found: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 def collect_flows(graph, nodes: dict) -> list:
-    """Every flow between two components, in document order."""
+    """Every flow between two components, in document order. A flow out of a
+    guard's subject is its caller's (guard_callers)."""
     out = []
     for g in walk(graph):
+        callers = guard_callers(g, nodes)
         for e in g.edges:
-            if e.src in nodes and e.dst in nodes:
-                out.append(flow_of(e))
+            src = callers.get((e.line, e.src), e.src) if e.kind != "?>" else e.src
+            if src in nodes and e.dst in nodes:
+                out.append(flow_of(e, src))
     return sorted(out, key=lambda f: f.line)
 
 
-def flow_of(e) -> Flow:
+def guard_callers(g, nodes: Mapping) -> dict:
+    """{(line, guard subject id): caller id} for each `?>` guard of g: in
+    `[Orch] ?> {Job}.ready -> [Builders] : build({Job})` the parser draws
+    `[Orch] ?> {Job}` and `{Job} -> [Builders]`, but the data glyph is the
+    condition, not a sender: the flow on from it, on the same line, is
+    [Orch]'s. A chain of guards (`[A] ?> {X}.f ?> {Y}.g -> [B]`) leads back to
+    its first source. Only a data subject is a condition (`[A] ?> [B] -> [C]`
+    is two hops)."""
+    into = {(e.line, e.dst): e.src for e in g.edges
+            if e.kind == "?>" and e.dst in nodes and g.nodes[e.dst].kind == "data"}
+    out = {}
+    for (line, subject), src in into.items():
+        seen = {subject}
+        while (line, src) in into and src not in seen:
+            seen.add(src)
+            src = into[(line, src)]
+        out[(line, subject)] = src
+    return out
+
+
+def flow_of(e, src: Optional[str] = None) -> Flow:
+    """Edge e as a Flow; `src`: its caller when that is not e.src (guard_callers)."""
     from sigil.model import scene
     call = scene.edge_call(e)
     payload = tight(e.payload) if e.payload else None
@@ -902,7 +1051,8 @@ def flow_of(e) -> Flow:
         text = "\n".join(ln.rstrip() for ln in e.block_string.strip("\n").splitlines())
         payload = payload.replace(BLOCK_SENTINEL, '"""…"""') if payload else None
     return Flow(
-        src=e.src, dst=e.dst, arrow=e.kind, line=e.line, payload=payload, text=text,
+        src=e.src if src is None else src, dst=e.dst, arrow=e.kind, line=e.line,
+        payload=payload, text=text,
         op=tight(call.op) if call and call.op else None,
         returns=tight(call.returns) if call and call.returns else None,
         external=bool(call and call.external),
@@ -953,6 +1103,10 @@ def make_systems(facts: Facts, components: dict, inside: dict) -> dict:
     document-wide acknowledgements."""
     lay, flows, graph = facts.lay, facts.flows, facts.graph
     doc_accepts = tuple(a.text for a in facts.accepts if a.document)
+    unit_accepts = {}
+    for a in facts.accepts:
+        if a in facts.unit_acks:
+            _add(unit_accepts, facts.unit_acks[a], a.text)
     deps = dependencies(lay, flows, inside,
                         frozenset(nid for nid, c in components.items() if c.kind == "actor"))
     out = {}
@@ -968,7 +1122,7 @@ def make_systems(facts: Facts, components: dict, inside: dict) -> dict:
                            if key in inside[f.src] and key in inside[f.dst]),
             blocks=system_blocks(graph, lay, key),
             depends_on=tuple(sorted(deps.get(key, ()))),
-            accepts=doc_accepts if kind == "top" else (),
+            accepts=doc_accepts if kind == "top" else tuple(unit_accepts.get(key, ())),
             declarations=system_declarations(graph, lay, key))
         holder = face if face is not None else lay.top_face if kind == "top" else None
         sysm = replace(sysm, shapes=shapes_of(

@@ -722,10 +722,13 @@ class TestMentionsInPassing(unittest.TestCase):
         self.assertEqual(m.shared, ())
         self.assertEqual(m.components["Text_service"].home, "Core")
 
-    def test_a_part_named_only_in_passing_still_has_a_home(self):
+    def test_a_part_named_only_as_a_subject_is_no_component(self):
+        # 0.6.9: a branch's or loop's subject is a read (tests/test_export_readings.py);
+        # a part named so and nowhere else is no part to build.
         text = "[Run] := {\n  branch on {Job}.state {\n    done => [A] -> [B] : {X}\n  }\n}\n"
         m = model(text, "t")
-        self.assertEqual(m.components["Job_data"].home, "Run")
+        self.assertNotIn("Job_data", m.components)
+        self.assertEqual(m.components["A_service"].home, "Run")
 
     def test_the_check_reads_no_home_error(self):
         from sigil.analyse import check

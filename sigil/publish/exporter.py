@@ -397,7 +397,8 @@ def system_md(key: str, form: dict, files: dict, folders: dict) -> str:
                                                for f in form.get("flows", [])))
         + section("Control blocks", blocks)
         + section("Depends on", deps, "Nothing.")
-        + section("Acknowledgements (document-wide)",
+        + section("Acknowledgements (document-wide)" if form["kind"] == "top"
+                  else "Acknowledgements (on its header)",
                   [f"- {a}" for a in form.get("accepts", [])])
     ).rstrip("\n") + "\n"
 
