@@ -610,3 +610,42 @@ view imports are named.
 The cross-cutting claims now match the code: the dialect, source and host trust boundaries,
 purity, and "one parser" as softened. The re-scanning readers it names stay on the cleanup
 list; they are code to move over time, not drift in the spec.
+
+## Round 9: limits in the document, and sigil's version (2026-10-28, 0.6.9)
+
+Two readings that cure and construct asked for. Today each of them keeps its limits outside
+its spec: construct's Exporter passes `--limit frames=300000 --limit activations=80000` and keys
+its exports on them, and a host's `frames draw` never passes a limit at all (a 0.6.1 leftover).
+Neither can tell which sigil wrote an export, except by the binary's path.
+
+What changed in the model:
+- **Kinds (Core):** a `name=N` word on the `#%` line is a limit: `#% daemon frames=300000`.
+  Kinds keeps the pairs as written, in order, and knows only their form. Which names exist
+  and what they bound stays Model's (Program's Limits). Round 8's move (a) carries the Kind on
+  the Walk and the Graph, so the limits ride with it.
+- **Program (Model):** the limits a run gets are, in order: the defaults (Floors, scaled to the
+  document's size), the document's limits, then `--limit` laid over them. A flag wins, raised
+  or lowered. One merge (`limits_for`) serves check, the export gate, view and frames, so a
+  host's pane runs the document's limits with no flag. Each limit remembers where it came
+  from (default, scaled, document, flag), and `check --json` prints it.
+- **Lint (Analyse):** a limit the sim's parser refuses (unknown name, value below 1, not
+  NAME=N) and a limit named twice. The message is `--limit`'s own, from the one validator.
+  The call into Model is named, not drawn: a drawn call into Model walks its whole run, which
+  cut this model's happy run at default limits (22272 frames in episode 4).
+- **Cli:** `sigil --version` prints one constant, `sigil.__version__`. A test keeps it equal to
+  plugin/meta.json, which packaging reads.
+- **Publish:** the manifest gains `"sigil": "X.Y.Z"`, the version that wrote it. It is in no
+  hash, so a new sigil marks nothing to rebuild; a builder that wants to re-export on a new
+  sigil compares the field itself.
+
+Choices made, with the reason:
+- The limits go on the `#%` line, not a line of their own. The line is already the document's
+  one statement about itself, read once after the mode line; a second marker would need its
+  own placement rules and its own lint. `=` tells a limit from a kind word.
+- A flag overrides rather than only raising. Lowering a limit to make a check quick is a
+  real use, and "the flag wins" is one rule to say.
+- No cap on document limits. A document can ask for a very long run; that costs its own
+  reader's time and memory, like `--limit` does. The playground keeps its own run budget.
+
+Readings: lint clean, sketch and spec checks clean (two acknowledged splits, as before), the
+happy run ends ok at default limits, no new unit cycle.

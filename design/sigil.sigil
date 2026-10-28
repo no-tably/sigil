@@ -73,7 +73,12 @@
 
 [Cli] -> |Source| : read({Path}) => {Text}          # FILE, or - for stdin: every command's text
 [Cli] -> [Core] : dialect({Name}) => {Hooks}        # every command's --dialect
-[Cli] -> [Model] : limits({Argv}) => {Limits}       # --limit, read by the sim's own parser (check, view, export, frames)
+# round 9: limits start from the document's `#%` line and --limit is laid over them (a flag
+# wins, raised or lowered); Model makes the one merge (sim.limits_for) for check, the export
+# gate, view and frames, so a host's `frames draw` runs the document's limits with no flag
+[Cli] -> [Model] : limits({Argv}) => {Limits}       # --limit pairs, validated by the sim's own parser, merged over the document's
+# round 9: `sigil --version` prints sigil's one version constant (sigil.__version__); a test
+# keeps it equal to plugin/meta.json, which packaging reads
 [Cli] -> [Analyse] : diagnose({Text}) => {Findings}
 [Cli] -> [Present] : draw({Text}) => {Drawing}
 [Cli] -> [Present] : highlight({Text}) => {Runs}
@@ -105,7 +110,7 @@
   [Parse] -> [Graph] : build({Statements}) => {Doc}            # nodes, wires, trees, blocks, gaps, header_only
   [Read] -> [Lex] : tokens({Line}) => {Tokens}                 # lex, vocab, tokens: the bracket and arrow tables
   [Read] -> [Dialects] : hooks({Name}) => {Hooks}              # prepasses, strips, tokenizers, `#&` declarations
-  [Read] -> [Kinds] : kind({Line}) => {Kind}                   # the `#%` line after the mode line: shape, reach, concurrency
+  [Read] -> [Kinds] : kind({Line}) => {Kind}                   # the `#%` line after the mode line: shape, reach, concurrency, limits (round 9)
   # round 7: a glyph name never holds a comma: `{a, b}` is a set (a value: Lex's set token,
   # no node), wherever it stands; a data expansion's bare names are its shape:
   # `{Doc} := { path, text, note? }` (field names, `?` optional, a glyph for a nested shape;
@@ -122,6 +127,9 @@
   # concurrency concurrent|deterministic; no line = the first of each (checks as before).
   # Each word names the rule groups it turns off: library entry+traffic, job traffic,
   # daemon ending, in-process network, deterministic concurrency; the Doc carries the Kind
+  # (round 8: read once, on the Walk and the Graph). Round 9: a `name=N` word on the line is
+  # a limit (`#% daemon frames=300000`): Kinds keeps the pairs as written, in order, and
+  # knows only their form; which names exist and what they bound is Model's (Program)
   [Kinds]
 }
 
@@ -152,8 +160,10 @@
     [Scenarios] -> [Narration] : tell({Trace}) => {Steps}        # beats, the log, run events
     [Engine] -> [Program] : compile({Scene}) => {Units}          # units, machines, triggers
     # Program: default frames and activations limits are max(floor, k × nodes+edges)
-    # (k 128 / 20, sim.sized); a given --limit wins. Scenarios and Narration read its records
-    # and limits too (not drawn).
+    # (k 128 / 20, sim.sized); a given limit is used as given. Given, in order: the
+    # document's `#%` limits, then --limit over them (round 9, limits_for; each limit
+    # remembers where it came from: default, scaled, document or flag). Scenarios and
+    # Narration read its records and limits too (not drawn).
     # the replay rule is the sim's (0.6.8, sim.replayed): a start's replayed events are marked
     # on the run, said as replayed in log and narration, and SGC203 reads the mark (no rule of its own)
     [Program]
@@ -168,10 +178,13 @@
   # round 7: a set as a flow's end, a bare name outside a data expansion, a field written twice
   # on the kind line: an unknown word, two words of one choice, a `#%` not after the
   # mode line; `deterministic` beside `parallel @any` or a `&?` race (a claim the design breaks)
+  # round 9: a limit on the kind line that the sim's parser refuses (an unknown name, a value
+  # below 1, not NAME=N), or one limit named twice; the message is --limit's own: Lint calls
+  # Model's validator, the one --limit uses (not drawn: a call into Model walks its whole run)
   [Lint] -> [Core] : read({Text}) => {Statements}
   # the work cap: 400 frames × max(budget, 256), counted over the overlap runs only
   [Check] -> [Core] : parse({Text}) => {Doc}
-  [Check] -> [Model] : explore({Scene}) => {Trace}             # runs within --budget and the work cap; deterministic: no overlap runs
+  [Check] -> [Model] : explore({Scene}) => {Trace}             # runs within --budget and the work cap; deterministic: no overlap runs; --json says where each limit came from
   [Check] -> [Rules] : match({Doc}) => {Hit}                   # and a dialect's rule pack (the dialect Core loaded)
   # check.RULE_GROUPS puts each rule in one group: global network concurrency traffic
   # ending entry (a dialect's rules: global). A group
@@ -190,7 +203,7 @@
 
 # what leaves sigil: the build skeleton (the export edge) and review charts
 [Publish] := {
-  [Exporter] -> [Analyse] : ready({Doc}) => {Gate}             # #!spec, lint clean, check --export spec clean, at --limit
+  [Exporter] -> [Analyse] : ready({Doc}) => {Gate}             # #!spec, lint clean, check --export spec clean, at the document's limits and --limit
   [Exporter] -> [Hashes] : form({Doc}) => {Manifest}           # per system and per component interface/body hash
   # Hashes: no line numbers, order, spacing or top name; `#&` declarations in the
   # body hash; a dialect's attrs as written; system.json adds lines per component and flow.
@@ -198,7 +211,8 @@
   # (a field added to {X} rechecks every part that sends or takes {X}); comments stay body only
   [Hashes] -> [Model] : systems({Doc}) => {Spine}
   [Hashes] -> [Analyse] : names({Name}) => {Catalog}           # check.CORE_NAMES, to read `# accepts:` lines
-  # manifest: top, dialect {name, version}, systems {interface, body, components,
+  # manifest: sigil (round 9: the version that wrote it; in no hash, so a new sigil marks
+  # nothing), top, dialect {name, version}, systems {interface, body, components,
   # component_hashes, depends_on, parent}; a re-export deletes only files the old manifest lists
   # recheck: a system it depends on changed its interface, or one an enclosing system depends on
   # outside itself (a nested system's members make up its owner, so they use the owner's dependencies)
