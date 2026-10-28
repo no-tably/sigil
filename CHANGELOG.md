@@ -2,7 +2,7 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
-## 0.6.8 — unreleased
+## 0.6.8 — 2026-10-28
 
 - **A field is never a node.** In a data shape, `{Meta}`, `{Meta}?` and `rows: {Row}` all name a
   nested shape and draw nothing, whether the shape is written on one line or several. To make a
