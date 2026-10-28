@@ -9,6 +9,7 @@ STATIC FACTS).
 
 from __future__ import annotations
 
+import hashlib
 import heapq
 import re
 from collections import Counter
@@ -1087,7 +1088,9 @@ class Exploration(NamedTuple):
     combinations whose run repeated an earlier one's (dropped); left_out: the
     combinations the budget left unrun (deeper ones built on them are not
     counted). A combination's Trace keeps only its last frame (its end and
-    outcome are what an exploration reads); the happy run keeps them all."""
+    outcome are what an exploration reads); the happy run keeps them all
+    (combinations' `keep_happy`). With combinations' `record`, each kept
+    Trace is stored as what record made of it instead."""
     traces: tuple
     duplicates: int
     left_out: int
@@ -1100,7 +1103,8 @@ def deviations(prog: Program, limits: Limits = Limits()) -> list:
             for opt, nm, label in zip(p.options[1:], p.names[1:], p.labels[1:])]
 
 
-def combinations(sc, k: int, *, limits: Limits = Limits(), budget: int = 256) -> Exploration:
+def combinations(sc, k: int, *, limits: Limits = Limits(), budget: int = 256,
+                 keep_happy: bool = True, record=None) -> Exploration:
     """The runs of up to k deviations at once, built from choice ids (never by
     name). Level 1 is every deviation; a combination grows by a deviation its
     own run depends on — one whose choice point the run meets at or after its
@@ -1108,11 +1112,19 @@ def combinations(sc, k: int, *, limits: Limits = Limits(), budget: int = 256) ->
     deviated path, or the deviation enabled it: machine state, gates and spawn
     counts outlive an episode). A run whose log and outcome repeat an earlier one's
     is dropped; at most `budget` runs are made (the happy run aside), and what
-    the budget cut is counted in left_out. Pure and deterministic."""
+    the budget cut is counted in left_out. Pure and deterministic.
+
+    What it keeps, not what it runs: `keep_happy` false keeps only the happy
+    run's last frame too; `record(trace)`, when given, is stored for each kept
+    run in place of its Trace (once its deeper combinations are read off it),
+    so a caller can keep a compact form; repeats are found by a digest of each
+    run's signature, not by its whole log."""
     prog = _program_of(sc.graph)
     devs = deviations(prog, limits)
-    happy = _simulate(prog, Scenario("happy", (), "every default: the happy path"), limits)
-    seen, kept = {_signature(happy)}, [happy]
+    keep = record or (lambda trace: trace)
+    happy = _simulate(prog, Scenario("happy", (), "every default: the happy path"), limits,
+                      keep_happy)
+    seen, kept = {signature_digest(_signature(happy))}, [keep(happy)]
     level = [(i,) for i in range(len(devs))] if k >= 1 else []
     runs = duplicates = 0
     for depth in range(1, k + 1):
@@ -1122,14 +1134,14 @@ def combinations(sc, k: int, *, limits: Limits = Limits(), budget: int = 256) ->
                 return Exploration(tuple(kept), duplicates, len(level) - n)
             runs += 1
             trace = _simulate(prog, _combined(devs, combo), limits, keep=False)
-            sig = _signature(trace)
+            sig = signature_digest(_signature(trace))
             if sig in seen:
                 duplicates += 1
                 continue
             seen.add(sig)
-            kept.append(trace)
             if depth < k:
                 grown += _grown(devs, combo, trace)
+            kept.append(keep(trace))
         level = list(dict.fromkeys(grown))
     return Exploration(tuple(kept), duplicates, 0)
 
@@ -1143,6 +1155,19 @@ def _combined(devs: list, combo: tuple) -> Scenario:
 
 def _signature(trace: Trace) -> tuple:
     return (trace.outcome, tuple(trace.end["log"]))
+
+
+def signature_digest(sig: tuple) -> bytes:
+    """A run signature (outcome, log lines) as a fixed-size digest: two runs
+    repeat each other when their digests are equal (each line is length-
+    prefixed, so no two signatures run together)."""
+    outcome, log = sig
+    h = hashlib.blake2b(digest_size=20)
+    for part in (outcome, *log):
+        b = part.encode("utf-8", "surrogatepass")
+        h.update(len(b).to_bytes(8, "little"))
+        h.update(b)
+    return h.digest()
 
 
 def _grown(devs: list, combo: tuple, trace: Trace) -> list:

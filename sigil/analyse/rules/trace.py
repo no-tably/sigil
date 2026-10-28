@@ -50,6 +50,12 @@ them, and two that run at once (an entry given a start tick) may race. Runs are
 deterministic and the analysis does not depend on the scheduler, so no
 interleaving search is needed (the overlap runs search start ticks, not orders).
 
+Memory. An exploration keeps each run compact (compact_run): what the rules
+read off its events (RunFacts, one walk as the run is made) in place of the
+event list and log, which `Run.events` makes again by replaying the run when
+asked. The clocks are copied only at the events the rules read (reads_clock),
+and repeats are found by a digest of each run's signature (Seen).
+
 Trace caps (catalog §1.2): a rule's trace findings cap at warn until every
 simulator fix it relies on is in FIXED; a fix joins FIXED only with a passing
 regression probe (tests/fixtures/checks/trace-fix-*.sigil, asserted by
@@ -116,9 +122,16 @@ def warn_only(rule_id: str, fixed: frozenset = FIXED) -> bool:
 
 
 class Run(NamedTuple):
+    """One explored run. An exploration keeps it compact (compact_run): `end`
+    without its event list and log, `facts` what the rules read off the events
+    (RunFacts), and `replay` to make the event list again when something asks
+    for it (the simulator is deterministic). A Run made by hand from a Trace's
+    end keeps its events in `end`, and its facts are read from them."""
     scenario: object         # sim.Scenario
-    end: dict                # Trace.end
+    end: dict                # Trace.end (compact: no "events", no "log")
     outcome: str
+    facts: Optional["RunFacts"] = None
+    replay: Optional[Callable] = None    # () -> the run's event list
 
     @property
     def k(self) -> int:
@@ -126,7 +139,9 @@ class Run(NamedTuple):
 
     @property
     def events(self) -> list:
-        return self.end.get("events", [])
+        if "events" in self.end or self.replay is None:
+            return self.end.get("events", [])
+        return self.replay()
 
 
 class Explored(NamedTuple):
@@ -163,18 +178,26 @@ def explore(sim, sc, k: int, budget: int, limits, overlaps="all",
     listed runs, one per machine state with a way out, so like the deviations
     only the budget bounds them. A run that repeats an earlier one's log and
     outcome is dropped."""
-    ex = sim.combinations(sc, k, limits=limits, budget=budget)
-    runs = tuple(Run(t.scenario, t.end, t.outcome) for t in ex.traces)
-    room = budget - (len(ex.traces) - 1 + ex.duplicates)
     simulate = lambda s: sim.simulate(sc, s, limits=limits, keep=False)
-    seen = {signature(r) for r in runs}
+    replay = lambda s: (lambda: simulate(s).end.get("events", []))
+    seen = Seen()
+
+    def kept(t) -> Run:
+        run = Run(t.scenario, t.end, t.outcome)
+        seen.add(signature(run))
+        return compact_run(run, replay(t.scenario))
+
+    ex = sim.combinations(sc, k, limits=limits, budget=budget, keep_happy=False, record=kept)
+    runs = tuple(ex.traces)
+    room = budget - (len(ex.traces) - 1 + ex.duplicates)
+    keep = lambda run: compact_run(run, replay(run.scenario))
     machines = sim.state_starts(sc) if states else []
-    st = run_new(simulate, machines, room, seen)
+    st = run_new(simulate, machines, room, seen, keep=keep)
     room -= len(machines) - st.left
     starts = ([] if overlaps == "off" else
               overlap_scenarios(sim, sc, runs[1:], limits, sweep=overlaps != "listed"))
     ran = run_new(simulate, starts, room if isinstance(overlaps, str) else min(room, overlaps),
-                  seen, work_cap(budget))
+                  seen, work_cap(budget), keep=keep)
     return Explored(runs + st.runs + ran.runs, ex.left_out, k, budget, sim.sized(limits, sc),
                     ran.left, ran.work, ran.work_cut, st.left,
                     tuple(s.name for s in machines[:len(machines) - st.left]))
@@ -247,6 +270,25 @@ def signature(run: Run) -> tuple:
     return run.outcome, tuple(run.end.get("log", ()))
 
 
+class Seen:
+    """A set of run signatures that holds each as its digest
+    (sim.signature_digest), not as the run's whole log."""
+
+    def __init__(self):
+        from sigil.model.sim.scenarios import signature_digest
+        self._digest = signature_digest
+        self._digests = set()
+
+    def add(self, sig: tuple) -> None:
+        self._digests.add(self._digest(sig))
+
+    def __contains__(self, sig: tuple) -> bool:
+        return self._digest(sig) in self._digests
+
+    def __len__(self) -> int:
+        return len(self._digests)
+
+
 class Ran(NamedTuple):
     """What run_new made: the new Runs, how many scenarios it left unrun, the
     frames its runs made, and whether the work cap (not the budget) stopped it."""
@@ -258,14 +300,17 @@ class Ran(NamedTuple):
 
 def frames_of(run: Run) -> int:
     """The frames a run made: its last event's tick, plus one (none: 0)."""
+    if run.facts is not None:
+        return run.facts.frames
     return max((e["t"] for e in run.events), default=-1) + 1
 
 
 def run_new(simulate: Callable, scenarios: list, budget: int, seen: set,
-            work: Optional[int] = None) -> Ran:
+            work: Optional[int] = None, keep: Callable = lambda run: run) -> Ran:
     """The Runs of `scenarios` whose signature `seen` lacks, in order: at most
     `budget` runs are made, and none once their frames reach `work` (None: no
-    cap; a repeated run's frames count too). `seen` grows."""
+    cap; a repeated run's frames count too). `seen` grows. Each new run is
+    kept as keep(run) (explore: compact_run)."""
     out, spent = [], 0
     for n, s in enumerate(scenarios):
         capped = work is not None and spent >= work
@@ -277,7 +322,7 @@ def run_new(simulate: Callable, scenarios: list, budget: int, seen: set,
         sig = signature(run)
         if sig not in seen:
             seen.add(sig)
-            out.append(run)
+            out.append(keep(run))
     return Ran(tuple(out), 0, spent)
 
 
@@ -306,17 +351,34 @@ def vector_clocks(events: list) -> list:
     point), a root's its own start; any other event's is its task's, after the
     synchronisation it makes (a `resume` joins its members' end clocks, a
     `gate-fire` every arrival's). Each event then ticks its task."""
-    clock, ended, gates, awaiting, out = {}, {}, {}, {}, []
-    for ev in events:
+    at = clocks_at(events, lambda ev: True)
+    return [at.get(i) for i in range(len(events))]
+
+
+def reads_clock(ev: dict) -> bool:
+    """The events whose clock the rules read: a trigger task's fork (its send),
+    a machine's transition or drop (deliveries) and a store access of a known
+    mode (accesses)."""
+    kind = ev["kind"]
+    return ((kind == "fork" and ev["why"] == "trigger") or kind in ("transition", "ignored")
+            or (kind == "access" and ev["mode"] != "unknown"))
+
+
+def clocks_at(events: list, wanted: Callable) -> dict:
+    """{event index: its clock} (as vector_clocks gives it) for the events of a
+    task that `wanted(event)` picks. The running clocks are kept as one walk
+    goes; a clock is copied only where it is wanted."""
+    clock, ended, gates, awaiting, out = {}, {}, {}, {}, {}
+    for i, ev in enumerate(events):
         task = ev["task"]
         if task is None:
-            out.append(None)
             continue
         kind = ev["kind"]
         if kind == "fork":
             parent = ev.get("parent")
             start = dict(clock.get(parent, {})) if parent is not None else {}
-            out.append(dict(start) if parent is not None else {task: 1})
+            if wanted(ev):
+                out[i] = dict(start) if parent is not None else {task: 1}
             start[task] = 1
             clock[task] = start
             if parent is not None:
@@ -329,7 +391,8 @@ def vector_clocks(events: list) -> list:
                 _join(mine, ended.get(m, {}))
         elif kind == "gate-fire":
             _join(mine, gates.get((ev["key"], ev["round"]), {}))
-        out.append(dict(mine))
+        if wanted(ev):
+            out[i] = dict(mine)
         if kind == "gate-arrive":
             _join(gates.setdefault((ev["key"], ev["round"]), {}), mine)
         elif kind == "end":
@@ -366,6 +429,7 @@ class Delivery(NamedTuple):
     accepted: bool
     at_send: bool            # a drop judged at send time, against the heading state
     replayed: bool = False   # a drop the run marks as a state start's replay (sim.replayed)
+    t: Optional[int] = None  # the tick of its transition / drop
 
 
 def sender_of(task: int, event: str, forks: dict, at: int) -> tuple:
@@ -379,10 +443,11 @@ def sender_of(task: int, event: str, forks: dict, at: int) -> tuple:
     return task, at
 
 
-def deliveries(events: list, clocks: list) -> list:
+def deliveries(events: list, clocks) -> list:
     """Every delivery of the run, in the order the machines took them. A trigger
     task's delivery was sent at its fork; a drop before any trigger (no
-    transition matched) was sent by the delivering task, where it happened."""
+    transition matched) was sent by the delivering task, where it happened.
+    `clocks[i]` is event i's clock (vector_clocks, or clocks_at by reads_clock)."""
     forks = {e["task"]: (i, e) for i, e in enumerate(events) if e["kind"] == "fork"}
     sent, out = {}, []
     for i, ev in enumerate(events):
@@ -399,7 +464,7 @@ def deliveries(events: list, clocks: list) -> list:
             accepted = kind == "transition"
             out.append(Delivery(ev["owner"], ev["label"], clock, sender, at, i,
                                 ev["src"] if accepted else ev["state"], accepted,
-                                at_send and not accepted, bool(ev.get("replayed"))))
+                                at_send and not accepted, bool(ev.get("replayed")), ev["t"]))
     return out
 
 
@@ -498,7 +563,7 @@ class Access(NamedTuple):
     t: int = 0               # its tick
 
 
-def accesses(events: list, clocks: list) -> list:
+def accesses(events: list, clocks) -> list:
     """The run's store accesses with a known mode (a rule that needs a write
     never fires on `unknown`), in event order. A failed attempt counts (RFC 0003 Q13)."""
     return [Access(e["task"], e["episode"], e["store"], e["mode"], e["wire"],
@@ -560,6 +625,71 @@ def clashes(acc: list, self_concurrent: frozenset, together: frozenset = frozens
 
 
 # ---------------------------------------------------------------------------
+# What the rules read off one run's events, kept instead of them
+# ---------------------------------------------------------------------------
+
+STOPS_ESCAPING = ("entry", "unawaited")     # a failure stopped a task's root unrouted
+
+
+class RunFacts(NamedTuple):
+    """What the rules read off one run's events, read in one walk (run_facts):
+    the deliveries and accesses with their clocks (only those events' clocks
+    are made), the episodes' entries (episode_entries) and the pairs running
+    together (running_together), its frames (frames_of) and last tick, each
+    `limit` event with the entry of the episode running then
+    (the latest entry fork before it), the first event index of each failure origin, the
+    index of the last stop that leaves a task's root unrouted, and the wires
+    its routes fired."""
+    deliveries: tuple
+    accesses: tuple
+    entries: dict
+    together: frozenset
+    frames: int
+    last: Optional[int]
+    limits: tuple            # (limit event, entry running then) in event order
+    first_fail: dict         # {origin: first fail index}
+    last_escape: int         # index of the last STOPS_ESCAPING stop (-1: none)
+    routes: frozenset        # wire idents of its `route` events
+
+
+def run_facts(events: list) -> RunFacts:
+    """The RunFacts of one run's events."""
+    clocks = clocks_at(events, reads_clock)
+    limits, first_fail, routes = [], {}, set()
+    entry, last_escape = None, -1
+    for i, e in enumerate(events):
+        kind = e["kind"]
+        if kind == "fork" and e["why"] == "entry":
+            entry = e["node"]
+        elif kind == "limit":
+            limits.append((e, entry))
+        elif kind == "fail":
+            first_fail.setdefault(e["origin"], i)
+        elif kind == "stop" and e["how"] in STOPS_ESCAPING:
+            last_escape = i
+        elif kind == "route":
+            routes.add(e["wire"])
+    return RunFacts(tuple(deliveries(events, clocks)), tuple(accesses(events, clocks)),
+                    episode_entries(events), running_together(events),
+                    max((e["t"] for e in events), default=-1) + 1,
+                    events[-1]["t"] if events else None, tuple(limits), first_fail,
+                    last_escape, frozenset(routes))
+
+
+def facts_of_run(run: Run) -> RunFacts:
+    """A run's RunFacts: kept with it (compact_run), else read from its events."""
+    return run.facts if run.facts is not None else run_facts(run.events)
+
+
+def compact_run(run: Run, replay: Optional[Callable] = None) -> Run:
+    """`run` as an exploration keeps it: its RunFacts, its end without the
+    event list and the log (signature reads the log before), and `replay` to
+    make the events again."""
+    end = {key: v for key, v in run.end.items() if key not in ("events", "log")}
+    return Run(run.scenario, end, run.outcome, run_facts(run.events), replay)
+
+
+# ---------------------------------------------------------------------------
 # What one document's runs show, computed once
 # ---------------------------------------------------------------------------
 
@@ -590,17 +720,15 @@ class TraceFacts:
     def runs(self) -> tuple:
         return self.explored.runs
 
-    @cached_property
-    def clocks(self) -> list:
-        return [vector_clocks(r.events) for r in self.runs]
-
-    @cached_property
+    @property
     def deliveries(self) -> list:
-        return [deliveries(r.events, c) for r, c in zip(self.runs, self.clocks)]
+        """Each run's deliveries (kept with the run: RunFacts)."""
+        return [facts_of_run(r).deliveries for r in self.runs]
 
-    @cached_property
+    @property
     def accesses(self) -> list:
-        return [accesses(r.events, c) for r, c in zip(self.runs, self.clocks)]
+        """Each run's accesses (kept with the run: RunFacts)."""
+        return [facts_of_run(r).accesses for r in self.runs]
 
     @cached_property
     def wires(self) -> dict:
@@ -612,7 +740,7 @@ class TraceFacts:
 
     def self_concurrent(self, run: Run) -> frozenset:
         """The episodes of a run whose entry has concurrent callers (RFC 0003 Q10)."""
-        return frozenset(ep for ep, node in episode_entries(run.events).items()
+        return frozenset(ep for ep, node in facts_of_run(run).entries.items()
                          if node is not None and self.state.many_callers(node))
 
     def principal(self, w) -> str:
@@ -641,16 +769,6 @@ def trace_hit(ck, run: Run, line: int, statement: str, ask: str, **kw):
     return ck.Hit(line, statement, ask, k=run.k, witness=run.scenario.name, trace=True, **kw)
 
 
-def tick_of(run: Run, index: int) -> Optional[int]:
-    """The tick of the run's event at `index`."""
-    events = run.events
-    return events[index]["t"] if 0 <= index < len(events) else None
-
-
-def last_tick(run: Run) -> Optional[int]:
-    return run.events[-1]["t"] if run.events else None
-
-
 # ---------------------------------------------------------------------------
 # SGC203 event-ignored and SGC205 ordering-unstated (trace half)
 # ---------------------------------------------------------------------------
@@ -672,7 +790,8 @@ def machine_line(m) -> int:
 def per_machine(tf: TraceFacts):
     """(machine view, run, its deliveries in taken order, their reorderings) for
     every machine every run delivers to, in run then machine order."""
-    for run, ds in zip(tf.runs, tf.deliveries):
+    for run in tf.runs:
+        ds = facts_of_run(run).deliveries
         for owner in dict.fromkeys(d.owner for d in ds):
             m = tf.machines.get(owner)
             if m is None:
@@ -688,7 +807,7 @@ def ignored_hit(ck, st, m, run: Run, d: Delivery):
         f"`{d.label}` reaches `{o}` while it is `{s}` and is dropped {in_run(run)}",
         f"`{d.label}` reaches `{o}` while it is `{s}`. Should it be ignored, or is a "
         "transition missing?",
-        anchor=("machine", m.owner), scopes=st.machine_scopes(m, d.state), at=tick_of(run, d.index),
+        anchor=("machine", m.owner), scopes=st.machine_scopes(m, d.state), at=d.t,
         fix=(f"the self-loop `$ -{d.label}-> $` to ignore it on purpose, or a "
              f"`+ -{d.label}-> …` that begins a new record" if s == "$" else
              f"a transition `{s} -{d.label}-> …`, a `_ -{d.label}-> …` wildcard, or the "
@@ -766,7 +885,7 @@ def ordering_hits(ck, doc):
         shows = pairs[0].second if pairs else early[0]
         yield trace_hit(ck, run, machine_line(m), statement, ask,
                         anchor=("machine", m.owner), scopes=st.machine_scopes(m),
-                        at=tick_of(run, shows.index),
+                        at=shows.t,
                         fix=f"`@inv ordered(key)` on `{m.owner_glyph}` or its events, or "
                             "transitions for both orders")
 
@@ -817,8 +936,9 @@ def race_hits(ck, doc):
     """SGC204 (trace): one hit per writing wire, with its first witness."""
     tf = trace_facts(ck, doc)
     st, f, seen = state_rules, tf.state, set()
-    for run, acc in zip(tf.runs, tf.accesses):
-        for c in clashes(acc, tf.self_concurrent(run), running_together(run.events)):
+    for run in tf.runs:
+        rf = facts_of_run(run)
+        for c in clashes(list(rf.accesses), tf.self_concurrent(run), rf.together):
             w = tf.wires.get(c.writer.wire)
             if w is None or c.other.wire not in tf.wires or w.ident in seen \
                     or resolved(st, f, c):
@@ -928,7 +1048,7 @@ def stall_text(oj: OpenJoin, run: Run, label) -> tuple:
 def stall_hit(ck, oj: OpenJoin, run: Run, label):
     statement, ask = stall_text(oj, run, label)
     return trace_hit(ck, run, oj.line, statement, ask, anchor=("node", oj.waiter),
-                     scopes=(("join", ":".join(map(str, oj.key))),), at=last_tick(run))
+                     scopes=(("join", ":".join(map(str, oj.key))),), at=facts_of_run(run).last)
 
 
 def node_namer(sc, node_label):
@@ -1137,15 +1257,6 @@ def budget_cause(ck):
     return match
 
 
-def episode_entry_at(events: list, index: int) -> Optional[str]:
-    """The entry of the episode running at event `index`."""
-    node = None
-    for e in events[:index + 1]:
-        if e["kind"] == "fork" and e["why"] == "entry":
-            node = e["node"]
-    return node
-
-
 def cut_limit_fix(name: str) -> str:
     """The fix for a run cut at limit `name`: raise it until nothing is cut."""
     return (f"raise --limit {name}=N until no run is cut, or acknowledge on the "
@@ -1163,11 +1274,10 @@ def cut_cause(ck):
         for run in tf.runs:
             if run.outcome != "cut":
                 continue
-            for i, e in enumerate(run.events):
-                if e["kind"] != "limit" or e["name"] not in run_limits or e["name"] in seen:
+            for e, entry in facts_of_run(run).limits:
+                if e["name"] not in run_limits or e["name"] in seen:
                     continue
                 seen.add(e["name"])
-                entry = episode_entry_at(run.events, i)
                 line = (tf.state.line_of(entry) if entry else 0) or first_line(doc)
                 limits = limits_text(tf.explored.limits, run_limits)
                 yield trace_hit(ck, run, line,
@@ -1186,8 +1296,8 @@ def spawn_cause(ck):
     def match(doc):
         tf, seen = trace_facts(ck, doc), set()
         for run in tf.runs:
-            for e in run.events:
-                if e["kind"] == "limit" and e["name"] == "spawns" and e["node"] not in seen:
+            for e, _entry in facts_of_run(run).limits:
+                if e["name"] == "spawns" and e["node"] not in seen:
                     seen.add(e["node"])
                     g = tf.state.g(e["node"])
                     limits = limits_text(tf.explored.limits, ("spawn", "spawns"))
@@ -1222,8 +1332,8 @@ def bound_cause(ck):
     def match(doc):
         tf, seen = trace_facts(ck, doc), set()
         for run in tf.runs:
-            for e in run.events:
-                if e["kind"] != "limit" or not e.get("node"):
+            for e, _entry in facts_of_run(run).limits:
+                if not e.get("node"):
                     continue
                 for head, limit, event in BOUND_LIMITS:
                     n = declared_bound(tf.state, e["node"], head)
@@ -1271,8 +1381,8 @@ def limit_at_cycle(name: str) -> Callable:
         members = set(dict(h.scopes).get("scc", "").split("|")) - {""}
         if not members:
             return None
-        return lambda run: any(e["kind"] == "limit" and e["name"] == name
-                               and e.get("node") in members for e in run.events)
+        return lambda run: any(e["name"] == name and e.get("node") in members
+                               for e, _entry in facts_of_run(run).limits)
     return shows_hit
 
 
@@ -1290,10 +1400,9 @@ def failure_escapes(h):
         return None
 
     def shows(run):
-        evs = run.events
-        failed = [i for i, e in enumerate(evs) if e["kind"] == "fail" and e["origin"] == origin]
-        return bool(failed) and any(e["kind"] == "stop" and e["how"] in ("entry", "unawaited")
-                                    for e in evs[failed[0]:])
+        rf = facts_of_run(run)
+        first = rf.first_fail.get(origin)
+        return first is not None and rf.last_escape >= first
     return shows
 
 
@@ -1311,10 +1420,8 @@ def route_stays_quiet(guards: dict):
             return None
         origins = {("call", ident) for _c, ident in g[1]}
         ident = h.anchor[1]
-        return lambda run: (any(e["kind"] == "fail" and e["origin"] in origins
-                                for e in run.events)
-                            and not any(e["kind"] == "route" and e["wire"] == ident
-                                        for e in run.events))
+        return lambda run: (not origins.isdisjoint(facts_of_run(run).first_fail)
+                            and ident not in facts_of_run(run).routes)
     return shows_hit
 
 
