@@ -143,6 +143,8 @@
   # Homes (0.6.4): a level that names a part only in its flows is never its home when
   # another level declares it (any level, not only an enclosing one); with no
   # declaration anywhere the outer level still homes it (never homeless).
+  # A branch's or loop's subject is a read (0.6.9): a level naming a part only so is none
+  # of its systems; a part every level names only so is no component.
   # The root (0.6.4): a top-level service named as the top (by slug), rooting a tree or owning an expansion, is the top
   # (one system, its members homed at the top), never a second system beside it.
   # Dependencies (0.6.4): a flow whose payload names a homed data glyph makes both
@@ -209,6 +211,10 @@
   # body hash; a dialect's attrs as written; system.json adds lines per component and flow.
   # round 7: a component's interface hash covers the shapes of the data its flows carry
   # (a field added to {X} rechecks every part that sends or takes {X}); comments stay body only
+  # 0.6.9: a flow on from a `?>` guard's data subject is the guard caller's; a comment on a
+  # shape's field joins its data's description (body hash, never the interface); an ack of a
+  # unit's own finding (unit-cycle, large-unit) on its header is the unit's system's and its
+  # face's, not its members'
   [Hashes] -> [Model] : systems({Doc}) => {Spine}
   [Hashes] -> [Analyse] : names({Name}) => {Catalog}           # check.CORE_NAMES, to read `# accepts:` lines
   # manifest: sigil (round 9: the version that wrote it; in no hash, so a new sigil marks
