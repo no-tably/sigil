@@ -35,7 +35,8 @@ from sigil.core.dialects import DialectError, _hook
 from sigil.core.lex import (
     ALIAS_RE, ANY_GLYPH_RE, ARM_RE, ARROW_RE, BARE_BRANCH_RE, BLOCK_OPEN_RE,
     BRANCH_ANY_RE, BRANCH_PARENT_RE, BRANCH_RE, DEFINE_RE, DIALECT_COL, EXPANSION_OPEN_RE,
-    CLOSERS, GLYPH_PREFIXES, GLYPH_RE, LOOP_HEAD_RE, OPENERS, SCOPE_HEAD_RE, SECTION_RE,
+    CLOSERS, COMMENT_START_RE, GLYPH_PREFIXES, GLYPH_RE, LOOP_HEAD_RE, OPENERS,
+    SCOPE_HEAD_RE, SECTION_RE,
     DECLARATION_MARK, DECLARATION_RE, STATE_HEAD_RE, STATE_OPEN_RE, close_at, comment_start,
     declaration_name, fold_block_strings, in_string, is_mode_line, mask_strings, net_braces)
 from sigil.core.tokens import (
@@ -487,11 +488,19 @@ def collect_comments(lines: list, marker) -> dict:
     comment the same way (lines below it at its column continue it); at the
     line's own column, under a block opener, or above a continuation line (an
     arrow first: the statement goes on below it), it stays a header for what
-    follows, as before. A `# accepts:` line never continues one nor starts one."""
+    follows, as before. A `# accepts:` line never continues one nor starts one.
+    A `#&` declaration line holds no comment but the acknowledgement trailing it
+    (_declaration_ack); nothing continues that one."""
     out, root, col = {}, None, None     # the trailing comment being continued
     bare = None                         # (index, first column) of a bare statement line
     inside = _above_a_continuation(lines, marker)
     for k, line in enumerate(lines):
+        if DECLARATION_MARK in line and declaration_name(line) is not None:
+            ack = _declaration_ack(line, marker)
+            if ack is not None:
+                out[k] = (ack, False)
+            root, bare = None, None
+            continue
         c = _comment_at(line, marker)
         if c is None:
             root = None
@@ -511,6 +520,26 @@ def collect_comments(lines: list, marker) -> dict:
         out[k] = (text, own)
         root, col = (None, None) if own else (k, at)
     return out
+
+
+def _declaration_ack(line: str, marker) -> Optional[str]:
+    """The acknowledgement trailing a `#&` declaration line (`#& name {   #
+    accepts: rule — reason`): the text of its first comment (a `#`, or one of the
+    dialect's markers, outside a `"…"` string and past the leading `#&`) that
+    reads `accepts:`, or None. The line is the dialect's otherwise — its text,
+    comments included, stays the declaration's body (statements.declaration_body)
+    and makes no note — but an acknowledgement is core's, and covers the
+    declaration (its block, when it opens one) as one written above it does."""
+    lead = DECLARATION_RE.match(line).end()
+    hits = [m for m in COMMENT_START_RE.finditer(line, lead)
+            if not in_string(line, m.start())]
+    if marker:
+        hits += [m for m in marker.finditer(line, lead) if not in_string(line, m.start())]
+    for m in sorted(hits, key=lambda h: h.start()):
+        text = line[m.end():].strip()
+        if _ACK_LEAD_RE.match(text):
+            return text
+    return None
 
 
 def _above_a_continuation(lines: list, marker) -> set:
