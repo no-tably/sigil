@@ -3,8 +3,17 @@
 # sigil's toolchain: one package, one direction only:
 # text -> tokens -> document -> scene -> runs -> findings / drawings / exports.
 # Each expansion is a layer (a subpackage); a layer calls only the layers above
-# it. One parser is the source of truth: lint reads its tokens and statements,
-# it does not scan text again. One command, `sigil`, with a subcommand per tool.
+# it. One parser: Core's walk is the one reading of sigil text, and every reader takes
+# its lines, statements and tokens from it. Some readers still re-scan the text the walk
+# hands them (lint's modifier, payload and permission rules, kit's modifier text,
+# highlight's payloads and branch interiors, scene's op and return, systems' tight(),
+# inv's `@inv` text, check's SGC004 prose): the cleanup list, each to move into Core.
+# One command, `sigil`, with a subcommand per tool (and one debug entry in Core, below).
+# `#% job` is a simplification: the live view, `frames follow` and `highlight --stream`
+# loop until stopped (daemon-shaped); the kind keeps the ending rules of the one-shot commands.
+# Drawn: every flow between units, and each part's main calls in its unit. A part's other
+# imports inside its own unit are named in a comment on it, not drawn: each drawn call is
+# walked once per caller, and this model's happy run ends at default limits (a test pins it).
 # Structural changes are modelled here before they are built (CLAUDE.md, 2026-10-20).
 
 --- who uses it ---
@@ -12,22 +21,32 @@
 # the people and programs that run `sigil` are drawn inside [Cli], at the command each
 # one runs: the agent that follows the skill is the main user (craft, refine, check, export).
 # The skill asks the user the system's kind once (`#%`); it never writes one to quiet a finding
+
 (Visitor) -> [Playground] : play({Text}) => {Drawing}
+# accepts: shared-writable-store — a person and the agent take turns on one file; sigil never writes it
+|Source|                                            # the .sigil file: a person or the agent writes it, sigil only reads it
+(Author) -> |Source| : edit({Text})                 # the live view redraws on a save
+(Agent) -> |Source| : edit({Text})                  # craft and refine write the spec
 
 --- trust boundaries: what crosses each ---
 
-# dialect: Python code from a path, $SIGIL_DIALECT_PATH or ../sigil-NAME, executed inside
-#   lint, check, view and export (prepasses, strips, tokenizers, `#&` declarations, rules, rule packs)
+# dialect: Python code named by --dialect NAME|PATH or $SIGIL_DIALECT (the default), found
+#   on $SIGIL_DIALECT_PATH or as ../sigil-NAME; executed in every command but themes (lint,
+#   check, view, export, frames, highlight) and on each `--stream` {"dialect"} request read
+#   from stdin (prepasses, strips, tokenizers, `#&` declarations, rules, rule packs)
 # themes: YAML from themes/ or $SIGIL_THEME_PATH, or a PATH; values are strings, no code
 #   or the theme a loaded dialect names (THEME), read the same way: still data, no code
+# source: the .sigil file (or stdin), read by Cli, the live view (polled) and frames; never written
 # export folder: written and deleted under the manifest rule (below, Publish)
-# hosts: argv on a spawned `sigil`; the split's control file names the argv `sigil view` runs
+# hosts: argv on a spawned `sigil`; the split's control file, in a private directory follow
+#   checks before it reads (owner, mode), names the argv `sigil view` runs; follow writes its
+#   heartbeat there and removes the directory on exit
 # Pyodide: the visitor's text only; no files, no dialect, no export
 
 --- the one entry point: flags in, one layer called, output out ---
 
+# each command imports its layer only when it runs; every one but themes takes --dialect
 [Cli] := {
-  # each command imports its layer only when it runs; every one but themes takes --dialect
   (Agent) -> [LintCmd] : craft({Argv}) => {Findings}          # after each change: lint --deep
   (Agent) -> [ViewCmd] : refine({Argv}) => {Reading}          # --sim all, --structure, --once views
   (Agent) -> [CheckCmd] : ready({Argv}) => {Findings}         # check --mode spec --export before an export
@@ -44,18 +63,25 @@
   [FramesCmd] -> [Present] : frames({Text}) => {Frames}       # sigil frames draw (packed rows for the hosts, --limit)
   [ThemesCmd] -> [Present] : theme({Name}) => {Palette}       # sigil themes
   [HighlightCmd] -> [Present] : highlight({Text}) => {Runs}  # sigil highlight FILE|- (--json: each line's runs, role and colour; else ANSI)
-  [Follow] -> |Control| : read({Argv}) => {Argv}              # sigil frames follow CONTROL: polled, a change restarts the view
+  # accepts: shared-writable-store — split by file: the host writes control.json, follow only .alive (and removes both on exit)
+  [Follow] -> |Control| : read({Argv}) => {Argv}              # sigil frames follow CONTROL: polled, a change restarts the view; refused if another user owns it or can write it
+  [Follow] -> |Control| : beat({Pid})                         # CONTROL.alive, every second: the host sees the split is live
+  [Follow] -> |Control| : remove({Path})                      # on exit: CONTROL, .alive, the zellij layout, the private directory
   [Follow] ~> [ViewCmd] : spawn({Argv})                       # a child `sigil view` with that argv (--dialect included)
-  (Host) -> |Control| : write({Argv})                         # $TMPDIR/sigil-view-<uuid>.json, the split's request
+  (Host) -> |Control| : write({Argv})                         # $TMPDIR/sigil-view-XXXXXXXXXX/control.json (mktemp -d: 0700, the file 0600), the split's request
 }
 
+[Cli] -> |Source| : read({Path}) => {Text}          # FILE, or - for stdin: every command's text
 [Cli] -> [Core] : dialect({Name}) => {Hooks}        # every command's --dialect
+[Cli] -> [Model] : limits({Argv}) => {Limits}       # --limit, read by the sim's own parser (check, view, export, frames)
 [Cli] -> [Analyse] : diagnose({Text}) => {Findings}
 [Cli] -> [Present] : draw({Text}) => {Drawing}
 [Cli] -> [Present] : highlight({Text}) => {Runs}
 [Cli] -> [Publish] : export({Text}) => {Delta}
 [Playground] -> [Present] : frames({Doc}) => {Frames}     # Pyodide imports the package, less NOT_IN_PLAYGROUND
 [Playground] -> [Analyse] : diagnose({Doc}) => {Findings} # check budget CHECK_RUNS
+[Playground] -> [Core] : parse({Text}) => {Doc}           # the visitor's text, autoclosed
+[Playground] -> [Model] : run({Scene}) => {Trace}         # the scenario list and the player's scene
 
 --- the spine: each layer calls only the layers above it ---
 
@@ -71,48 +97,38 @@
 
 --- the layers ---
 
+# text in, one document out. Core's walk is the one reading of sigil text; pure but for
+# the dialect load, and the debug entry `python3 -m sigil.core.dialects [NAME]`, which
+# loads a dialect and prints its name
 [Core] := {
-  # text in, one document out. The only code that reads sigil text; pure but for the dialect load.
   [Parse] -> [Read] : walk({Text}) => {Statements}            # one reading: lines, statements, tokens (line and column)
+  [Parse] -> [Graph] : build({Statements}) => {Doc}            # nodes, wires, trees, blocks, gaps, header_only
   [Read] -> [Lex] : tokens({Line}) => {Tokens}                 # lex, vocab, tokens: the bracket and arrow tables
   [Read] -> [Dialects] : hooks({Name}) => {Hooks}              # prepasses, strips, tokenizers, `#&` declarations
   [Read] -> [Kinds] : kind({Line}) => {Kind}                   # the `#%` line after the mode line: shape, reach, concurrency
-  [Parse] -> [Graph] : build({Statements}) => {Doc}            # nodes, wires, trees, blocks, gaps, header_only
+  # round 7: a glyph name never holds a comma: `{a, b}` is a set (a value: Lex's set token,
+  # no node), wherever it stands; a data expansion's bare names are its shape:
+  # `{Doc} := { path, text, note? }` (field names, `?` optional, a glyph for a nested shape;
+  # no types), carried on the Doc as shapes
+  # not drawn (imports in Core): Parse and Comments call Lex's lexicon, modifier scan and
+  # line tests; Lex reads a dialect's tokenizer hooks (the dialect Dialects loaded); Lex and
+  # Read build Graph's Node, and Graph reads Lex's bracket table
+  [Lex]
+  # a comment-only line whose `#` sits under the previous line's trailing `#`
+  # continues that comment (its node's note); `# accepts:` never continues
   [Comments] -> [Graph] : notes({Doc}) => {Notes}              # notes and `# accepts:` (scene, check, kit, export read them)
   [Dialects] -> (Dialect) : load({Path}) => {Hooks}            # imports Python: the widest trust boundary
   # Kinds: a table, no rules. Shape service|library|daemon|job, reach networked|in-process,
   # concurrency concurrent|deterministic; no line = the first of each (checks as before).
   # Each word names the rule groups it turns off: library entry+traffic, job traffic,
   # daemon ending, in-process network, deterministic concurrency; the Doc carries the Kind
-  # a comment-only line whose `#` sits under the previous line's trailing `#`
-  # continues that comment (its node's note); `# accepts:` never continues
-  # round 7: a glyph name never holds a comma: `{a, b}` is a set (a value: Lex's set token,
-  # no node), wherever it stands; a data expansion's bare names are its shape:
-  # `{Doc} := { path, text, note? }` (field names, `?` optional, a glyph for a nested shape;
-  # no types), carried on the Doc as shapes
+  [Kinds]
 }
 
+# what the design means and how it runs; pure
 [Model] := {
-  # what the design means and how it runs; pure
   [Scene] -> [Core] : parse({Text}) => {Doc}                   # wires, roles, notes, joins, access, writers
   [Sim] -> [Scene] : scene({Doc}) => {Scene}
-  [Systems] -> [Scene] : edges({Doc}) => {Spine}               # the export model: systems, homes (a flow-only reference is no home; never homeless), interfaces
-  [Structure] -> [Systems] : units({Doc}) => {Spine}           # `view --structure`: units, cycles, up, edge, reach
-  [Structure] -> [Sim] : canonical({Doc}) => {Scene}           # writers per store, as check counts them
-  [Sim] := {
-    # the run: deterministic, no values computed
-    [Scenarios] -> [Engine] : run({Scenario}) => {Trace}        # happy, deviations, overlaps (Entry@t), starts in a state (Owner=State)
-    # the replay rule is the sim's (0.6.8): a start's replayed events are marked on the run, said
-    # as replayed in log and narration, and SGC203 reads the mark (no rule of its own)
-    [Engine] -> [Program] : compile({Scene}) => {Units}          # units, machines, triggers
-    [Scenarios] -> [Narration] : tell({Trace}) => {Steps}        # beats, the log, run events
-    # Starts in a state (0.6.5): a scenario part `Owner=State` begins that owner's machine
-    # in State (any state its block names, reached or not); parts combine with `+` as
-    # Entry@t does, so every reader of a scenario name takes it. Listed: one per state
-    # with a way out other than the initial one, after the overlaps, within the scenario limit
-    # Program: default frames and activations limits are max(floor, k × nodes+edges)
-    # (k 64 / 20, sim.sized); a given --limit wins
-  }
   # Systems: an expansion written at the top for a member of another unit nests
   # under that unit; an actor makes no system dependency and is never no-home;
   # a component first written at the top stays homed at the top.
@@ -123,16 +139,39 @@
   # (one system, its members homed at the top), never a second system beside it.
   # Dependencies (0.6.4): a flow whose payload names a homed data glyph makes both
   # ends' systems depend on that glyph's system, as a flow to it does
+  [Systems] -> [Scene] : edges({Doc}) => {Spine}               # the export model: systems, homes (a flow-only reference is no home; never homeless), interfaces
+  [Structure] -> [Systems] : units({Doc}) => {Spine}           # `view --structure`: units, cycles, up, edge, reach
+  [Structure] -> [Sim] : canonical({Doc}) => {Scene}           # writers per store, as check counts them (it builds that scene itself: not drawn)
+  # the run: deterministic, no values computed
+  [Sim] := {
+    # Starts in a state (0.6.5): a scenario part `Owner=State` begins that owner's machine
+    # in State (any state its block names, reached or not); parts combine with `+` as
+    # Entry@t does, so every reader of a scenario name takes it. Listed: one per state
+    # with a way out other than the initial one, after the overlaps, within the scenario limit
+    [Scenarios] -> [Engine] : run({Scenario}) => {Trace}        # happy, deviations, overlaps (Entry@t), starts in a state (Owner=State)
+    [Scenarios] -> [Narration] : tell({Trace}) => {Steps}        # beats, the log, run events
+    [Engine] -> [Program] : compile({Scene}) => {Units}          # units, machines, triggers
+    # Program: default frames and activations limits are max(floor, k × nodes+edges)
+    # (k 128 / 20, sim.sized); a given --limit wins. Scenarios and Narration read its records
+    # and limits too (not drawn).
+    # the replay rule is the sim's (0.6.8, sim.replayed): a start's replayed events are marked
+    # on the run, said as replayed in log and narration, and SGC203 reads the mark (no rule of its own)
+    [Program]
+  }
 }
 
+# diagnosis: lint (form) and checks (meaning), in two records: lint's Diagnostic (Core's
+# vocab) and check's Finding; they meet only as text lines (lint --deep)
 [Analyse] := {
-  # diagnosis: lint (form) and checks (meaning), one finding shape
-  [Lint] -> [Core] : read({Text}) => {Statements}             # rules over tokens and statements, and a dialect's lint rules
+  # rules over the walk's lines, statements and tokens, and a dialect's lint rules; some
+  # still re-scan a line's text (modifiers, `<-`, the SGL095 race, payloads, permissions)
   # round 7: a set as a flow's end, a bare name outside a data expansion, a field written twice
-  # Lint on the kind line: an unknown word, two words of one choice, a `#%` not after the
+  # on the kind line: an unknown word, two words of one choice, a `#%` not after the
   # mode line; `deterministic` beside `parallel @any` or a `&?` race (a claim the design breaks)
+  [Lint] -> [Core] : read({Text}) => {Statements}
+  # the work cap: 400 frames × max(budget, 256), counted over the overlap runs only
   [Check] -> [Core] : parse({Text}) => {Doc}
-  [Check] -> [Model] : explore({Scene}) => {Trace}             # runs within --budget and the work cap (400 frames a run × budget); deterministic: no overlap runs
+  [Check] -> [Model] : explore({Scene}) => {Trace}             # runs within --budget and the work cap; deterministic: no overlap runs
   [Check] -> [Rules] : match({Doc}) => {Hit}                   # and a dialect's rule pack (the dialect Core loaded)
   # check.RULE_GROUPS puts each rule in one group: global network concurrency traffic
   # ending entry (a dialect's rules: global). A group
@@ -146,40 +185,46 @@
       \-> [InvRules]
       \-> [ExportRules]     # SGC401, SGC402: only with --export (not in the playground)
       \-> [StructureRules]  # SGC176 unit-cycle, SGC177 large-unit: read Structure; in every check where shipped (not the playground)
+  [TraceRules] -> [StateRules] : facts({Doc}) => {Spine}       # the shared static facts
 }
 
+# what leaves sigil: the build skeleton (the export edge) and review charts
 [Publish] := {
-  # what leaves sigil: the build skeleton (the export edge) and review charts
   [Exporter] -> [Analyse] : ready({Doc}) => {Gate}             # #!spec, lint clean, check --export spec clean, at --limit
   [Exporter] -> [Hashes] : form({Doc}) => {Manifest}           # per system and per component interface/body hash
+  # Hashes: no line numbers, order, spacing or top name; `#&` declarations in the
+  # body hash; a dialect's attrs as written; system.json adds lines per component and flow.
+  # round 7: a component's interface hash covers the shapes of the data its flows carry
+  # (a field added to {X} rechecks every part that sends or takes {X}); comments stay body only
   [Hashes] -> [Model] : systems({Doc}) => {Spine}
   [Hashes] -> [Analyse] : names({Name}) => {Catalog}           # check.CORE_NAMES, to read `# accepts:` lines
-  [Exporter] -> [Delta] : compare({Manifest}) => {Changes}     # added removed rebuild recheck unchanged, renamed top
+  # manifest: top, dialect {name, version}, systems {interface, body, components,
+  # component_hashes, depends_on, parent}; a re-export deletes only files the old manifest lists
   # recheck: a system it depends on changed its interface, or one an enclosing system depends on
   # outside itself (a nested system's members make up its owner, so they use the owner's dependencies)
+  [Exporter] -> [Delta] : compare({Manifest}) => {Changes}     # added removed rebuild recheck unchanged, renamed top
   # accepts: shared-writable-store — split by file: an export writes and deletes only the files its manifest names, a builder only its own
   [Exporter] -> |ExportDir| : read({Manifest}) => {Manifest}   # untrusted: names a slug check before any delete
-  [Exporter] -> |ExportDir| : write({Files})                   # changed files only; delta.json, then manifest last
-  # no lock: two exports into one DIR at once are not ordered
+  [Exporter] -> |ExportDir| : write({Files})                   # changed files only; delta.json, then manifest last; no lock: two exports into one DIR are not ordered
   (Builder) -> |ExportDir| : add({Files})                      # a builder's own files: an export never touches them
   [Mermaid] -> [Core] : parse({Text}) => {Doc}                 # any mode, no gate; an unlisted dialect kind → core shape
   [Spine] -> [Model] : systems({Doc}) => {Spine}               # --spine: a subgraph per system
   [Spine] -> [Mermaid] : chart({Doc}) => {Chart}
-  # round 7: a component's interface hash covers the shapes of the data its flows carry
-  # (a field added to {X} rechecks every part that sends or takes {X}); comments stay body only
-  # Hashes: no line numbers, order, spacing or top name; `#&` declarations in the
-  # body hash; a dialect's attrs as written; system.json adds lines per component and flow
-  # manifest: top, dialect {name, version}, systems {interface, body, components,
-  # component_hashes, depends_on, parent}; a re-export deletes only files the old manifest lists
+  [Spine] -> [Hashes] : slugs({Name}) => {Name}                # a subgraph per system, named by its folder slug
 }
 
+# drawing in cells: the kit and themes, the four views, the app, frames, highlight
+# planned base: the vendored cure library (/home/ian/workspace/projects/cure); not built yet
 [Present] := {
-  # drawing in cells: the kit and themes, the four views, the app, frames
-  # planned base: the vendored cure library (/home/ian/workspace/projects/cure); not built yet
-  [App] -> [Views] : compose({Scene}) => {Drawing}             # keys, pan, sim player, findings overlay
+  # the live view: keys, pan, sim player, findings overlay; it puts the terminal in raw mode
+  # and uses the kit directly too (the screen, the panels, the theme: not drawn)
+  [App] -> |Source| : poll({Path}) => {Text}                   # reads FILE itself, again on each save (mtime, size)
+  [App] -> [Views] : compose({Scene}) => {Drawing}
   [App] -> [Model] : run({Scene}) => {Trace}                   # and --structure's reading
   [App] -> [Analyse] : findings({Doc}) => {Findings}
-  [Frames] -> [App] : compose({Scene}) => {Drawing}            # packed rows for pane, pi, playground
+  [Frames] -> |Source| : read({Path}) => {Text}                # frames draw reads FILE itself
+  [Frames] -> [App] : compose({Scene}) => {Drawing}            # packed rows for pane, pi, playground: the app's layout pick
+                                                               # it composes the tree, flow and run views and the kit itself too (not drawn)
   [Views] -> [Kit] : cells({Drawing}) => {Canvas}
   [Kit] -> [Analyse] : lint({Text}) => {Diagnostics}           # the lint summary under every drawing
   [Kit] -> [Themes] : theme({Name}) => {Palette}
@@ -194,7 +239,7 @@
   [Highlight] -> [Themes] : theme({Name}) => {Palette}         # the theme's syntax roles (operator, keyword, modifier …)
   [Themes] -> |ThemeFiles| : read({Yaml}) => {Yaml}
   [Themes] -> [Core] : dialect({Name}) => {Hooks}             # a dialect's THEME (a theme name, or a YAML path beside the dialect): the default when no --theme is given
-  (Author) -> |ThemeFiles| : edit({Yaml})                      # themes/ beside the package, $SIGIL_THEME_PATH, or a PATH
+  (Author) ~> |ThemeFiles| : edit({Yaml})                      # themes/ beside the package, $SIGIL_THEME_PATH, or a PATH: a save, no answer
   # read once per run, whole: a theme applies only once it parses and resolves, so a save
   # caught half-written stops the run (exit 2), never draws half a theme
   |ThemeFiles| @inv atomic(theme)

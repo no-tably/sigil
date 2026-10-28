@@ -447,3 +447,166 @@ along the existing [Rules] -> [Model] facts flow: `sim.replayed` is the one defi
 run marks each replayed drop, the log and narration say "replayed", and SGC203 reads the mark.
 No new module, flow or dependency; recorded after the fact (the task's plan called it a fix).
 Equal on all 110 machine-state pairs in the corpus; construct's check output byte-identical.
+
+## Round 8: the spec catches up (2026-10-28, 0.6.9)
+
+The input is the distance report, measured on v0.6.7. It has 59 rows: 34 MATCH, 14 DRIFT,
+9 DRIFT-minor, 1 MISSING and 1 EXTRA, a strict distance of 0.42 and a material distance of 0.27.
+I re-read each claim on main (v0.6.8) before drawing it. 0.6.8 moved only the replay rule, which
+was already in the model, so every row still held. No code changed in this round. The model
+moved to the code, except for two rows where the code should move instead; those are the
+proposals below.
+
+What changed in the model:
+- **Header:**
+  - "Core is the only reader / lint does not scan text again" becomes "Core's walk is the one
+    reading". The header names the readers that still re-scan the text the walk hands them:
+    lint, kit, highlight, scene, systems' tight(), inv and check's SGC004 (the cleanup list).
+  - The `#% job` comment says job is a simplification: the live view, `frames follow` and
+    `highlight --stream` loop until stopped. The kind itself is unchanged.
+  - A drawing rule: every flow between units and each part's main calls are drawn. A part's
+    other imports inside its own unit are named in a comment on that part, not drawn (see
+    "Why some imports are named, not drawn").
+- **Trust boundaries:**
+  - dialect: it is named by `--dialect` or by `$SIGIL_DIALECT` (the default), and runs in every
+    command but themes. It also runs on each `--stream` `{"dialect"}` request read from stdin.
+  - source (new line): the .sigil file is read by Cli, the live view (polled) and frames;
+    sigil never writes it.
+  - hosts: the control file sits in a private directory that follow checks. Follow writes a
+    heartbeat there and removes the directory on exit.
+- **|Source|** (new store, declared at the top so the top is its home):
+  - (Author) and (Agent) edit it, acknowledged under SGC131: they take turns, and sigil never
+    writes it.
+  - [Cli], [App] (which polls it) and [Frames] read it.
+- **[Follow]** gains `beat({Pid})` (CONTROL.alive every second), `remove({Path})` (on exit),
+  and the owner/mode refusal.
+- **|Control|** gets its real path, `$TMPDIR/sigil-view-XXXXXXXXXX/control.json` (0700/0600).
+  It is acknowledged as split by file: the host writes control.json, follow only .alive.
+- **Flows across layers:** `[Cli] -> [Model] : limits` (`sim.limits_from`),
+  `[Playground] -> [Core] : parse` and `[Playground] -> [Model] : run`.
+- **Units:**
+  - New drawn flows: [TraceRules] -> [StateRules] (the shared static facts) and
+    [Spine] -> [Hashes] (`slugs`).
+  - Named, not drawn:
+    - in Core: Parse and Comments call Lex; Lex reads a dialect's tokenizer hooks; Lex and Read
+      build Graph's Node; Graph reads Lex's bracket table;
+    - [Structure] builds its own scene;
+    - Scenarios and Narration read Program;
+    - [App] uses the kit;
+    - [Frames] composes the tree, flow and run views and the kit itself.
+- **Present:**
+  - [App]'s comment says it puts the terminal in raw mode.
+  - [Frames]'s comment no longer says it goes only through App.
+- **Core:** the debug entry `python3 -m sigil.core.dialects [NAME]` is named in Core's comment.
+- **Program:** its limits read k 128 / 20 (was 64). The replay-rule note moved onto [Program]
+  (`sim.replayed` lives in program.py).
+- **Analyse:**
+  - it has two records: lint's Diagnostic and check's Finding, which meet only as text (lint --deep);
+  - the work cap is 400 × max(budget, 256), counted over overlap runs only.
+- **SGC402 at the export gate:** the flow is now `(Author) ~> |ThemeFiles| : edit({Yaml})`, a
+  save with no answer. A `=> {Yaml}` return also passed the gate, but `view --structure` then
+  counted no writer of |ThemeFiles|; `~>` keeps (Author) as its writer.
+- **Comments placed where they belong in the export:**
+  - Each layer comment now sits above its `[X] := {`, so it describes that layer. Before, it
+    landed on the layer's first component: "one finding shape" on [Lint], "the run:
+    deterministic" on [Scenarios], the cure plan on [App].
+  - Lint's round-7 and kind-line notes moved off [Check] and onto [Lint]; the work cap is on [Check].
+  - Notes that were dropped at the end of a block now sit on their part, through a bare
+    declaration where no flow starts there: [Kinds], [Lex], [Program], [Systems] and [Hashes].
+  - Publish's `# accepts:` no longer folds into an [Exporter] description, and "no lock" is on
+    the export's write.
+
+Why some imports are named, not drawn: I first drew every intra-unit import as a flow.
+- Measured on the happy run (`--limit frames=10^6`; Cli's episode against its default limit of
+  about 22k):
+
+  | drawing | happy run frames | Cli's episode |
+  |---|---|---|
+  | every import drawn | 107k | — |
+  | Graph -> Lex left out | 89k | 77k |
+  | App/Frames -> Kit also left out | 61k | 53k |
+  | this model | 21.5k | 18.5k |
+
+- The cost multiplies because every command reaches Core, and Kit reaches lint and Core again,
+  so each call drawn inside a deep unit is walked once per caller.
+- `tests/test_sim_limits.py` (MetaModel) pins that this model's happy run ends at default
+  limits, so the full drawing fails it.
+- Graph -> Lex also made a Lex↔Graph cycle, which check reads as SGC151 unbounded recursion.
+  It is an import of a constant, not a call.
+- So the model names those imports in a comment on the part. Every cross-unit flow is drawn.
+- If the method should count only drawn flows, the fix is in the sim (a default that follows
+  call depth, not only size) or in the test, not in this model.
+
+Readings (main, v0.6.8 tool):
+
+| reading | before | after |
+|---|---|---|
+| `sigil lint design/sigil.sigil` | OK | OK |
+| `sigil check` (sketch) | OK, 0 findings | OK, 0 findings (0 hidden; `--all` also 0) |
+| `check --mode spec` | 1 info (SGC090 overlap hint), 1 ack | 1 info (same hint), 3 acks (SGC131: ExportDir, Source, Control) |
+| `#!spec` copy, `check --export` | **error SGC402** at `(Author) -> \|ThemeFiles\|` (gate refused) | 0 error, 0 warn, 1 info; `export --out` writes 10 systems |
+| `view --structure` | 10 units: 0 cycles, 2 up, 1 edge part, 3 pass-throughs, 0 over 9, 0 in two units, 1 multi-writer store | 10 units: 0 cycles, **4 up**, 1 edge part, 3 pass-throughs, 0 over 9, 0 in two units, **3 multi-writer stores** |
+| `--sim all` | 4 rows, 4 ok, happy 19782 frames | 10 rows, 10 ok, happy 21464 frames |
+| `tests.test_sim_limits` (MetaModel) | OK | OK |
+
+- The two new up-flows are Cli → sigil and Present → sigil. Both are reads of the top's |Source|.
+- The two new multi-writer stores are |Source| and |Control|, each acknowledged.
+- There are 10 sim rows because (Author) and (Agent) are now entries at the top.
+
+Proposals (code moves, each to settle with the user; until then the model draws them as below):
+1. **(a) The kind on the parsed document.**
+   - What the model says: `[Read] -> [Kinds] : kind({Line}) => {Kind}`, and "the Doc carries
+     the Kind".
+   - What the code does: Read only skips the `#%` line (`statements.py` `is_kind_line`). Check
+     re-reads it from raw lines (`check.read_kind(lines)`, `check.py:1107`), and lint reads it
+     on its own (`lint/lines.py:284-320`).
+   - The move:
+     - Read parses the kind line once into `Walk.kind`, and Graph carries it (`Graph.kind`).
+     - check takes `doc.graph.kind`.
+     - lint's SGL093/094/095 read the walk's kind and its line.
+   - This is one reading in Core, with no new module or flow. It makes [Read] and [Kinds] MATCH.
+   - Cost: small (kinds.py already has the table). Outputs are unchanged, and tests pin
+     SGL093–095 and the off-group summary.
+2. **(b) Highlight owns its theme and its stream.**
+   - What the model says: `[Highlight] -> [Themes]`.
+   - What the code does: `cli.py` loads the theme (`themes.load`/`chosen`, `:1001`), writes the
+     role → colour output (`runs_json`, `ansi_line`, `:820-826`) and runs the whole `--stream`
+     session (`StreamSession`, `_stream_dialect`, `:879-931`).
+   - The move:
+     - Move those into `present/highlight.py`, so that it calls Themes itself.
+     - [HighlightCmd] then only parses argv, reads FILE or stdin, and hands the session
+       stdin/stdout.
+     - The session uses `highlight.edit()`. Today only tests call it, and `--stream` highlights
+       exactly the lines a client sends; after the move, the model's "re-highlights from the
+       changed line until the carry state matches" is what runs.
+     - The dialect switch stays a Core load, the same trust boundary that is already drawn.
+   - This makes [Highlight] and [HighlightCmd] MATCH.
+   - Cost: about 250 lines move, with no new dependency. Present gains a stdin/stdout loop,
+     which the live view already has. The JSON lines protocol is unchanged, and the tests compare it.
+
+Distance after the round. The rows are re-classified by the report's method; there are 60 rows,
+the 59 plus |Source|. "Named" means an intra-unit import stated in a comment on its part but
+not drawn: DRIFT-minor by the strict method, MATCH if the model's own drawing rule is accepted.
+
+| status | v0.6.7 report | after round 8 | after moves (a) and (b) |
+|---|---|---|---|
+| MATCH | 34 | 46 | 50 |
+| DRIFT | 14 | 4: [Read], [Kinds] (move a); [Highlight], [HighlightCmd] (move b) | 0 |
+| DRIFT-minor (named) | 9 | 9: [Parse], [Comments], [Lex], [Graph], [Structure], [Scenarios], [Narration], [App], [Frames] | 9 |
+| MISSING | 1 | 1: the cure base (planned; the model says so) | 1 |
+| EXTRA | 1 | 0 (`python3 -m sigil.core.dialects` is named in Core) | 0 |
+| strict distance | 0.42 | 14/60 = **0.23** | 10/60 = **0.17** |
+| material distance | 0.27 | 5/60 = **0.08** | 1/60 = **0.02** |
+| strict, named imports counted as MATCH | — | 5/60 = 0.08 | 1/60 = 0.02 |
+
+The rows that now MATCH:
+- [Playground], [Cli], [Analyse], [Follow], |Control|, [Program] and [Lint];
+- [Check], [TraceRules] and [Spine];
+- the EXTRA debug entry, and the new |Source|.
+
+[App] and [Frames] move from DRIFT to minor: their file reads are drawn, and only their kit and
+view imports are named.
+
+The cross-cutting claims now match the code: the dialect, source and host trust boundaries,
+purity, and "one parser" as softened. The re-scanning readers it names stay on the cleanup
+list; they are code to move over time, not drift in the spec.
