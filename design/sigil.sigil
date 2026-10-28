@@ -247,9 +247,10 @@
   # of a line joined give the line back, and text that does not lint still highlights
   # live editing: a line's runs depend only on that line and the carry state it starts in
   # (inside a `#&` body or a continued comment), so an edit re-highlights from the changed
-  # line until the carry state matches the old one; IDE grammars in highlight/ are tested
+  # line until the carry state matches the old one (--stream: the client does, asking for the
+  # lines it needs; the server holds no document); IDE grammars in highlight/ are tested
   # against these runs (one corpus), so construct and an IDE colour a file alike
-  [Highlight] -> [Core] : read({Text}) => {Statements}         # tokens with their columns, `#&` and `#%` lines included
+  [Highlight] -> [Core] : read({Text}) => {Statements}         # tokens with their columns, `#&` and `#%` lines included; a --stream {"dialect"} request loads through Core too (not drawn)
   [Highlight] -> [Themes] : theme({Name}) => {Palette}         # the theme's syntax roles (operator, keyword, modifier …)
   [Themes] -> |ThemeFiles| : read({Yaml}) => {Yaml}
   [Themes] -> [Core] : dialect({Name}) => {Hooks}             # a dialect's THEME (a theme name, or a YAML path beside the dialect): the default when no --theme is given
