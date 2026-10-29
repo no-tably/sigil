@@ -222,5 +222,18 @@ class TestCommandLine(unittest.TestCase):
         self.assertIn("--limit 'bogus': unknown", res.stderr)
 
 
+
+class TestOneRunAtATime(unittest.TestCase):
+    """The table holds one run's events at a time: run_all yields each Trace, so
+    sim_batch keeps only facts (a large spec's `--sim all` took gigabytes)."""
+
+    def test_run_all_yields_one_trace_at_a_time(self):
+        import inspect
+        runs = view.run_all(parse_document("[A] -> [B] : go({X}) => {Y}\n"))
+        self.assertTrue(inspect.isgenerator(runs))
+        first = next(runs)
+        self.assertEqual(first.scenario.name, "happy")
+
+
 if __name__ == "__main__":
     unittest.main()

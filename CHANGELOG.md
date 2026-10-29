@@ -76,8 +76,12 @@ keep its simulator limits in the document, and an export says which sigil wrote 
     still goes on each covered member. A re-export of a spec that writes one moves
     the members' and the unit's body hashes once.
 - **Check uses far less memory.** Explored runs keep only the facts the trace rules
-  read, so construct's spec at its limits takes 0.18 GB instead of 3.0 GB, and 154 s
-  instead of 192 s, with the same findings.
+  read, so construct's spec at its limits takes 0.35 GB instead of 3.0 GB, with the
+  same findings for the same runs (201 s against 192 s: with the branch fix above its
+  runs now do the work they skipped before; the memory change alone made it 154 s).
+- **`view --sim all` holds one run at a time.** The table keeps each run's facts, not
+  its events, so a large spec's table no longer takes gigabytes (a construct draft:
+  5.9 GB, now 0.36 GB), with the same output.
 
 ### New lint rule
 

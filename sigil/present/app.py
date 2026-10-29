@@ -978,13 +978,15 @@ SIM_NAME = 24                                   # the name column (a longer name
 SIM_FACTS = ("states", "failed", "routes", "ignored", "replayed", "waiting", "open", "bounds")
 
 
-def run_all(graph, limits=None) -> list:
-    """[Trace]: every scenario of the document (sim.scenarios), each run once,
-    keeping only its final frame (sim_facts reads the rest from `end`)."""
+def run_all(graph, limits=None):
+    """Every scenario of the document (sim.scenarios), each run once, yielded one
+    Trace at a time, keeping only its final frame (sim_facts reads the rest from
+    `end`). A generator: a reader that keeps only each run's facts holds one run's
+    events at a time, not every run's (a large spec's table took gigabytes)."""
     limits = doc_limits(graph, limits)
     canon = simulator.canonical(graph)
-    return [simulator.simulate(canon, sc, limits=limits, keep=False)
-            for sc in simulator.scenarios(canon, limits=limits)]
+    for sc in simulator.scenarios(canon, limits=limits):
+        yield simulator.simulate(canon, sc, limits=limits, keep=False)
 
 
 def _state_text(scn, nid) -> str:
