@@ -1,5 +1,6 @@
 {
   "sigil_export": 1,
+  "sigil": "VERSION",
   "spec": "07-export.sigil",
   "spec_hash": "42c36c489b8429a2",
   "top": "07-export",

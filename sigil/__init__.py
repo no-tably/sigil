@@ -9,4 +9,9 @@ Layers, each importing only the ones before it:
     present   the drawings: kit, themes, views, the viewer app
 
 `sigil.cli` is the one command (`bin/sigil`, `python3 -m sigil`).
+
+`__version__` is the one version (`sigil --version`, an export's manifest); a test
+keeps it equal to plugin/meta.json's, which packaging reads.
 """
+
+__version__ = "0.6.8"

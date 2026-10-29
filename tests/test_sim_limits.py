@@ -156,10 +156,12 @@ class CheckRuns(unittest.TestCase):
 class CutHint(unittest.TestCase):
     def test_the_hint_names_the_flag(self):
         self.assertEqual(ct.limit_fix("frames"), "run with a larger frames limit "
-                                                 "(--limit frames=N)")
+                                                 "(`#% frames=N` in the document, "
+                                                 "or --limit frames=N)")
         rep = ck.check(TEXT, overlaps="off", limits=lowered())
         (f,) = [f for f in rep.findings if f.rule.id == "SGC090"]
         self.assertIn("--limit frames=N", f.fix)
+        self.assertIn("`#% frames=N` in the document", f.fix)
 
 
 class Scaled(unittest.TestCase):

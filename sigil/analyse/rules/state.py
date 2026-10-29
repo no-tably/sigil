@@ -1908,8 +1908,9 @@ def loop_cap_cause(ck):
                          f"(limits: iterations={limits.iterations}). Are {runs} iterations "
                          "enough evidence?",
                          anchor=("block", str(b.lines[0])), acknowledgeable=True,
-                         fix="run with a larger iterations limit (--limit iterations=N), "
-                             "or acknowledge on the loop's line")
+                         fix="run with a larger iterations limit (`#% iterations=N` in "
+                             "the document, or --limit iterations=N), or acknowledge on "
+                             "the loop's line")
     return match
 
 

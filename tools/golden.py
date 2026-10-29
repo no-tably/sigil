@@ -40,8 +40,10 @@ Each input gets a directory `tests/golden/<input>/` with one file per variant:
 
 The export variant: for each of EXPORT_INPUTS, `tests/golden/export/<input>/` holds
 every file `sigil export <input>.sigil --out DIR` writes into an empty DIR (the index,
-a folder per system, manifest.json), byte for byte. `--only export` checks just
-these. No input may be named `export`.
+a folder per system, manifest.json), byte for byte, but for one field: the
+manifest's `"sigil"` (the version that wrote it) is kept as `"sigil": "VERSION"`
+(VERSION_FIELD), so a version bump moves no golden; tests/test_version.py checks
+the field itself. `--only export` checks just these. No input may be named `export`.
 
 Drawings are made in-process (sigil.present.app.once, its stdout captured) with the
 built-in `sigil` theme and no dialect, so $SIGIL_THEME / $SIGIL_DIALECT don't leak in;
@@ -96,7 +98,8 @@ FIXTURES = ("coverage.sigil", "executions.sigil")
 EXPORT_DIR = "export"           # tests/golden/export/<input>/: what `sigil export` writes
 EXPORT_INPUTS = ("07-export",)  # the inputs exported (each a ready #!spec document)
 SPINE_INPUTS = ("02-shop", "07-export")   # the inputs charted with `--mermaid --spine`
-HIGHLIGHT_INPUTS = ("07-export",)   # the inputs kept as `sigil highlight --json`
+HIGHLIGHT_INPUTS = ("07-export",)
+VERSION_FIELD = '"sigil": "VERSION"'   # the manifest's version field, as a golden keeps it   # the inputs kept as `sigil highlight --json`
 GOLDEN_SUFFIXES = (".txt", ".md", ".json")   # the files a golden directory holds
 
 
@@ -308,6 +311,12 @@ def draw_all(root: Path, only: str | None = None) -> dict[str, str]:
 # Exporting
 # ---------------------------------------------------------------------------
 
+def without_version(text: str) -> str:
+    """A manifest.json's text with its `"sigil"` version field as VERSION_FIELD."""
+    from sigil import __version__
+    return text.replace(f'"sigil": {json.dumps(__version__)}', VERSION_FIELD, 1)
+
+
 def export_input(workdir: Path, inp: Input) -> dict[str, str]:
     """Every file `sigil export <name>.sigil --out DIR` writes into an empty DIR,
     keyed `EXPORT_DIR/<input>/<path in DIR>`. Raises ValueError when the input
@@ -320,9 +329,13 @@ def export_input(workdir: Path, inp: Input) -> dict[str, str]:
         code = cli.main(["export", str(path), "--out", str(out_dir)])
     if code != 0:
         raise ValueError(f"{inp.name} does not export (exit {code}):\n{buf.getvalue()}")
-    return {f"{EXPORT_DIR}/{inp.name}/{p.relative_to(out_dir).as_posix()}":
-            p.read_text(encoding="utf-8")
-            for p in sorted(out_dir.rglob("*")) if p.is_file()}
+    out = {f"{EXPORT_DIR}/{inp.name}/{p.relative_to(out_dir).as_posix()}":
+           p.read_text(encoding="utf-8")
+           for p in sorted(out_dir.rglob("*")) if p.is_file()}
+    manifest = f"{EXPORT_DIR}/{inp.name}/manifest.json"
+    if manifest in out:
+        out[manifest] = without_version(out[manifest])
+    return out
 
 
 # ---------------------------------------------------------------------------

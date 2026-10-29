@@ -12,6 +12,7 @@
     sigil themes [NAME|PATH] [--list]
     sigil highlight FILE|- [--theme NAME|PATH] [--dialect D] [--json]
     sigil highlight --stream [--theme NAME|PATH] [--dialect D]
+    sigil --version
 
 Each subcommand imports its layer only when it runs, so `sigil lint` loads
 neither the simulator nor the views. `main(argv, dialect=…)` is what a dialect's
@@ -510,7 +511,9 @@ def _export_folder(argv: list, dialect) -> int:
         say("export", f"{spec.name} is not ready to export: {len(passed.blocking)} "
                       "blocking line(s); nothing written")
         return 2
-    done = exporter.run(text, spec, out, loaded, a.json, a.dry_run, passed, name=a.name)
+    from sigil import __version__
+    done = exporter.run(text, spec, out, loaded, a.json, a.dry_run, passed, name=a.name,
+                        version=__version__)
     if done.problem:
         say("export", done.problem)
     for name in done.kept:
@@ -827,6 +830,9 @@ def main(argv=None, dialect=None) -> int:
     if argv and argv[0] in ("-h", "--help"):
         print("usage:\n" + USAGE)
         return 0
+    if argv and argv[0] == "--version":
+        print(version_line())
+        return 0
     run = COMMANDS.get(argv[0]) if argv else None
     if run is None:
         named = f"unknown command {argv[0]!r}\n" if argv else ""
@@ -842,6 +848,12 @@ def main(argv=None, dialect=None) -> int:
     except DialectError as exc:            # a dialect hook broke its contract mid-read
         say(argv[0], str(exc))
         return 2
+
+
+def version_line() -> str:
+    """What `sigil --version` prints: `sigil X.Y.Z` (sigil.__version__)."""
+    from sigil import __version__
+    return f"sigil {__version__}"
 
 
 def _reader_gone() -> int:

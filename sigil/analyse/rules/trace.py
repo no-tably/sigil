@@ -1196,8 +1196,9 @@ def limits_text(limits, names: tuple) -> str:
 
 
 def limit_fix(name: str) -> str:
-    """The fix for a run stopped at limit `name`: the flag that raises it."""
-    return f"run with a larger {name} limit (--limit {name}=N)"
+    """The fix for a run stopped at limit `name`: the two ways to raise it, the
+    document's `#%` line or the flag."""
+    return f"run with a larger {name} limit (`#% {name}=N` in the document, or --limit {name}=N)"
 
 
 def first_line(doc) -> int:
@@ -1258,9 +1259,10 @@ def budget_cause(ck):
 
 
 def cut_limit_fix(name: str) -> str:
-    """The fix for a run cut at limit `name`: raise it until nothing is cut."""
-    return (f"raise --limit {name}=N until no run is cut, or acknowledge on the "
-            "entry's line")
+    """The fix for a run cut at limit `name`: raise it (the document's `#%` line
+    or the flag) until nothing is cut."""
+    return (f"raise {name} (`#% {name}=N` in the document, or --limit {name}=N) until "
+            "no run is cut, or acknowledge on the entry's line")
 
 
 def cut_cause(ck):

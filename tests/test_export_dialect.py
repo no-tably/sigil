@@ -263,7 +263,7 @@ class Dialect(Tmp):
     def test_name_and_version(self):
         manifest = read_json(self.export() / "manifest.json")
         self.assertEqual(manifest["dialect"], {"name": "export-probe", "version": "1.2"})
-        self.assertEqual(list(manifest)[:5], ["sigil_export", "spec", "spec_hash", "top", "dialect"])
+        self.assertEqual(list(manifest)[:6], ["sigil_export", "sigil", "spec", "spec_hash", "top", "dialect"])
 
     def test_no_version_and_no_dialect(self):
         model = em.build_model("#!spec\n[A] -> [B] : {X}\n", "s")

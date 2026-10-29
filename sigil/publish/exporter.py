@@ -32,12 +32,17 @@ The folder (systems, homes and hashes as sigil.model.systems reads them):
       <system>/<component>.md  kind, description, interface, requirements, lifecycle
       <system>/system.json     the same, machine-readable
 
-    manifest.json = {"sigil_export": 1, "spec": <file name>, "spec_hash": …,
+    manifest.json = {"sigil_export": 1, "sigil": <version>, "spec": <file name>,
+      "spec_hash": …,
       "top": <the top system's key>, "dialect"?: {"name", "version"?},
       "systems": {name: {"path", "interface", "body", "components", "depends_on",
                          "parent",
                          "component_hashes": {glyph: {"interface", "body"}}}}}
 
+    `sigil` is the version of sigil that wrote the export (sigil.__version__, which
+    the command passes in: publish sits below the package's command layer). No
+    hash reads it and the delta ignores it, so a new sigil marks nothing to
+    rebuild; a builder that wants to re-export on a new sigil compares it itself.
     `dialect` only when a dialect is loaded: its NAME, and its VERSION when the
     dialect module defines one. A system's `components` lists its glyphs (the
     file names follow from them); `component_hashes` each one's hashes
@@ -187,15 +192,16 @@ class ExportPlan:
     manifest: dict
 
 
-def plan_export(model, spec_name: str, spec_text: str, dialect=None) -> ExportPlan:
+def plan_export(model, spec_name: str, spec_text: str, dialect=None,
+                version: Optional[str] = None) -> ExportPlan:
     """What the export of `model` holds (read from the spec file `spec_name`,
-    whose text is `spec_text`, with `dialect` loaded or None): pure, nothing
-    written."""
+    whose text is `spec_text`, with `dialect` loaded or None), written by sigil
+    `version` (the manifest's "sigil"; None: null): pure, nothing written."""
     keys = system_order(model)
     folders = em.slugs(keys)
     forms = {k: em.system_json(model.systems[k], model.components) for k in keys}
     systems = {k: plan_system(k, model.systems[k], forms[k], folders) for k in keys}
-    manifest = {"sigil_export": EXPORT_VERSION, "spec": spec_name,
+    manifest = {"sigil_export": EXPORT_VERSION, "sigil": version, "spec": spec_name,
                 "spec_hash": spec_hash(spec_text), "top": model.top}
     if dialect is not None:
         manifest["dialect"] = dialect_entry(dialect)
@@ -603,11 +609,12 @@ class Outcome:
 
 def run(text: str, spec: Path, out: Path, dialect, as_json: bool = False,
         dry_run: bool = False, passed: Optional[Gate] = None,
-        name: Optional[str] = None) -> Outcome:
+        name: Optional[str] = None, version: Optional[str] = None) -> Outcome:
     """Export `text` (a spec the gate passed, read from `spec`) into `out`, or
     with `dry_run` only say what would change. `passed`: that gate (ready's), whose
     reading the model is built from; None reads and parses `text` here. `name`:
-    the top system's name (None: the spec's stem)."""
+    the top system's name (None: the spec's stem). `version`: the sigil that
+    writes it (the manifest's "sigil"; the command passes sigil.__version__)."""
     try:
         problem = out_problem(out)
         old = None if problem else read_manifest(out)
@@ -617,7 +624,7 @@ def run(text: str, spec: Path, out: Path, dialect, as_json: bool = False,
         return Outcome(2, problem=problem)
     walk, graph = (passed.walk, passed.graph) if passed else (None, None)
     model = em.build_model(text, name or spec.stem, dialect, walk=walk, graph=graph)
-    plan = plan_export(model, spec.name, text, dialect)
+    plan = plan_export(model, spec.name, text, dialect, version)
     change = delta(old, plan.manifest)
     if dry_run:
         head = [f"sigil export (dry run): nothing written to {out}"]

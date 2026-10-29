@@ -831,7 +831,8 @@ class Exploration(unittest.TestCase):
         self.assertEqual(severities, {"sketch": [], "craft": ["info"], "spec": ["warn"]})
         (f,) = cause_of(self.cut("spec"), "cut a run")
         self.assertEqual(f.line, 2)
-        self.assertIn("raise --limit frames=N until no run is cut", f.hit.fix)
+        self.assertIn("raise frames (`#% frames=N` in the document, or --limit frames=N) "
+                      "until no run is cut", f.hit.fix)
 
     def test_the_other_causes_stay_hints_in_spec(self):
         rep = ck.check(COVERAGE.read_text(encoding="utf-8"), mode="spec", budget=1,
@@ -904,6 +905,7 @@ class Exploration(unittest.TestCase):
         (f,) = of(ck.check(text, registry=REGISTRY), "SGC090")
         self.assertIn("ran this loop 2 of its 5 times (limits: iterations=2)", f.hit.statement)
         self.assertIn("--limit iterations=N", f.hit.fix)
+        self.assertIn("`#% iterations=N` in the document", f.hit.fix)
         (f,) = of(ck.check(text, limits=sim.Limits(iterations=3), registry=REGISTRY), "SGC090")
         self.assertIn("ran this loop 3 of its 5 times (limits: iterations=3)", f.hit.statement)
         self.assertEqual(of(ck.check(text, limits=sim.Limits(iterations=5), registry=REGISTRY),
