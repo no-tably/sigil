@@ -193,6 +193,15 @@ def normalize_version(version: str) -> str:
     return v
 
 
+def sigil_version() -> str:
+    """sigil.__version__ as written in sigil/__init__.py (read, not imported)."""
+    text = (ROOT / "sigil" / "__init__.py").read_text(encoding="utf-8")
+    m = re.search(r'^__version__ = "([^"]+)"', text, re.M)
+    if m is None:
+        raise ValueError("sigil/__init__.py: no __version__")
+    return m.group(1)
+
+
 def load_meta(version: str | None = None) -> dict[str, Any]:
     meta = json.loads((ROOT / "plugin" / "meta.json").read_text(encoding="utf-8"))
     meta["version"] = normalize_version(version or meta["version"])
@@ -844,6 +853,9 @@ def main(argv: list[str] | None = None) -> int:
             args.version = normalize_version(args.version)
         except ValueError as e:
             ap.error(str(e))
+        if args.version != sigil_version():
+            ap.error(f"--version {args.version} is not sigil's own version {sigil_version()} "
+                     "(sigil/__init__.py and plugin/meta.json): bump them before tagging")
     targets = TARGETS if args.target == "all" else [args.target]
     if args.check:
         errs = check(args.out, targets)

@@ -1,6 +1,6 @@
 {
   "name": "sigil",
-  "version": "0.6.8",
+  "version": "0.6.9",
   "description": "Sigil: a compact notation for system designs, with a linter, a checker, a terminal viewer and run simulator, and an export (build skeleton or Mermaid).",
   "author": {
     "name": "Ian Patrick"

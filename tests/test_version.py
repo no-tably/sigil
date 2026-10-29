@@ -137,5 +137,26 @@ class TestGolden(unittest.TestCase):
         self.assertIn(golden.VERSION_FIELD, text)
 
 
+
+class TestBuildVersion(unittest.TestCase):
+    """A release builds only at sigil's own version: build.py --version (CI passes
+    the tag) refuses one that differs from sigil/__init__.py."""
+
+    def _build(self, version):
+        with tempfile.TemporaryDirectory() as out:
+            return subprocess.run([sys.executable, str(_DIR / "build.py"), "--out", out,
+                                   "--target", "claude", "--version", version],
+                                  capture_output=True, text=True)
+
+    def test_a_tag_that_is_not_sigils_version_is_refused(self):
+        r = self._build("9.9.9")
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn(f"is not sigil's own version {sigil.__version__}", r.stderr)
+
+    def test_sigils_own_version_builds(self):
+        r = self._build("v" + sigil.__version__)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

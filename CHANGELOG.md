@@ -2,7 +2,7 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
-## 0.6.9 — unreleased
+## 0.6.9 — 2026-10-29
 
 Most of this release fixes what cure and construct hit while their specs caught up with
 their code: each one cost them a workaround or an acknowledgement. A design can now
