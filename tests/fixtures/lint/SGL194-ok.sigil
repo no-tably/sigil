@@ -1,0 +1,18 @@
+# expect: none
+# SGL194 a `{X}.f` naming no field of X's shape: fields, a nested field, `.state` of a
+# machine's owner, and a glyph with no shape are all fine
+#!spec
+{Brief} := { title, note?, {Meta} }
+state {Brief} {
+  + -<file>-> Open
+  Open -<close>-> $
+}
+(User) -> [Desk] : file({Brief})
+[Desk] -> {Brief}
+branch on {Brief}.title {
+  draft => [Desk] -> [Gate]
+}
+[Desk] ?> {Brief}.Meta.path = x -> [Gate]
+[Desk] ?> {Brief}.state ∈ {Open} -> [Gate]
+[Desk] ?> {Order}.anything != y -> [Gate]   # {Brief}.nope in a comment
+[Gate] -> [Audit] : note("{Brief}.nope in a string")

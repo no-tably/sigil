@@ -19,7 +19,7 @@ one reading each:
                   CLOSER, OPENERS, CLOSERS and their regex classes,
                   GLYPH_PATTERNS read off it, glyph_name_source),
                   GLYPH_PREFIXES, glyph_kind,
-                  NAME_CHARS, GENERIC, NOT_A_SET, is_set,
+                  NAME_CHARS, GENERIC, NOT_A_SET, NOT_A_MEMBER_SET, is_set,
                   GLYPH_RE, GENERIC_RE, ANY_GLYPH_RE, HOLE_RE, DIALECT_COL
     modifiers     PAREN_ARG, FREE_ARG_MODS, ARG_MODIFIERS, MODIFIER_RE,
                   MOD_TOKEN_RE, MOD_NAME_RE, TAIL_ONLY_RE, PRINCIPAL_SET_RE,
@@ -366,15 +366,25 @@ def glyph_kind(text: str) -> Optional[str]:
 # holds a comma — before any generic `<…>` — are a value, never a data glyph, so
 # a glyph name never holds a comma and a set makes no node wherever it stands.
 # `{Cache<K,V>}` is still a glyph (its comma is a generic's) and `{A}, {B}` is two.
-# NOT_A_SET, written just after a glyph's opening bracket, refuses a `{` set.
-NOT_A_SET = r"(?:(?<!\{)|(?!" + NAME_CHARS + r"*,))"
+# Braces right after `∈` or `∉` (up to three blanks between) are a set whatever
+# they hold: `∈ {Proposed}` is a one-member set, not a data glyph.
+# NOT_A_SET, written just after a glyph's opening bracket, refuses a `{` set;
+# NOT_A_MEMBER_SET, written just before a `{`, refuses the braces after `∈` / `∉`.
+_MEMBER_BLANKS = range(4)
+NOT_A_MEMBER_SET = "".join(r"(?<![∈∉][ \t]{%d})" % n for n in _MEMBER_BLANKS)
+NOT_A_SET = (r"(?:(?<!\{)|(?!" + NAME_CHARS + r"*,)"
+             + "".join(r"(?<![∈∉][ \t]{%d}\{)" % n for n in _MEMBER_BLANKS) + ")")
 _SET_RE = re.compile(r"\{" + NAME_CHARS + r"*,")
+_MEMBER_END_RE = re.compile(r"[∈∉][ \t]{0,%d}$" % _MEMBER_BLANKS[-1])
 
 
-def is_set(text: str) -> bool:
+def is_set(text: str, before: str = "") -> bool:
     """Whether a bracket group's text (its `~` / `*` prefixes skipped) is a set
-    `{a, b}`: a value, not a data glyph."""
-    return bool(_SET_RE.match(text.lstrip(GLYPH_PREFIXES)))
+    `{a, b}`: a value, not a data glyph. `before`: the text the group follows on
+    its line, so braces right after `∈` / `∉` read as a set (`∈ {Proposed}`)."""
+    bare = text.lstrip(GLYPH_PREFIXES)
+    return bool(_SET_RE.match(bare)) or (
+        bare.startswith("{") and text == bare and _MEMBER_END_RE.search(before) is not None)
 
 
 GLYPH_RE = re.compile(
@@ -391,8 +401,8 @@ def glyph_name_source(kind: str, group: str = "") -> str:
     open_, close = GLYPH_BRACKETS[kind]
     inside = "".join(map(re.escape, dict.fromkeys(open_ + close)))
     cap = f"(?P<{group}>" if group else "("
-    not_set = r"(?![^{}<]*,)" if kind == "data" else ""
-    return f"{re.escape(open_)}{not_set}{cap}[^{inside}]+){re.escape(close)}"
+    member, not_set = (NOT_A_MEMBER_SET, r"(?![^{}<]*,)") if kind == "data" else ("", "")
+    return f"{member}{re.escape(open_)}{not_set}{cap}[^{inside}]+){re.escape(close)}"
 
 
 # One pattern per core glyph kind, group 1 the name (no generics: lint's reading).
@@ -401,7 +411,7 @@ GLYPH_PATTERNS = {kind: re.compile(glyph_name_source(kind)) for kind in GLYPH_BR
 # Any glyph at all (for flow-line analysis). The `<->` bidirectional arrow is
 # never an event glyph `<-…>`.
 ANY_GLYPH_RE = re.compile(
-    r"(\[[^\[\]]+\]|\{(?![^{}<]*,)[^\{\}]+\}|<(?!->)[^<>]+>|\([^()]+\)|\|[^|]+\|)"
+    r"(\[[^\[\]]+\]|" + NOT_A_MEMBER_SET + r"\{(?![^{}<]*,)[^\{\}]+\}|<(?!->)[^<>]+>|\([^()]+\)|\|[^|]+\|)"
 )
 
 # The pieces of a shown text — a payload, a modifier's argument, a block header,
@@ -413,7 +423,7 @@ ANY_GLYPH_RE = re.compile(
 PAYLOAD_PIECE_RE = re.compile(r"""
     (?P<string>"(?:[^"\\]|\\.)*")
   | (?P<ref>\$\{[^}]*\})
-  | (?P<glyph>""" + PREFIXES_CLASS + r"""?(?:\[[^\]\s,][^\],]*\]|\{[^}\s:,][^}:,]*\}|<(?!->)[^<>\s][^<>]*>
+  | (?P<glyph>""" + PREFIXES_CLASS + r"""?(?:\[[^\]\s,][^\],]*\]|""" + NOT_A_MEMBER_SET + r"""\{[^}\s:,][^}:,]*\}|<(?!->)[^<>\s][^<>]*>
                     |(?<!\w)\([^)\s][^)]*\)|\|[^|\s][^|]*\|))
   | (?P<call>[A-Za-z_][\w.]*)(?=\()
   | (?P<operator>=>|->|~>|!>|\?>|\*>|<->|\+\+|\|\||[+\-*/])

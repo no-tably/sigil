@@ -569,6 +569,11 @@
           "match": "\\{(?=[^{}\\n]*,[^{}\\n]*\\})"
         },
         {
+          "comment": "Braces right after ∈ / ∉ are a set whatever they hold (∈ {Open}).",
+          "name": "punctuation.separator.sigil",
+          "match": "(?:(?<=[∈∉])|(?<=[∈∉][ \\t])|(?<=[∈∉][ \\t]{2})|(?<=[∈∉][ \\t]{3}))\\{"
+        },
+        {
           "match": "(\\{)(?=[^\\s{}])([^{}\\n]*?)(\\})",
           "captures": {
             "1": {

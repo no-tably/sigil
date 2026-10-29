@@ -880,9 +880,10 @@ def _scan_glyph_token(r: _Reader, i: int):
 def _glyph(r: _Reader, i: int, end: int, problem: str) -> tuple:
     """A core glyph token from column i to `end`: the model reads it as a node
     unless it is broken (unclosed or empty: a void endpoint, flag "void"). A set
-    `{a, b}` (lex.is_set) is a `set` token: a value, as a word is, never a node."""
+    `{a, b}`, or braces right after `∈` / `∉` (lex.is_set), is a `set` token: a
+    value, as a word is, never a node."""
     text = r.code.raw[i:end].replace(_GAP, "")
-    if not problem and is_set(text):
+    if not problem and is_set(text, r.w[:i].replace(_GAP, "")):
         return [Tok("set", text, i)], end, False      # `{a, b}`: a value, no node
     flag = "void" if problem in ("unclosed", "empty") else ""
     return [Tok("glyph", text, i, problem, flag=flag)], end, not flag
@@ -937,10 +938,20 @@ def _scan_value(r: _Reader, i: int):
     return ([Tok("word", wm.group(0), i)], wm.end(), False) if wm else None
 
 
+# A comparison after a `.field` (`{Fact}.state = live`, `!=`, `==`, `>=`, `<=`, `>`):
+# a guard's condition, like `∈`, read as no token.
+_COMPARISON_RE = re.compile(r"[!=<>]?=|[<>]")
+
+
 def _scan_other(r: _Reader, i: int):
-    """Anything else: a stray closer or arrow-like character is `bad`; other
-    symbols are skipped, as the model skips them."""
+    """Anything else: a comparison after a `.field` is skipped; a stray closer or
+    arrow-like character is `bad`; other symbols are skipped, as the model skips
+    them."""
     ch = r.w[i]
+    if r.toks and r.toks[-1].kind == "field":
+        cm = _COMPARISON_RE.match(r.w, i)
+        if cm:
+            return [], cm.end(), False
     if ch in "])":
         return [Tok("bad", ch, i, "closer")], i + 1, False
     if ch in "->=~" or _FOREIGN_ARROW_RE.match(ch):

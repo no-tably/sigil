@@ -84,6 +84,7 @@ class Severity(unittest.TestCase):
         "SGL191": "warn",       # a bare name outside a data expansion (round 7)
         "SGL192": "error",      # a field written twice in one data shape (round 7)
         "SGL193": "warn",       # a data shape's line that is neither fields nor a flow
+        "SGL194": "warn",       # a `{X}.f` naming no field of X's shape (0.6.10)
     }
 
     def test_table_matches_the_catalog(self):

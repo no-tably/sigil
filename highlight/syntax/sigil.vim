@@ -62,6 +62,8 @@ syn match sigilPunct "{\ze[^{}]*:"
 " A set {a, b} (a comma before its close, as in {Order}.status ∈ {pending,
 " active}): a bare opener too, its items highlight as values — no data glyph.
 syn match sigilPunct "{\ze[^{}]*,[^{}]*}"
+" Braces right after ∈ / ∉ are a set whatever they hold (∈ {Open}).
+syn match sigilPunct "\%([∈∉][ \t]\{,3}\)\@<={"
 syn region sigilArgs matchgroup=sigilPunct start="\[\ze\s*\%(\${\|\"\|-\=\d\|true\>\|false\>\|null\>\|]\)" end="]" transparent contains=TOP
 " `||` map merge — never an (empty) store glyph.
 syn match sigilOperator "||"

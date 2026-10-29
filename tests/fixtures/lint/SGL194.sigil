@@ -1,0 +1,15 @@
+# expect: SGL194@8 SGL194@11 SGL194@12 SGL194@15
+# SGL194 a `{X}.f` naming no field of X's shape (every place a `.field` is written)
+#!spec
+{Brief} := { title, note?, {Meta} }
+(User) -> [Desk] : file({Brief})
+[Desk] -> {Brief}
+[Desk] -> [Gate] : send({Brief})
+branch on {Brief}.gateway {
+  open => [Gate] -> [Audit]
+}
+[Desk] ?> {Brief}.titel = draft -> [Gate]
+loop @while {Brief}.done ∈ {no} {
+  [Gate] -> [Audit]
+}
+[Audit] @inv {Brief}.count >= 0

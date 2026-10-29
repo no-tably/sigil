@@ -2,6 +2,36 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
+## 0.6.10 — 2026-10-30
+
+Three gaps construct hit while writing its question gateway: a field the shape never
+declared, a set of one, and a comparison the docs promised. Each cost it a workaround
+or went unnoticed.
+
+### New
+
+- **SGL194** (warn): a `{X}.f` that names no field of X's shape. Once a data glyph
+  declares its fields (`{Brief} := { title, note? }`), a `.f` written after it
+  anywhere names one of them: in a flow, a `?>` guard, a `branch on`, a loop's
+  condition or an `@inv`. `branch on {Brief}.gateway` with no `gateway` in the shape
+  linted clean before. Every expansion of X counts together, `{Doc}.Meta.path` is
+  judged by `Meta`, and a glyph that owns a `state` block also reads `.state`. A glyph
+  with no shape is not judged.
+
+### Fixes
+
+- **A set of one needs no comma.** Braces right after `∈` or `∉` are a set whatever
+  they hold, so `{Question}.state ∈ {Proposed}` is a one-member set, in a guard, a
+  `branch on`, a loop's condition and an `@inv`. Before, `{Proposed}` read as a data
+  glyph: lint passed, but drawings, `export --mermaid` and the export showed a
+  `Proposed` part that is not in the design. The `{Proposed,}` workaround still reads
+  the same and can go. `sigil highlight` and the editor grammars (TextMate, Sublime,
+  Vim, Pygments) paint it as a set too. Braces anywhere else read as before.
+- **A guard can compare a field.** `?> {Fact}.state = live -> [E]` was a lint error
+  (SGL131, "`=` is not an arrow") although language.md shows that form. A comparison
+  after a `.field` (`=`, `!=`, `==`, `>=`, `<=`, `>`, `<`) now reads as `∈` does and
+  draws the same flow. `branch on`, `@while` and `@inv` already read it.
+
 ## 0.6.9 — 2026-10-29
 
 Most of this release fixes what cure and construct hit while their specs caught up with

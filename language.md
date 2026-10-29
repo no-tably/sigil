@@ -155,7 +155,9 @@ name never holds a comma, so a set is never a data glyph. It makes no node, no
 drawing or `export --mermaid` diagram shows one, and `sigil highlight` colours it as
 held text. A generic's comma stays inside its glyph (`{Cache<K,V>}` is one data
 glyph), and `{A}, {B}` is two glyphs. Only braces make a set; other brackets read as
-before. So `[Desk] ?> {Order}.status ∈ {pending, active} -> [Packer]` draws
+before. Braces right after `∈` or `∉` are a set whatever they hold, so a set of one
+needs no comma: `{Order}.status ∈ {pending}` draws no `{pending}` node. So
+`[Desk] ?> {Order}.status ∈ {pending, active} -> [Packer]` draws
 `[Desk]`, `{Order}` and `[Packer]` and no node for the set, and
 `[Desk] -> [Audit] : flag({Order}, {late, lost})` carries `{Order}` and a set.
 
@@ -593,7 +595,7 @@ outside the document.
 
 **When to use `state` blocks.** Any time an entity, component, task, job, document, session, or record can be in one of several named modes — use a `state` block. Triggers: the words "state," "status," "phase," "lifecycle," "mode," or any enumeration like "live/disputed/retracted," "pending/running/done," "draft/published/archived." Do not model these as actor glyphs `(X)`, data glyphs `{X}`, or ad-hoc tags. The state block is the single canonical place lifecycle information lives.
 
-**Referencing states inline.** To filter, predicate, or gate on an entity's current state from outside the state block, use the `.field` accessor: `{Fact}.state = live`, `{Order}.status ∈ {pending, active}`, `{Task}.phase != archived`. This works inside `@inv`, `branch on`, guard conditions, and loop terminators. Do not introduce new glyph shorthands for states — the state block defines them, the `.field` accessor references them.
+**Referencing states inline.** To filter, predicate, or gate on an entity's current state from outside the state block, use the `.field` accessor: `{Fact}.state = live`, `{Order}.status ∈ {pending, active}`, `{Task}.phase != archived`. This works inside `@inv`, `branch on`, guard conditions, and loop terminators. A comparison after a `.field` (`=`, `!=`, `==`, `>=`, `<=`, `>`, `<`) reads as `∈` does: `?> {Fact}.state = live -> [E]` and `?> {Fact}.state ∈ {live} -> [E]` draw the same flow. Do not introduce new glyph shorthands for states — the state block defines them, the `.field` accessor references them.
 
 ### Loops
 
@@ -784,6 +786,11 @@ Lint checks the fields and where they are written:
   The same name in two shapes is fine.
 - **SGL193** (warn): a line in a shape that is neither fields nor a flow (`a b`,
   `x: y`, `rows: {Row} more`). The parser drops it.
+- **SGL194** (warn): a `{X}.f` that names no field of X's shape, wherever it is
+  written (a flow, a `?>` guard, a `branch on`, a loop's condition, an `@inv`).
+  Every expansion of X counts together, a nested field is judged by its first
+  name (`{Doc}.Meta.path` by `Meta`), and a glyph that owns a `state` block also
+  reads `.state`. A glyph with no shape is not judged.
 
 ---
 

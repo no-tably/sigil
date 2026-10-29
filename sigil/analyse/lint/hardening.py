@@ -1,5 +1,5 @@
 """
-Lint hardening (SGL120–188, SGL190–193): the lines the parser would misread or drop. The
+Lint hardening (SGL120–188, SGL190–194): the lines the parser would misread or drop. The
 rules read the document's one reading (sigil.core.statements.read_document):
 each statement's tokens (sigil.core.tokens) and the walk's record of blocks,
 headers, sections, transitions and continuation lines — the same reading the
@@ -13,11 +13,11 @@ from sigil.core import parse as render
 from sigil.core.graph import walk_depth
 from sigil.core.dialects import _hook
 from sigil.core.lex import (
-    ARROWS, CLOSERS_CLASS, GLYPH_PREFIXES, MOD_NAME_RE, NAME_CHARS, OPENERS_CLASS,
-    PREFIXES_CLASS, SECTION_RE, glyph_kind)
+    ARROWS, CLOSERS_CLASS, FIELD_RE, GLYPH_PREFIXES, MOD_NAME_RE, NAME_CHARS,
+    OPENERS_CLASS, PREFIXES_CLASS, SECTION_RE, glyph_kind)
 from sigil.core.statements import (
     StateHead, Statement, Walk, data_shapes, field_name, read_document, read_fields)
-from sigil.core.tokens import Code, Tok
+from sigil.core.tokens import Code, Tok, glyph_spans
 from sigil.core.vocab import LintResult
 from sigil.analyse.lint.payloads import _classify_payload
 from sigil.analyse.lint.reading import documents
@@ -47,7 +47,7 @@ HARDENING_SEVERITY = {
     "SGL180": "error", "SGL181": "warn", "SGL182": "warn", "SGL183": "warn",
     "SGL184": "warn", "SGL185": "warn", "SGL186": "warn", "SGL187": "info",
     "SGL188": "warn", "SGL190": "error", "SGL191": "warn", "SGL192": "error",
-    "SGL193": "warn",
+    "SGL193": "warn", "SGL194": "warn",
 }
 
 
@@ -317,7 +317,7 @@ def walk_findings(walk: Walk, dialect=None) -> list:
             + _state_findings(walk.transitions, ownerless_heads(walk.doc, dialect))
             + _bare_branch_findings(walk.bare_branches)
             + _continuation_findings(walk.continuations)
-            + shape_findings(walk))
+            + shape_findings(walk) + field_ref_findings(walk))
 
 
 def shape_findings(walk: Walk) -> list:
@@ -352,6 +352,40 @@ def shape_findings(walk: Walk) -> list:
                                "expansion: the parser drops it. A field belongs in its "
                                f"data's shape (`{{Data}} := {{ {bare[0]}, … }}`); a part "
                                "is a glyph."))
+    return out
+
+
+def field_ref_findings(walk: Walk) -> list:
+    """SGL194 a `{X}.f` that names no field of X's shape: once a data glyph
+    declares its fields (`{X} := { a, b }`, every expansion of it together), a
+    `.f` written after it anywhere (a flow, a `?>` guard, a `branch on`, a loop's
+    condition, an `@inv`) names one of them. A glyph that owns a `state` block
+    also reads `.state`. A glyph with no shape is not judged."""
+    fields = {}
+    for definition, sts in data_shapes(walk.doc):
+        names = fields.setdefault(definition.name, set())
+        for st in sts:
+            names.update(field_name(n, g) for n, _optional, g in read_fields(st) or ())
+    if not fields:
+        return []
+    owners = {name for d in documents(walk.doc) for item in d.items
+              if isinstance(item, StateHead) and item.owner
+              for _kind, name, _start, _end in glyph_spans(item.owner)}
+    out = []
+    for k, code in enumerate(walk.codes):
+        if k in walk.declared or k in walk.quoted:
+            continue
+        for span in glyph_spans(code.text):
+            m = FIELD_RE.match(code.text, span.end)
+            if span.kind != "data" or span.name not in fields or m is None:
+                continue
+            f = m.group(0)[1:].split(".")[0]
+            if f in fields[span.name] or (f == "state" and span.name in owners):
+                continue
+            known = ", ".join(sorted(fields[span.name])) or "none"
+            out.append(Finding(k + 1, "SGL194", f"`{{{span.name}}}.{f}`: {{{span.name}}}'s "
+                               f"shape has no field `{f}` (its fields: {known}). Add it to "
+                               "the shape, or name a field it has."))
     return out
 
 

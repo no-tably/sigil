@@ -258,6 +258,8 @@ class SigilLexer(RegexLexer):
             # {pending, active}`): a bare opener (punctuation, as a map's), its
             # items lex as values — no data glyph.
             (r'\{(?=[^{}\n]*,[^{}\n]*\})', Punctuation),
+            # Braces right after `∈` / `∉` are a set whatever they hold (`∈ {Open}`).
+            (r'(?:(?<=[∈∉])|(?<=[∈∉][ \t])|(?<=[∈∉][ \t]{2})|(?<=[∈∉][ \t]{3}))\{', Punctuation),
             # A data glyph's name starts at its brace: `{ … }` is a block's braces.
             (r'(\{)(?=[^\s{}])([^{}\n]*?)(\})', bygroups(T_Glyph, T_GlyphName, T_Glyph)),
             (r'(<)([^<>\n]*?)(>)',     bygroups(T_Glyph, T_GlyphName, T_Glyph)),
