@@ -292,3 +292,47 @@ check-json/tests/fixtures/lint/SGL161-ok.sigil
 # Runs that are no state start have no `replayed` key (already allowed above, listed for the record)
 sim-json/site/examples/04-orders.sigil
 sim-json/site/examples/07-export.sigil
+
+# patch-0.6.9 (vs .claude/campaigns/patch-0.6.9/baseline, main after the round 9 design commit):
+# L1: `check --json` gains `limit_sources` after `limits` (each simulator limit's source: default,
+# scaled, document or flag), so every check-json case differs by that key; no corpus document
+# writes a limit on its `#%` line, so every source is default or scaled
+check-json/*
+# V1: SGC090's fix names the document's `#%` line beside the flag ("run with a larger depth limit
+# (`#% depth=N` in the document, or --limit depth=N)"; a cut: "raise frames (`#% frames=N` in the
+# document, or --limit frames=N) until no run is cut, …"); message and fix text only
+check/tests/fixtures/checks/trace-090-bound.sigil
+check/tests/fixtures/checks/trace-090-spawn.sigil
+check/tests/fixtures/lint/SGL160-loop.sigil
+check/tests/fixtures/lint/SGL160-loop-ok.sigil
+check/tests/fixtures/lint/SGL162-ok.sigil
+check-spec/language.md/block-16.sigil
+check-spec/tests/fixtures/checks/state-exploration-incomplete.sigil
+check-spec/tests/fixtures/checks/state-shared-data-order.sigil
+check-spec/tests/fixtures/checks/state-shared-data-order-declared.sigil
+check-spec/tests/fixtures/checks/state-unbounded-recursion-declared.sigil
+check-spec/tests/fixtures/checks/state-unbounded-recursion-expansion.sigil
+check-spec/tests/fixtures/checks/trace-090-bound.sigil
+check-spec/tests/fixtures/checks/trace-090-spawn.sigil
+check-spec/tests/fixtures/coverage.sigil
+check-spec/tests/fixtures/lint/SGL160-loop.sigil
+check-spec/tests/fixtures/lint/SGL160-loop-ok.sigil
+check-spec/tests/fixtures/lint/SGL162-ok.sigil
+lint-deep/tests/fixtures/checks/trace-090-bound.sigil
+lint-deep/tests/fixtures/checks/trace-090-spawn.sigil
+lint-deep/tests/fixtures/lint/SGL160-loop.sigil
+lint-deep/tests/fixtures/lint/SGL160-loop-ok.sigil
+lint-deep/tests/fixtures/lint/SGL162-ok.sigil
+# E1 (0): a loop's or branch's subject is a read, no member of the level that only names it so:
+# executions.sigil's `loop @each page of {Site}.pages` leaves {Site} out of the top level (SGC177
+# "13 members" -> "12"); coverage.sigil's subjects {Items}, {Job}, {Request} likewise ("97" -> "94",
+# in check-spec above and check-json)
+check/tests/fixtures/executions.sigil
+check-export/tests/fixtures/executions.sigil
+lint-deep/tests/fixtures/executions.sigil
+# E1 (c): export-no-home-fixed's `unit-cycle` acknowledgement on `[Billing] := {` is the unit's
+# (its system's `accepts`), no longer a requirement of [Ledger]: two body hashes in the first
+# export's delta move
+export-dry/tests/fixtures/checks/export-no-home-fixed.sigil
+# C1 (SGC003 below spec's k), B2 (branches in expansions), A1 (acks on `#&` headers), M1, K1, K2:
+# no corpus case differs. D1 adds no block to language.md (no renumbering).

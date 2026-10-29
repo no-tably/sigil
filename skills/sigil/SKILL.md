@@ -226,8 +226,10 @@ Refining is a loop, run after every feature added in **craft**, until the design
 the simplest acyclic, composable structure that meets its goal. It is not tied to
 any domain or language.
 1. **Fix the limits first.** Run `--sim all` and raise `--limit frames=N` (and
-   `activations=N`) until no row is `cut`. Keep the same limits for every round. A
-   cut run measures nothing, and in spec mode it is a warning that blocks export.
+   `activations=N`) until no row is `cut`, then write them on the `#%` line
+   (`#% frames=N activations=N`, beside any kind words) so every command and every
+   round runs at the same limits with no flag. A cut run measures nothing, and in
+   spec mode it is a warning that blocks export.
 2. **Read the design from each angle below.** Note what each reading shows.
 3. **Propose each change** to the user: the change, the pass that found it, and what
    it costs (measured, if you tried it on a copy). Apply only what the user takes.
@@ -341,9 +343,11 @@ are errors); in sketch they are hidden (`--all` shows them).
    the statement into one), in the design's own terms, and let the user answer.
    A finding marked `(guessed: …)` rests on a guess about a name — say so.
    In spec mode a run the simulator cut at its limits is a warning
-   (*exploration-incomplete*): raise `--limit frames=N` on `check` (and `export`)
-   until nothing is cut before trusting the rest; the defaults already grow with
-   the document's size. A `#&` declaration whose dialect is not available leaves
+   (*exploration-incomplete*): raise `--limit frames=N` on `check` until nothing
+   is cut before trusting the rest, then write the limit the design needs on its
+   `#%` line (`#% frames=N`), so check, the export gate and the views all run it
+   with no flag (`--limit` still sets one over the document's own for a single
+   run); the defaults already grow with the document's size. A `#&` declaration whose dialect is not available leaves
    an SGL189 warning until it is; say so rather than removing the declaration.
    A behavioural finding names its witness run; one named `Entry@t` (`race: … in
    the Bob@0 run`) is two entries running at once — replay it with
@@ -364,9 +368,11 @@ are errors); in sketch they are hidden (`--all` shows them).
    - or **acknowledge** it, when the user accepts the risk: a comment
      `# accepts: rule-name — the reason` trailing the line or on the line(s)
      directly above it; on or above a block's header or on its `}` to cover the
-     block; or before the first statement, separated from it by a blank line, to
-     cover the document. The reason is required; the finding is then listed as
-     `accepted:` and no longer counts.
+     block (a `#& name {` declaration's too, trailing or above it); or before the
+     first statement, separated from it by a blank line, to cover the document.
+     The reason is required; the finding is then listed as `accepted:` and no
+     longer counts. An acknowledgement of `unit-cycle` or `large-unit` on a unit's
+     header is the unit's in an export, not each member's.
 4. **Never reshape the design to make a finding go away** — do not remove a call,
    a writer, a retry or a branch, merge components or reroute flows unless the user
    asks for that change. An unusual shape with its risks declared is a passing
@@ -375,7 +381,9 @@ are errors); in sketch they are hidden (`--all` shows them).
    this: put it to the user, and apply it only if they take it.)
 5. Fix the acknowledgement itself when check reports `ack-unknown-rule`,
    `ack-without-reason` or `ack-unused` (correct the name, add the reason, delete
-   the stale line); these three cannot be acknowledged.
+   the stale line); these three cannot be acknowledged. In craft (k = 1) an
+   acknowledgement of a behavioural rule that covers nothing is only an info hint
+   naming the k: run `check --k 2` (spec's) before deleting it.
 
 To show the user where the findings sit, draw them: `python3 scripts/bin/sigil view FILE
 --once --checks` (or `c` in the live view).
@@ -405,7 +413,8 @@ run it to find out what the design does, not only to show the user.
    should have stated — a base case, visit limit or spawn cap is a recursion, cycle
    or spawn the design leaves open, and a loop at the cap has no `@times`. To see
    past a bound, rerun with `--limit NAME=N` (e.g. `depth=6`, `frames=5000`); that
-   explores further, it never fixes the design.
+   explores further, it never fixes the design. A limit the design needs for every
+   run goes on its `#%` line (`#% frames=5000`); `--limit` sets one over it.
    Entries run one after another unless a scenario starts one at a tick, so a design
    with two or more entries (two actors, a job and a user) also needs the question
    "what if they happen at once?": read the `Entry@t` rows, try other ticks by name

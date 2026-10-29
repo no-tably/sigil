@@ -2363,11 +2363,19 @@ exploration, not the design, and are never acknowledged. RFC 0003 says the same.
 - **What.** An acknowledgement covers no finding of that rule at its anchor (stale
   after an edit). A stale acknowledgement may later silence an unrelated new
   finding.
-- **Query.** Judged only against static rules and trace findings with a k = 1
-  witness: craft explores at k = 1 and spec at k = 2, so an acknowledgement
-  covering a k = 2-only finding would otherwise flip between used and stale when the
-  mode changes. For the same reason a finding the mode does not show (a hidden
-  sketch info, an unemitted hint) still counts as covered.
+- **Query.** An acknowledgement that covered a finding in this check is never
+  stale, whatever the finding's witness (a cut or a stalled join that needs two
+  deviations counts as much as a static finding), and a finding the mode does not
+  show (a hidden sketch info, an unemitted hint) still counts as covered. A check
+  that explores fewer deviations than spec (craft's k = 1 against spec's k = 2)
+  cannot see a finding only a deeper witness shows, so there an acknowledgement of
+  a deviation rule (SGC090, 203, 204, 205, 206, or a dialect rule whose findings
+  carry a k) that covers nothing is a **hint** naming the k ("… covers no
+  `stalled-join` finding on its line at k = 1; a witness of 2 deviations (spec's k)
+  may need it"), not a stale warning: spec judges it. An acknowledgement of a static
+  rule that covers nothing is stale at any k. (Before 0.6.9 only k = 1 witnesses
+  counted, so an acknowledgement covering a k = 2-only finding was both accepted and
+  called stale in spec.)
 - **Declare.** Delete or move the stale acknowledgement. **Not acknowledgeable**:
   acknowledging an acknowledgement would only stack a second stale line, and with
   the two rules above an acknowledgement is never judged stale merely because of the
@@ -2765,7 +2773,7 @@ names what was declined and why.
 | N35 | never-limits | SGC102 | should | **Applied.** `retry-budget(p)` is the declaration; `@deadline` described as time-only. |
 | N36 | never-limits | SGC306 | should | **Applied.** Not reported with `@fallback`, a route, or `&?`/`@any` membership. |
 | N37 | never-limits | SGC101 | should | **Applied.** Returning actor destinations advisory with the unbounded-wait ask. |
-| N38 | never-limits | SGC003 | should | **Applied.** Judged only for static rules and k = 1 trace findings. |
+| N38 | never-limits | SGC003 | should | **Applied.** An acknowledgement that covered any finding is used, whatever its witness's k; below spec's k an uncovered acknowledgement of a deviation rule is a hint naming the k (0.6.9; before, judged only for static rules and k = 1 trace findings). |
 | C1 | computable | GLOBAL node `×` | must | **Applied.** Node-mods fallback narrowed to `@timeout`/`@deadline`/`@fallback`; node `×` is cardinality. |
 | C2 | computable | GLOBAL CG1 | should | **Applied.** CG1 is a P1 render change (`Edge.card`) with goldens and scenario lists; phantom choice points noted; edge `×` is a guess until then. |
 | C3 | computable | SGC204 instances | must | **Applied.** Option (a): static multiplicity predicate concurrent(n); trace detector limited to tasks the sim forks. |

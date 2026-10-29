@@ -631,7 +631,29 @@ branch on {Request}.kind {
 }
 ```
 
-A branch on a field (`branch on {X}.f { … }`) decides where it is written: placed between two flows of one source, it runs after the flows above it and before the ones below it, in the order the lines are written.
+A branch on a field (`branch on {X}.f { … }`, or a branch whose header names no
+glyph) decides where it is written, in the order the lines are written:
+
+- placed between two flows of one source, it runs after the flows above it and
+  before the ones below it;
+- otherwise it decides in the body of the part that has its subject: the source
+  of the last flow written before it that gives the subject (carries `{X}` in its
+  payload or op arguments, returns `{X}`, or flows into `{X}`) and reaches the
+  branch's owner (its source or target is an arm's entry). It runs right after
+  that flow, in that flow's episode, and is then no entry of its unit. With no
+  such flow the branch is an entry of its unit, as before.
+
+An arm's entry that has work of its own written before the branch stays an entry
+of its unit. An arm's call is a call like any other: the callee runs its
+expansion, its body and its branches in its own unit (so a failure there is
+routed as anywhere else), then its own part of the arm; the arm's entry runs only
+its part of the arm. This holds for `->`, `~>` and gates alike, in a run and in
+the failure routes the checks read.
+
+In `[Run] := { [Orch] -> [Plan] : next({Job}) => {Job}`, then `branch on
+{Job}.mode { run => [Orch] -> [Builders] : assign({Job}) => {Done} … } }`, the
+branch decides in `[Orch]` right after `[Plan]` returns `{Job}`, and the `run`
+arm's call enters `[Builders]`'s own expansion like any call.
 
 ### Recursion
 
@@ -1075,6 +1097,26 @@ word or two words for one choice (`SGL093`, error), a `#%` line it does not read
 (`SGL094`), and a race (`parallel @any`, `&?`) in a `deterministic` system
 (`SGL095`). State the kind the system has; never write one to quiet a finding.
 
+**Limits on the `#%` line.** A word `name=N` on the same line is a simulator
+limit, not a kind word: `#% daemon frames=300000 activations=80000`, or
+`#% frames=300000` alone. The names are the simulator's (`hop`, `iterations`,
+`depth`, `spawn`, `spawns`, `visits`, `activations`, `stack`, `frames`,
+`scenarios`, `overlaps`, `pair_overlaps`, `window`; see `--limit` under
+`sigil view` in [`docs/tools.md`](./docs/tools.md)) and N is at least 1. A design
+that needs longer runs than the defaults says so once, in the document, so every
+tool that runs it agrees: `sigil check`, the export gate, `sigil view` (`--sim`,
+`--run`, `--once` and live) and `sigil frames draw` (so a host's pane runs them
+with no flag) start from the document's limits; `--structure` runs nothing and
+reads none. The order is: the defaults (`frames` and `activations` grown to the
+document's size), then the document's limits as written (never scaled), then
+`--limit NAME=N`, which wins whether it raises or lowers one. `check --json` says
+where each limit came from (`limit_sources`: `default`, `scaled`, `document` or
+`flag`). Lint reports an unknown name, a value below 1, a word that is not
+`NAME=N` and a name written twice (`SGL096`, error); a run ignores a bad limit and
+takes the first of a doubled one, and a bad limit blocks the export (lint must be
+clean). Write the limits the design's runs need, as the kind, to say what is true;
+a run that is still cut is reported (SGC090) as before.
+
 Each composition check (below) belongs to one group:
 
 | Group | Off for | Rules |
@@ -1166,11 +1208,12 @@ only. A flow from a unit into one enclosing it is never a finding.
 
 **Runs that never finished.** Every simulated run ends: one that would not is cut
 at a limit (`frames` and `activations` per episode, which grow with the document's
-size; `--limit NAME=N` raises one). A cut run is evidence the checks did not
+size; `name=N` on the `#%` line sets one for the document, and `--limit NAME=N`
+sets one for a single run, over the document's own). A cut run is evidence the checks did not
 finish reading, so **SGC090 `exploration-incomplete`** reports it, naming the limit
 and the run. It is a hint, but a **warning in `#!spec`**: a spec whose runs were
-cut does not pass the spec check or the export gate until the limit is raised or
-the cut is acknowledged on the line of the entry whose episode was cut. SGC090 also
+cut does not pass the spec check or the export gate until the limit is raised (on
+the `#%` line, or with `--limit`) or the cut is acknowledged on the line of the entry whose episode was cut. SGC090 also
 says, as a hint, when the budget (`--budget`) or the overlap sweep's work cap left
 runs unrun (failure combinations, state starts or overlap runs).
 
@@ -1190,16 +1233,24 @@ runs unrun (failure combinations, state starts or overlap runs).
 ```
 
 An acknowledgement anchors by line: trailing the line, on the line(s) directly
-above a statement, on or above a block's header or its `}` (the whole block), or
-before the first statement and separated from it by a blank line (the whole
-document). The reason is required; a trailing acknowledgement's reason may go on
+above a statement, on or above a block's header or its `}` (the whole block),
+trailing or above a `#& name …` declaration line (its block when it opens one,
+else its line; see "Dialects"), or before the first statement and separated from
+it by a blank line (the whole document). The reason is required; a trailing acknowledgement's reason may go on
 over comment-only lines aligned under its `#`, as any trailing comment does (see
 "Descriptions" under "Ready to export"). An acknowledged finding is listed as `accepted:`
 with its reason and no longer counts toward the exit code. Three meta rules keep the
 valve honest and cannot themselves be acknowledged: `ack-unknown-rule` (a mistyped
 rule name; a warn even in `#!sketch`), `ack-without-reason` (the acknowledgement is
-void) and `ack-unused` (it no longer matches a finding — delete it). Rule names are
-kebab case; people write the name, never the `SGCnnn` id.
+void) and `ack-unused` (it no longer matches a finding — delete it). An
+acknowledgement that covered a finding in this check is never unused, however many
+failures the finding's witness combines. A check that explores fewer failures than
+`#!spec` (craft's `--k 1` against spec's 2) cannot see a finding only a deeper
+witness shows, so there an acknowledgement of a behavioural rule that covers
+nothing is an info hint naming the k ("… at k = 1; a witness of 2 deviations
+(spec's k) may need it"), not an `ack-unused` warning: check at spec's k before
+deleting it. Rule names are kebab case; people write the name, never the `SGCnnn`
+id.
 
 `#=` is **reserved** for a later decorated form of the same acknowledgement
 (`#= retry-without-idempotency — upsert on order_id`). Until that form lands it
@@ -1254,7 +1305,14 @@ there (and depends on Core). An access grant line, `|S| @read(P)`, is the store'
 own line: it declares `|S|`. A mention **in passing** declares nothing either: a
 block's subject (`branch on {X}.f {`, the subject a `loop` or `parallel` walks), a
 branch arm's body (`ok => [A]`), a store a component borrows (`[P] @borrow(read)
-|S|`) and a join's member are references, as a flow end is. A level that only refers
+|S|`) and a join's member are references, as a flow end is. A block's subject is
+less still: it is a **read**. A branch decides on its subject and a loop walks it
+(`branch on {X}.f`, `loop @each x of {Xs}`, `loop @while |Q|.nonempty`); neither
+writes a part there, so a level that names a part only as a subject is none of
+its systems, and a part that every level names only so is no component at all (no
+page, no home, no dependency on it). It stays a node for the drawing and the
+simulator. A part written anywhere else, or given a shape, is a component as
+before, homed where it is written. A level that only refers
 to a part also leaves it to the unit nested under it that writes it in any way:
 `(Client) -> [Transport]` at the top level, with `[Transport]` written inside
 `[Remote] := { … }`, leaves `[Transport]` in Remote, and a top-level flow between
@@ -1310,7 +1368,11 @@ notes:
   under a block opener, or one between a line and the continuation line below it,
   stays a comment above what follows. A `# accepts:` line never starts one;
 - a comment above an expansion `X := {` describes both the node `X` and the
-  system `X`; a comment set apart by blank lines elsewhere describes nothing.
+  system `X`; a comment set apart by blank lines elsewhere describes nothing;
+- a comment on a data shape's field (`note?   # one line`, or on its own line
+  right above the field) joins the data's description as "`note?`: one line". It
+  moves the body hash of the data and of its home system, never an interface hash
+  (fields enter interfaces by name only).
 
 So in a spec that opens `# one storefront, one checkout`, a blank line,
 `# the browser's door`, then `[Web] -> [Api] : get({Id}) => {Page}   # read-only`,
@@ -1338,10 +1400,20 @@ other check output changes:
   payload (`: verb({Data})`, or a data or event glyph at one end), or a synchronous
   call across one with no stated return (`=> {Result}`). The boundary is the contract
   a builder works to, so it says what crosses it. An async send (`~>`), a failure
-  route (`!>`) or a conditional (`?>`) needs no return.
+  route (`!>`) or a conditional (`?>`) needs no return. A flow on from a guard's
+  data subject is the guard's caller's: `[Orch] ?> {Job}.ready -> [Builders]`
+  exports as the call `[Orch] -> [Builders]` (beside the `?>` edge itself), so it
+  needs a payload and a return across a boundary like any call.
 
 Both are resolved like any finding: declare it, or acknowledge it
-(`# accepts: untyped-boundary — a status code only, no body`). Exporting also needs
+(`# accepts: untyped-boundary — a status code only, no body`). An acknowledgement
+on a component's lines is one of its requirements. One on a unit's header
+(trailing the `X := {` line, on the line above it, or on its `}`) that names only
+the unit's own rules (`unit-cycle`, `large-unit`) is the unit's: it is listed on
+the unit's system (`accepts`, and its README's "Acknowledgements (on its header)")
+and on its face's page, not on each member. Any other rule acknowledged on a
+unit's header covers the members' lines, as on any block, so it is each covered
+member's requirement. Exporting also needs
 lint clean and no other error or warning left unacknowledged.
 
 **What the export records.** Each system and each component has two hashes: an
@@ -1453,8 +1525,14 @@ no rule reads and the model does not draw. What the name means is the dialect's:
 it lists the names it declares (the `DECLARATIONS` hook), and lint warns
 (`SGL189`) on a `#&` name no loaded dialect declares. Like `#=` (see "Checks"),
 the marker is reserved by the core; a `#&` after code on a line is erased like a
-comment and makes no note. `sigil export` hands each declaration on, its body as
-written, in the system whose scope holds it (see "Ready to export").
+comment and makes no note. An acknowledgement trailing a `#&` line
+(`#& name {   # accepts: rule — reason`) is read as one on the line above it is:
+it covers the declaration (its block when it opens one, else its line) and is
+judged like any other (`ack-unknown-rule`, `ack-without-reason`, `ack-unused`).
+Any other comment trailing a `#&` line stays the dialect's text. `sigil export`
+hands each declaration on, its body as written (a trailing acknowledgement
+included, in the body hash), in the system whose scope holds it (see "Ready to
+export").
 
 The dialect's own document is the authority on its vocabulary; it names the core
 sections it extends. A dialect's grammar is an **addendum** to the core formal

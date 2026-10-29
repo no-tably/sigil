@@ -113,7 +113,8 @@ the browser — write a design, switch views, step through a simulation.
 One command, `sigil`, Python 3 standard library only: run `bin/sigil` (or
 `python3 -m sigil` from the repository). `lint`, `check`, `export --mermaid` and
 `highlight` take `-` for stdin; `view` needs a file, since it redraws on save, and so does the
-folder export, since the manifest names the spec file. Every flag and key is in [`docs/tools.md`](./docs/tools.md).
+folder export, since the manifest names the spec file. `sigil --version` prints the
+version. Every flag and key is in [`docs/tools.md`](./docs/tools.md).
 
 | Command | Does |
 | --- | --- |
@@ -245,7 +246,9 @@ random; the run is a function of the design and the chosen **scenario**.
   Every run ends: one that would not is `cut` at a limit (frames and activations
   per episode, which grow with the design's size), and the run says which episode
   hit it. In `#!spec`, `sigil check` warns about a cut run, so it blocks the export
-  until the limit is raised (`--limit frames=N`) or the cut is acknowledged.
+  until the limit is raised or the cut is acknowledged. A design that needs longer
+  runs says so on its `#%` line (`#% frames=300000`), so every command runs it
+  there; `--limit frames=N` sets one for a single run, over the document's own.
 - **Levels:** an expansion is a closer reading of its node, so an outer flow whose
   target the expansion also reaches by a flow (not only by a failure route or
   an optional `?>`) is a summary of that detail — `[Shop] ~>
@@ -434,7 +437,7 @@ sigil export shop.sigil --out build
 
 ```
 build/
-  manifest.json      per system: interface hash, body hash, components (each with its two hashes), depends_on, parent
+  manifest.json      the sigil that wrote it; per system: interface hash, body hash, components (each with its two hashes), depends_on, parent
   delta.json         what changed since the last export (the first: every system added)
   README.md          the index: systems and what each depends on
   shop/              the top level: (Shopper), [Storefront], [Checkout], …

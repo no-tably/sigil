@@ -24,7 +24,7 @@ sigil highlight --stream [--theme NAME|PATH] [--dialect D]
 ```
 
 `sigil` with no subcommand prints that list (exit 2), and `sigil --help` prints it
-too (exit 0); `sigil CMD --help` gives each subcommand's flags. Each subcommand loads only the parts of
+too (exit 0); `sigil --version` prints `sigil X.Y.Z` (exit 0); `sigil CMD --help` gives each subcommand's flags. Each subcommand loads only the parts of
 the package it needs, so `sigil lint` never loads the simulator or the views. Every
 subcommand that reads a document (`lint`, `check`, `view`, `export`, `frames draw`,
 `highlight`) takes `--dialect NAME` (see [Dialects](#dialects)).
@@ -118,14 +118,17 @@ binding rules errors. The line format and [exit codes](#exit-codes) match lint.
   runs were left and how far the frames got (`58 overlap runs (…; their frames
   reached the work cap: 103729 of 102400)`), and its fix names `--budget N` (above
   256 it raises the cap), `--overlaps listed` or a smaller `--k`.
-- `--limit NAME=N` raises one simulator limit (repeatable, e.g. `depth=5`;
-  `window=N` the start ticks tried per pair of entries, 64), as `sigil view
-  --limit` does: every run check makes, and the scenario list it draws them from,
-  use the raised limits. The default `frames` and `activations` grow with the
+- `--limit NAME=N` sets one simulator limit (repeatable, e.g. `depth=5`;
+  `window=N` the start ticks tried per pair of entries, 64) over the document's own
+  (`name=N` words on its `#%` line, see [Limits in the document](#limits-in-the-document))
+  and the defaults, as `sigil view --limit` does: every run check makes, and the
+  scenario list it draws them from, use those limits. A flag wins, whether it
+  raises or lowers the limit. The default `frames` and `activations` grow with the
   document (see `--limit` under [`sigil view`](#sigil-view-file)), so most designs
   finish their runs without it. When a run is still cut short by a limit, SGC090
-  names the limit, the run and the limits it had, with the fix `raise --limit
-  frames=N until no run is cut, or acknowledge on the entry's line`. In `#!spec`
+  names the limit, the run and the limits it had, with the fix `raise frames
+  (`#% frames=N` in the document, or --limit frames=N) until no run is cut, or
+  acknowledge on the entry's line`. In `#!spec`
   that finding is a **warning**, so it also blocks the export gate: a spec whose
   runs never finished is not ready. When what ran is enough, acknowledge it on the
   line of the entry whose episode was cut (`# accepts: exploration-incomplete — …`).
@@ -141,7 +144,9 @@ binding rules errors. The line format and [exit codes](#exit-codes) match lint.
 - `--all` also shows hidden findings.
 - `--json` prints one JSON object: the mode, `k`, the `limits` (as the runs had
   them: `frames` and `activations` grown to the document; with `budget`, `k` and
-  `overlap_runs`) and every finding
+  `overlap_runs`), `limit_sources` (where each simulator limit came from:
+  `default`, `scaled` for a default grown to the document, `document` for the `#%`
+  line, `flag` for `--limit`) and every finding
   with its rule, tier, why, how to satisfy (`fix`), witness (and `at`, the tick in
   the witness run where a behavioural finding shows), plus the acknowledged ones.
 - `--export` also runs the export readiness rules, SGC401 `no-home` and SGC402
@@ -154,6 +159,31 @@ binding rules errors. The line format and [exit codes](#exit-codes) match lint.
   runs unless `--overlaps` is given.
 - `--rules` lists the rules, each with its tier and group, and exits.
 - `--dialect NAME` adds a dialect's rule pack.
+
+An acknowledgement that covered a finding in the check is never reported unused
+(SGC003 `ack-unused`), whatever the finding's witness. A check at a smaller `--k`
+than spec's 2 (craft's default 1) cannot see a finding only a two-failure witness
+shows, so there an acknowledgement of a behavioural rule (SGC090, 203–206, or a
+dialect rule whose findings carry a k) that covers nothing is an info hint that
+names the k and says to check at `--k 2` first; one of a static rule is unused at
+any k.
+
+### Limits in the document
+
+A `name=N` word on the document's `#%` line is a simulator limit:
+`#% daemon frames=300000 activations=80000`, or `#% frames=300000` alone. The names
+are those of `--limit` (under [`sigil view`](#sigil-view-file)): `hop`,
+`iterations`, `depth`, `spawn`, `spawns`, `visits`, `activations`, `stack`,
+`frames`, `scenarios`, `overlaps`, `pair_overlaps`, `window`; N is at least 1. Each
+run starts from the defaults (`frames` and `activations` grown to the document's
+size), lays the document's limits over them as written (never scaled), then
+`--limit`'s (a flag wins, raised or lowered). `sigil check`, the export gate,
+`sigil view` (`--sim`, `--run`, `--once` and live) and `sigil frames draw` all
+start from the document's limits, so a host's pane that passes no flag runs them;
+`--structure` runs nothing. Lint reports an unknown name, a value below 1, a word
+that is not `NAME=N` and a name written twice as `SGL096` (error): a run ignores a
+bad limit and takes the first of a doubled one, and a bad limit blocks the export,
+whose gate needs lint clean. There is no ceiling.
 
 Two structure rules read the units that [`sigil view --structure`](#sigil-view-file---structure)
 lists, so the two never disagree: SGC176 `unit-cycle` (two sibling units whose
@@ -182,8 +212,15 @@ every composition-tree root is a system holding its tree, and every other node i
 the top system, named after the spec file's stem (or `--name`). A top-level service
 with the top's name (`[Shop]` in `shop.sigil`) is the top's face, not a second
 system. Each component has one **home**: a level that names a part only in its flows
-(or in passing: a block's subject, an arm, a borrow, a join) is never its home when
-another level declares it.
+(or in passing: an arm, a borrow, a join) is never its home when another level
+declares it. A branch's or loop's subject (`branch on {X}.f`, `loop @each x of
+{Xs}`, `loop @while |Q|.nonempty`) is a **read**: a level that names a part only
+so is none of its systems, and a part every level names only so is no component
+(no page, no home, no dependency); it stays a node in the drawings and the runs.
+A flow on from a `?>` guard's data subject is the guard's caller's:
+`[Orch] ?> {Job}.ready -> [Builders]` exports the call `[Orch] -> [Builders]`
+beside the `?>` edge, so across a boundary it needs a payload and a return like
+any call (SGC402).
 
 - `--out DIR` the export folder, made when missing. It must be empty or hold an
   earlier export (a `manifest.json`); `sigil export` never writes over a folder it did
@@ -201,10 +238,11 @@ another level declares it.
   `--mermaid --spine` takes it too; plain `--mermaid` refuses it.
 - `--dry-run` prints the delta and writes nothing.
 - `--json` prints the delta as JSON instead of the summary in words.
-- `--limit NAME=N` raises one simulator limit for the gate's check (repeatable,
-  e.g. `frames=20000`), as `sigil check` takes it. A run cut at a limit is a
-  warning in spec mode, so it blocks the export until the limit is raised or the
-  cut is acknowledged on its entry's line.
+- `--limit NAME=N` sets one simulator limit for the gate's check (repeatable,
+  e.g. `frames=20000`) over the document's own `#%` limits, as `sigil check` takes
+  it. A run cut at a limit is a warning in spec mode, so it blocks the export until
+  the limit is raised (on the `#%` line, or with the flag) or the cut is
+  acknowledged on its entry's line.
 - `--dialect NAME` loads a dialect, as `lint`, `check` and `view` do.
 
 Exit codes: 0 exported (or a dry run), 1 the folder could not be written, 2 not
@@ -226,22 +264,33 @@ DIR/
 
 Folder and file names are slugs of the names: stable, ASCII-safe and
 collision-free. A component file states, as the spec writes them: its **kind**; its
-**description** (its `#` comments); its **interface** (every flow in or out, with the
+**description** (its `#` comments; for data, then the comments on its shape's
+fields, each as "`note?`: one line", which move its body hash and its home
+system's, never an interface hash); its **interface** (every flow in or out, with the
 peer, verb, payload, what a call returns, sync or async, failure routes and the
 call's policy); its **requirements** (the modifiers on it, the access it is granted,
 and every `# accepts:` acknowledgement covering it, verbatim); its **lifecycle** (its
-state machine, when it has one). No target-language types.
+state machine, when it has one). No target-language types. An acknowledgement of a
+unit's own finding (`unit-cycle`, `large-unit`, and no other rule) on an
+expansion's header (trailing `X := {`, on the line above it, or on its `}`) is the
+unit's: its `system.json` lists it under `accepts`, its README under
+"Acknowledgements (on its header)", and its face's page carries it, but no member's
+requirements do. Any other acknowledgement on a unit's header covers the members'
+lines and is each covered member's requirement, as on any block.
 
 **`manifest.json`**:
 
 ```
-{"sigil_export": 1, "spec": <file name>, "spec_hash": …, "top": <key>,
+{"sigil_export": 1, "sigil": "X.Y.Z", "spec": <file name>, "spec_hash": …, "top": <key>,
  "dialect": {"name": …, "version": …},
  "systems": {name: {"path", "interface", "body", "components", "depends_on",
                     "parent",
                     "component_hashes": {glyph: {"interface", "body"}}}}}
 ```
 
+`sigil` is the version of sigil that wrote the export (as `sigil --version` prints
+it). No hash reads it and the delta ignores it, so a new sigil marks nothing to
+rebuild; a builder that wants to re-export on a new sigil compares it itself.
 `spec_hash` is the hash of the spec file's text as written (so a reformat moves it).
 `top` is the top system's key (the first of `systems`).
 `dialect` is there only when a dialect was loaded: its `NAME`, and its `VERSION`
@@ -288,7 +337,8 @@ no node, so a glyph a shape names only in its fields (`{Meta}` alone or `meta:
 **`system.json`** is the system's normalised form: `name`, `kind` (`top`,
 `expansion` or `tree`), `face` (the glyph the system is named after), `parent`,
 `depends_on`, `description`, `interface` and `flows` (the flows inside), `shapes`,
-`blocks`, `components`, `accepts` (the acknowledgements on it), `declarations` and
+`blocks`, `components`, `accepts` (the acknowledgements on it: the document-wide
+ones on the top, a unit's own on its header on an expansion), `declarations` and
 `hashes` (`{"interface", "body"}`). Keys with no value are left out. `blocks` are the
 control blocks written in it, `[{"kind", "header", "mods"}]`.
 
@@ -466,14 +516,17 @@ Options:
   frame. The agent plugins' split passes them. With `--once`, `--frame` picks the
   frame drawn in any view (the run view puts its playhead there) instead of the
   last.
-- `--limit NAME=N` raises one simulator bound for `--sim` (repeatable): `iterations`
+- `--limit NAME=N` sets one simulator bound for `--sim` (repeatable), over the
+  document's own (`name=N` on its `#%` line, see [Limits in the
+  document](#limits-in-the-document)): `iterations`
   (loop repetitions, 2), `depth` (recursion, 3), `spawn` / `spawns`, `visits`, `stack`,
   and the per-episode `frames` and `activations`; `overlaps` (12) and
   `pair_overlaps` (3) cap the overlap scenarios listed. The defaults of `frames`
   and `activations` grow with the document: 128 and 20 × its nodes plus edges
   (every level, each counted where written), never below 2000 and 500, so a large
   design finishes its runs at default limits and a small one is unchanged
-  (02-shop gets 4736 frames and 740 activations). A given `--limit` wins. Each
+  (02-shop gets 4736 frames and 740 activations). A limit on the `#%` line is used
+  as written, and a given `--limit` wins over both. Each
   entry point runs as its own episode with its own `frames` and `activations`
   (`frames` counted from the latest episode's start), so a large design runs every
   entry in full. A run that still ends `cut` names the bound it hit, the episode
@@ -954,8 +1007,9 @@ What the Claude Code pane and the pi widget run; not meant to be typed.
   [--payloads] [--theme NAME] [--dialect D] [--limit NAME=N]` prints the drawing as one JSON
   object of packed rows (text and a style id per run, a style table with hex
   colours), with the legend, summary, lint and scenarios, and for a run its frames
-  a window at a time. `--limit` raises one simulator limit (repeatable), as `sigil
-  view` and `sigil check` take it, for the run and the scenarios listed. The
+  a window at a time. It starts from the document's `#%` limits; `--limit` sets
+  one simulator limit over them (repeatable), as `sigil view` and `sigil check`
+  take it, for the run and the scenarios listed. The
   shape is in the docstring of `sigil/present/frames.py`; the page's `frames.json`
   and the playground use the same packing.
 - `sigil frames follow CONTROL` runs `sigil view` live with the flags in the

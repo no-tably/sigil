@@ -2,6 +2,90 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
+## 0.6.9 — unreleased
+
+Most of this release fixes what cure and construct hit while their specs caught up with
+their code: each one cost them a workaround or an acknowledgement. A design can now
+keep its simulator limits in the document, and an export says which sigil wrote it.
+
+### New
+
+- **Limits in the document.** A `name=N` word on the `#%` line is a simulator limit:
+  `#% daemon frames=300000 activations=80000`, or `#% frames=300000` alone (the names
+  are `--limit`'s; N at least 1). `sigil check`, the export gate, `sigil view`
+  (`--sim`, `--run`, `--once`, live) and `sigil frames draw` all start from them, so a
+  host's pane with no flag runs the design at the limits it needs. The defaults
+  (grown to the document's size) come first, then the document's limits as written,
+  then `--limit`, which now *sets* a limit over the document's own: a flag wins,
+  whether it raises or lowers one. `check --json` gains `limit_sources` after
+  `limits` (each limit's source: `default`, `scaled`, `document` or `flag`).
+  SGC090's fix names both ways (`#% frames=N` in the document, or `--limit
+  frames=N`).
+- **`sigil --version`** prints `sigil X.Y.Z`. An export's `manifest.json` names the
+  sigil that wrote it (`"sigil": "X.Y.Z"`, after `"sigil_export"`). No hash reads it
+  and the delta ignores it, so a new sigil marks nothing to rebuild; a builder that
+  wants to re-export on a new sigil compares it itself.
+
+### Fixes
+
+- **A branch in an expansion runs where it is written.** A field branch (`branch on
+  {X}.f`) inside an expansion took over the expansion's entry, so flows written
+  before it, and a call beside it, never ran; and an arm's call never entered the
+  callee's own expansion. Now a branch between two flows of one source decides
+  between them (as since 0.6.4); otherwise it decides in the part that has its
+  subject, right after the last flow written before it that gives the subject
+  (carries or returns `{X}`, or flows into it) and reaches the branch's arms, in that
+  flow's episode. An arm's call is a call like any other: the callee runs its
+  expansion, body and branches in its own unit, so a failure there is routed as
+  anywhere else. The same holds for `->`, `~>` and gates, in a run and in the
+  failure routes the checks read. A design whose arms call into an expansion now
+  runs more of itself (construct's happy run: 9421 → 23066 frames), so watch its
+  limits.
+- **An acknowledgement that covered a finding is never stale.** `ack-unused`
+  (SGC003) counted only findings with a one-failure witness, so an acknowledgement
+  covering a cut or a stalled join that needs two failures was both accepted and
+  called stale, a warning that blocked export in spec. Now any finding it covers
+  counts. In craft (`--k 1`), an acknowledgement of a behavioural rule (SGC090,
+  203–206, or a dialect rule whose findings carry a k) that covers nothing is an
+  info hint naming the k instead of a warning, since spec's deeper runs may need it;
+  a static rule's is still a warning.
+- **An acknowledgement trailing a `#&` line is read.** `#& name {   # accepts: rule
+  — reason` covers the declaration (its block, or its line when it opens none),
+  exactly as one on the line above it, and is judged by `ack-unknown-rule`,
+  `ack-without-reason` and `ack-unused`. The declaration's body stays as written
+  (no hash moves); any other comment trailing a `#&` line stays the dialect's text.
+- **Export readings.**
+  - A branch's or loop's subject (`branch on {X}.f`, `loop @each x of {Xs}`,
+    `loop @while |Q|.…`) is a read: a level that names a part only so is none of its
+    systems, and a part every level names only so is no component (no page, no home,
+    no dependency), so a subject no longer makes false unit cycles or a data page in
+    the wrong unit. It stays a node in the drawings and the runs, and `large-unit`
+    no longer counts it (a test fixture's top level: 13 → 12 members).
+  - A flow on from a `?>` guard's data subject is the guard's caller's:
+    `[Orch] ?> {Job}.ready -> [Builders]` exports as `[Orch] -> [Builders]` (the
+    `?>` edge is still exported), not as a call from `{Job}`. Such a guarded call
+    across a boundary with no payload or return is now `untyped-boundary` (SGC402).
+  - A comment on a data shape's field (`note?   # one line`) joins the data's
+    description ("`note?`: one line"). It moves the body hash of the data and of
+    its home system, never an interface hash.
+  - An acknowledgement of a unit's own finding (`unit-cycle`, `large-unit`) on an
+    expansion's header (trailing it, on the line above, or on its `}`) is the
+    unit's: `system.json` lists it under `accepts`, the system README under
+    "Acknowledgements (on its header)", and the face's page carries it, instead of
+    every member's requirements. Any other rule acknowledged on a unit's header
+    still goes on each covered member. A re-export of a spec that writes one moves
+    the members' and the unit's body hashes once.
+- **Check uses far less memory.** Explored runs keep only the facts the trace rules
+  read, so construct's spec at its limits takes 0.18 GB instead of 3.0 GB, and 154 s
+  instead of 192 s, with the same findings.
+
+### New lint rule
+
+- **SGL096** (error): a limit on the `#%` line the simulator refuses: an unknown
+  name, a value below 1, a word that is not `NAME=N`, or a name written twice. A run
+  ignores a bad one (and takes the first of a doubled one); a bad limit blocks
+  export.
+
 ## 0.6.8 — 2026-10-28
 
 - **A field is never a node.** In a data shape, `{Meta}`, `{Meta}?` and `rows: {Row}` all name a
