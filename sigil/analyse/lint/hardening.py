@@ -1,5 +1,5 @@
 """
-Lint hardening (SGL120–188, SGL190–194): the lines the parser would misread or drop. The
+Lint hardening (SGL120–188, SGL190–195): the lines the parser would misread or drop. The
 rules read the document's one reading (sigil.core.statements.read_document):
 each statement's tokens (sigil.core.tokens) and the walk's record of blocks,
 headers, sections, transitions and continuation lines — the same reading the
@@ -13,8 +13,8 @@ from sigil.core import parse as render
 from sigil.core.graph import walk_depth
 from sigil.core.dialects import _hook
 from sigil.core.lex import (
-    ARROWS, CLOSERS_CLASS, FIELD_RE, GLYPH_PREFIXES, MOD_NAME_RE, NAME_CHARS,
-    OPENERS_CLASS, PREFIXES_CLASS, SECTION_RE, glyph_kind)
+    ARROWS, CLOSERS_CLASS, DIALECT_COL, FIELD_RE, GLYPH_PREFIXES, MOD_NAME_RE, NAME_CHARS,
+    OPENERS_CLASS, PREFIXES_CLASS, SECTION_RE, escape_char, glyph_kind, hidden_chars, visible)
 from sigil.core.statements import (
     StateHead, Statement, Walk, data_shapes, field_name, read_document, read_fields)
 from sigil.core.tokens import Code, Tok, glyph_spans
@@ -47,7 +47,7 @@ HARDENING_SEVERITY = {
     "SGL180": "error", "SGL181": "warn", "SGL182": "warn", "SGL183": "warn",
     "SGL184": "warn", "SGL185": "warn", "SGL186": "warn", "SGL187": "info",
     "SGL188": "warn", "SGL190": "error", "SGL191": "warn", "SGL192": "error",
-    "SGL193": "warn", "SGL194": "warn",
+    "SGL193": "warn", "SGL194": "warn", "SGL195": "error",
 }
 
 
@@ -317,7 +317,44 @@ def walk_findings(walk: Walk, dialect=None) -> list:
             + _state_findings(walk.transitions, ownerless_heads(walk.doc, dialect))
             + _bare_branch_findings(walk.bare_branches)
             + _continuation_findings(walk.continuations)
-            + shape_findings(walk) + field_ref_findings(walk))
+            + shape_findings(walk) + field_ref_findings(walk) + hidden_name_findings(walk))
+
+
+def hidden_name_findings(walk: Walk) -> list:
+    """SGL195 a name holding a control character (Unicode Cc: ESC, BEL, a tab
+    inside brackets …) or a format character (Cf: a bidi override or isolate, a
+    zero-width space or joiner — an emoji's ZWJ too —, a BOM, a soft hyphen): it
+    garbles the terminal it is printed in, or looks like another name (`[A]`,
+    `[A<U+200B>]`). A name is a glyph's (between its brackets) or any other word
+    of a line's code (a state, a field, a section title, a modifier's argument);
+    whitespace between words, a comment and a string's text are no name. The
+    message shows the name escaped (lex.visible). A `#&` declaration's lines are
+    the dialect's and a block string's are text: neither is read."""
+    out = []
+    for k, code in enumerate(walk.codes):
+        if k in walk.declared or k in walk.quoted or code.text.isprintable():
+            continue
+        name = _hidden_name(code)
+        if name is not None:
+            chars = ", ".join(dict.fromkeys(escape_char(ch) for ch in hidden_chars(name)))
+            out.append(Finding(k + 1, "SGL195", f"`{visible(name)}` holds a control or "
+                               f"invisible format character ({chars}): it garbles a terminal "
+                               "or reads as another name. Remove it."))
+    return out
+
+
+def _hidden_name(code: Code) -> Optional[str]:
+    """The first name of a line's code (a glyph as written, else a word outside
+    every glyph) holding a hidden character, or None. A dialect glyph's columns
+    (DIALECT_COL in the code, the glyph itself in the raw text) are not read."""
+    text = "".join(" " if ch == DIALECT_COL and raw != DIALECT_COL else ch
+                   for ch, raw in zip(code.text, code.raw))
+    rest = list(text)
+    for span in sorted(glyph_spans(text), key=lambda s: s.start):
+        if hidden_chars(span.name):
+            return text[span.start:span.end].strip()
+        rest[span.start:span.end] = " " * (span.end - span.start)
+    return next((w for w in "".join(rest).split() if hidden_chars(w)), None)
 
 
 def shape_findings(walk: Walk) -> list:
@@ -582,7 +619,7 @@ def target_words(words):
 
 
 def lint_hardening(walk: Walk, result: LintResult, dialect=None, graph=None):
-    """Report the hardening findings (SGL120–SGL193) on `result`. `walk` is the
+    """Report the hardening findings (SGL120–SGL195) on `result`. `walk` is the
     document's reading; `graph` the parsed document (render.parse_document), or
     None when it could not be parsed."""
     # A dialect owns its vocabulary: one that has not said which bare words it

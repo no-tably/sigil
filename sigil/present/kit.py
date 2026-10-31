@@ -49,7 +49,7 @@ from sigil.core.graph import (  # noqa: F401  (some for the views, as kit.NAME)
 from sigil.core import graph as _graph
 from sigil.core.lex import (
     BLOCK_SENTINEL, GLYPH_PREFIXES, MODIFIER_RE, PAYLOAD_PIECE_RE, declaration_name,
-    first_content, glyph_kind, is_mode_line, net_braces, split_lines)
+    first_content, glyph_kind, is_hidden, is_mode_line, net_braces, split_lines, visible)
 from sigil.core.kinds import is_kind_line
 from sigil.core.statements import comment_of
 from sigil.core.tokens import lexicon
@@ -351,11 +351,12 @@ def node_styles(n):
 
 def node_label(n) -> str:
     """A drawn node's label: a chip or join its text, a decision `◇ text`, a
-    glyph as the notation writes it (core.graph.node_label)."""
+    glyph as the notation writes it (core.graph.node_label); a control or format
+    character escaped in each (lex.visible)."""
     if n.kind in (CHIP, JOIN):
-        return n.name
+        return visible(n.name)
     if n.kind == DECISION:
-        return f"◇ {n.name}"
+        return f"◇ {visible(n.name)}"
     return _graph.node_label(n)
 
 
@@ -442,6 +443,15 @@ def char_cells(ch: str) -> int:
             n = 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
         _CHAR_CELLS[ch] = n
     return n
+
+
+def unhidden(s: str) -> str:
+    """`s` with each control or format character that takes a cell (char_cells 1)
+    drawn as `?`, so a canvas never writes one to the terminal and every column
+    stays where its width put it. A zero-width one (ZWSP, ZWJ …) stays joined to
+    the character before it, as in an emoji. Names are escaped before they are
+    measured (lex.visible, via node_label); this guards every other text drawn."""
+    return "".join("?" if is_hidden(ch) and char_cells(ch) == 1 else ch for ch in s)
 
 
 def cell_width(s: str) -> int:
@@ -633,6 +643,8 @@ class Canvas:
         (a wide one's first cell, never its tail)."""
         if not s:
             return
+        if not s.isprintable():
+            s = unhidden(s)
         if s.isascii():
             n = len(s)
             self.text.update(zip(zip(range(x, x + n), itertools.repeat(y)),
@@ -1344,7 +1356,7 @@ def label_runs(n, bold: bool = True, bg=None) -> list:
     label = node_label(n)
     colour = (HOLE_COLOR if n.is_hole else kind_color(n.kind), bg, bold)
     if n.kind == DECISION:                      # ◇ {Request}.kind: the header as code
-        return [("◇ ", (SYNTAX["keyword"][0], bg, True))] + payload_runs(n.name)
+        return [("◇ ", (SYNTAX["keyword"][0], bg, True))] + payload_runs(visible(n.name))
     if n.kind == JOIN:
         return [(label, LABEL_STYLE)]
     if n.kind == CHIP or "label" in spec or n.attrs.get("pseudo") in PSEUDO_LABEL:
@@ -1366,14 +1378,14 @@ def chip_runs(n) -> list:
     """A chip's content: a branch arm's label, or the payload (as code) and the
     edge's modifiers, `┆`-separated."""
     if n.attrs.get("arm"):
-        return [(n.name, (EDGE_COLOR["arm"], None, True))]
+        return [(visible(n.name), (EDGE_COLOR["arm"], None, True))]
     payload, mods = n.attrs.get("payload"), n.attrs.get("mods")
     if payload is None and mods is None:
-        return payload_runs(n.name)
-    runs = payload_runs(payload) if payload else []
+        return payload_runs(visible(n.name))
+    runs = payload_runs(visible(payload)) if payload else []
     if payload and mods:
         runs.append((" ┆ ", (GREY["dim"], None, False)))
-    return runs + (mod_runs(mods) if mods else [])
+    return runs + (mod_runs(visible(mods)) if mods else [])
 
 
 # ---------------------------------------------------------------------------
@@ -1855,10 +1867,14 @@ def _sgr(style) -> str:
 
 
 def ansi(row, colour: bool = True) -> str:
+    """A row of runs as terminal text (with SGR colours when `colour`); a control
+    character a run still holds escaped (lex.visible), so no text drawn or
+    printed by a view reaches the terminal as a command."""
     if not colour:
-        return "".join(t for t, _ in row)
+        return "".join(visible(t, controls_only=True) for t, _ in row)
     out = []
     for t, st in row:
+        t = visible(t, controls_only=True)
         if st:
             out.append(_sgr(st) + t + "\x1b[0m")
         else:

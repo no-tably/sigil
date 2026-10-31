@@ -261,7 +261,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from sigil.core import parse
-from sigil.core.lex import SourceError, read_source
+from sigil.core.lex import SourceError, read_source, visible
 from sigil.present import kit
 from sigil.present.views import graph as vgraph
 from sigil.present.views import tree as vtree
@@ -811,8 +811,9 @@ def info_lines(text: str, cols: int, indent: int = 2) -> list[str]:
 
 def beat_line(beat) -> str:
     """A sim.Beat as one line: `tNNN [API] calls [Payments] with charge(total)`,
-    the tick zero-padded as the log pads it."""
-    return f"t{beat.tick:03} {beat.text}"
+    the tick zero-padded as the log pads it; a name's control or format character
+    escaped (lex.visible)."""
+    return visible(f"t{beat.tick:03} {beat.text}")
 
 
 class PathHop(NamedTuple):
@@ -953,7 +954,7 @@ def sim_report(player: SimPlayer, cols: int = LEGEND_WIDTH, colour: bool = False
     path = [kit.ansi(r, colour).rstrip()
             for r in path_rows(player.path_branches(), cols, mono=not colour)]
     conventions = simulator.Beat(0, 0, simulator.CONVENTIONS)
-    return (info_lines(head, cols) + path + [beat_line(conventions)]
+    return (info_lines(visible(head), cols) + path + [beat_line(conventions)]
             + [beat_line(b) for b in player.beats])
 
 
@@ -1153,7 +1154,7 @@ def sim_batch(path: Path, mode: str, dialect=None, as_json: bool = False,
         facts = [sim_facts(t, limits) for t in run_all(g, limits)]
         text = (json.dumps({"scenarios": facts, "summary": sim_summary(facts)}, indent=2,
                            ensure_ascii=False) if as_json else "\n".join(sim_table(facts)))
-    print(text)
+    print(text if as_json else visible(text, keep="\n"))
     return 0
 
 
@@ -1234,7 +1235,7 @@ def structure_reading(path: Path, dialect=None, as_json: bool = False) -> int:
         read_verbs=scene.READ_VERBS + tuple(sorted(
             v for v in getattr(dialect, "READ_VERBS", None) or () if v not in scene.READ_VERBS)))
     print(json.dumps(structure.as_json(s), indent=2, ensure_ascii=False) if as_json
-          else "\n".join(structure_text(s)))
+          else visible("\n".join(structure_text(s)), keep="\n"))
     return 0
 
 
@@ -1360,10 +1361,11 @@ def check_marks(entries: list, canon, view):
 def finding_question(f) -> str:
     """What the panel says of a finding: the question it asks (its craft-mode
     message, with what it guessed and the findings folded into it), or
-    `accepted: <reason>` for an acknowledged one."""
+    `accepted: <reason>` for an acknowledged one; a name's control or format
+    character escaped (lex.visible)."""
     if f.ack is not None:
-        return f"accepted: {f.ack.reason}"
-    return replace(f, mode="craft").message
+        return visible(f"accepted: {f.ack.reason}")
+    return visible(replace(f, mode="craft").message)
 
 
 def entry_rows(e: CheckEntry, cols: int) -> list:
@@ -2096,7 +2098,7 @@ class ViewState:
                 rows.append([("lint: OK", (kit.OK_COLOR, None, False))])
             shown = 0
             for d in self.diags:
-                lines = info_lines(f"{d.severity}:{d.line} {d.rule}: {d.message}", cols)
+                lines = info_lines(visible(f"{d.severity}:{d.line} {d.rule}: {d.message}"), cols)
                 if len(rows) + len(lines) > LINT_ROWS - (shown + 1 < len(self.diags)):
                     break
                 colour = kit.SEVERITY_COLOR.get(d.severity, kit.GREY["mid"])

@@ -109,7 +109,7 @@ from sigil.core.kinds import CHOICE_OF, KIND_MARK, is_kind_line
 from sigil.core.lex import (
     BLOCK_DELIM, DECLARATION_RE, GLYPH_BRACKETS, GLYPH_PREFIXES, MOD_NAME_RE,
     OP_HEAD_RE, PAYLOAD_PIECE_RE, SECTION_RE, STATE_HEAD_RE, STATE_OPEN_RE, block_open_pos,
-    close_at, declaration_name, glyph_kind, is_mode_line, net_braces)
+    close_at, declaration_name, glyph_kind, is_mode_line, net_braces, visible)
 from sigil.core.lex import BOM, MAX_SOURCE_BYTES, split_lines
 from sigil.core.statements import TRANSITION_RE, read_statement
 from sigil.core.tokens import NO_DIALECT, Code, code_line, lexicon as core_lexicon
@@ -801,10 +801,27 @@ def runs_json(runs, theme: dict, lx: Lexicon) -> list:
     return [[text, role, colour(role, theme, lx)] for text, role in runs]
 
 
+# The roles whose text is free text, not names (lint's SGL195 reads none of it): a
+# string, a comment, a block string's or a `#&` declaration's text. A format
+# character (an emoji's joiner, a right-to-left mark) belongs there and is
+# printed; a control is not.
+FREE_TEXT_ROLES = frozenset({STRING, NOTE, NOTE_TAG, HELD})
+
+
+def printed(text: str, role: Optional[str]) -> str:
+    """A run's text as a terminal is handed it: each control character escaped,
+    and in a name (every role but FREE_TEXT_ROLES) each format character too
+    (lex.visible; lint's SGL195); a tab, a vertical tab and a form feed kept (the
+    reading takes them as spaces between names)."""
+    return visible(text, keep="\t\x0b\x0c", controls_only=role in FREE_TEXT_ROLES)
+
+
 def ansi_line(runs, theme: dict, lx: Lexicon) -> str:
-    """A line's runs with a truecolour SGR around each coloured one."""
+    """A line's runs with a truecolour SGR around each coloured one, each run's
+    text as printed() hands it on."""
     out = []
     for text, role in runs:
+        text = printed(text, role)
         hexa = colour(role, theme, lx)
         if hexa is None or not text:
             out.append(text)
@@ -826,7 +843,8 @@ def highlight_text(text: str, theme: dict, lx: Lexicon, colour: bool = True) -> 
         if not body and not end:                # after a final line end: no line
             continue
         runs, carry = line(body, carry, lx)
-        out.append((ansi_line(runs, theme, lx) if colour else body) + end)
+        out.append((ansi_line(runs, theme, lx) if colour
+                    else "".join(printed(t, role) for t, role in runs)) + end)
     return "".join(out)
 
 

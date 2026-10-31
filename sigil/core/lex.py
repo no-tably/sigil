@@ -7,6 +7,9 @@ one reading each:
     source        MAX_SOURCE_BYTES, SourceError, read_source (a document's
                   file or stdin), decode_source (its bytes: UTF-8, a leading
                   BOM dropped), split_lines (its lines: \n, \r\n or \r ends one)
+    hidden        HIDDEN_CATEGORIES, is_hidden, hidden_chars, escape_char,
+                  visible (a name as printed: its control and format
+                  characters escaped; lint's SGL195 refuses them in a name)
     comments      is_mode_line, is_comment_line, first_content, COMMENT_START_RE, in_string, comment_start, comment_col,
                   DECLARATION_MARK, DECLARATION_RE, declaration_name (a
                   line-leading `#& name …`: a dialect declaration),
@@ -110,6 +113,48 @@ def split_lines(text: str) -> list:
     if lines[-1] == "":
         lines.pop()
     return lines
+
+
+# ---------------------------------------------------------------------------
+# Hidden characters — a name's control (Cc) and format (Cf) characters
+# ---------------------------------------------------------------------------
+
+# A control character (Cc: ESC, BEL, backspace, a tab, C1 controls …) moves or
+# resets a terminal; a format character (Cf: bidi overrides and isolates, zero
+# width space / joiners, word joiner, BOM, soft hyphen, tag characters …) draws
+# nothing, so `[A]` and `[A<U+200B>]` look alike. Lint refuses either in a name
+# (SGL195); everything that prints a name prints it through visible().
+HIDDEN_CATEGORIES = ("Cc", "Cf")
+
+
+def is_hidden(ch: str) -> bool:
+    """Whether `ch` is a control or format character (HIDDEN_CATEGORIES)."""
+    return unicodedata.category(ch) in HIDDEN_CATEGORIES
+
+
+def hidden_chars(text: str) -> list:
+    """The control and format characters of `text`, in order (none for text
+    str.isprintable passes, which no such character does)."""
+    return [] if text.isprintable() else [ch for ch in text if is_hidden(ch)]
+
+
+def escape_char(ch: str) -> str:
+    """One character as a Python escape: `\\x1b`, `\\u200b`, `\\U000e0041`."""
+    n = ord(ch)
+    return f"\\x{n:02x}" if n < 0x100 else f"\\u{n:04x}" if n < 0x10000 else f"\\U{n:08x}"
+
+
+def visible(text: str, keep: str = "", controls_only: bool = False) -> str:
+    """`text` with each control and format character as its escape (escape_char),
+    the characters in `keep` left as they are: a name as it is printed. With
+    `controls_only`, format characters stay too — free text (a comment, a string),
+    where a joiner in an emoji or a right-to-left mark belongs. Text with no such
+    character comes back as it is (the same object)."""
+    if text.isprintable():
+        return text
+    cats = ("Cc",) if controls_only else HIDDEN_CATEGORIES
+    return "".join(escape_char(ch) if ch not in keep and unicodedata.category(ch) in cats
+                   else ch for ch in text)
 
 # ---------------------------------------------------------------------------
 # Comments and strings

@@ -1,0 +1,9 @@
+# expect: SGL195@3 SGL195@4 SGL195@5 SGL195@7 SGL195@9
+# SGL195 a name holding a control (Cc) or format (Cf) character: ZWSP, a tab, RLO, ZWJ, BOM
+[A] -> [A​]
+[A	B] -> |S|
+(U) -> {Re‮port}
+state [Job] {
+  + -<go>-> Run⁠ning
+}
+[👩‍💻] -> <Do﻿ne>

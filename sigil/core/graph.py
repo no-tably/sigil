@@ -29,7 +29,7 @@ from functools import lru_cache
 from typing import NamedTuple, Optional
 
 from sigil.core.kinds import Kind
-from sigil.core.lex import GLYPH_BRACKETS
+from sigil.core.lex import GLYPH_BRACKETS, visible
 
 
 # ---------------------------------------------------------------------------
@@ -479,11 +479,13 @@ PSEUDO_LABEL = {"start": "●", "end": "◉", "any": "∗ any"}
 def node_label(n) -> str:
     """A node as the notation writes it: `[Api]`, `~{Session}`, `*<Tick>`, a
     pseudo-state's mark (PSEUDO_LABEL), a dialect kind in its own brackets (or
-    its own label)."""
+    its own label). A control or format character in the name is printed
+    escaped (lex.visible: lint's SGL195), so every view, narration and message
+    that names a node shows it."""
     spec = kind_spec(n.kind)
     if n.attrs.get("pseudo") in PSEUDO_LABEL:
         return PSEUDO_LABEL[n.attrs["pseudo"]]
-    name = spec["label"](n) if "label" in spec else role_name(n)
+    name = visible(spec["label"](n) if "label" in spec else role_name(n))
     lead = ("~" if n.is_mutable else "") + ("*" if n.is_stream else "")
     return f"{lead}{spec.get('open', '[')}{name}{spec.get('close', ']')}"
 

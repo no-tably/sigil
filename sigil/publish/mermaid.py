@@ -63,6 +63,7 @@ from typing import Optional
 from sigil.core.graph import (Edge, Graph, Node, matching_occurrences, occurrences,
                               walk_depth)
 from sigil.core.dialects import _hook
+from sigil.core.lex import visible
 from sigil.core.parse import parse_document
 
 ARROW_MAP = {
@@ -130,8 +131,9 @@ def _kind_classes(dialect=None) -> dict:
 
 
 def mermaid_text(text: str) -> str:
-    """Text safe inside a Mermaid `"…"` label: `<` / `>` / `"` as HTML entities."""
-    return text.replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+    """Text safe inside a Mermaid `"…"` label: `<` / `>` / `"` as HTML entities, a
+    control or format character escaped (lex.visible)."""
+    return visible(text).replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def node_label(n: Node, dialect=None) -> str:

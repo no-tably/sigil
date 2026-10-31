@@ -52,6 +52,13 @@ def read_text(path: str) -> str:
     return lex.read_source(path)
 
 
+def visible(text: str) -> str:
+    """A report line as the terminal is handed it: a name's control or format
+    character escaped (sigil.core.lex.visible; lint's SGL195)."""
+    from sigil.core import lex
+    return lex.visible(text, keep="\n")
+
+
 def load_dialect(name):
     """The dialect `name` (a name or a path; None: $SIGIL_DIALECT, else none).
     Raises ValueError naming what is wrong."""
@@ -154,12 +161,13 @@ def unroll_arg(text: str) -> int:
 def deep_lines(diagnostics: list, report) -> list:
     """The merged --deep listing: lint diagnostics and the check findings the
     mode shows, sorted by line (lint first on a line, each in its own order),
-    then the acknowledged findings. `report` is a check.Report."""
+    then the acknowledged findings. `report` is a check.Report. A name's
+    control or format character is escaped (visible)."""
     issues = ([(d.line, 0, d.format()) for d in diagnostics]
-              + [(f.line, 1, f.line_text()) for f in report.shown])
+              + [(f.line, 1, visible(f.line_text())) for f in report.shown])
     issues.sort(key=lambda row: row[:2])
     return [text for _line, _src, text in issues] + [
-        f.accepted_text() for f in report.acknowledged]
+        visible(f.accepted_text()) for f in report.acknowledged]
 
 
 def _report_lint(result, lint) -> int:
@@ -289,7 +297,7 @@ def _check(argv: list, dialect) -> int:
     if a.json:
         print(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
     else:
-        out = check.format_lines(report, a.all)
+        out = [visible(line) for line in check.format_lines(report, a.all)]
         print("\n".join(out) if out else "sigil check: OK (no findings)")
         print(check.summary(report), file=sys.stderr)
     return report.exit_code()

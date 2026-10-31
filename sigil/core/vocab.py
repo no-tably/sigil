@@ -46,7 +46,7 @@ from dataclasses import dataclass, field
 
 from sigil.core.lex import (  # noqa: F401  (re-exported: the dialect API)
     ANY_GLYPH_RE, ARROW_RE, ARROWS, COMMENT_START_RE, DECLARATION_MARK, GLYPH_PATTERNS,
-    declaration_name, strip_comment)
+    declaration_name, strip_comment, visible)
 
 # ---------------------------------------------------------------------------
 # Known vocabulary
@@ -91,7 +91,9 @@ class Diagnostic:
     message: str
 
     def format(self) -> str:
-        return f"{self.severity}:{self.line}:{self.rule}: {self.message}"
+        """`severity:line:rule: message`, a name's control or format character
+        in it escaped (lex.visible)."""
+        return visible(f"{self.severity}:{self.line}:{self.rule}: {self.message}", keep="\n")
 
 
 @dataclass

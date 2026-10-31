@@ -1,0 +1,7 @@
+# expect: none
+# SGL195 a name holding a control or format character: whitespace around or between
+# names, a comment's or a string's text, and letters, marks and wide characters are fine
+	[A] ->	[B]  # a note 👩‍💻 and a mark ‏
+[B] -> [C] : say("hi ‍ there")
+[Café] -> [界面] -> [❤️] -> [é]
+[C	] -> [ D]
