@@ -164,6 +164,7 @@ BOUNDARIES AND DEPENDENCIES
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass, field, replace
 from typing import Iterable, Mapping, NamedTuple, Optional
@@ -1315,14 +1316,28 @@ def system_blocks(graph, lay: Layout, key: str) -> tuple:
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 
+SLUG_MAX = 100                          # bytes (ASCII): far below any file system's 255
+_SLUG_HASH = 16                         # hex digits of the name's sha256 a long slug ends in
+WINDOWS_RESERVED = frozenset(
+    ["con", "prn", "aux", "nul"] + [f"{d}{i}" for d in ("com", "lpt") for i in range(1, 10)])
+
+
 def slug(name: str) -> str:
     """An ASCII-safe file name for a name: lower-case letters, digits and `-`;
     any other character by its code point (`Café` → `caf-e9`). Two names with
-    one slug name one folder (top_face_of reads the top's face so)."""
+    one slug name one folder (top_face_of reads the top's face so). At most
+    SLUG_MAX bytes: a longer one is cut and ends in `-` and the first _SLUG_HASH
+    hex digits of the name's sha256, so two long names stay two slugs. A name
+    Windows reserves for a device (`con`, `nul`, `com1` …) gets `-x`."""
     out = []
     for ch in name.lower():
         out.append(ch if ch.isascii() else f"-{ord(ch):x}-")
     s = _SLUG_RE.sub("-", "".join(out)).strip("-")
+    if len(s) > SLUG_MAX:
+        tag = hashlib.sha256(name.encode("utf-8", "surrogatepass")).hexdigest()[:_SLUG_HASH]
+        s = s[:SLUG_MAX - _SLUG_HASH - 1].rstrip("-") + "-" + tag
+    if s in WINDOWS_RESERVED:
+        s += "-x"
     return s or "x"
 
 

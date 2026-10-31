@@ -1560,9 +1560,10 @@ def find_unbounded_loop(ck, f: Facts):
                 continue
             if "terminates" in heads_of(b.modifiers) or loop_condition_written(f, b):
                 continue
-            cond = b.header.strip() or "loop"
-            yield ck.Hit(b.lines[0], f"nothing in the design ends `loop {cond}`",
-                         f"What changes the condition so that `loop {cond}` ends?",
+            cond = b.header.strip()
+            loop = f"loop {cond}" if cond else "loop"       # a bare `loop {` has no header
+            yield ck.Hit(b.lines[0], f"nothing in the design ends `{loop}`",
+                         f"What changes the condition so that `{loop}` ends?",
                          anchor=("block", str(b.lines[0])),
                          fix="`@times N`, `@each`, `} @inv terminates`, or a writer of the "
                              "condition")

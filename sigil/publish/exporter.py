@@ -57,8 +57,16 @@ components (each with its `hashes`, its `lines` and, from a dialect, its
 `attrs`), its flows (each with its `lines`), its `#&` declarations ({name, body,
 line}), and its hashes. Lines are 1-based lines of the spec; no hash reads them.
 
-Folder and file names are slugs of the names (systems.slugs). Whoever
-builds against the export reads the manifest first: its hashes are the truth.
+Folder and file names are slugs of the names (systems.slugs: at most 100
+bytes, a long one ending in a hash of the name; no Windows device name). A
+system keeps the folder the manifest before gave it, so a new system whose slug
+clashes takes the next free `-2`, `-3` … and never moves an existing one
+(folder_names); a folder that moves anyway (the top renamed) is `moved` in the
+delta. Whoever builds against the export reads the manifest first: its hashes
+are the truth.
+
+`sigil export` never writes, compares or deletes through a symbolic link inside
+DIR (a system folder, a file in one, a file at the root): it refuses, exit 2.
 
 Re-export and delta. Before writing, `sigil export` reads the manifest already in DIR
 (if any) and sorts every system into one list:
@@ -78,7 +86,8 @@ Re-export and delta. Before writing, `sigil export` reads the manifest already i
       "new", "because"?, "via"?}}}   (old/new: {"interface", "body"}, or null;
       because: the systems whose interface changed, for a recheck, its own
       dependencies first; via: {inherited one: the enclosing system it came
-      through}, only when it inherits one)
+      through}, only when it inherits one; moved: {from, to} folders, only
+      when its folder moved)
 
 A system folder may also hold a builder's own files: `sigil export` deletes or
 compares only the files an earlier export wrote (the names its manifest's
@@ -94,7 +103,7 @@ the manifest's hashes stay the truth.
 
 Exit codes: 0 exported (or a dry run) · 1 the folder could not be written · 2 not ready to
 export, or bad input (unreadable spec, unknown dialect, a folder `sigil export` did
-not make, or a manifest.json it cannot read).
+not make, a manifest.json it cannot read, or a symbolic link where it would write).
 
 Standard library only. Deterministic: no clock, no randomness, no set-order output.
 """
@@ -111,7 +120,8 @@ from typing import Iterable, Optional
 
 from sigil.publish import systems as em
 from sigil.publish.delta import (
-    DELTA, EXPORT_VERSION, delta, delta_lines, dropped_folders, manifest_problem)
+    DELTA, EXPORT_VERSION, delta, delta_lines, dropped_folders, manifest_problem,
+    top_renamed)
 
 
 MANIFEST = "manifest.json"
@@ -193,12 +203,14 @@ class ExportPlan:
 
 
 def plan_export(model, spec_name: str, spec_text: str, dialect=None,
-                version: Optional[str] = None) -> ExportPlan:
+                version: Optional[str] = None, old: Optional[dict] = None) -> ExportPlan:
     """What the export of `model` holds (read from the spec file `spec_name`,
     whose text is `spec_text`, with `dialect` loaded or None), written by sigil
-    `version` (the manifest's "sigil"; None: null): pure, nothing written."""
+    `version` (the manifest's "sigil"; None: null): pure, nothing written.
+    `old`: the manifest of the export already there (None: none), whose
+    folders the systems it lists keep (folder_names)."""
     keys = system_order(model)
-    folders = em.slugs(keys)
+    folders = folder_names(keys, old, model.top)
     forms = {k: em.system_json(model.systems[k], model.components) for k in keys}
     systems = {k: plan_system(k, model.systems[k], forms[k], folders) for k in keys}
     manifest = {"sigil_export": EXPORT_VERSION, "sigil": version, "spec": spec_name,
@@ -207,6 +219,31 @@ def plan_export(model, spec_name: str, spec_text: str, dialect=None,
         manifest["dialect"] = dialect_entry(dialect)
     manifest["systems"] = {k: p.entry for k, p in systems.items()}
     return ExportPlan(systems, index_md(spec_name, manifest, forms), manifest)
+
+
+def folder_names(keys: list, old: Optional[dict], top: str) -> dict:
+    """{system key: folder} for the systems `keys` (top first). A system the
+    earlier export's manifest `old` lists keeps its folder there, so a new
+    system never moves it; a new one takes its slug, or the next free `-2`,
+    `-3` … past every folder `old` names (a removed system's folder may still
+    hold a builder's files). The top renamed (delta.top_renamed) is the same
+    system: it may take its old folder back, and otherwise follows its name."""
+    olds = (old or {}).get("systems", {})
+    out, used = {}, set()
+    for k in keys:
+        path = olds.get(k, {}).get("path")
+        if path and path not in used:
+            out[k] = path
+            used.add(path)
+    taken = used | {e["path"] for e in olds.values()}
+    moved = top_renamed(old, {"systems": dict.fromkeys(keys), "top": top})
+    for k in keys:
+        if k in out:
+            continue
+        mine = olds[moved["from"]]["path"] if moved and k == moved["to"] else None
+        out[k] = em.slugs([k], taken - {mine})[k]
+        taken.add(out[k])
+    return {k: out[k] for k in keys}
 
 
 def dialect_entry(dialect) -> dict:
@@ -389,7 +426,8 @@ def system_md(key: str, form: dict, files: dict, folders: dict) -> str:
     blocks = []
     for b in form.get("blocks", []):
         mods = " ".join(mod_text(m) for m in b.get("mods", []))
-        blocks.append(f"- {b['kind']} `{b['header']}`" + (f" `{mods}`" if mods else ""))
+        header = f" `{b['header']}`" if b.get("header") else ""  # a bare `loop {` has none
+        blocks.append(f"- {b['kind']}{header}" + (f" `{mods}`" if mods else ""))
     deps = [f"- `{d}` — [{folders[d]}/](../{folders[d]}/{SYSTEM_README})"
             for d in form.get("depends_on", [])]
     return "\n".join(
@@ -492,6 +530,8 @@ def read_manifest(out: Path) -> Optional[dict]:
         obj = json.loads(text)
     except ValueError as exc:
         raise ValueError(f"{out / MANIFEST} is no JSON: {exc}") from None
+    except RecursionError:                   # nested deeper than the reader goes
+        raise ValueError(f"{out / MANIFEST} is no manifest: nested too deep") from None
     problem = manifest_problem(obj)
     if problem:
         raise ValueError(f"{out / MANIFEST}: {problem}")
@@ -559,8 +599,31 @@ def stale_files(folder: Path, ours: frozenset, files: dict) -> list:
 
 
 def write_text(path: Path, content: str) -> None:
-    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+    """Write `path`, never through a symbolic link (link_problem refuses one
+    first; O_NOFOLLOW where the platform has it, should one appear since)."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+    with open(os.open(path, flags, 0o666), "w", encoding="utf-8", newline="\n") as fh:
         fh.write(content)
+
+
+def link_problem(out: Path, plan: ExportPlan, old: Optional[dict]) -> Optional[str]:
+    """Why `sigil export` may not write into `out` because of a symbolic link
+    (None: there is none where it would write, compare or delete): a system
+    folder, a file in one, or a file at the root. Writing or deleting through a
+    link would reach outside `out`; `out` itself may be one."""
+    written = written_files(old)
+    folders = {sp.path: set(sp.files) for sp in plan.systems.values()}
+    for name in dropped_folders(old, plan.manifest):
+        folders.setdefault(name, set())
+    paths = [out / n for n in (INDEX, DELTA, MANIFEST)]
+    for name in sorted(folders):
+        paths.append(out / name)
+        paths += [out / name / f for f in sorted(folders[name] | written.get(name, set()))]
+    for p in paths:
+        if p.is_symlink():
+            return (f"{p} is a symbolic link: sigil export never writes or deletes "
+                    "through one (remove it, or export into another folder)")
+    return None
 
 
 def replace_text(path: Path, content: str) -> None:
@@ -624,7 +687,13 @@ def run(text: str, spec: Path, out: Path, dialect, as_json: bool = False,
         return Outcome(2, problem=problem)
     walk, graph = (passed.walk, passed.graph) if passed else (None, None)
     model = em.build_model(text, name or spec.stem, dialect, walk=walk, graph=graph)
-    plan = plan_export(model, spec.name, text, dialect, version)
+    plan = plan_export(model, spec.name, text, dialect, version, old)
+    try:
+        problem = link_problem(out, plan, old)
+    except OSError as exc:
+        problem = str(exc)
+    if problem:
+        return Outcome(2, problem=problem)
     change = delta(old, plan.manifest)
     if dry_run:
         head = [f"sigil export (dry run): nothing written to {out}"]

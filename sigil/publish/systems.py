@@ -233,10 +233,11 @@ def to_json(model: Model) -> dict:
                     for u in model.untyped]}
 
 
-def slugs(names: Iterable) -> dict:
+def slugs(names: Iterable, taken: Iterable[str] = ()) -> dict:
     """{name: slug}, collision-free (a later name that would clash, case aside,
-    gets `-2`, `-3` …), in the order given."""
-    out, taken = {}, set()
+    gets `-2`, `-3` …), in the order given; never one of `taken` (slugs already
+    used elsewhere: an earlier export's folders)."""
+    out, taken = {}, set(taken)
     for name in names:
         base = s = slug(name)
         n = 1

@@ -22,6 +22,8 @@ lists the changed systems, its own dependencies first, then inherited ones;
 The top system renamed (the spec renamed, or another --name) is the same system
 under its new key: `renamed` gives {from, to} (else null), and the top is
 compared with its old entry, so a rename alone marks nothing.
+A system whose folder is not the one the old export gave it (the top renamed:
+the exporter keeps every other system's folder) has `moved` {from, to}.
 
 delta(old, new) is delta.json's content; manifest_problem says why a parsed
 manifest.json is none an export wrote; dropped_folders, delta_lines and
@@ -62,6 +64,9 @@ def manifest_problem(obj) -> Optional[str]:
             return f"system {key!r} has a parent that is no system key"
         if not _FOLDER_RE.fullmatch(e["path"]):
             return f"system {key!r} has folder {e['path']!r}, no slug"
+    folders = [e["path"] for e in systems.values()]
+    for path in sorted({p for p in folders if folders.count(p) > 1}):
+        return f"two systems share folder {path!r}"   # a delete would reach the other's files
     return None
 
 
@@ -73,7 +78,8 @@ def delta(old: Optional[dict], new: dict) -> dict:
     moved = top_renamed(old, new)
     if moved:
         olds = {(moved["to"] if k == moved["from"] else k): e for k, e in olds.items()}
-    systems = {k: system_delta(k, olds, news) for k in news}
+    systems = {k: with_move(system_delta(k, olds, news), olds.get(k), news[k])
+               for k in news}
     systems.update({k: {"status": "removed", "old": hashes(olds[k]), "new": None}
                     for k in sorted(olds) if k not in news})
     out = {"sigil_delta": DELTA_VERSION, "spec": new["spec"],
@@ -83,6 +89,14 @@ def delta(old: Optional[dict], new: dict) -> dict:
         out[status] = [k for k, d in systems.items() if d["status"] == status]
     out["systems"] = systems
     return out
+
+
+def with_move(d: dict, old: Optional[dict], new: dict) -> dict:
+    """d with `moved` {from, to} when the system's folder is not the one the old
+    export gave it (only the top renamed moves one: exporter.folder_names)."""
+    if old is not None and old.get("path") != new.get("path"):
+        d["moved"] = {"from": old.get("path"), "to": new.get("path")}
+    return d
 
 
 def top_key(manifest: dict) -> Optional[str]:
@@ -183,6 +197,9 @@ def delta_lines(change: dict) -> list:
     for status in STATUSES[:-1]:
         for key in change[status]:
             out.append(f"  {status:<9}  {key}{delta_note(change['systems'][key])}")
+    for key, d in change["systems"].items():
+        if d.get("moved"):
+            out.append(f"  {'moved':<9}  {key}: {d['moved']['from']}/ → {d['moved']['to']}/")
     if change["unchanged"]:
         out.append(f"  {'unchanged':<9}  {', '.join(change['unchanged'])}")
     return out
