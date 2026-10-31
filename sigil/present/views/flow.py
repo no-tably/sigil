@@ -691,14 +691,18 @@ def _channels(lay: _Layout) -> None:
     y = lay.bottom
     rets = {}                                   # group id → the return rows it turns into
     order = sorted(ins, key=lambda li: (paths[li].tout - paths[li].tin, paths[li].tin))
+    members = {}                                # a bundle's lead → its paths, in order
+    for pi, li in lead.items():
+        members.setdefault(li, []).append(paths[pi])
     for k, li in enumerate(order):
-        bundle = [paths[pi] for pi, l in lead.items() if l == li]
+        bundle = members[li]
         for p in bundle:                        # the shorter ones higher, a bundle on one row
             p.ret = y
         lead_p = paths[li]
         chipped = [p for p in bundle if p.chip is not None]
         # the bundles still to come return lower: their ways down and up cross these rows
-        later = {x for lj in order[k + 1:] for x in (paths[lj].tin, paths[lj].tout)}
+        later = ({x for lj in order[k + 1:] for x in (paths[lj].tin, paths[lj].tout)}
+                 if chipped else set())
         spots = _return_chips([kit.row_len(p.chip) for p in chipped],
                               lead_p.tin + 2, lead_p.tout - 3, later)
         for p, (x, dy) in zip(chipped, spots):
@@ -706,6 +710,7 @@ def _channels(lay: _Layout) -> None:
         y += 1 + max((dy for _x, dy in spots), default=0)
         rets.setdefault(("out", lead_p.via[0]), set()).add(lead_p.ret)
         rets.setdefault(("in", li), set()).add(lead_p.ret)
+    kit.check_size(x, y + 1)                    # before the n × n cells a fan-in's verticals pass
     for gid, gr in lay.groups.items():          # the cells a vertical only passes
         if gr.straight or gid not in lay.track:
             continue
@@ -1841,6 +1846,7 @@ def _band_look(bpart: _Part, spec: "_BandSpec", ctx: "_Ctx") -> tuple:
 # compose_flow
 # ---------------------------------------------------------------------------
 
+@kit.bounded("flow")
 def compose_flow(g, depth: int, payloads: bool, notes: str = "off", triggers: bool = True,
                  width: int | None = None, access: bool = False, mods: bool = False,
                  events: str = "nodes", trace=None, tick: int = 0, checks=None,

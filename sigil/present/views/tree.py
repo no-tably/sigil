@@ -189,6 +189,7 @@ def _sim_legend() -> list:
             (" its owner's, machine not drawn", mid)]
 
 
+@kit.bounded("tree")
 def compose_tree(g, depth: int, triggers: bool = True, spaced: bool = True,
                  notes: str = "off", payloads: bool = False, width: int | None = None,
                  access: bool = False, mods: bool = False, events: str = "land",
@@ -1151,6 +1152,9 @@ def _draw_lanes(cv: kit.Canvas, lanes, ends, *, muted_sources: bool = False):
     `›`, …) in its wire's muted colour whatever the lane's state — in a
     simulation, so a token (`●` in full colour + bold) on a source row stands
     out from the static marks."""
+    if lanes:                                   # n lanes over n rows: n × n cells before any paint
+        kit.check_size(max(ln.x for ln in lanes) + 1,
+                       max(ln.hi for ln in lanes) + 1)
     verticals = set()
     for ln in lanes:
         if ln.hi > ln.lo and not ln.plug:

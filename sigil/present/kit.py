@@ -33,6 +33,7 @@ PAYLOAD_STYLE, … — see _theme_styles()), so other modules read them as
 from __future__ import annotations
 
 import colorsys
+import functools
 import itertools
 import re
 import textwrap
@@ -48,7 +49,7 @@ from sigil.core.graph import (  # noqa: F401  (some for the views, as kit.NAME)
 from sigil.core import graph as _graph
 from sigil.core.lex import (
     BLOCK_SENTINEL, GLYPH_PREFIXES, MODIFIER_RE, PAYLOAD_PIECE_RE, declaration_name,
-    first_content, glyph_kind, is_mode_line, net_braces)
+    first_content, glyph_kind, is_mode_line, net_braces, split_lines)
 from sigil.core.kinds import is_kind_line
 from sigil.core.statements import comment_of
 from sigil.core.tokens import lexicon
@@ -479,7 +480,8 @@ def wrap_cells(text: str, width: int, indent: str = "", hyphens: bool = True,
     are one column each gets textwrap's own lines; otherwise words fill lines
     greedily, and a word wider than its line is cut by columns — even with
     long_words=False when it holds a wide character (CJK has no spaces to
-    break at)."""
+    break at). A width under 1 is taken as 1 (textwrap refuses it)."""
+    width = max(width, 1)
     if cell_width(text) == len(text) and cell_width(indent) == len(indent):
         return textwrap.wrap(text, width, subsequent_indent=indent,
                              break_on_hyphens=hyphens, break_long_words=long_words)
@@ -570,6 +572,42 @@ def _line_cell(line) -> tuple | None:
 _LINE_CHARS = {}    # (stroke, mask) → its char, as _line_cell finds them
 
 
+MAX_CELLS = 1_000_000    # the largest drawing a view draws (columns × rows)
+
+
+class TooLarge(ValueError):
+    """A drawing larger than MAX_CELLS: a view says so instead of drawing it
+    (bounded) — a fan-in of thousands of wires is millions of cells, and its
+    working state many times that."""
+
+    def __init__(self, w: int, h: int):
+        self.w, self.h = w, h
+        super().__init__(f"the drawing would be {w}×{h} cells, over {MAX_CELLS:,}")
+
+
+def check_size(w: int, h: int) -> None:
+    """Raise TooLarge when a w × h drawing is over MAX_CELLS (a view checks
+    its layout's size before it routes or paints; every Canvas as it grows)."""
+    if w * h > MAX_CELLS:
+        raise TooLarge(w, h)
+
+
+def bounded(view: str):
+    """A view's compose wrapped so a TooLarge drawing comes back as one row
+    saying so (and its width) rather than an exhausted machine."""
+    def wrap(fn):
+        @functools.wraps(fn)
+        def compose(*args, **kwargs):
+            try:
+                return fn(*args, **kwargs)
+            except TooLarge as exc:
+                text = (f"{view}: not drawn: {exc}; draw less of it (--depth, "
+                        "a section of its own) or try another view")
+                return [[(text, (GREY["mid"], None, False))]], cell_width(text)
+        return compose
+    return wrap
+
+
 class Canvas:
     CORNERS: dict = {}          # a line's char → the char drawn instead (a subclass's look)
 
@@ -584,8 +622,10 @@ class Canvas:
         self._under = {}        # a kept canvas: cell → what this frame's overlay() covered
 
     def _grow(self, x, y):
-        self.w = max(self.w, x + 1)
-        self.h = max(self.h, y + 1)
+        if x >= self.w or y >= self.h:
+            self.w = max(self.w, x + 1)
+            self.h = max(self.h, y + 1)
+            check_size(self.w, self.h)
 
     def put(self, x, y, s, style=None):
         """Text from column x on row y: one cell a character, two a wide one
@@ -1766,7 +1806,7 @@ def doc_title(text: str, dialect=None) -> str:
     its COMMENT_MARKERS). "" when another statement (or a bare `#`) comes first."""
     marker = lexicon(dialect).marker
     depth = 0                           # braces a declaration's block holds open
-    for line in text.splitlines():
+    for line in split_lines(text):
         if depth > 0:
             depth += net_braces(line)
             continue
@@ -1783,7 +1823,7 @@ def doc_title(text: str, dialect=None) -> str:
 def doc_mode(text: str) -> str:
     """The document's mode line (`#!sketch`, `#!craft`, …): its first `#!` line
     before any statement; "" when it has none."""
-    lines = text.splitlines()
+    lines = split_lines(text)
     k = first_content(lines)
     return lines[k].split()[0] if k is not None and is_mode_line(lines[k]) else ""
 

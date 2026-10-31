@@ -6,7 +6,8 @@ value "$name" refers to palette.name; `extends: other` starts from another
 theme and overrides only the keys this one sets. sigil view and the site both read
 the same files, so a theme colours the terminal viewer and the web page alike.
 
-    sigil themes [NAME|PATH]       # print the resolved theme as JSON
+    sigil themes [NAME|PATH]       # print the resolved theme as JSON (and, on
+                                   # stderr, a warning for each of problems())
     sigil themes --list            # list the themes found
     sigil themes --help
 
@@ -39,7 +40,9 @@ The YAML subset (the site's JavaScript parser implements the same rules):
   - `key:` with no value followed by deeper-indented lines is a map; otherwise
     its value is "". Siblings share one indent; top-level keys are at column 0.
   - Errors: duplicate key, empty key, a line that is "-" or starts with "- ",
-    "[" or "{" (lists / flow collections), inconsistent indentation.
+    "[" or "{" (lists / flow collections), inconsistent indentation, maps
+    nested more than MAX_DEPTH (16) deep, an `extends` chain of more than
+    MAX_EXTENDS (16) themes.
 All values are strings; maps are dicts.
 """
 
@@ -47,6 +50,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Union
@@ -57,6 +61,10 @@ _DIR = Path(__file__).resolve().parents[2]      # the folder holding themes/
 DEFAULT = "sigil"
 
 Node = Union[dict, str]
+MAX_DEPTH = 16          # maps nested deeper than this are an error (sigil's go 2 deep)
+MAX_EXTENDS = 16        # a longer `extends` chain is an error
+MAX_BYTES = 1024 * 1024  # a larger theme file is an error
+HEX_RE = re.compile(r"#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})")   # a colour: #rrggbb or #rgb
 
 
 class ThemeError(ValueError):
@@ -175,6 +183,8 @@ def parse(text: str, source: str = "<theme>") -> dict:
             p_indent, p_map, p_key = pending
             pending = None
             if indent > p_indent:                    # deeper: `key:` opens a map
+                if len(stack) > MAX_DEPTH:
+                    raise ThemeError(f"{where}: maps nested more than {MAX_DEPTH} deep")
                 child: dict = {}
                 p_map[p_key] = child
                 stack.append((indent, child))
@@ -216,18 +226,19 @@ def resolve(theme: dict, source: str = "<theme>") -> dict:
     if not isinstance(palette, dict):
         raise ThemeError(f"{source}: palette must be a map of name: colour")
 
-    def colour(value: str, seen: tuple[str, ...] = ()) -> str:
-        if not isinstance(value, str) or not value.startswith("$"):
-            return value
-        name = value[1:]
-        if name in seen:
-            raise ThemeError(f"{source}: palette cycle through ${name}")
-        if name not in palette:
-            raise ThemeError(f"{source}: unknown palette colour ${name}")
-        entry = palette[name]
-        if not isinstance(entry, str):
-            raise ThemeError(f"{source}: palette.{name} is a map, not a colour")
-        return colour(entry, seen + (name,))
+    def colour(value: str) -> str:
+        seen: set = set()
+        while isinstance(value, str) and value.startswith("$"):
+            name = value[1:]
+            if name in seen:
+                raise ThemeError(f"{source}: palette cycle through ${name}")
+            if name not in palette:
+                raise ThemeError(f"{source}: unknown palette colour ${name}")
+            value = palette[name]
+            if not isinstance(value, str):
+                raise ThemeError(f"{source}: palette.{name} is a map, not a colour")
+            seen.add(name)
+        return value
 
     def walk(node: Node) -> Node:
         if isinstance(node, dict):
@@ -235,6 +246,47 @@ def resolve(theme: dict, source: str = "<theme>") -> dict:
         return colour(node)
 
     return walk(theme)
+
+
+def problems(theme: dict) -> list[str]:
+    """What in a resolved theme the viewer will not use, as sigil's own theme
+    (themes/sigil.yaml) reads: a section or a role it has no use for (any name
+    goes in palette, and in kinds for a dialect's kinds), a colour that is not
+    "#rrggbb" or "#rgb" (the viewer draws sigil's own colour there), and a
+    fraction that is not a number from 0 to 1. [] for a theme it reads whole."""
+    ref = resolve(load_raw(DEFAULT, _base=None), DEFAULT)
+    out = []
+    for section, value in theme.items():
+        if section not in ref:
+            out.append(f"unknown section {section!r}")
+            continue
+        known = ref[section]
+        if not isinstance(known, dict) or not isinstance(value, dict):
+            if isinstance(known, dict) != isinstance(value, dict):
+                out.append(f"{section} must be " + ("a map" if isinstance(known, dict)
+                                                    else "a value, not a map"))
+            continue
+        any_role = section in ("palette", "kinds")
+        for role, got in value.items():
+            if role not in known and not any_role:
+                out.append(f"unknown role {section}.{role}")
+                continue
+            like = known.get(role, "#000000")
+            if isinstance(got, dict):
+                out.append(f"{section}.{role} is a map, not a value")
+            elif HEX_RE.fullmatch(like) and not HEX_RE.fullmatch(got):
+                out.append(f"{section}.{role}: {got!r} is not a colour (#rrggbb or #rgb)")
+            elif _fraction(like) is not None and _fraction(got) is None:
+                out.append(f"{section}.{role}: {got!r} is not a number from 0 to 1")
+    return out
+
+
+def _fraction(text: str):
+    try:
+        k = float(text)
+    except ValueError:
+        return None
+    return k if 0.0 <= k <= 1.0 else None
 
 
 def search_path() -> list[Path]:
@@ -256,6 +308,8 @@ def find(spec: str, base: Path | None = None) -> Path:
             p = base / p
         if p.is_file():
             return p
+        if p.exists():
+            raise ThemeError(f"{p}: not a regular file (a theme is a .yaml file)")
         raise ThemeError(f"theme file not found: {p}")
     for d in search_path():
         for ext in (".yaml", ".yml"):
@@ -270,8 +324,14 @@ def load_raw(spec: str, _seen: tuple[Path, ...] = (), _base: Path | None = None)
     key = path.resolve()
     if key in _seen:
         raise ThemeError(f"{path}: extends cycle")
+    if len(_seen) >= MAX_EXTENDS:
+        raise ThemeError(f"{path}: an extends chain longer than {MAX_EXTENDS} themes")
     try:
-        text = path.read_text(encoding="utf-8")
+        with path.open("rb") as fh:
+            data = fh.read(MAX_BYTES + 1)
+        if len(data) > MAX_BYTES:
+            raise ThemeError(f"{path}: larger than {MAX_BYTES} bytes; not a theme")
+        text = data.decode("utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         raise ThemeError(f"{path}: cannot read theme: {exc}") from None
     theme = parse(text, str(path))
@@ -345,6 +405,12 @@ def main(argv: list[str] | None = None) -> int:
     except (ThemeError, OSError, UnicodeDecodeError) as exc:
         print(f"sigil themes: {exc}", file=sys.stderr)
         return 2
+    try:
+        said = problems(theme)
+    except ThemeError as exc:               # sigil's own theme is missing or broken
+        said = [f"cannot check it against {DEFAULT}: {exc}"]
+    for problem in said:
+        print(f"sigil themes: warning: {problem}", file=sys.stderr)
     print(json.dumps(theme, indent=2, ensure_ascii=False))
     return 0
 

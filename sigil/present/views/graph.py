@@ -150,6 +150,7 @@ def layout(g, expanded: set, collapsed: set, tags: dict | None = None,
     shape = _shape(lay) if keep is not None else None
     if keep and keep["shape"] == shape:
         _laid_out_as(lay, keep["lay"])
+        _check_size(lay)
         sketch = keep["sketch"]
         return keep["drawn"].repaint(_looks(lay, sketch),
                                      lambda rows: _paint(lay, rows, sketch)[0])
@@ -158,11 +159,23 @@ def layout(g, expanded: set, collapsed: set, tags: dict | None = None,
     _place_x(lay)
     _ports(lay)
     _route(lay)
+    _check_size(lay)
     cv, sketch = _paint(lay)
     if keep is not None:
         keep.update(shape=shape, lay=lay, sketch=sketch,
                     drawn=kit.Retained(cv, _looks(lay, sketch)))
     return cv
+
+
+def _check_size(lay: "_Layout") -> None:
+    """kit.TooLarge before painting a layout over kit.MAX_CELLS: its widest
+    row of boxes by the rows its layers and channels take (the wires a painter
+    would trace through them grow with that area)."""
+    if not lay.layers:
+        return
+    wide = max((v.x + max(v.w, v.reach) for v in lay.V.values()), default=0)
+    last = len(lay.layers) - 1
+    kit.check_size(wide + 1, lay.top[last] + BOX_H + lay.drops[last] + 1)
 
 
 def _shape(lay: "_Layout") -> tuple:
@@ -2043,6 +2056,7 @@ def sim_focus(g, depth: int, payloads: bool, notes: str = "off", triggers: bool 
 _probed_box = kit.probed_box
 
 
+@kit.bounded("graph")
 def _compose(g, depth, payloads, notes, triggers, width, access, mods, events,
              trace, tick, probe: bool, checks=None, memo=None):
     """compose, with the frame's tokens and active boxes in _Probe styles when
@@ -2248,26 +2262,32 @@ def _column(cells):
 def _columns(sizes, fit: int | None) -> list:
     """How (height, width) sections split, in order, into columns that fit side
     by side in `fit` columns: [(start, end), …] for the lowest tallest column
-    (fewer columns on a tie). One column when nothing narrower fits."""
+    (fewer columns on a tie). One column when nothing narrower fits.
+
+    A column cap `top` fills each column greedily, in order; the split only
+    changes where a column could take the next section, so the caps tried are
+    the tallest section, then each next such height (_next_top) — the lowest
+    cap that fits, in O(n) a cap, not every sum of a run of sections."""
     n = len(sizes)
     whole = [(0, n)]
     if fit is None or n < 2:
         return whole
-    tops = sorted({sum(h for h, _w in sizes[a:b]) for a in range(n) for b in range(a + 1, n + 1)})
-    for top in tops:
+    top = max(h for h, _w in sizes)
+    while True:
         runs, a, h = [], 0, 0
         for i, (hi, _w) in enumerate(sizes):
             if i > a and h + hi > top:
-                runs.append((a, i))
+                runs.append((a, i, h))
                 a, h = i, 0
             h += hi
-        runs.append((a, n))
-        if max(sum(h for h, _w in sizes[s:e]) for s, e in runs) > top:
-            continue
-        wide = sum(max(w for _h, w in sizes[s:e]) for s, e in runs) + COLUMN_GAP * (len(runs) - 1)
+        runs.append((a, n, h))
+        if len(runs) == 1:
+            return whole
+        wide = sum(max(w for _h, w in sizes[s:e]) for s, e, _h in runs) \
+            + COLUMN_GAP * (len(runs) - 1)
         if wide <= fit:
-            return runs
-    return whole
+            return [(s, e) for s, e, _h in runs]
+        top = min(h + sizes[e][0] for _s, e, h in runs[:-1])  # a column takes its next
 
 
 def graph_legend(triggers: bool = True, payloads: bool = False, access: bool = False,

@@ -110,6 +110,7 @@ from sigil.core.lex import (
     BLOCK_DELIM, DECLARATION_RE, GLYPH_BRACKETS, GLYPH_PREFIXES, MOD_NAME_RE,
     OP_HEAD_RE, PAYLOAD_PIECE_RE, SECTION_RE, STATE_HEAD_RE, STATE_OPEN_RE, block_open_pos,
     close_at, declaration_name, glyph_kind, is_mode_line, net_braces)
+from sigil.core.lex import BOM, MAX_SOURCE_BYTES, split_lines
 from sigil.core.statements import TRANSITION_RE, read_statement
 from sigil.core.tokens import NO_DIALECT, Code, code_line, lexicon as core_lexicon
 from sigil.core.tokens import Lexicon as CoreLexicon
@@ -174,10 +175,10 @@ class Line(NamedTuple):
 
 
 def lines(text: str, dialect=None) -> list:
-    """Every line of `text` (str.splitlines, as the walk splits it), highlighted."""
+    """Every line of `text` (lex.split_lines, as the walk splits it), highlighted."""
     lx = lexicon(dialect)
     out, carry = [], PLAIN
-    for raw in text.splitlines():
+    for raw in split_lines(text):
         runs, end = line(raw, carry, lx)
         out.append(Line(runs, carry, end))
         carry = end
@@ -779,15 +780,19 @@ def carry_json(carry) -> list:
     return [int(carry.quote), carry.decl, int(carry.decl_raw), carry.state]
 
 
+MAX_CARRY_DEPTH = MAX_SOURCE_BYTES   # a brace depth no document under the size cap reaches
+_LINE_END_KEPT_RE = re.compile(r"(\r\n|\r|\n)")   # lex.split_lines' line ends, kept
+
+
 def carry_from_json(value):
     """The Carry a JSON value names (None: a text's start). Raises ValueError."""
     if value is None:
         return PLAIN
     if not (isinstance(value, list) and len(value) == 4
-            and all(type(v) is int and v >= 0 for v in value)
+            and all(type(v) is int and 0 <= v <= MAX_CARRY_DEPTH for v in value)
             and value[0] in (0, 1) and value[2] in (0, 1)):
-        raise ValueError("carry must be null or [quote 0|1, decl >= 0, decl_raw 0|1, "
-                         "state >= 0]")
+        raise ValueError(f"carry must be null or [quote 0|1, decl 0..{MAX_CARRY_DEPTH}, "
+                         f"decl_raw 0|1, state 0..{MAX_CARRY_DEPTH}]")
     return Carry(bool(value[0]), value[1], bool(value[2]), value[3])
 
 
@@ -811,19 +816,24 @@ def ansi_line(runs, theme: dict, lx: Lexicon) -> str:
 
 def highlight_text(text: str, theme: dict, lx: Lexicon, colour: bool = True) -> str:
     """`text` with its lines highlighted in ANSI, every line ending kept as it is
-    (the lines split as str.splitlines splits them, as lines() does)."""
+    (the lines split as lex.split_lines splits them, as lines() does)."""
     out, carry = [], PLAIN
-    for whole in text.splitlines(keepends=True):
-        body = (whole.splitlines() or [""])[0]
+    if text.startswith(BOM):
+        text = text[1:]
+    parts = _LINE_END_KEPT_RE.split(text)       # body, its end, body, …, the last body
+    for k in range(0, len(parts), 2):
+        body, end = parts[k], parts[k + 1] if k + 1 < len(parts) else ""
+        if not body and not end:                # after a final line end: no line
+            continue
         runs, carry = line(body, carry, lx)
-        out.append((ansi_line(runs, theme, lx) if colour else body) + whole[len(body):])
+        out.append((ansi_line(runs, theme, lx) if colour else body) + end)
     return "".join(out)
 
 
 def highlight_json(text: str, theme: dict, name: str, lx: Lexicon) -> dict:
     """The --json object of a text (HIGHLIGHT_PROTOCOL)."""
     rows, ends, carry = [], [], PLAIN
-    for raw in text.splitlines():
+    for raw in split_lines(text):
         runs, carry = line(raw, carry, lx)
         rows.append(runs_json(runs, theme, lx))
         ends.append(carry_json(carry))
@@ -844,7 +854,8 @@ def write_text(text: str, out, theme: dict, name: str, lx: Lexicon, as_json: boo
 
 
 def _one_line(value) -> bool:
-    return isinstance(value, str) and value.splitlines() in ([], [value])
+    """A string with no line end in it (lex.split_lines: \\n or \\r)."""
+    return isinstance(value, str) and "\n" not in value and "\r" not in value
 
 
 class StreamSession:
@@ -863,6 +874,8 @@ class StreamSession:
             req = json.loads(raw)
         except ValueError as exc:
             return {"id": None, "error": f"not JSON: {exc}"}
+        except RecursionError:
+            return {"id": None, "error": "not JSON this reader takes: nested too deep"}
         if not isinstance(req, dict):
             return {"id": None, "error": "a request is a JSON object"}
         rid = req.get("id")
@@ -919,7 +932,7 @@ def _stream_lines(req: dict, theme: dict, lx: Lexicon) -> dict:
     ValueError."""
     lines_, start = req["lines"], req.get("start", 0)
     if not (isinstance(lines_, list) and all(_one_line(s) for s in lines_)):
-        raise ValueError("lines must be a list of strings, each without a line break")
+        raise ValueError("lines must be a list of strings, each without a line end (\\n or \\r)")
     if type(start) is not int or start < 0:
         raise ValueError("start must be a line index >= 0")
     done, _stop = edit([], lines_, 0, len(lines_), lx,

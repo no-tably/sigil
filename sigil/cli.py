@@ -22,6 +22,7 @@ wrapper calls: `dialect` becomes every subcommand's default `--dialect`.
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
 import shutil
@@ -591,30 +592,54 @@ CONTROL_PREFIX = "sigil-view-"   # a host's private directory for CONTROL (plugi
 ALIVE_S = 1.0               # how often follow touches CONTROL.alive
 
 
+CONTROL_MAX_BYTES = 1024 * 1024    # a larger control file is not a host's
+
+
 def control_problem(path: Path) -> str | None:
     """Why CONTROL is not to be trusted, or None. CONTROL names the command line
     `sigil view` runs, and that can load a dialect (Python code), so it must be a
     regular file of this user's that no other user can write, in a directory of
     this user's that no other user can write (a host makes it in a private
     directory, 0700, with mode 0600). Unix only: elsewhere nothing is checked."""
-    if not hasattr(os, "getuid"):
-        return None
-    uid = os.getuid()
+    return checked_control(path)[1]
+
+
+def checked_control(path: Path) -> tuple:
+    """(CONTROL's bytes, None) when it can be trusted (control_problem), else
+    (None, why not). The bytes are read from the file that was checked: it is
+    opened once, never through a link (O_NOFOLLOW), and checked by its open
+    descriptor, so it cannot be swapped between the check and the read."""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
-        own = os.lstat(path)
-        folder = os.stat(path.parent)
+        fd = os.open(path, flags)
     except OSError as exc:
-        return f"cannot read {exc.filename}: {exc.strerror or exc}"
-    if not stat.S_ISREG(own.st_mode):
-        return f"{path} is not a regular file (a link or a device)"
-    for what, where, st in (("the control file", path, own),
-                            ("its directory", path.parent, folder)):
-        if st.st_uid != uid:
-            return f"{what} {where} belongs to uid {st.st_uid}, not to you (uid {uid})"
-        if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
-            return (f"{what} {where} can be written by other users "
-                    f"(mode {stat.S_IMODE(st.st_mode):04o})")
-    return None
+        if exc.errno == errno.ELOOP:
+            return None, f"{path} is not a regular file (a link or a device)"
+        return None, f"cannot read {exc.filename}: {exc.strerror or exc}"
+    try:
+        own = os.fstat(fd)
+        if not stat.S_ISREG(own.st_mode):
+            return None, f"{path} is not a regular file (a link or a device)"
+        if hasattr(os, "getuid"):
+            try:
+                folder = os.stat(path.parent)
+            except OSError as exc:
+                return None, f"cannot read {exc.filename}: {exc.strerror or exc}"
+            uid = os.getuid()
+            for what, where, st in (("the control file", path, own),
+                                    ("its directory", path.parent, folder)):
+                if st.st_uid != uid:
+                    return None, (f"{what} {where} belongs to uid {st.st_uid}, "
+                                  f"not to you (uid {uid})")
+                if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+                    return None, (f"{what} {where} can be written by other users "
+                                  f"(mode {stat.S_IMODE(st.st_mode):04o})")
+        with os.fdopen(os.dup(fd), "rb") as fh:
+            return fh.read(CONTROL_MAX_BYTES + 1), None
+    except OSError as exc:
+        return None, f"cannot read {path}: {exc.strerror or exc}"
+    finally:
+        os.close(fd)
 
 
 def _refuse(control: Path, problem: str) -> None:
@@ -623,20 +648,40 @@ def _refuse(control: Path, problem: str) -> None:
                   "and writable by you alone (ctrl-c closes this split)")
 
 
-def read_control(path: Path) -> list[str] | None:
-    """The argv CONTROL asks for (None: unreadable or not a list of strings)."""
+def read_control(data: bytes | None) -> list[str] | None:
+    """The argv CONTROL's bytes ask for (None: none, too large, not UTF-8 JSON,
+    or not a list of strings)."""
+    if data is None or len(data) > CONTROL_MAX_BYTES:
+        return None
     try:
-        argv = json.loads(path.read_text(encoding="utf-8")).get("argv")
-    except (OSError, ValueError, AttributeError):
+        argv = json.loads(data.decode("utf-8")).get("argv")
+    except (ValueError, AttributeError, RecursionError):
         return None
     if isinstance(argv, list) and argv and all(isinstance(a, str) for a in argv):
         return argv
     return None
 
 
+def _touch_alive(alive: Path) -> None:
+    """Write this process's id into CONTROL.alive — never through a link or into
+    anything but a regular file (O_NOFOLLOW, O_NONBLOCK: a FIFO there is not
+    waited on). A file that can't be written is left for the host to notice."""
+    flags = (os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+             | getattr(os, "O_NONBLOCK", 0))
+    try:
+        fd = os.open(alive, flags, 0o600)
+    except OSError:
+        return
+    try:
+        if stat.S_ISREG(os.fstat(fd).st_mode):
+            os.write(fd, str(os.getpid()).encode("ascii"))
+    finally:
+        os.close(fd)
+
+
 def _mtime(path: Path) -> float:
     try:
-        return path.stat().st_mtime
+        return os.lstat(path).st_mtime
     except OSError:
         return 0.0
 
@@ -680,15 +725,15 @@ def follow(control: Path, wait=lambda: signal.pause()) -> int:
         while True:
             now = time.monotonic()
             if now - touched >= ALIVE_S:
-                alive.write_text(str(os.getpid()), encoding="utf-8")
+                _touch_alive(alive)
                 touched = now
             stamp = _mtime(control)
             if stamp != seen:
                 seen = stamp
-                problem = control_problem(control) if stamp else None
+                data, problem = checked_control(control) if stamp else (None, None)
                 if problem is not None:
                     _refuse(control, problem)
-                argv = None if problem is not None else read_control(control)
+                argv = read_control(data)
                 if argv is not None:
                     _stop(child)
                     child = subprocess.Popen([sys.executable, str(ROOT / "bin" / "sigil"), "view", *argv])
@@ -734,7 +779,7 @@ def _frames(argv: list, dialect) -> int:
     d.add_argument("file", type=Path)
     d.add_argument("--view", choices=app.VIEWS, default="flow")
     d.add_argument("--depth", type=_depth, default=1)
-    d.add_argument("--width", type=int, default=None)
+    d.add_argument("--width", type=width_arg, default=None)
     d.add_argument("--height", type=int, default=None)
     d.add_argument("--layout", choices=("auto", "wrap", "pan"), default="auto")
     d.add_argument("--scenario", default=None)

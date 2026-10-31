@@ -168,11 +168,17 @@ class BranchLineReadsCore(unittest.TestCase):
         self.assertEqual(facts.branches[0], (2, "  \\-> [A] : f([Worker])"))
 
 
+UNTRACKED = {"node_modules", "dist", "_site"}     # build output, not the repository's
+
+
 def corpus_lines() -> list:
-    """Every line of the repository's .sigil documents."""
+    """Every line of the repository's .sigil documents (not those under a hidden
+    folder such as .claude/ or .git/, nor build output: probe inputs there are
+    not UTF-8 on purpose)."""
     out = []
     for path in sorted(ROOT.glob("**/*.sigil")):
-        if "node_modules" not in path.parts:
+        parts = path.relative_to(ROOT).parts[:-1]
+        if not any(part.startswith(".") or part in UNTRACKED for part in parts):
             out += path.read_text(encoding="utf-8").splitlines()
     return out
 

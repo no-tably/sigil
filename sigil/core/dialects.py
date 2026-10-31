@@ -25,11 +25,15 @@ judge. So a dialect hooks the one reading, not lint and the parser apart.
 Resolution (`load(spec)`):
     spec None       → read env SIGIL_DIALECT; unset or "" → None (core only).
     spec ""         → None (core only).
-    an existing file path → loaded directly (a directory is taken to hold
-                      `dialect.py`).
-    a NAME          → a leading "sigil-" is dropped (so "x" and "sigil-x" are the
-                      same dialect); a name containing a path separator or ".."
-                      is rejected. Then the first of:
+    a PATH          → a spec holding a path separator, ending in `.py`, or `.`
+                      / `..`: that file, loaded directly (a directory is taken
+                      to hold `dialect.py`); none there is an error.
+    a NAME          → anything else: looked up by name only, never as a path
+                      in the working directory (so an untrusted checkout's
+                      `foo/dialect.py` is not run by SIGIL_DIALECT=foo). A
+                      leading "sigil-" is dropped (so "x" and "sigil-x" are the
+                      same dialect); a name holding ".." is rejected. Then the
+                      first of:
                         <this dir>/../sigil-<name>/dialect.py
                         <dir>/sigil-<name>/dialect.py  or  <dir>/<name>/dialect.py
                           for each <dir> in env SIGIL_DIALECT_PATH (os.pathsep list)
@@ -310,17 +314,19 @@ def load(spec: str | None) -> Dialect | None:
     spec = spec.strip()
     if not spec:
         return None
-    p = Path(spec).expanduser()
-    if p.is_file():
-        return _load_file(p, _name_of(p))
-    if p.is_dir() and (p / "dialect.py").is_file():
-        return _load_file(p / "dialect.py", p.name.removeprefix("sigil-"))
-    name = spec.removeprefix("sigil-")
     seps = {"/", os.sep} | ({os.altsep} if os.altsep else set())
-    if not name or any(s in name for s in seps) or ".." in name:
+    if any(s in spec for s in seps) or spec.endswith(".py") or spec in (".", ".."):
+        p = Path(spec).expanduser()
+        if p.is_file():
+            return _load_file(p, _name_of(p))
+        if p.is_dir() and (p / "dialect.py").is_file():
+            return _load_file(p / "dialect.py", p.name.removeprefix("sigil-"))
+        raise ValueError(f"unknown sigil dialect {spec!r}: no dialect file at {p} "
+                         "(a directory holds its dialect.py)")
+    name = spec.removeprefix("sigil-")
+    if not name or ".." in name:
         raise ValueError(
-            f"unknown sigil dialect {spec!r}: not a dialect file or directory, and "
-            "not a plain dialect name (no path separators or '..')."
+            f"unknown sigil dialect {spec!r}: not a plain dialect name (no '..')."
         )
     tried = _candidates(name)
     for cand in tried:

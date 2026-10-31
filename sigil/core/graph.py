@@ -407,9 +407,9 @@ def _id_char(ch: str) -> str:
 
 
 # What follows a `u` in an id that would read as an encoded character: a code
-# point in six hex digits (`0xxxxx` / `10xxxx`), or `_`s before one (a literal
-# `u` there takes one more `_`). Words rarely hold one: `Succeeded` stays.
-_CODE_AHEAD_RE = re.compile(r"_*(?:0[0-9a-f]|10)[0-9a-f]{4}")
+# point in six hex digits (`0xxxxx` / `10xxxx`), after any `_`s (a literal `u`
+# there takes one more `_`). Words rarely hold one: `Succeeded` stays.
+_CODE_RE = re.compile(r"(?:0[0-9a-f]|10)[0-9a-f]{4}")
 
 
 @lru_cache(maxsize=8192)
@@ -423,10 +423,19 @@ def mk_id(name: str) -> str:
     differ in a non-ASCII character (`[利用者]` / `[転送器]`, `[Āb]` / `[ဋ]`,
     `[u005229]` / `[利]`) never share an id. Every other ASCII name keeps its
     id as written."""
-    safe = ""
+    # Built from the end, a piece at a time (linear in the name): what the
+    # id holds after a `u` so far is `lead` `_`s and then `ahead`, its next
+    # six characters, which _CODE_RE reads.
+    pieces, lead, ahead = [], 0, ""
     for ch in reversed(name.strip()):
-        lit_u = ch == "u" and _CODE_AHEAD_RE.match(safe)
-        safe = ("u_" if lit_u else _id_char(ch)) + safe
+        piece = "u_" if ch == "u" and _CODE_RE.match(ahead) else _id_char(ch)
+        pieces.append(piece)
+        body = piece.lstrip("_")
+        if body:
+            lead, ahead = len(piece) - len(body), (body + "_" * min(lead, 6) + ahead)[:6]
+        else:
+            lead += len(piece)
+    safe = "".join(reversed(pieces))
     if safe and safe[0].isdigit():
         safe = "n" + safe
     return safe or "anon"
