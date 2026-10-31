@@ -261,6 +261,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from sigil.core import parse
+from sigil.core.lex import SourceError, read_source
 from sigil.present import kit
 from sigil.present.views import graph as vgraph
 from sigil.present.views import tree as vtree
@@ -1142,7 +1143,7 @@ def sim_batch(path: Path, mode: str, dialect=None, as_json: bool = False,
     as text or JSON; no drawing, no lint. Exit status 0: a run is information,
     not a verdict. `limits`: --limit's pairs (doc_limits; None: none given)."""
     kit.use_dialect(dialect)
-    g = kit._call(parse.parse_document, path.read_text(), dialect)
+    g = kit._call(parse.parse_document, read_source(path), dialect)
     limits = doc_limits(g, limits)
     if mode == "list":
         found = simulator.scenarios(simulator.canonical(g), limits=limits)
@@ -1227,7 +1228,7 @@ def structure_reading(path: Path, dialect=None, as_json: bool = False) -> int:
     drawing, no lint, any mode. Exit status 0."""
     from sigil.model import structure
     kit.use_dialect(dialect)
-    g = kit._call(parse.parse_document, path.read_text(), dialect)
+    g = kit._call(parse.parse_document, read_source(path), dialect)
     s = structure.structure_of(
         g, path.stem, kinds=getattr(dialect, "NODE_KINDS", None) or {},
         read_verbs=scene.READ_VERBS + tuple(sorted(
@@ -1244,7 +1245,7 @@ def sim_json(path: Path, name: str, dialect=None, limits=None,
     nodes a view drawn to it draws. Exit status 0; raises UnknownScenario for
     an unknown name."""
     kit.use_dialect(dialect)
-    g = kit._call(parse.parse_document, path.read_text(), dialect)
+    g = kit._call(parse.parse_document, read_source(path), dialect)
     player = SimPlayer(g, name, limits, depth)
     print(json.dumps(sim_run(player), indent=2, ensure_ascii=False))
     return 0
@@ -1258,7 +1259,7 @@ def run_json(path: Path, name: str | None, dialect=None, limits=None,
     every level): the timeline as the run view drawn to it. Exit status 0;
     raises UnknownScenario for an unknown name."""
     kit.use_dialect(dialect)
-    g = kit._call(parse.parse_document, path.read_text(), dialect)
+    g = kit._call(parse.parse_document, read_source(path), dialect)
     player = SimPlayer(g, name, limits)
     data = vrun.timeline_json(player.trace, player.limits, unroll,
                               kit.ALL_DEPTH if depth is None else depth)
@@ -1538,7 +1539,7 @@ def once(path: Path, depth: int | None, payloads: bool, do_lint: bool,
     run told (narration, path) at `depth` — every node when not given.
     The summary line ends with the document's `#!mode`, when it has one."""
     kit.use_dialect(dialect)
-    text = path.read_text()
+    text = read_source(path)
     g = kit._call(parse.parse_document, text, dialect)
     limits = doc_limits(g, limits)
     view = start_view(view, tree)
@@ -1767,7 +1768,11 @@ class ViewState:
             return False
         self.stamp = stamp
         try:
-            text = self.path.read_text()
+            text = read_source(self.path)
+        except SourceError as exc:     # not UTF-8, too large: say so, keep the last drawing
+            self.error = f"cannot read {self.path.name}: {exc.strerror}"
+            self._recompose()
+            return True
         except OSError:
             return False
         self.text = text

@@ -50,6 +50,7 @@ import re
 import unicodedata
 from pathlib import Path
 
+from sigil.core.lex import read_source
 from sigil.core.parse import parse_document
 from sigil.core.statements import read_document
 from sigil.model import scene
@@ -284,7 +285,7 @@ def draw(path: Path, view_name: str = "flow", depth: int = 1, width: int | None 
     except ValueError as exc:
         return {"error": str(exc)}
     try:
-        text = path.read_text(encoding="utf-8")
+        text = read_source(path)        # UTF-8, BOM dropped, size capped
     except OSError as exc:
         return {"error": f"{path}: {exc.strerror or exc}"}
     kit.use_dialect(dialect)

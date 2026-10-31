@@ -44,12 +44,11 @@ SAID = {"lint": "sigil lint", "check": "sigil check", "view": "sigil view",
 
 
 def read_text(path: str) -> str:
-    """The document at `path` (`-` = stdin, read as UTF-8). Raises OSError."""
-    if path == "-":
-        if hasattr(sys.stdin, "reconfigure"):
-            sys.stdin.reconfigure(encoding="utf-8")
-        return sys.stdin.read()
-    return Path(path).read_text(encoding="utf-8")
+    """The document at `path` (`-` = stdin) as every command reads it
+    (sigil.core.lex.read_source: UTF-8, a leading BOM dropped, at most
+    MAX_SOURCE_BYTES). Raises OSError (lex.SourceError: not UTF-8, too large)."""
+    from sigil.core import lex
+    return lex.read_source(path)
 
 
 def load_dialect(name):
@@ -274,7 +273,10 @@ def _check(argv: list, dialect) -> int:
     except check.RegistryError as exc:
         say("check", f"rule registry: {exc}")
         return 2
-    except (ValueError, OSError) as exc:
+    except OSError as exc:
+        say("check", cannot_read(a.file, exc))
+        return 2
+    except ValueError as exc:
         say("check", str(exc))
         return 2
     if a.rules:
@@ -428,6 +430,7 @@ def _readable(path: Path) -> bool:
 
 def _view(argv: list, dialect) -> int:
     from sigil.present import app, kit
+    from sigil.core.lex import SourceError
     a = _view_parser(dialect, app).parse_args(argv)
     try:
         loaded = load_dialect(a.dialect)
@@ -450,6 +453,9 @@ def _view(argv: list, dialect) -> int:
         return 2
     try:
         return app.run(a, loaded, limits, output)
+    except SourceError as exc:              # not UTF-8, too large (live: shown, never raised)
+        say("view", cannot_read(str(a.file), exc))
+        return 2
     except app.UnknownScenario as exc:     # the message lists the known ones
         say("view", f"--sim: {exc}")
         return 2
@@ -502,6 +508,13 @@ def _export_folder(argv: list, dialect) -> int:
     try:
         loaded = load_dialect(a.dialect)
         text = read_text(a.spec)
+    except OSError as exc:
+        say("export", cannot_read(a.spec, exc))
+        return 2
+    except ValueError as exc:
+        say("export", str(exc))
+        return 2
+    try:
         passed = exporter.ready(text, loaded, lint, check, _limits(a.limit))
     except (ValueError, OSError) as exc:
         say("export", str(exc))
@@ -810,9 +823,6 @@ def _highlight(argv: list, dialect) -> int:
         text = read_text(a.file)
     except OSError as exc:
         say("highlight", cannot_read(a.file, exc))
-        return 2
-    except UnicodeDecodeError as exc:
-        say("highlight", f"cannot read {a.file}: not UTF-8 ({exc.reason})")
         return 2
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")

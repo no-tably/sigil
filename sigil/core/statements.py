@@ -38,7 +38,8 @@ from sigil.core.lex import (
     CLOSERS, COMMENT_START_RE, GLYPH_PREFIXES, GLYPH_RE, LOOP_HEAD_RE, OPENERS,
     SCOPE_HEAD_RE, SECTION_RE,
     DECLARATION_MARK, DECLARATION_RE, STATE_HEAD_RE, STATE_OPEN_RE, close_at, comment_start,
-    declaration_name, fold_block_strings, in_string, is_mode_line, mask_strings, net_braces)
+    declaration_name, fold_block_strings, in_string, is_mode_line, mask_strings, net_braces,
+    split_lines)
 from sigil.core.tokens import (
     NO_DIALECT, Code, Lexicon, Tok, code_line, lexicon, tokenize_statement)
 
@@ -604,8 +605,9 @@ def declaration_body(lines: list) -> str:
 
 
 def read_document(text: str, dialect=None, result=None) -> Walk:
-    """Read a document once (see the module notes)."""
-    return read_lines(text.splitlines(), dialect, result)
+    """Read a document once (see the module notes); its lines end at \\n,
+    \\r\\n or \\r only (lex.split_lines)."""
+    return read_lines(split_lines(text), dialect, result)
 
 
 def read_lines(lines: list, dialect=None, result=None) -> Walk:

@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from sigil.core.graph import Note, walk_breadth
-from sigil.core.lex import declaration_name, is_mode_line
+from sigil.core.lex import declaration_name, is_mode_line, split_lines
 
 
 # ---------------------------------------------------------------------------
@@ -36,7 +36,7 @@ def block_string_of(e):
 
 def block_lines(body: str) -> list:
     """A block-string's lines, the blank ones at its ends dropped, each stripped."""
-    lines = [ln.strip() for ln in body.splitlines()]
+    lines = [ln.strip() for ln in split_lines(body)]
     while lines and not lines[0]:
         lines.pop(0)
     while lines and not lines[-1]:

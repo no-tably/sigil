@@ -4,6 +4,9 @@ lex — the lexical tables of Sigil text, kept once: the statement walk
 (sigil.core.parse) and lint (sigil.analyse.lint) all read lines through these,
 one reading each:
 
+    source        MAX_SOURCE_BYTES, SourceError, read_source (a document's
+                  file or stdin), decode_source (its bytes: UTF-8, a leading
+                  BOM dropped), split_lines (its lines: \n, \r\n or \r ends one)
     comments      is_mode_line, is_comment_line, first_content, COMMENT_START_RE, in_string, comment_start, comment_col,
                   DECLARATION_MARK, DECLARATION_RE, declaration_name (a
                   line-leading `#& name …`: a dialect declaration),
@@ -41,9 +44,72 @@ names a dialect builds on) is re-exported by sigil.core.vocab.
 Standard library only; imports nothing of sigil.
 """
 
+import errno
 import re
+import sys
 import unicodedata
+from pathlib import Path
 from typing import NamedTuple, Optional
+
+# ---------------------------------------------------------------------------
+# Source — a document's text, read the one way every command reads it
+# ---------------------------------------------------------------------------
+
+MAX_SOURCE_BYTES = 64 * 1024 * 1024   # a document larger than this is refused
+BOM = "\ufeff"
+_LINE_END_RE = re.compile(r"\r\n|\r|\n")
+
+
+class SourceError(OSError):
+    """A document that can't be read as Sigil text (not UTF-8, too large).
+    An OSError, so every `cannot read F: …` message says it: str(exc.strerror)
+    is the reason."""
+
+    def __init__(self, code: int, reason: str):
+        super().__init__(code, reason)
+
+
+def decode_source(data: bytes) -> str:
+    """A document's text from its bytes: strict UTF-8, a leading byte-order
+    mark dropped (editors hide it; it would hide the `#!` mode line). Raises
+    SourceError naming the line of the first byte that is not UTF-8."""
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        line = len(split_lines(data[:exc.start].decode("utf-8", "replace") + "x"))
+        raise SourceError(errno.EILSEQ, f"not UTF-8 (line {line}: {exc.reason})") from None
+    return text[1:] if text.startswith(BOM) else text
+
+
+def read_source(path) -> str:
+    """The document at `path` (a str or Path; `-`: standard input), as
+    decode_source reads it. Raises OSError: the file's own, or SourceError for
+    one over MAX_SOURCE_BYTES or not UTF-8."""
+    limit = MAX_SOURCE_BYTES
+    if str(path) == "-":
+        stream = getattr(sys.stdin, "buffer", None)
+        data = stream.read(limit + 1) if stream is not None \
+            else sys.stdin.read(limit + 1).encode("utf-8")
+    else:
+        with Path(path).open("rb") as fh:
+            data = fh.read(limit + 1)
+    if len(data) > limit:
+        raise SourceError(errno.EFBIG, f"larger than {limit // (1024 * 1024)} MiB "
+                                       f"({limit} bytes)")
+    return decode_source(data)
+
+
+def split_lines(text: str) -> list:
+    """A document's lines, as editors count them: a line ends at \\n, \\r\\n
+    or \\r only — a form feed, NEL, U+2028/2029 and the other breaks
+    str.splitlines knows stay in their line. A final line end opens no line
+    (as str.splitlines). A leading byte-order mark is dropped."""
+    if text.startswith(BOM):
+        text = text[1:]
+    lines = _LINE_END_RE.split(text)
+    if lines[-1] == "":
+        lines.pop()
+    return lines
 
 # ---------------------------------------------------------------------------
 # Comments and strings
