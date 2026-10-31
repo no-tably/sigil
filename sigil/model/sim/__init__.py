@@ -299,12 +299,12 @@ NARRATION (pure, over a Trace and the scene it names)
 
 
 from sigil.model.sim.program import (  # noqa: F401  (the package's API)
-    LIMIT_SOURCES, PER_SIZE, Decide, Floor, Frame, Group, Instance, Limits, Machine, Program,
-    Region, Scenario, Step,
+    DOC_MAX, LIMIT_SOURCES, PER_SIZE, Decide, Floor, Frame, Group, Instance, Limits, Machine,
+    Program, Region, Scenario, Step,
     Token, Trace, TriggerRef, attempts, canonical, carried, doc_size, document_limits, duration,
-    flag_names, instances, limit_name, limit_problem, limit_sources, limits_for, limits_from,
-    loop_count, usable_limits, mod, program, replayed, resilient, returned, route_guard, scaled,
-    selected_routes, sized,
+    flag_names, instances, limit_ceiling, limit_name, limit_problem, limit_sources, limits_for,
+    limits_from, loop_count, usable_limits, mod, program, replayed, resilient, returned,
+    route_guard, scaled, selected_routes, sized,
     _flat, _program_of)        # read by the flow rules and the run view through the package
 from sigil.model.sim.engine import CONVENTIONS, simulate  # noqa: F401
 from sigil.model.sim.scenarios import (  # noqa: F401

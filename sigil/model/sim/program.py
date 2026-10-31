@@ -71,6 +71,14 @@ class Limits(NamedTuple):
     window: int = 64           # start ticks tried per pair of entries (overlap_runs)
 
 
+# The most a document's `#%` line may set each limit to (usable_limits clamps a
+# larger value to it; lint warns, SGL096): opening a file someone else wrote must
+# not exhaust memory or the stack. --limit is the user's own and may go past them.
+DOC_MAX = {"hop": 1000, "iterations": 1000, "depth": 64, "spawn": 64, "spawns": 1000,
+           "visits": 1000, "activations": 1_000_000, "stack": 128, "frames": 1_000_000,
+           "scenarios": 1000, "overlaps": 1000, "pair_overlaps": 100, "window": 1000}
+
+
 def limit_problem(pair: str) -> Optional[str]:
     """What is wrong with one "name=N" limit (None: nothing), as --limit and
     the `#%` line both say it, without the `--limit ` that leads the flag's
@@ -84,6 +92,20 @@ def limit_problem(pair: str) -> Optional[str]:
     if int(value) < 1:
         return f"{name}: must be at least 1"
     return None
+
+
+def limit_ceiling(pair: str) -> Optional[str]:
+    """What a document does wrong writing one valid "name=N" limit above its
+    ceiling (DOC_MAX; None: within it), as lint's SGL096 warning says it."""
+    if limit_problem(pair) is not None:
+        return None
+    name, _sep, value = pair.partition("=")
+    name = name.strip()
+    top = DOC_MAX.get(name)
+    if top is None or int(value) <= top:
+        return None
+    return (f"{name}: {int(value)} is above what a document may set ({top}); a run takes "
+            f"{top}. Pass --limit {name}={int(value)} to go past it.")
 
 
 def limit_name(pair: str) -> str:
@@ -107,12 +129,15 @@ def limits_from(pairs, base: Limits = Limits()) -> Limits:
 def usable_limits(pairs) -> tuple:
     """The document's limits a run takes (`pairs`: the `#%` line's, Kind.limits):
     each one the validator accepts (limit_problem), the first of a name written
-    twice. The others are lint's to report (SGL096); a run ignores them."""
+    twice, a value above its ceiling (DOC_MAX) clamped to it. The others are
+    lint's to report (SGL096); a run ignores them."""
     out, seen = [], set()
     for pair in pairs:
         name = limit_name(pair)
         if limit_problem(pair) is None and name not in seen:
             seen.add(name)
+            if limit_ceiling(pair) is not None:
+                pair = f"{name}={DOC_MAX[name]}"
             out.append(pair)
     return tuple(out)
 
@@ -433,19 +458,26 @@ def _summaries(prog: Program, flows: list) -> dict:
     for w in flows:
         by_unit.setdefault(prog.wire_unit[id(w)], []).append(w)
 
-    def detail(exp, seen):
-        if exp in seen:
-            return []
-        seen.add(exp)
-        out = list(by_unit.get(exp, ()))
-        for (ui, _nid), sub in prog.expansions.items():
-            if ui == exp:
-                out += detail(sub, seen)
+    subs = {}
+    for (ui, _nid), sub in prog.expansions.items():
+        subs.setdefault(ui, []).append(sub)
+
+    def detail(exp):
+        """exp's flows, then each nested expansion's, depth first in written
+        order, each unit once (iterative: a chain of expansions may be deep)."""
+        out, seen, todo = [], set(), [exp]
+        while todo:
+            u = todo.pop()
+            if u in seen:
+                continue
+            seen.add(u)
+            out += by_unit.get(u, ())
+            todo += reversed(subs.get(u, ()))
         return out
 
     out = {}
     for (ui, nid), exp in prog.expansions.items():
-        inner = [x for x in detail(exp, set()) if x.kind not in ("!>", "?>")]
+        inner = [x for x in detail(exp) if x.kind not in ("!>", "?>")]
         for w in _flat(prog.bodies.get((ui, nid), ())):
             if w.src == nid and w.dst != nid:
                 hits = tuple(x.ident for x in inner if x.dst == w.dst)

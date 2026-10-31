@@ -402,12 +402,12 @@ class Facts:
     def units(self) -> list:
         """(graph, owner, level, top-level ancestor owner) for every graph."""
         out = []
-
-        def walk(g, owner, level, top):
+        todo = [(self.doc.graph, None, 0, None)]      # depth first, in written order
+        while todo:
+            g, owner, level, top = todo.pop()
             out.append((g, owner, level, top))
-            for nid, sub in g.expansions.items():
-                walk(sub, nid, level + 1, top if top is not None else nid)
-        walk(self.doc.graph, None, 0, None)
+            todo += reversed([(sub, nid, level + 1, top if top is not None else nid)
+                              for nid, sub in g.expansions.items()])
         return out
 
     @cached_property
@@ -1577,13 +1577,14 @@ def expansion_units(f: Facts) -> list:
     """(graph, owner, ancestor graphs) of every expansion (not a state machine)."""
     out = []
 
-    def walk(g, ancestors):
-        for nid, sub in g.expansions.items():
-            if sub.role == "state":
-                continue
-            out.append((sub, nid, ancestors + [g]))
-            walk(sub, ancestors + [g])
-    walk(f.doc.graph, [])
+    def below(g, ancestors):
+        return [(sub, nid, ancestors + [g]) for nid, sub in g.expansions.items()
+                if sub.role != "state"]
+    todo = below(f.doc.graph, [])[::-1]      # depth first, in written order (may be deep)
+    while todo:
+        sub, nid, ancestors = todo.pop()
+        out.append((sub, nid, ancestors))
+        todo += below(sub, ancestors)[::-1]
     return out
 
 
@@ -1653,8 +1654,14 @@ def find_expansion_escape(ck, f: Facts):
     units = expansion_units(f)
     owners = enclosing_owners(units)
     every = {(e.src, e.dst) for g, _o, _l, _t in f.units if g.role != "state" for e in g.edges}
+    held = {}                       # id(graph) → the nodes it holds (read once per graph)
+
+    def holds(g) -> set:
+        if id(g) not in held:
+            held[id(g)] = {nid for nid in wired_ids(g) if not header_only(g, nid)}
+        return held[id(g)]
     for sub, owner, ancestors in units:
-        outer = {nid for g in ancestors for nid in wired_ids(g) if not header_only(g, nid)}
+        outer = set().union(*map(holds, ancestors))
         mine = enclosing(owners, owner)
         for e in sub.edges:
             d = e.dst

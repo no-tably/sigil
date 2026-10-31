@@ -327,17 +327,21 @@ def lint_kind_limits(limits: tuple, k: int, result: LintResult):
     """SGL096: each `name=N` limit of the read `#%` line (`limits`, Kind.limits;
     0-based line `k`) that the simulator's validator refuses — an unknown name, a
     value below 1, not NAME=N — in --limit's own words (sim.limit_problem), and a
-    limit named twice (a run takes the first: sim.usable_limits). The simulator is
+    limit named twice (a run takes the first: sim.usable_limits); a warning for a
+    value above what a document may set (sim.limit_ceiling: a run clamps it). The simulator is
     imported only when the line writes a limit."""
     if not limits:
         return
-    from sigil.model.sim.program import limit_name, limit_problem
+    from sigil.model.sim.program import limit_ceiling, limit_name, limit_problem
     seen = set()
     for pair in limits:
         problem = limit_problem(pair)
         if problem is not None:
             result.add("error", k + 1, "SGL096", f"limit {problem}.")
             continue
+        above = limit_ceiling(pair)
+        if above is not None:
+            result.add("warn", k + 1, "SGL096", f"limit {above}")
         name = limit_name(pair)
         if name in seen:
             result.add("error", k + 1, "SGL096",

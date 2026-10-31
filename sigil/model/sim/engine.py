@@ -132,6 +132,7 @@ class _Run:
         self.loops_most: dict = {}     # (owner, block index) → the most iterations it ran
         self.visits = Counter()        # (episode, node) → task-root activations
         self.activations = Counter()   # episode → activations
+        self.bases = Counter()         # episode → base cases (_depth_capped)
         self.gates: dict = {}
         self.one_of = _one_of_groups(prog)
         self.owned = _owned_stores(prog)
@@ -488,9 +489,16 @@ class _Run:
     def _depth_capped(self, task: _Task, nid: str, wire=None) -> bool:
         """Whether nid is Limits.depth deep on the task's stack already: the
         base case (a `limit` event naming the capped caller's act, the level
-        reached and the wire that would have gone deeper)."""
+        reached and the wire that would have gone deeper). A base case runs
+        nothing and may take no tick (a self-call), so base cases count per
+        episode against Limits.activations too: past it the run is cut there
+        (`[B] -> [B]` written n times would otherwise make n base cases for each
+        of its deepest activations)."""
         n = sum(1 for a in task.stack if a.node == nid)
         if n >= self.limits.depth:
+            self.bases[task.episode] += 1
+            if self.bases[task.episode] > self.limits.activations:
+                raise _Cut("activations")
             top = task.stack[-1].id if task.stack else None
             self._event("limit", task, name="depth", node=nid, act=top, level=n, wire=wire)
             self._log(f"base case: {self._name(nid)} at depth {n}")

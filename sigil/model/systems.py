@@ -166,6 +166,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from functools import partial
 from dataclasses import dataclass, field, replace
 from typing import Iterable, Mapping, NamedTuple, Optional
 
@@ -612,7 +613,20 @@ def shape_owner(g, nid: str) -> bool:
 
 def _lay_graph(g, key: str, lay: Layout):
     """Record g (written in system `key`): its trees, its nodes' candidates, and
-    then its expansions, depth first."""
+    then its expansions, depth first. Iterative (a chain of expansions may nest
+    deeper than Python's recursion): each expansion is a step taken when the one
+    before it is done with everything nested in it, so its system is chosen
+    (_lay_expansion) in the same order as a recursive walk would."""
+    todo = [lambda: (g, key)]
+    while todo:
+        got = todo.pop()()
+        if got is not None:
+            todo += reversed(_lay_level(*got, lay))
+
+
+def _lay_level(g, key: str, lay: Layout) -> list:
+    """Record one graph g (written in system `key`): its trees and its nodes'
+    candidates; return a step per expansion (_lay_expansion), in written order."""
     lay.graph_system[id(g)] = key
     roots = tree_roots(g.tree)
     member = {}
@@ -649,15 +663,20 @@ def _lay_graph(g, key: str, lay: Layout):
             lay.refs.pop((nid, k), None)
         local[nid] = keys[0]
         _tree_face(g, nid, keys[0], roots, lay)
-    for owner, sub in g.expansions.items():
-        node = g.nodes.get(owner)
-        if sub.role == "state":
-            lay.machines.setdefault(owner, sub)
-        elif node is None or node.kind == "alias" or shape_owner(g, owner):
-            _lay_graph(sub, key, lay)
-        else:
-            parent = local.get(owner, key)
-            _lay_graph(sub, _system_for(lay, node, "expansion", parent), lay)
+    return [partial(_lay_expansion, g, owner, sub, key, local, lay)
+            for owner, sub in g.expansions.items()]
+
+
+def _lay_expansion(g, owner: str, sub, key: str, local: dict, lay: Layout):
+    """One expansion of g: a state machine is recorded (None); else (sub, the
+    system it is written in) to lay next."""
+    node = g.nodes.get(owner)
+    if sub.role == "state":
+        lay.machines.setdefault(owner, sub)
+        return None
+    if node is None or node.kind == "alias" or shape_owner(g, owner):
+        return sub, key
+    return sub, _system_for(lay, node, "expansion", local.get(owner, key))
 
 
 def _tree_face(g, nid: str, parent: str, roots: list, lay: Layout):

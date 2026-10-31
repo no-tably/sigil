@@ -102,6 +102,7 @@ from typing import Callable, Iterable, Optional
 
 # Layout and acknowledgements are read in core (check.Ack, check.read_acks, … keep
 # their names here).
+from sigil.core.lex import split_lines
 from sigil.core.statements import read_document
 from sigil.core.comments import (  # noqa: F401  (re-exported)
     Ack, Layout, RULE_ID_RE, ack_span, parse_ack, read_acks, walk_layout)
@@ -420,7 +421,7 @@ class Doc:
             self.__dict__["walk"] = walk
             if graph is not None:    # and the model it parsed from that reading
                 self.__dict__["graph"] = graph
-        self.lines = text.splitlines()
+        self.lines = split_lines(text)
         self.mode = mode
         self.k = k
         self.known = known           # every rule name an acknowledgement may cite
@@ -996,15 +997,7 @@ def fold(findings: list) -> None:
     nothing folds; a cycle of implications folds nothing). The cause keeps its own
     severity. Mutates the findings."""
     scopes = [scopes_of(f.hit) for f in findings]
-    parent = {}
-    for i, f in enumerate(findings):
-        for j, c in enumerate(findings):
-            if i == j:
-                continue
-            if any(name == f.rule.name and s in scopes[i] and scopes[i][s] == scopes[j].get(s)
-                   for name, s in c.rule.implies):
-                parent[i] = j
-                break
+    parent = _causes(findings, scopes)
     for i in sorted(parent):
         root, seen = parent[i], {i}
         while root in parent and root not in seen:
@@ -1014,6 +1007,48 @@ def fold(findings: list) -> None:
             continue
         findings[i].folded_into = findings[root]
         findings[root].also.append(findings[i])
+
+
+def _causes(findings: list, scopes: list) -> dict:
+    """{finding index: the first other finding (by index) whose rule implies its
+    rule at a scope they share}, as fold reads it: the causes are indexed by
+    (implied rule, scope, the cause's value there), so the pairing is linear in
+    the findings, not quadratic (a document of thousands of findings)."""
+    try:
+        index = {}
+        for j, c in enumerate(findings):
+            for name, s in c.rule.implies:
+                index.setdefault((name, s, scopes[j].get(s)), []).append(j)
+    except TypeError:            # an unhashable scope value: compare pairwise
+        return _causes_pairwise(findings, scopes)
+    parent = {}
+    for i, f in enumerate(findings):
+        best = None
+        for s, v in scopes[i].items():
+            try:
+                hits = index.get((f.rule.name, s, v), ())
+            except TypeError:
+                return _causes_pairwise(findings, scopes)
+            j = next((j for j in hits if j != i), None)
+            if j is not None and (best is None or j < best):
+                best = j
+        if best is not None:
+            parent[i] = best
+    return parent
+
+
+def _causes_pairwise(findings: list, scopes: list) -> dict:
+    """_causes by comparing every pair (scope values that cannot be hashed)."""
+    parent = {}
+    for i, f in enumerate(findings):
+        for j, c in enumerate(findings):
+            if i == j:
+                continue
+            if any(name == f.rule.name and s in scopes[i] and scopes[i][s] == scopes[j].get(s)
+                   for name, s in c.rule.implies):
+                parent[i] = j
+                break
+    return parent
 
 
 def acknowledgeable(f: Finding) -> bool:
@@ -1117,7 +1152,7 @@ def check(text: str, mode: Optional[str] = None, k: Optional[int] = None,
     overlap runs unless `overlaps` is given); `all_rules` runs them anyway."""
     pack = dialect_pack(dialect) if pack is None else pack
     registry = default_registry(pack.rules, export) if registry is None else registry
-    lines = text.splitlines()
+    lines = split_lines(text)
     mode = mode or read_mode(lines)
     if mode not in MODES:
         raise ValueError(f"unknown mode {mode!r} (one of {', '.join(MODES)})")
