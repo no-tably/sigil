@@ -88,9 +88,10 @@ class DeepThemes(unittest.TestCase):
 
     def test_a_long_extends_chain_is_an_error(self):
         for k in range(40):
-            self.write(f"t{k}.yaml", f"extends: t{k + 1}.yaml\n" if k < 39 else "name: x\n")
+            self.write(f"link-{k}.yaml",
+                       f"extends: link-{k + 1}.yaml\n" if k < 39 else "name: x\n")
         with self.assertRaisesRegex(themes.ThemeError, "extends chain longer"):
-            themes.load(str(self.dir / "t0.yaml"))
+            themes.load(str(self.dir / "link-0.yaml"))
 
     def test_sigil_themes_reports_it_cleanly(self):
         path = self.write("deep.yaml", deep_theme(1100))
