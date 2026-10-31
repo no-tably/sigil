@@ -170,7 +170,7 @@ from dataclasses import dataclass, field, replace
 from typing import Iterable, Mapping, NamedTuple, Optional
 
 from sigil.core.graph import header_only, walk_depth
-from sigil.core.lex import BLOCK_SENTINEL, GLYPH_BRACKETS
+from sigil.core.lex import BLOCK_SENTINEL, GLYPH_BRACKETS, split_lines
 from sigil.core.parse import parse_glyph
 from sigil.core.tokens import glyph_spans
 
@@ -1049,7 +1049,7 @@ def flow_of(e, src: Optional[str] = None) -> Flow:
     payload = tight(e.payload) if e.payload else None
     text = None
     if e.block_string is not None:
-        text = "\n".join(ln.rstrip() for ln in e.block_string.strip("\n").splitlines())
+        text = "\n".join(ln.rstrip() for ln in split_lines(e.block_string.strip("\n")))
         payload = payload.replace(BLOCK_SENTINEL, '"""…"""') if payload else None
     return Flow(
         src=e.src if src is None else src, dst=e.dst, arrow=e.kind, line=e.line,

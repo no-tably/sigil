@@ -236,5 +236,17 @@ class Slugs(Tmp):
         self.assertTrue({"nul-x.md", "aux-x.md"} <= names, names)
 
 
+class LineEnds(unittest.TestCase):
+    """Export reads lines as the walk does (lex.split_lines): a U+2028 inside a
+    block string stays in its line."""
+
+    def test_block_string_keeps_a_line_separator(self):
+        from sigil.publish import exporter
+        flow = {"arrow": "->", "mode": "sync", "text": "one\u2028still one\ntwo"}
+        item = exporter.flow_item("[A]", "[B]", flow)
+        self.assertIn("  one\u2028still one", item)
+        self.assertIn("  two", item)
+
+
 if __name__ == "__main__":
     unittest.main()

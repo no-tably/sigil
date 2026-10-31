@@ -118,6 +118,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
+from sigil.core.lex import split_lines
 from sigil.publish import systems as em
 from sigil.publish.delta import (
     DELTA, EXPORT_VERSION, delta, delta_lines, dropped_folders, manifest_problem,
@@ -152,7 +153,7 @@ def ready(text: str, dialect, lint, check, limits=None) -> Gate:
     NAME=N pairs, or a sim.Limits; None: none given), laid over the document's own
     `#%` limits by check.check, bound check's runs, so a run cut at a limit is
     cleared by raising it (on the `#%` line, or `sigil export --limit NAME=N`)."""
-    mode = check.read_mode(text.splitlines())
+    mode = check.read_mode(split_lines(text))
     if mode != "spec":
         return Gate((f"mode: the document is `#!{mode}`; only a `#!spec` document exports",))
     linted = lint.lint_reading(text, dialect=dialect)
@@ -338,7 +339,7 @@ def flow_item(src: str, dst: str, f: dict) -> list:
         notes.append("path " + " → ".join(paths))
     out = [f"- `{flow_text(src, dst, f)}` — {', '.join(notes)}"]
     if f.get("text"):
-        out += ["", "  ```", *(f"  {ln}" for ln in f["text"].splitlines()), "  ```"]
+        out += ["", "  ```", *(f"  {ln}" for ln in split_lines(f["text"])), "  ```"]
     return out
 
 
