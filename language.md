@@ -29,6 +29,19 @@ no node, and an arrow into or out of it draws nothing; a glyph closed by the wro
 bracket (`[A}`) reads as its opening bracket's kind. Lint reports all three
 (`SGL120`–`SGL122`).
 
+**Hidden characters in names.** A name may not hold a control character (Unicode
+category Cc: ESC, BEL, a tab inside brackets …) or a format character (Cf: a bidi
+override or isolate, a zero-width space or joiner, a byte-order mark, a soft
+hyphen). The first garbles the terminal the name is printed in; the second draws
+nothing, so `[A]` and `[A` + U+200B + `]` look alike and are two nodes. Lint reports
+one as an error (`SGL195`), an emoji's zero-width joiner included. A name here is a
+glyph's (between its brackets) or any other word of a line's code: a state, a field,
+a section title, a modifier's argument. Whitespace between words, a comment, a
+string's text, a block string and a `#&` declaration's lines are not names, so an
+emoji or a right-to-left mark in a comment is fine. Every tool that prints a name
+prints it with such characters escaped (`[A​]`): drawings, runs, lint and check
+lines, Mermaid; JSON outputs keep the name as written.
+
 **Holes.** Any glyph can take `?` as its name to mean "unspecified of this kind": `[?]` `{?}` `<?>` `|?|` `(?)`.
 
 **Wildcards / anonymous.** `_` in any position means "any" or "I don't care about identity here." Used in state blocks, branches, skeleton form, and pattern positions.
@@ -446,6 +459,18 @@ lowering, not part of this surface.
 
 Indentation has no semantic weight — use it for readability. (A dialect may define
 an indentation-significant authoring style of its own; core Sigil never does.)
+
+**Reading a document.** Every tool reads a document's text the same way:
+
+- it is **UTF-8**. A file that is not is refused, naming the line of the first byte
+  that isn't: `cannot read F: not UTF-8 (line N: …)`, exit 2, in every command (a
+  live view keeps its last drawing and shows the message);
+- a leading byte-order mark is dropped (editors hide it, and it would hide the
+  `#!` mode line);
+- a line ends only at `\n`, `\r\n` or `\r`, as an editor counts lines. A form feed,
+  NEL (U+0085) or U+2028/U+2029 stays inside its line;
+- a document larger than **64 MiB** is refused (`cannot read F: larger than 64 MiB`,
+  exit 2).
 
 ---
 
@@ -1121,7 +1146,12 @@ where each limit came from (`limit_sources`: `default`, `scaled`, `document` or
 `flag`). Lint reports an unknown name, a value below 1, a word that is not
 `NAME=N` and a name written twice (`SGL096`, error); a run ignores a bad limit and
 takes the first of a doubled one, and a bad limit blocks the export (lint must be
-clean). Write the limits the design's runs need, as the kind, to say what is true;
+clean). A document may set a limit only up to a ceiling, so that opening someone
+else's file cannot exhaust memory or the stack: `hop`, `iterations`, `spawns`,
+`visits`, `scenarios`, `overlaps` and `window` 1000, `pair_overlaps` 100, `depth`
+and `spawn` 64, `stack` 128, `frames` and `activations` 1,000,000. A value above
+its ceiling is a warning (`SGL096`) and a run takes the ceiling; `--limit` is your
+own and may go higher. Write the limits the design's runs need, as the kind, to say what is true;
 a run that is still cut is reported (SGC090) as before.
 
 Each composition check (below) belongs to one group:
@@ -1216,7 +1246,9 @@ only. A flow from a unit into one enclosing it is never a finding.
 **Runs that never finished.** Every simulated run ends: one that would not is cut
 at a limit (`frames` and `activations` per episode, which grow with the document's
 size; `name=N` on the `#%` line sets one for the document, and `--limit NAME=N`
-sets one for a single run, over the document's own). A cut run is evidence the checks did not
+sets one for a single run, over the document's own). A recursion's base cases
+count against `activations` too (a base case may take no tick): a run that reaches
+more of them in one episode than its `activations` limit is cut there. A cut run is evidence the checks did not
 finish reading, so **SGC090 `exploration-incomplete`** reports it, naming the limit
 and the run. It is a hint, but a **warning in `#!spec`**: a spec whose runs were
 cut does not pass the spec check or the export gate until the limit is raised (on
@@ -1439,6 +1471,16 @@ node attributes (`Node.attrs`) go on their component as `attrs`; and the manifes
 names the dialect the spec was read with (its name, and its version when it gives
 one). The field-by-field schema is in [`docs/tools.md`](./docs/tools.md).
 
+**Folders.** Each system's folder is a slug of its name: at most 100 bytes (a
+longer one is cut and ends in a hash of the name, so two long names stay two
+folders), and a Windows device name (`con`, `nul`, `com1` …) gets `-x`. A system
+keeps the folder an earlier export gave it, so a new system whose slug clashes
+takes the next free `-2`, `-3` and never moves an existing one; a folder that moves
+anyway (the top renamed) is `moved` in the delta. The export never writes,
+compares or deletes through a symbolic link inside its folder (it refuses, exit 2;
+the folder itself may be one), and refuses a `manifest.json` whose systems share a
+folder or that is nested too deep to read.
+
 **Shapes in the interface.** An interface also covers the shapes of the data that
 crosses it (see "Data shapes"), so a builder reading `{Doc}` hears when a field is
 added:
@@ -1551,8 +1593,11 @@ its Mermaid) takes `--dialect NAME`, defaulting to the environment variable
 `SIGIL_DIALECT`. A dialect is found by name next to the repository
 (`../sigil-<name>/dialect.py`), in any directory on `SIGIL_DIALECT_PATH`
 (`os.pathsep`-separated; a `sigil-<name>/dialect.py` or `<name>/dialect.py` inside
-it), or by passing a path to the dialect module directly. An unknown name is an
-error, not a silent fallback.
+it), or by passing a path to the dialect module directly. A path is a spec that
+holds a path separator or ends in `.py` (`./foo`, `foo/dialect.py`, `foo.py`); a
+bare name (`foo`) is a name only and is never looked for in the working directory,
+so `SIGIL_DIALECT=foo` never runs an untrusted checkout's `foo/dialect.py`. An
+unknown name, or a path with no dialect file, is an error, not a silent fallback.
 
 **The dialect API.** A dialect module imports the core's vocabulary from one
 place, `sigil.core.vocab`: the modes, arrows (`ARROW_RE`), modifier sets

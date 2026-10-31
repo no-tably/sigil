@@ -1,5 +1,6 @@
-"""Lint hardening (RFC 0003 catalog §8, SGL120–SGL188): lines the parser would
-misread or silently drop.
+"""Lint hardening (RFC 0003 catalog §8, SGL120–SGL188; SGL190–SGL195 since): lines
+the parser would misread or silently drop, and names it would print garbled
+(SGL195: a control or format character in a name).
 
 Each rule has a positive fixture `tests/fixtures/lint/SGLnnn*.sigil` and a negative
 twin `SGLnnn*-ok.sigil`; the first line of each names the hardening diagnostics it

@@ -68,6 +68,13 @@ When the reader of stdout leaves early (`sigil highlight FILE | less` quit befor
 the end, `| head`), any subcommand stops quietly with exit 1: no traceback, and
 nothing more is written.
 
+**Input it cannot read.** Every subcommand reads a document (a file or `-`) one
+way (see "Reading a document" in [`language.md`](../language.md)): UTF-8, a leading
+byte-order mark dropped, a line ending only at `\n`, `\r\n` or `\r`, at most 64 MiB.
+Anything else exits 2 with `sigil CMD: cannot read F: not UTF-8 (line N: …)` or
+`… larger than 64 MiB …`; the live view keeps its last drawing and shows the
+message instead.
+
 ## `sigil lint FILE|-`
 
 Validates a document and prints one `severity:line:rule: message` line per issue.
@@ -224,7 +231,10 @@ any call (SGC402).
 
 - `--out DIR` the export folder, made when missing. It must be empty or hold an
   earlier export (a `manifest.json`); `sigil export` never writes over a folder it did
-  not make.
+  not make. DIR itself may be a symbolic link, but nothing inside it where the export
+  would write, compare or delete may be one (a system folder, a file in one, the
+  root's `README.md`, `delta.json` or `manifest.json`): it refuses, exit 2, a dry
+  run too.
 - `--name NAME` names the top system (and its folder) instead of the file's stem. No
   hash depends on the top system's name, so renaming the spec, or exporting it under
   another name, moves no hash; the top's key and folder follow it, and the delta
@@ -247,7 +257,8 @@ any call (SGC402).
 
 Exit codes: 0 exported (or a dry run), 1 the folder could not be written, 2 not
 ready to export or bad input (an unreadable spec, an unknown dialect, a folder
-`sigil export` did not make, a `manifest.json` it cannot read).
+`sigil export` did not make, a `manifest.json` it cannot read, nested too deep or
+whose systems share a folder, a symbolic link where it would write).
 
 **The folder.**
 
@@ -263,7 +274,12 @@ DIR/
 ```
 
 Folder and file names are slugs of the names: stable, ASCII-safe and
-collision-free. A component file states, as the spec writes them: its **kind**; its
+collision-free, at most 100 bytes (a longer one is cut and ends in `-` and 16 hex
+digits of the name's sha256), and never a Windows device name (`con`, `prn`, `aux`,
+`nul`, `com1`–`com9`, `lpt1`–`lpt9` get `-x`). A system keeps the folder the
+manifest before gave it: a new system whose slug clashes takes the next free `-2`,
+`-3` … past every folder the old manifest names (a removed system's too, which may
+still hold a builder's files), so an existing system never moves. A component file states, as the spec writes them: its **kind**; its
 **description** (its `#` comments; for data, then the comments on its shape's
 fields, each as "`note?`: one line", which move its body hash and its home
 system's, never an interface hash); its **interface** (every flow in or out, with the
@@ -404,7 +420,7 @@ in DIR and sorts every system into one list:
 
 `delta.json`: `{"sigil_delta": 1, "spec", "from": <old spec_hash>, "to": <new
 spec_hash>, "renamed", "added", "removed", "rebuild", "recheck", "unchanged",
-"systems": {name: {"status", "old", "new", "because"?, "via"?}}}`, where `old` /
+"systems": {name: {"status", "old", "new", "because"?, "via"?, "moved"?}}}`, where `old` /
 `new` are `{"interface", "body"}` (or null) and `because` lists, for a recheck, the
 systems whose interface changed: its own dependencies first, then those it inherits
 from the systems enclosing it. `via` (only when it inherits one) maps each inherited
@@ -415,7 +431,10 @@ system's members make up the systems enclosing it, so they use what those depend
 without `parent` fields (before 0.6.5) still compares: the nesting is read from the
 new one. `renamed` is `{"from", "to"}` when the top system's key
 moved (another `--name`, or the spec renamed), else null: the top is then compared
-with its old entry, so the rename alone adds, removes or rechecks nothing. Each file is written only when its content changed, so an unchanged
+with its old entry, so the rename alone adds, removes or rechecks nothing. `moved`
+(only when it applies) is `{"from", "to"}`, the system's old and new folder: only
+the top renamed moves one, and the summary in words adds a line for it
+(`moved      shop2: shop/ → shop2/`). Each file is written only when its content changed, so an unchanged
 system's files are left alone, and in a changed system only the files that differ
 are rewritten. A reformat that moves lines rewrites the `system.json` files whose
 `lines` moved (with the index `README.md`, `manifest.json` and `delta.json`), and no
@@ -603,6 +622,11 @@ a folded lane draws no vertical, its source row ends `●①` and each target ro
 `◀───①`, a row's plugs in a run after the lanes it keeps. A drawing that still
 can't fit (a box wider than the width, a row with more plugs than room) leaves a
 hint under it saying how wide it is.
+
+A graph, tree or flow drawing larger than 1,000,000 cells (columns × rows: a fan-in
+of thousands of wires, say) is not drawn: the view shows one row instead,
+`graph: not drawn: the drawing would be W×H cells, over 1,000,000; draw less of it
+(--depth, a section of its own) or try another view`.
 
 The run view draws one run as a timeline. Time (ticks) runs left to right under a
 ruler, one column a tick; a quiet stretch of more than three ticks folds into one
@@ -1011,7 +1035,8 @@ What the Claude Code pane and the pi widget run; not meant to be typed.
   one simulator limit over them (repeatable), as `sigil view` and `sigil check`
   take it, for the run and the scenarios listed. The
   shape is in the docstring of `sigil/present/frames.py`; the page's `frames.json`
-  and the playground use the same packing.
+  and the playground use the same packing. `--width` is a number of columns, at
+  least 1 (a smaller one is refused, exit 2).
 - `sigil frames follow CONTROL` runs `sigil view` live with the flags in the
   control file, restarting it each time the file is rewritten (the `multiplex`
   split). The control file names a `sigil view` command line, which can load a
@@ -1053,7 +1078,8 @@ checked and nothing else is read but the theme and the dialect.
   (switch the theme) or `{"id", "dialect"}` (switch the dialect; `null` for core
   Sigil), or any of them together; the answer echoes `id` and holds the runs and end
   carries in `--json`'s shape, the theme or dialect now in use, or only `error` for a
-  request that fails (which changes nothing; the loop goes on). The full protocol is
+  request that fails (which changes nothing; the loop goes on), a JSON line nested
+  too deep to read included. The full protocol is
   in `sigil highlight --help`.
 
 **The carry.** Three things in Sigil span lines: a `"""…"""` block string, a `#&`
@@ -1084,13 +1110,25 @@ else `sigil`, so a dialect's drawings and its source agree. A theme the dialect'
 `sigil themes [NAME|PATH]` prints a theme resolved (its `extends` and `$name`
 references filled in) as JSON, and `sigil themes --list` lists the themes found. The format is in the README under [Themes](../README.md#themes).
 
+A theme file is a regular file of at most 1 MiB (a FIFO or a device is refused),
+its maps nested at most 16 deep, and an `extends` chain at most 16 themes long;
+past any of these it is an error, as a malformed theme is. `sigil themes` also
+warns on stderr (`sigil themes: warning: …`) about anything in the resolved theme
+the viewer will not use: an unknown section or role (any name goes in `palette`,
+and in `kinds` for a dialect's kinds), a colour that is not `#rrggbb` or `#rgb`
+(the viewer draws sigil's own colour there), a fraction that is not a number from
+0 to 1. The JSON is printed all the same.
+
 ## Dialects
 
 `sigil lint`, `check`, `view`, `export`, `frames draw` and `highlight` load a dialect (`--dialect NAME` or
 `SIGIL_DIALECT`) that extends the linter, Mermaid and the checker. A dialect module imports the core's vocabulary
 from `sigil.core.vocab`, the dialect API, and a dialect's own command calls
 `sigil.cli.main(argv, dialect=NAME)`. See "Dialects" in
-[`language.md`](../language.md).
+[`language.md`](../language.md). A spec holding a path separator or ending in
+`.py` is a path to the dialect file (a directory holds its `dialect.py`); a bare
+name is looked up by name only (`sigil-<name>/` next to the repository, then `SIGIL_DIALECT_PATH`),
+never as a folder in the working directory.
 
 **One hook set.** A document is read once, and a dialect hooks that one reading:
 the statement walk, its tokenizer, the parser and lint all go through the same

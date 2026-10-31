@@ -14,4 +14,4 @@ Layers, each importing only the ones before it:
 keeps it equal to plugin/meta.json's, which packaging reads.
 """
 
-__version__ = "0.6.10"
+__version__ = "0.6.11"

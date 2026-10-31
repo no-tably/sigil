@@ -2,6 +2,114 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
+## 0.6.11 — 2026-10-31
+
+A hardening release. A robustness probe fed sigil broken, hostile and very large
+input (bad bytes, hidden characters, deep nesting, huge limits, symbolic links in an
+export folder) and found 22 ways to get a traceback, exhaust memory, hang, or write
+where it should not. Each one is fixed, with a test that failed before. A file
+someone else wrote can now be opened in any command without that risk.
+
+### New
+
+- **SGL195** (error): a name holding a control character (ESC, BEL, a tab inside
+  brackets …) or an invisible format character (a bidi override, a zero-width space
+  or joiner, a byte-order mark, a soft hyphen; an emoji's zero-width joiner too). The
+  first garbles the terminal the name is printed in; the second makes `[A]` and a
+  look-alike two different nodes. A name is a glyph's or any other word of a line's
+  code (a state, a field, a section title, a modifier's argument); comments, strings
+  and `#&` declarations are free text and not judged. Every drawing, run, lint and
+  check line and Mermaid export now prints such a character escaped (`[A\u200b]`)
+  instead of sending it to the terminal.
+
+### Fixes
+
+- **One way to read a document.** Every command reads text as UTF-8 and nothing
+  else: a file that is not says `cannot read F: not UTF-8 (line N: …)` and exits 2,
+  where lint, the views, `--mermaid` and `frames draw` stopped with a traceback, and
+  one bad byte saved during a live view closed it (it now keeps its last drawing and
+  shows the message). A leading byte-order mark is dropped, so it no longer hides the
+  `#!` mode line. Lines end only at `\n`, `\r\n` or `\r`, as editors count them,
+  so line numbers agree with your editor. A document over 64 MiB is refused.
+- **The export stays inside its folder.** It never writes, compares or deletes
+  through a symbolic link inside `--out` (before, a linked file or system folder let
+  it overwrite or delete files elsewhere); it refuses, exit 2. `--out` itself may
+  still be a link.
+- **A system keeps its folder.** A new system whose name slugs like an existing
+  one's (`[SHOP!]` beside `[Shop]`) took `shop/` and pushed `[Shop]` to `shop-2/`,
+  away from its builder's files, and the delta did not say. Now an existing system
+  keeps its folder and the newcomer takes the next free `-2`, `-3`. A folder that
+  does move (the top renamed) is reported: `moved` in `delta.json` and a `moved`
+  line in the summary.
+- **Folder names that every file system takes.** A long name (about 43 CJK
+  characters was enough) made a folder name over 255 bytes and the export failed
+  halfway. Folder names are now at most 100 bytes (a longer one ends in a hash of
+  the name), and a Windows device name (`con`, `nul`, `com1` …) gets `-x`.
+- **A bare `loop {`** (no header) exported with a traceback; it exports now, and
+  SGC153 says "ends `loop`" rather than "loop loop".
+- **Deep nesting.** About 1000 nested or chained expansions passed lint and then
+  crashed `check` and `view --run`; they run now. A theme nested thousands deep, a
+  `manifest.json` or a `highlight --stream` line nested too deep is an error, not a
+  crash (a stream session goes on).
+- **Limits a document may set.** `#% iterations=100000000 …` let a document make
+  every run exhaust memory. A `#%` limit now has a ceiling (1000 for most,
+  1,000,000 for `frames` and `activations`, 64 for `depth` and `spawn`, 128 for
+  `stack`; the full list is in language.md); above it lint warns (SGL096) and a run
+  takes the ceiling. `--limit` is yours and may still go higher.
+- **Repeated self-calls.** `[A] -> [B] -> [B] -> … -> [C]` made recursion base cases
+  without bound (1000 of them took 3.4 GB). Base cases now count against the
+  `activations` limit, and a run past it is cut there (SGC090) like any other.
+- **Very large drawings.** A graph, tree or flow drawing over 1,000,000 cells (a
+  fan-in of thousands of wires) used gigabytes; the view now shows one "not drawn"
+  row saying how large it would be and what to try instead.
+- **Slow on long input.** A very long name took seconds to give an id, and many
+  acknowledgements made `check` quadratic; both are linear now.
+- **Themes.** A theme file must be a regular file (a FIFO hung the viewer) of at most
+  1 MiB, nested at most 16 deep, with an `extends` chain of at most 16. `sigil themes`
+  warns on stderr about a colour that is not `#rrggbb` / `#rgb` or a section or role
+  the viewer does not use.
+- **`frames draw --width 0`** (or negative) was a traceback; the width must be at
+  least 1, as in `sigil view`.
+- **`frames follow`** never writes its alive file or reads the control file through
+  a symbolic link, and reads the very file it checked.
+- **A bare dialect name is a name only.** `--dialect foo` or `SIGIL_DIALECT=foo` ran
+  `./foo/dialect.py` when the working directory had one, so an untrusted checkout
+  could run code. A name is now looked up by name only (`sigil-foo/` next to
+  sigil's own folder, then `SIGIL_DIALECT_PATH`); write a path (`./foo`,
+  `foo/dialect.py`) to load a file.
+
+### Output changes on purpose
+
+- SGC153's text for a bare `loop {`: "ends `loop`" (was "ends `loop loop`").
+- `delta.json` gains `moved` {from, to} on a system whose folder moved, and the
+  summary a `moved` line.
+- New refusals, exit 2: a symbolic link where the export would write; a manifest
+  whose systems share a folder or nested too deep; a document over 64 MiB; a theme
+  that is not a regular file, over 1 MiB, nested over 16 deep or extending over 16
+  themes; `frames draw --width` below 1.
+- `cannot read F: not UTF-8 (line N: …)` in every command, where most gave a
+  traceback.
+- A form feed, NEL, U+2028 or U+2029 no longer ends a line (rare; line numbers after
+  one move up).
+- A leading byte-order mark is dropped (the mode line after it is read).
+- A drawing over 1,000,000 cells is one "not drawn" row.
+- `sigil themes` prints warnings on stderr (the JSON is unchanged).
+- A bare dialect name no longer loads a folder of that name in the working directory.
+- A run whose base cases outnumber its `activations` limit is cut there (SGC090).
+- SGL096 is also a warning, for a `#%` limit above its ceiling.
+- Names with control or format characters print escaped (and lint as SGL195).
+
+### Left
+
+- A first export that fails partway (a disk full, say) still leaves a folder with no
+  manifest, which later exports refuse; empty it by hand.
+- Very deep nesting (1000+ levels) no longer crashes but is still slow in the export
+  model and the graph view.
+- JSON outputs (`--json`, `frames draw`, `highlight --json`) keep names as written,
+  hidden characters included; a host prints them its own way.
+- The page's JavaScript theme parser does not enforce the new theme limits.
+- `highlight --stream` has no cap on a line's length.
+
 ## 0.6.10 — 2026-10-30
 
 Three gaps construct hit while writing its question gateway: a field the shape never

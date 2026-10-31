@@ -471,7 +471,14 @@ whose boundary moved, or sits inside a system that does (outside itself): its
 members make that system up, so the delta names the changed system and the
 enclosing one it came through (`Store (via Outer)`). `depends_on` stays the
 system's own flows. `--dry-run` prints the delta and writes nothing; `--json`
-prints it as JSON. Building against the export happens outside sigil. Every flag and
+prints it as JSON. Building against the export happens outside sigil.
+
+A system keeps its folder from one export to the next: a new system whose name
+slugs the same takes the next free `-2`, `-3`, and a folder that does move (the top
+renamed) shows as `moved` in the delta. Folder names are at most 100 bytes (a long
+one ends in a hash of the name) and never a Windows device name (`nul` → `nul-x`).
+`sigil export` never writes, compares or deletes through a symbolic link inside
+`--out` (it refuses, exit 2; `--out` itself may be a link). Every flag and
 field is in [`docs/tools.md`](./docs/tools.md#sigil-export-spec---out-dir).
 
 ## Highlight a file
@@ -506,7 +513,10 @@ only what it changes. Drop it in `themes/` or a directory on `SIGIL_THEME_PATH`;
 `view`, `frames draw` and `highlight` colour with `--theme NAME` if given, else
 `SIGIL_THEME`, else the loaded dialect's own theme (its `THEME`), else `sigil`.
 The format is a small YAML subset (nested maps, scalars, `#` comments) that
-the viewer's theme loader and the page both parse without a YAML library.
+the viewer's theme loader and the page both parse without a YAML library. A theme
+is a regular file of at most 1 MiB, nested at most 16 deep, with an `extends` chain
+of at most 16; `sigil themes` warns about a colour that is not `#rrggbb` / `#rgb`
+or a role the viewer does not know.
 
 ## Web page
 
@@ -543,7 +553,9 @@ Plain Sigil is domain-neutral. A **dialect** layers extra vocabulary on top —
 additional modifiers, lint passes and render rules — without changing the core
 language. Dialects are Python modules loaded by the core (`sigil/core/dialects.py`) from a path or
 from directories on `SIGIL_DIALECT_PATH`; select one with `--dialect NAME` or
-`SIGIL_DIALECT=NAME`. For example, `sigil-merlang` (maintained separately) adds a
+`SIGIL_DIALECT=NAME`. A bare name (no `/`, not ending in `.py`) is a name only,
+never a folder in the working directory; give a path (`./foo`, `foo/dialect.py`)
+to load a file. For example, `sigil-merlang` (maintained separately) adds a
 component type system and UI-layout vocabulary for one agent runtime. A dialect
 imports the core's vocabulary from `sigil.core.vocab` (the dialect API), hooks the
 one reading of a document every tool shares (`prepasses`, `strips`, `tokenizers`;
