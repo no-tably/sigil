@@ -270,9 +270,14 @@ def _paint(tl, scn, tick: int, final: bool, probe: bool = False,
         wait = (kit.faded(colour, kit.SIM_TRAIL, "trail"), None, False)
         leave = s.leave if s.leave is not None else tl.last + 1
         stop = max(leave, s.enter + 1)
-        waits = s.waits
+        # The waits swept once in order of start (t only grows): t waits when a
+        # wait begun by t ends after it — a long span with many waits stays linear.
+        waits, w_at, w_end = sorted(s.waits), 0, None
         for t in range(s.enter, min(stop, tick + 1)):
-            waiting = any(a <= t < b for a, b in waits)
+            while w_at < len(waits) and waits[w_at][0] <= t:
+                w_end = waits[w_at][1] if w_end is None else max(w_end, waits[w_at][1])
+                w_at += 1
+            waiting = w_end is not None and t < w_end
             if t == s.enter and kinds[s.lane] == "event":
                 g.put(r, col[t], LANDS, (kit.kind_color("event"), None, False), "bar")
             elif waiting:
@@ -569,13 +574,43 @@ def _ruler_row(placed: list, lo: int, x0: int) -> list:
     return row
 
 
+class _Ruler:
+    """A frame's ruler labels (_marks at each step, _scale), each worked out once
+    and indexed by column, so each band reads only the labels in its columns:
+    a run banded many times over stays near linear. `marks(step, lo, hi)` /
+    `scale(lo, hi)`: those in columns lo … hi - 1, in their priority order."""
+
+    def __init__(self, fr: _Frame, tl, witnessed: tuple):
+        self.fr, self.tl, self.witnessed = fr, tl, witnessed
+        self._lists: dict = {}
+
+    def _within(self, key, make, lo: int, hi: int) -> list:
+        if key not in self._lists:
+            full = make()
+            order = sorted(range(len(full)), key=lambda k: full[k].col)
+            self._lists[key] = (full, order, [full[k].col for k in order])
+        full, order, cols = self._lists[key]
+        a, b = bisect.bisect_left(cols, lo), bisect.bisect_left(cols, hi)
+        return [full[k] for k in sorted(order[a:b])]
+
+    def marks(self, step: int, lo: int, hi: int) -> list:
+        return self._within(("marks", step),
+                            lambda: _marks(self.fr, self.tl, self.witnessed, step), lo, hi)
+
+    def scale(self, lo: int, hi: int) -> list:
+        return self._within("scale", lambda: _scale(self.fr, self.tl), lo, hi)
+
+
 def _thinned(fr: _Frame, tl, witnessed: tuple, lo: int, hi: int,
-             room: Optional[int]) -> list:
+             room: Optional[int], ruler: Optional[_Ruler] = None) -> list:
     """The run marks for a row of their own: the fewest `↺k` dropped — every
     step-th iteration, the smallest step at which none of them crowds out
-    another (findings and episodes first)."""
+    another (findings and episodes first). Only those in columns lo … hi - 1
+    (`ruler`: the frame's labels, _Ruler)."""
+    if ruler is None:
+        ruler = _Ruler(fr, tl, witnessed)
     for step in STEPS:
-        want = _marks(fr, tl, witnessed, step)
+        want = ruler.marks(step, lo, hi)
         if _fits(want, _place(want, lo, hi, room), lo, hi):
             return want
     return want
@@ -592,7 +627,8 @@ def _fits(want: list, placed: list, lo: int, hi: int) -> bool:
 
 
 def _rulers(fr: _Frame, tl, lo: int, hi: int, x0: int, witnessed: tuple = (),
-            room: Optional[int] = None, whole: Optional[int] = None) -> list:
+            room: Optional[int] = None, whole: Optional[int] = None,
+            ruler: Optional[_Ruler] = None) -> list:
     """The ruler over columns lo … hi - 1, as rows: the playhead `▼t`, the run
     marks (_marks) and the time scale (_scale), each only where it touches no
     label placed before it, no finding or `↺k` right of the playhead. One row when every
@@ -600,16 +636,20 @@ def _rulers(fr: _Frame, tl, lo: int, hi: int, x0: int, witnessed: tuple = (),
     None: hi), whatever the playhead, so the drawing holds still in a run;
     else two — the run marks over the scale, their `↺k` thinned to every
     step-th iteration (_thinned). room: the columns after x0 a label may reach
-    (None: any)."""
+    (None: any). `ruler`: the frame's labels (_Ruler), shared by its bands.
+    Every label outside lo … end - 1 is read by nothing here, so only those
+    inside are taken."""
     now = [] if fr.final else [_Mark(fr.cols.of[fr.tick], NOW + str(fr.tick),
                                      _styles()["now"], fr.tick)]
-    marks, scale = _marks(fr, tl, witnessed), _scale(fr, tl)
-    together = marks + scale
+    if ruler is None:
+        ruler = _Ruler(fr, tl, witnessed)
     end = hi if whole is None else whole
+    marks, scale = ruler.marks(1, lo, max(end, hi)), ruler.scale(lo, max(end, hi))
+    together = marks + scale
     if _fits(marks, _place(together, lo, end, room), lo, end) and set(
             _place(scale, lo, end, room)) <= set(_place(together, lo, end, room)):
         return [_ruler_row(_place(now + _due(together, fr.tick), lo, hi, room), lo, x0)]
-    top = _due(_thinned(fr, tl, witnessed, lo, end, room), fr.tick)
+    top = _due(_thinned(fr, tl, witnessed, lo, end, room, ruler), fr.tick)
     return [_ruler_row(_place(top, lo, hi, room), lo, x0),
             _ruler_row(_place(now + _due(scale, fr.tick), lo, hi, room), lo, x0)]
 
@@ -1039,11 +1079,12 @@ def compose_run(g, trace=None, tick: Optional[int] = None, width: Optional[int] 
                         if kind not in ("", "vertical", "rule"))
               for r, row in grid.items()}           # each row's columns other than lines
     bands = _bands(fr, width - x0 if banded else fr.cols.n, shown_cols, grid)
+    ruler = _Ruler(fr, tl, witnessed)
     for k, (lo, hi) in enumerate(bands):
         if k:
             rows.append([])
         rows += _rulers(fr, tl, lo, hi, x0, witnessed, None if width is None else width - x0,
-                        hi if banded else fr.cols.n)
+                        hi if banded else fr.cols.n, ruler)
         for ln in fr.lanes:
             r = fr.rows[ln.key]
             if len(bands) > 1:                  # a lane with nothing but lines here: left out

@@ -16,6 +16,8 @@ sigil.present.kit (read as kit.NAME, so a theme change reaches them).
 
 from __future__ import annotations
 
+import bisect
+import itertools
 import re
 from collections import Counter
 from dataclasses import dataclass, field, replace
@@ -1496,7 +1498,7 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
              marks: list | None = None, mods: bool = False, _secs=None, _level=None,
              _owner: Optional[str] = None, sim: Optional[SimLook] = None,
              checks: Optional["kit.CheckMarks"] = None, wrap: int | None = None,
-             plan: Optional["kit.Plan"] = None):
+             plan: Optional["kit.Plan"] = None, _shared: Optional[dict] = None):
     """Yield (title, graph, canvas) for the graph and its expansions up to depth.
     `scn`: the document's Scene (scene.build_scene; None: built without triggers
     or permissions) — what drives each machine draws as a dashed edge into it,
@@ -1517,31 +1519,44 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
     findings' numbers come in `tags`, check_tags). `wrap`: the columns each
     part is laid out to fit (layout's; a frame's content FRAME_PAD fewer).
     `plan` (kit.Plan): each drawing kept in the plan's next slot (layout's
-    `keep`), for the next frame of a run."""
+    `keep`), for the next frame of a run. `_shared`: what every level reads off
+    the one Scene, worked out once for the whole walk (a deep chain of
+    expansions stays linear)."""
     if scn is None:
         scn = scene.build_scene(g, triggers=False, depth=depth)
-    g = _landed(g, scn, _owner)
+    if _shared is None:
+        _shared = {"first_line": {}}
+    if "units" not in _shared:
+        _shared["units"], _shared["edges"] = _scene_views(scn)
+    own = _shared["units"].get(_owner) or replace(scn, wires=[])
+    g = _landed(g, own, _owner)
     show = set(g.expansions) if level < depth else set()
     collapsed = set(g.expansions) - show
     eb = kit.edge_blocks(g)
     secs = (getattr(g, "sections", None) or []) if level == 0 else (_secs or [])
-    calls = scene.self_calls(scn, _owner)
-    chips = _edge_chips(g, kit.chip_lists(scn, payloads, mods, unit=_owner), payloads, mods)
+    calls = scene.self_calls(own, _owner)
+    chips = _edge_chips(g, kit.chip_lists(own, payloads, mods, unit=_owner), payloads, mods)
+    edge_scn = _shared["edges"]
     chipped = (payloads or mods) and any(any(kit.chip_parts(e, payloads, mods))
                                          and (e.src != e.dst or e.src in calls)
                                          for e in g.edges)
-    drivers = _drivers(scn) if g.role != "state" else None    # a machine has its own
-    styles = sim.styles if sim is not None else _wire_styles(scn)
-    borders = {}
-    if checks is not None:
-        styles = {**styles, **{key: kit.check_mark_style(kit.check_worst(ms))
-                               for key, ms in checks.by_key().items()}}
-        borders = {nid: kit.check_mark_style(kit.check_worst(ms))
-                   for nid, ms in checks.nodes.items()}
+    if "drivers" not in _shared:
+        _shared["drivers"] = _drivers(scn)
+    drivers = _shared["drivers"] if g.role != "state" else None    # a machine has its own
+    if "styles" not in _shared:
+        styles = sim.styles if sim is not None else _wire_styles(scn)
+        borders = {}
+        if checks is not None:
+            styles = {**styles, **{key: kit.check_mark_style(kit.check_worst(ms))
+                                   for key, ms in checks.by_key().items()}}
+            borders = {nid: kit.check_mark_style(kit.check_worst(ms))
+                       for nid, ms in checks.nodes.items()}
+        _shared["styles"] = styles, borders
+    styles, borders = _shared["styles"]
 
     def draw_all(part, chip_marks, within):
         def draw(sub, fit):
-            gc = with_chips(sub, payloads, scn, chip_marks, mods, chips)
+            gc = with_chips(sub, payloads, edge_scn, chip_marks, mods, chips)
             return layout(gc, show, collapsed, tags, styles,
                           _self_calls(sub, calls, payloads, mods, chip_marks), sim, borders, fit,
                           kit.slot(plan))
@@ -1575,18 +1590,59 @@ def sections(g, depth: int, title: str = "", level: int = 0, tags: dict | None =
             sub = g.expansions[nid]
             what = "state machine" if getattr(sub, "role", "") == "state" else ":= { … }"
             sub_title = f"{kit.node_label(g.nodes[nid])} {what}"
-            lines = [e.line for cur in kit._walk(sub) for e in cur.edges if e.line]
-            k = kit.section_of(secs, min(lines)) if lines else -1
+            first = _first_line(sub, _shared["first_line"])
+            k = kit.section_of(secs, first) if first is not None else -1
             zoom = secs[k].level if k >= 0 and secs[k].level != "L1" else None
             if zoom and zoom != _level:         # the zoom level it is written at
                 sub_title = f"{zoom} · {sub_title}"
             if title and not isinstance(title, kit.Rule):
                 sub_title = f"{title}{kit.TITLE_STEP}{sub_title}"
             if getattr(sub, "role", "") == "state":
-                sub = scene.with_trigger_sources(scn, sub, nid)
+                sub = scene.with_trigger_sources(edge_scn, sub, nid)
             yield from sections(sub, depth, sub_title, level + 1, tags, payloads, scn,
                                 fit, marks, mods, secs, zoom or _level, nid, sim, checks, wrap,
-                                plan)
+                                plan, _shared)
+
+
+def _scene_views(scn) -> tuple:
+    """The Scene cut down for what one level of `sections` reads, so a level
+    scans only its own wires: ({unit owner: the Scene with only the wires that
+    unit's self-calls and chips read — its own, and each emit wire with a leg in
+    it, in wire order}, the Scene with only the driver and access wires — what
+    with_chips and scene.with_trigger_sources read). Same answers as the whole
+    Scene: each reader filters to these wires itself."""
+    units: dict = {}
+    for w in scn.wires:
+        owners = {w.owner}
+        if w.role == "emit":
+            owners |= {leg.owner for leg in w.legs}
+        for owner in owners:
+            units.setdefault(owner, []).append(w)
+    edges = [w for w in scn.wires
+             if w.role == "access" or (w.machine is not None and w.role in ("trigger", "emit"))]
+    return ({owner: replace(scn, wires=ws) for owner, ws in units.items()},
+            replace(scn, wires=edges))
+
+
+def _first_line(g, memo: dict) -> Optional[int]:
+    """The earliest line any edge of g or of its expansions (and theirs) is
+    written on, or None — each graph's answer kept in `memo` (by id), so a walk
+    down a chain of expansions reads every graph once. Iterative: a chain
+    thousands of levels deep needs no recursion."""
+    stack = [(g, False)]
+    while stack:
+        cur, done = stack.pop()
+        if id(cur) in memo:
+            continue
+        subs = list(cur.expansions.values())
+        if not done:
+            stack.append((cur, True))
+            stack += [(s, False) for s in subs if id(s) not in memo]
+            continue
+        lines = [e.line for e in cur.edges if e.line]
+        lines += [memo[id(s)] for s in subs if memo.get(id(s)) is not None]
+        memo[id(cur)] = min(lines) if lines else None
+    return memo[id(g)]
 
 
 def _drivers(scn) -> dict:
@@ -2266,28 +2322,47 @@ def _columns(sizes, fit: int | None) -> list:
 
     A column cap `top` fills each column greedily, in order; the split only
     changes where a column could take the next section, so the caps tried are
-    the tallest section, then each next such height (_next_top) — the lowest
-    cap that fits, in O(n) a cap, not every sum of a run of sections."""
+    the tallest section, then each next such height — the lowest cap that
+    fits, not every sum of a run of sections."""
     n = len(sizes)
     whole = [(0, n)]
     if fit is None or n < 2:
         return whole
+    # Each cap's greedy split is found by bisection over the running heights and
+    # its width by a range-maximum table, so a cap costs O(columns · log n), not
+    # O(n): a long run of sections (a deep chain of expansions) stays near linear.
+    sums = list(itertools.accumulate((h for h, _w in sizes), initial=0))
+    widest = _range_max([w for _h, w in sizes])
     top = max(h for h, _w in sizes)
     while True:
-        runs, a, h = [], 0, 0
-        for i, (hi, _w) in enumerate(sizes):
-            if i > a and h + hi > top:
-                runs.append((a, i, h))
-                a, h = i, 0
-            h += hi
-        runs.append((a, n, h))
+        runs, a = [], 0
+        while a < n:
+            e = min(max(bisect.bisect_right(sums, sums[a] + top) - 1, a + 1), n)
+            runs.append((a, e, sums[e] - sums[a]))
+            a = e
         if len(runs) == 1:
             return whole
-        wide = sum(max(w for _h, w in sizes[s:e]) for s, e, _h in runs) \
-            + COLUMN_GAP * (len(runs) - 1)
+        wide = sum(widest(s, e) for s, e, _h in runs) + COLUMN_GAP * (len(runs) - 1)
         if wide <= fit:
             return [(s, e) for s, e, _h in runs]
         top = min(h + sizes[e][0] for _s, e, h in runs[:-1])  # a column takes its next
+
+
+def _range_max(values: list):
+    """max(values[s:e]) for any 0 <= s < e <= len(values), each in O(1) after an
+    O(n log n) table (a sparse table of maxima over power-of-two spans)."""
+    table = [list(values)]
+    span = 1
+    while 2 * span <= len(values):
+        prev = table[-1]
+        table.append([max(prev[i], prev[i + span]) for i in range(len(prev) - span)])
+        span *= 2
+
+    def widest(s: int, e: int) -> int:
+        k = (e - s).bit_length() - 1
+        row = table[k]
+        return max(row[s], row[e - (1 << k)])
+    return widest
 
 
 def graph_legend(triggers: bool = True, payloads: bool = False, access: bool = False,
