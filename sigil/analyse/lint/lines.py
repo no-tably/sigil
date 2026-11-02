@@ -151,6 +151,7 @@ def lint_invented_modifiers(views: tuple, result: LintResult,
     """
     if known is None:
         known = VALID_MODIFIERS
+    hints: dict = {}                    # mod → its hint, worked out once per call
     for i, view in enumerate(views, start=1):
         line = view.plain.strip()
         if not line or _section_or_mode(line):
@@ -160,6 +161,15 @@ def lint_invented_modifiers(views: tuple, result: LintResult,
         # or the invariant appears as a standalone named condition.
         if re.match(r"^@[a-z][a-z0-9_-]*\s*:", line):
             continue
+
+        # What the line holds, searched once per line and modifier name (a line
+        # with many modifiers stays linear).
+        holds: dict = {}
+
+        def line_has(key: str, pattern: str) -> bool:
+            if key not in holds:
+                holds[key] = re.search(pattern, line) is not None
+            return holds[key]
 
         for m in MOD_TOKEN_RE.finditer(line):
             mod = m.group(0)
@@ -172,21 +182,21 @@ def lint_invented_modifiers(views: tuple, result: LintResult,
                 continue
             if mod in deferred:
                 continue
-            if mod in VALID_LOOP_MODS and re.search(r"\bloop\b", line):
+            if mod in VALID_LOOP_MODS and line_has("loop", r"\bloop\b"):
                 continue
-            if mod in VALID_PARALLEL_MODS and re.search(r"\bparallel\b", line):
+            if mod in VALID_PARALLEL_MODS and line_has("parallel", r"\bparallel\b"):
                 continue
-            if mod[1:] in VALID_STREAM_POLICIES and re.search(r"\^[^@]*" + re.escape(mod), line):
+            if mod[1:] in VALID_STREAM_POLICIES \
+                    and line_has(mod, r"\^[^@]*" + re.escape(mod)):
                 continue
-            near = min(sorted(known), key=lambda k: _edit_distance(mod, k))
-            if _edit_distance(mod, near) <= 2:
-                hint = f"Did you mean {near}? "
-            else:
-                hint = f"Known: {', '.join(sorted(known))}. "
+            if mod not in hints:
+                near = min(sorted(known), key=lambda k: _edit_distance(mod, k))
+                hints[mod] = (f"Did you mean {near}? " if _edit_distance(mod, near) <= 2
+                              else f"Known: {', '.join(sorted(known))}. ")
             result.add(
                 "info", i, "SGL040",
                 f"modifier {mod} is not in the standard vocabulary. "
-                f"{hint}Consider demoting to a comment."
+                f"{hints[mod]}Consider demoting to a comment."
             )
 
 

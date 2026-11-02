@@ -347,6 +347,7 @@ def _capture_mods(text: str) -> tuple:
     for rx, needs in _MOD_KINDS:
         if not needs.search(text):              # no such modifier left to find
             continue
+        pieces, at = [], 0                      # one rebuild per kind: linear
         for start, end in _mod_spans(rx, text):
             tok = text[start:end]
             if rx is STREAM_BOUND_RE:
@@ -355,7 +356,11 @@ def _capture_mods(text: str) -> tuple:
                 pair = mod_pair(tok)
                 spaced = rx is PRINCIPAL_SET_RE or pair[0] in ARG_MODIFIERS
             mods.append(_Mod(start, end, pair, rx is STREAM_BOUND_RE))
-            text = text[:start] + _blank(end - start, spaced) + text[end:]
+            if start >= at:
+                pieces += (text[at:start], _blank(end - start, spaced))
+                at = end
+        if pieces:
+            text = "".join(pieces) + text[at:]
     return text, mods
 
 
@@ -439,10 +444,15 @@ def _route_cut(raw: str) -> Optional[int]:
 
 
 def _overlay(base: str, blanked: str, spans) -> str:
-    """`base` with the columns of each (start, end) taken from `blanked`."""
-    for start, end in spans:
-        base = base[:start] + blanked[start:end] + base[end:]
-    return base
+    """`base` with the columns of each (start, end) taken from `blanked` (both
+    texts of one length; spans in any order, overlapping or not)."""
+    pieces, at = [], 0
+    for start, end in sorted(spans):
+        start = max(start, at)
+        if end > start:
+            pieces += (base[at:start], blanked[start:end])
+            at = end
+    return "".join(pieces) + base[at:]
 
 
 def scan_mods(text: str) -> list:
@@ -765,7 +775,24 @@ class _Reader:
     def before_is_closer(self, i: int) -> bool:
         """Whether the character before column i (blanked modifiers that leave no
         space skipped) closes a glyph — what a glued `×N`, `?` or `.field` needs."""
-        return self.w[:i].rstrip(_GAP)[-1:] in _CLOSERS
+        return _before(self.w, i, 1) in _CLOSERS
+
+
+# How much of the text before a brace `is_set` needs: `∈` / `∉` and up to three
+# blanks (lex._MEMBER_END_RE).
+_SET_LEAD = 4
+
+
+def _before(s: str, i: int, k: int) -> str:
+    """The last k characters of s[:i] that are not _GAP — read backwards from i,
+    so a statement with many glyphs stays linear (never a copy of all of s[:i])."""
+    out = []
+    j = i - 1
+    while j >= 0 and len(out) < k:
+        if s[j] != _GAP:
+            out.append(s[j])
+        j -= 1
+    return "".join(reversed(out))
 
 
 def _after_glyph(toks: list) -> bool:
@@ -883,7 +910,7 @@ def _glyph(r: _Reader, i: int, end: int, problem: str) -> tuple:
     `{a, b}`, or braces right after `∈` / `∉` (lex.is_set), is a `set` token: a
     value, as a word is, never a node."""
     text = r.code.raw[i:end].replace(_GAP, "")
-    if not problem and is_set(text, r.w[:i].replace(_GAP, "")):
+    if not problem and is_set(text, _before(r.w, i, _SET_LEAD)):
         return [Tok("set", text, i)], end, False      # `{a, b}`: a value, no node
     flag = "void" if problem in ("unclosed", "empty") else ""
     return [Tok("glyph", text, i, problem, flag=flag)], end, not flag

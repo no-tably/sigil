@@ -253,7 +253,8 @@ def _marker_findings(toks: list) -> list:
     for k, t in enumerate(toks):
         if t.kind != "mark" or not k or toks[k - 1].kind not in ("glyph", "field", "card"):
             continue
-        nxt = next((u for u in toks[k + 1:] if u.kind != "mark"), None)
+        nxt = next((toks[j] for j in range(k + 1, len(toks)) if toks[j].kind != "mark"),
+                   None)                        # no slice: a long line stays linear
         if nxt is not None and nxt.kind == "arrow":
             out.append(("SGL183", f"`{t.text}` between a glyph and an arrow marks the node, "
                         "not the flow. Put it on the node's own line, or after the "

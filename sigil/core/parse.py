@@ -11,6 +11,7 @@ sigil.core.graph; the Mermaid export (sigil.publish.mermaid) and every other
 reader take the Graph from here.
 """
 
+import bisect
 import dataclasses
 import re
 from functools import lru_cache
@@ -456,56 +457,62 @@ def _attach_mods(mods: list, tokens: list, graph: Graph, *, final: list, op_edge
     op-call target and the next arrow → that self-call's edges; trailing the statement
     → the final link's edges (or the last glyph without one); entity declarations
     (_NODE_MODS) always on the node."""
+    # Columns ascend in token order (the scan only moves right), so each lookup
+    # below is a bisection: a statement with many modifiers stays n log n.
     glyph_at = [(c, graph.nodes[t.id]) for kind, t, c in tokens
                 if kind == "glyph" and t.id in graph.nodes]
+    glyph_cols = [c for c, _n in glyph_at]
     arrow_cols = [c for kind, _t, c in tokens if kind == "arrow"]
+    marks = [(c, kind) for kind, _t, c in tokens if kind in ("glyph", "op", "arrow")]
+    mark_cols = [c for c, _k in marks]
+    link_at: dict = {}
+    for k, c in enumerate(link_cols):
+        link_at.setdefault(c, k)
     for col, pair in sorted(mods, key=lambda m: m[0]):
-        before = [(c, n) for c, n in glyph_at if c < col]
-        after = [n for c, n in glyph_at if c > col]
-        owner = before[-1][1] if before else (after[0] if after else None)
-        if after and before and any(before[-1][0] < a < col for a in arrow_cols):
-            owner = after[0]                    # between an arrow and its target
-        trailing = not any(a > col for a in arrow_cols)
-        op_col = _op_before(tokens, col)
-        into = [e for e in final if owner is not None and e.dst == owner.id]
+        b = bisect.bisect_left(glyph_cols, col)        # glyphs before: [:b]
+        a = bisect.bisect_right(glyph_cols, col)       # glyphs after: [a:]
+        before = glyph_at[b - 1] if b else None
+        after = glyph_at[a][1] if a < len(glyph_at) else None
+        owner = before[1] if before else after
+        if after is not None and before:
+            j = bisect.bisect_right(arrow_cols, before[0])
+            if j < len(arrow_cols) and arrow_cols[j] < col:
+                owner = after                   # between an arrow and its target
+        nxt_i = bisect.bisect_right(arrow_cols, col)
+        nxt = arrow_cols[nxt_i] if nxt_i < len(arrow_cols) else None
+        trailing = nxt is None
+        m = bisect.bisect_left(mark_cols, col)
+        op_col = marks[m - 1][0] if m and marks[m - 1][1] == "op" else None
         if payload_span[0] <= col < payload_span[1] and final:
             for e in final:                     # a bound on the payload's stream
                 _add_mod(e.mods, pair)
         elif op_col in op_edges and pair[0] not in _NODE_MODS:
             for e in op_edges[op_col]:          # `-> plan() @deadline(2s) => {P}`
                 _add_mod(e.mods, pair)
-        elif (pair[0] == "×" and trailing and into
+        elif (pair[0] == "×" and trailing and owner is not None
+              and any(e.dst == owner.id for e in final)
               and (col in glued or payload is None)):
-            for e in into:                      # `-> [App]×N`: cardinality, no retry
+            for e in (e for e in final if e.dst == owner.id):                      # `-> [App]×N`: cardinality, no retry
                 e.card = pair[1]
         elif pair[0] in _NODE_MODS or not trailing or not final:
             if owner is not None:
                 _add_mod(owner.mods, pair)
                 _access(graph, owner, pair, line_no, layer)
                 if pair[0] not in _NODE_MODS and pair[0] not in _SIGN_MODS:
-                    for e in _leaving(owner, col, arrow_cols, link_cols, link_edges):
+                    for e in _leaving(owner, nxt, link_at, link_edges):
                         _add_mod(e.src_mods, pair)
         else:
             for e in final:
                 _add_mod(e.mods, pair)
 
 
-def _op_before(tokens: list, col: int) -> Optional[int]:
-    """The column of the op-call target a modifier at `col` follows (no glyph or
-    arrow between them), or None."""
-    before = [(c, kind) for kind, _t, c in tokens
-              if c < col and kind in ("glyph", "op", "arrow")]
-    return before[-1][0] if before and before[-1][1] == "op" else None
-
-
-def _leaving(owner: Node, col: int, arrow_cols: list, link_cols: list,
-             link_edges: dict) -> list:
-    """The edges from `owner` drawn by the arrow next after column `col`: the
-    calls a modifier written between a glyph and its arrow governs."""
-    nxt = min((a for a in arrow_cols if a > col), default=None)
-    if nxt is None or nxt not in link_cols:
+def _leaving(owner: Node, nxt: Optional[int], link_at: dict, link_edges: dict) -> list:
+    """The edges from `owner` drawn by the arrow `nxt` (the next after a modifier's
+    column; `link_at` maps an arrow's column to its link): the calls a modifier
+    written between a glyph and its arrow governs."""
+    if nxt is None or nxt not in link_at:
         return []
-    return [e for e in link_edges.get(link_cols.index(nxt), []) if e.src == owner.id]
+    return [e for e in link_edges.get(link_at[nxt], []) if e.src == owner.id]
 
 
 def _return_emits(graph: Graph, final: list, payload: str, layer: str,
