@@ -328,7 +328,8 @@ def flow_text(src: str, dst: str, f: dict) -> str:
 
 
 def flow_item(src: str, dst: str, f: dict) -> list:
-    """A flow as a list item (and its block-string text, when it has one)."""
+    """A flow as a list item: its notation, mode and facts, then its note (the
+    comment its line trails), then its block-string text, when it has them."""
     notes = [MODE_WORDS.get(f.get("mode"), f.get("mode", "flow"))]
     if f.get("external"):
         notes.append("external")
@@ -337,7 +338,8 @@ def flow_item(src: str, dst: str, f: dict) -> list:
     paths = [p for p in (f.get("from_path"), f.get("to_path")) if p]
     if paths:
         notes.append("path " + " → ".join(paths))
-    out = [f"- `{flow_text(src, dst, f)}` — {', '.join(notes)}"]
+    out = [f"- `{flow_text(src, dst, f)}` — {', '.join(notes)}"
+           + (f" — {f['note']}" if f.get("note") else "")]
     if f.get("text"):
         out += ["", "  ```", *(f"  {ln}" for ln in split_lines(f["text"])), "  ```"]
     return out

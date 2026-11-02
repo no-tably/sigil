@@ -37,6 +37,7 @@
       "arrow": "!>",
       "mode": "failure",
       "payload": "<Declined>",
+      "note": "a failed payment reaches the shopper",
       "lines": [
         13
       ]
@@ -113,8 +114,7 @@
       "glyph": "(Shopper)",
       "home": "07-export",
       "description": [
-        "signed-in shoppers only; the storefront answers every request",
-        "a failed payment reaches the shopper"
+        "signed-in shoppers only; the storefront answers every request"
       ],
       "interface": [
         {
@@ -123,6 +123,7 @@
           "arrow": "!>",
           "mode": "failure",
           "payload": "<Declined>",
+          "note": "a failed payment reaches the shopper",
           "lines": [
             13
           ]
@@ -159,7 +160,7 @@
       ],
       "hashes": {
         "interface": "ae794b82d02eadf6",
-        "body": "3916a92a261599c2"
+        "body": "4ae5aa0fc6d92a3d"
       }
     },
     {
@@ -284,6 +285,7 @@
           "arrow": "!>",
           "mode": "failure",
           "payload": "<Declined>",
+          "note": "a failed payment reaches the shopper",
           "lines": [
             13
           ]
@@ -371,7 +373,7 @@
       ],
       "hashes": {
         "interface": "c28bff9d6c97ac80",
-        "body": "b3db531878963dd1"
+        "body": "9d8165176a1c8330"
       }
     },
     {
@@ -393,6 +395,6 @@
   ],
   "hashes": {
     "interface": "1468c8fefdc59fa0",
-    "body": "91b43631411f44b9"
+    "body": "3c36f2d51e11105b"
   }
 }

@@ -112,13 +112,18 @@ COMPONENTS
 
   One per node that is a service, store, event, actor or data glyph (or a kind
   a dialect adds); holes, aliases and states are none. Each has:
-  description   its `#` comments (render's notes about it), acknowledgements aside;
+  description   its `#` comments (render's notes about it), acknowledgements aside,
+                but not a comment trailing a line that draws flows (or continuing
+                one, or under it): that one describes those flows (Flow.note);
                 for data, then the comments on its shape's fields (field_comments:
                 "`note?`: one line"), so they move its body hash, not its interface
   interface     every flow in or out of it (Flow; a flow on from a `?>` guard's
                 data subject is the guard's caller's, guard_callers), with the peer, arrow, mode
                 (sync, async, return, failure, optional), payload, op, return,
-                the call's modifiers (its policy: retries, timeouts, fallbacks)
+                the call's modifiers (its policy: retries, timeouts, fallbacks),
+                and its `note`: the comment its line trails (the same text on
+                every flow a chain or fan-out line draws), in the body hash of
+                both ends, never in an interface hash
   requirements  modifiers written on it (`@inv` `@owns` `@read` `×N` `^N` …),
                 the access it is granted (`|S| @read(P)` → P reads |S|), and
                 every `# accepts:` acknowledgement covering a line it is on,
@@ -202,6 +207,7 @@ class Flow:
     card: Optional[str] = None
     implied: Optional[str] = None
     paths: tuple = (None, None)
+    note: Optional[str] = None          # the comment its line trails (flow_notes)
 
     @property
     def is_call(self) -> bool:
@@ -344,7 +350,8 @@ def model_of(graph, stem: str, accepts: Iterable[Accepted] = (),
     facts = Facts(graph, layout, homes, flows,
                   {nid: glyph([n], kinds) for g in walk(graph) for nid, n in g.nodes.items()},
                   tuple(accepts), kinds,
-                  nodes, field_notes, unit_acks(graph, layout, accepts))
+                  nodes, field_notes, unit_acks(graph, layout, accepts),
+                  flow_note_lines(flows))
     appears = merged(graph_lines(graph, nodes), head_lines(graph, nodes))
     components = {nid: make_component(nid, insts, appears[nid], facts)
                   for nid, insts in nodes.items()}
@@ -397,6 +404,8 @@ class Facts(NamedTuple):
     field_notes: Mapping = {}           # data node id → its fields' comments
     unit_acks: Mapping = {}             # a unit's own acknowledgement → its
                                         # system key (unit_acks)
+    flow_lines: frozenset = frozenset() # lines whose comment is a flow's note
+                                        # (flow_note_lines)
 
 
 # ---------------------------------------------------------------------------
@@ -869,7 +878,8 @@ def make_component(nid: str, insts: list, lines: tuple, facts: Facts) -> Compone
         id=nid, name=n.name, kind=n.kind, glyph=glyph(insts, facts.kinds),
         home=facts.homes.get(nid, lay.top),
         systems=tuple(lay.candidates.get(nid, (lay.top,))),
-        description=description(facts.graph, nid) + tuple(facts.field_notes.get(nid, ())),
+        description=description(facts.graph, nid, facts.flow_lines)
+        + tuple(facts.field_notes.get(nid, ())),
         flows=tuple(f for f in facts.flows if nid in (f.src, f.dst)),
         modifiers=tuple(sorted({norm_mod(m) for i in insts for m in i.mods},
                                key=_mod_key)),
@@ -896,9 +906,12 @@ def merged_attrs(insts: list) -> dict:
     return out
 
 
-def description(graph, nid: str) -> tuple:
-    """The texts of the notes about a node, in line order, acknowledgements aside."""
-    notes = sorted((n for g in walk(graph) for n in g.notes if n.node == nid),
+def description(graph, nid: str, flow_lines: frozenset = frozenset()) -> tuple:
+    """The texts of the notes about a node, in line order, acknowledgements aside;
+    `flow_lines`: the lines whose trailing comment describes the flows they drew
+    (flow_note_lines), so not the line's first node."""
+    notes = sorted((n for g in walk(graph) for n in g.notes if n.node == nid
+                    and not (n.kind == "inline" and n.edges and n.line in flow_lines)),
                    key=lambda n: n.line)
     return _dedup(ws(n.text) for n in notes if not is_ack_text(n.text))
 
@@ -1030,15 +1043,36 @@ def merged(*found: dict) -> dict:
 
 def collect_flows(graph, nodes: dict) -> list:
     """Every flow between two components, in document order. A flow out of a
-    guard's subject is its caller's (guard_callers)."""
+    guard's subject is its caller's (guard_callers). Each carries the comment
+    its line trails as its note (flow_notes)."""
     out = []
     for g in walk(graph):
         callers = guard_callers(g, nodes)
+        notes = flow_notes(g)
         for e in g.edges:
             src = callers.get((e.line, e.src), e.src) if e.kind != "?>" else e.src
             if src in nodes and e.dst in nodes:
-                out.append(flow_of(e, src))
+                out.append(flow_of(e, src, notes.get((e.line, e.key))))
     return sorted(out, key=lambda f: f.line)
+
+
+def flow_notes(g) -> dict:
+    """{(line, edge key): text} of g's comments about flows: a comment trailing
+    a line that draws flows (continued, or under the statement, as the parser
+    joins it) describes each flow the line drew, whitespace normalised; an
+    acknowledgement is none. The views read the same notes (scene.trailing_notes)."""
+    out = {}
+    for n in g.notes:
+        if n.kind == "inline" and n.edges and not is_ack_text(n.text):
+            for key in n.edges:
+                out.setdefault((n.line, key), ws(n.text))
+    return out
+
+
+def flow_note_lines(flows: Iterable[Flow]) -> frozenset:
+    """The lines whose trailing comment went to a flow as its note: those
+    comments describe no node (description)."""
+    return frozenset(f.line for f in flows if f.note is not None)
 
 
 def guard_callers(g, nodes: Mapping) -> dict:
@@ -1061,8 +1095,9 @@ def guard_callers(g, nodes: Mapping) -> dict:
     return out
 
 
-def flow_of(e, src: Optional[str] = None) -> Flow:
-    """Edge e as a Flow; `src`: its caller when that is not e.src (guard_callers)."""
+def flow_of(e, src: Optional[str] = None, note: Optional[str] = None) -> Flow:
+    """Edge e as a Flow; `src`: its caller when that is not e.src (guard_callers);
+    `note`: the comment its line trails (flow_notes)."""
     from sigil.model import scene
     call = scene.edge_call(e)
     payload = tight(e.payload) if e.payload else None
@@ -1078,7 +1113,7 @@ def flow_of(e, src: Optional[str] = None) -> Flow:
         external=bool(call and call.external),
         mods=tuple(sorted({norm_mod(m) for m in [*e.mods, *e.src_mods]}, key=_mod_key)),
         card=e.card, implied=e.implied,
-        paths=(_path(e.src_path), _path(e.dst_path)))
+        paths=(_path(e.src_path), _path(e.dst_path)), note=note)
 
 
 def _path(p) -> Optional[str]:
@@ -1134,7 +1169,8 @@ def make_systems(facts: Facts, components: dict, inside: dict) -> dict:
         sysm = System(
             key=key, name=name, kind=kind, face=face, parent=parent,
             members=tuple(nid for nid, c in components.items() if c.home == key),
-            description=system_description(graph, lay, key, face),
+            description=system_description(graph, lay, key, face,
+                                           facts.flow_lines),
             interface=tuple(f for f in flows
                             if crossing(f, inside)
                             and (key in inside[f.src]) != (key in inside[f.dst])),
@@ -1304,14 +1340,15 @@ def reached(nid: str, lay: Layout, inside: dict) -> frozenset:
     return frozenset({key}) if key is not None else inside[nid]
 
 
-def system_description(graph, lay: Layout, key: str, face: Optional[str]) -> tuple:
+def system_description(graph, lay: Layout, key: str, face: Optional[str],
+                       flow_lines: frozenset = frozenset()) -> tuple:
     """The top level's document header; an expansion's body header notes; and
-    the face's own description (the top's face's too)."""
+    the face's own description (the top's face's too; `flow_lines` as description)."""
     texts = [n.text for g in walk(graph) if lay.graph_system.get(id(g)) == key
              and (g is graph or lay.systems[key][1] == "expansion")
              for n in g.notes if n.node is None and n.block is None]
     if face is not None:
-        texts += description(graph, face)
+        texts += description(graph, face, flow_lines)
     return _dedup(ws(t) for t in texts if not is_ack_text(t))
 
 

@@ -235,10 +235,10 @@ class TestComponents(unittest.TestCase):
         m = model()
         c = em.component_json(m.components["Checkout_service"], m.components)
         self.assertEqual(c["kind"], "service")
-        self.assertEqual(c["description"], ["idempotent key"])
+        self.assertNotIn("description", c)          # round 10: the flow's note
         out = [f for f in c["interface"] if f["peer"] == "[Payments]"][0]
-        self.assertEqual((out["dir"], out["op"], out["returns"], out["mode"]),
-                         ("out", "charge(total)", "{Receipt}", "sync"))
+        self.assertEqual((out["dir"], out["op"], out["returns"], out["mode"], out["note"]),
+                         ("out", "charge(total)", "{Receipt}", "sync", "idempotent key"))
 
     def test_requirements_and_accepts_verbatim(self):
         text = ("#!spec\n[Api] @sla(p99<100ms)\n|Db| @read(Api) @write(Worker)\n"
@@ -347,8 +347,15 @@ class TestHashes(unittest.TestCase):
         self.assertEqual(set(diff), {"Shop", "Payments"})
 
     def test_a_description_changes_the_body_only(self):
+        after = model(SHOP.replace("# a shop", "# a corner shop"))
+        self.assertEqual(changed(model(), after), {"store": (False, True)})
+
+    def test_a_flow_note_changes_the_bodies_listing_it_only(self):
+        # round 10: the comment trailing `[Checkout] -> [Payments]` is that flow's
+        # note: in Shop's flows and Payments' boundary, never an interface hash
         after = model(SHOP.replace("# idempotent key", "# idempotent on order id"))
-        self.assertEqual(changed(model(), after), {"Shop": (False, True)})
+        self.assertEqual(changed(model(), after),
+                         {"Shop": (False, True), "Payments": (False, True)})
 
     def test_a_modifier_changes_the_body_only(self):
         after = model(SHOP.replace("  [Cart] -> [Checkout]",

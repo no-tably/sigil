@@ -15,7 +15,9 @@ HASHES
   A system's interface_hash covers its boundary flows and the shapes of the data
   they carry or its face's tree holds; its body_hash everything in it
   (interface, shapes, members, internal flows, control blocks, descriptions, its
-  `#&` declarations). A component's interface_hash covers its flows in and out
+  `#&` declarations). A flow's `note` (the comment its line trails) is in the
+  body hash of both its ends and of each system listing it, never in an
+  interface hash. A component's interface_hash covers its flows in and out
   (with their modifiers) and the shapes of the data it carries, holds or is
   (sigil.model.systems, SHAPES: fields by name, so their order moves no hash; a
   comment is body only); its body_hash everything about it (kind, home,
@@ -93,7 +95,7 @@ def flow_json(f: Flow, components: dict, side: Optional[str] = None) -> dict:
         "payload": f.payload, "text": f.text, "op": f.op, "returns": f.returns,
         "external": f.external, "mods": [list(m) for m in f.mods], "card": f.card,
         "implied": f.implied, "from_path": f.paths[0], "to_path": f.paths[1],
-        "lines": [f.line] if f.line else None})
+        "note": f.note, "lines": [f.line] if f.line else None})
 
 
 def component_json(c: Component, components: dict) -> dict:
@@ -160,9 +162,12 @@ def shapes_json(shapes: Iterable[systems.Shape]) -> list:
 
 def interface_digest(body: dict) -> str:
     """The interface hash of a component's or system's form as the hashes read it:
-    its interface flows and, when it has any, the shapes they carry or it holds
-    (with none, the flows alone, as before shapes counted)."""
-    flows, shapes = body.get("interface", []), body.get("shapes")
+    its interface flows (each without its `note`: a comment is body only; sorted
+    again, as _sorted orders them without one) and, when it has any, the shapes
+    they carry or it holds (with none, the flows alone, as before shapes counted)."""
+    flows = sorted(({k: v for k, v in f.items() if k != "note"}
+                    for f in body.get("interface", [])), key=canonical)
+    shapes = body.get("shapes")
     return digest({"interface": flows, "shapes": shapes} if shapes else flows)
 
 

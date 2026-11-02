@@ -278,11 +278,15 @@ class ContinuedTrailingComment(unittest.TestCase):
         self.assertEqual(self.notes(text)["U_actor"], ["first part of the note"])
 
     def test_the_export_describes_the_line_above(self):
+        # round 10: the line draws a flow, so the comment is that flow's note
         from sigil.publish import systems as em
         m = em.build_model(self.DOC, "doc")
         desc = {nid: list(c.description) for nid, c in m.components.items()}
         self.assertEqual(desc["C_service"], [])
-        self.assertEqual(desc["U_actor"], ["first part of the note second part, aligned"])
+        self.assertEqual(desc["U_actor"], [])
+        (flow,) = [f for f in m.components["U_actor"].flows]
+        self.assertEqual(flow.note, "first part of the note second part, aligned")
+        self.assertIsNone(m.components["C_service"].flows[0].note)
 
 
 class CommentBelowAStatement(unittest.TestCase):
@@ -302,10 +306,17 @@ class CommentBelowAStatement(unittest.TestCase):
            "}\n")
 
     def describe(self, text):
+        """{component: its description, or its flows' notes} (round 10: a comment
+        on a line that draws flows is their note)."""
         from sigil.publish import systems as em
         m = em.build_model(text, "doc")
-        return {nid: list(c.description) for nid, c in m.components.items()
-                if c.description}
+        out = {nid: list(c.description) for nid, c in m.components.items()
+               if c.description}
+        for f in sorted({f for c in m.components.values() for f in c.flows},
+                        key=lambda f: f.line):
+            if f.note:
+                out.setdefault(f.src, []).append(f.note)
+        return out
 
     def notes(self, text):
         from sigil.core.comments import note_index

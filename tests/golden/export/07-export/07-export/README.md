@@ -4,7 +4,7 @@ The top level of the spec: every component no expansion or tree holds.
 
 a small shop, locked as a spec and ready to export: each expansion and each composition tree becomes a system of its own (try sigil export FILE --out DIR)
 
-Interface hash `1468c8fefdc59fa0` · body hash `91b43631411f44b9`.
+Interface hash `1468c8fefdc59fa0` · body hash `3c36f2d51e11105b`.
 
 ## Components
 
@@ -24,7 +24,7 @@ The flows that cross into or out of this system: its contract.
 
 ## Flows inside
 
-- `[Storefront] !> (Shopper) : <Declined>` — failure route
+- `[Storefront] !> (Shopper) : <Declined>` — failure route — a failed payment reaches the shopper
 - `(Shopper) -> [Storefront] : browse({Query}) => {Page}` — sync call
 - `(Shopper) -> [Storefront] : buy({Basket}) => {Receipt}` — sync call
 - `[Storefront] -> [Catalog] : lookup({Sku}) => {Item} @fallback("cached") @timeout(500ms)` — sync call

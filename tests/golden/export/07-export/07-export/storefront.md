@@ -4,7 +4,7 @@ Kind: service. Lives in system `07-export` (folder `07-export/`).
 
 ## Interface
 
-- `[Storefront] !> (Shopper) : <Declined>` — failure route
+- `[Storefront] !> (Shopper) : <Declined>` — failure route — a failed payment reaches the shopper
 - `(Shopper) -> [Storefront] : browse({Query}) => {Page}` — sync call
 - `(Shopper) -> [Storefront] : buy({Basket}) => {Receipt}` — sync call
 - `[Storefront] -> [Catalog] : lookup({Sku}) => {Item} @fallback("cached") @timeout(500ms)` — sync call
