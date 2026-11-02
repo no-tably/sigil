@@ -10,7 +10,7 @@ one reading each:
     hidden        HIDDEN_CATEGORIES, is_hidden, hidden_chars, escape_char,
                   visible (a name as printed: its control and format
                   characters escaped; lint's SGL195 refuses them in a name)
-    comments      is_mode_line, is_comment_line, first_content, COMMENT_START_RE, in_string, comment_start, comment_col,
+    comments      is_mode_line, is_comment_line, first_content, mode_word, COMMENT_START_RE, in_string, comment_start, comment_col,
                   DECLARATION_MARK, DECLARATION_RE, declaration_name (a
                   line-leading `#& name …`: a dialect declaration),
                   code_end (where a line's code ends: `#` or a dialect's
@@ -228,6 +228,14 @@ def first_content(lines) -> Optional[int]:
     (is_comment_line) — where a document's mode line belongs — or None."""
     return next((k for k, line in enumerate(lines)
                  if line.strip() and not is_comment_line(line)), None)
+
+
+def mode_word(lines) -> str:
+    """The document's mode as its mode line writes it (`#!spec`, `#!craft`, …,
+    or a word no mode names): the first word of the first content line
+    (first_content) when that is a mode line; "" when there is none."""
+    k = first_content(lines)
+    return lines[k].split()[0] if k is not None and is_mode_line(lines[k]) else ""
 
 
 def comment_col(line: str) -> Optional[int]:

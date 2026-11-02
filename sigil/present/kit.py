@@ -48,10 +48,9 @@ from sigil.core.graph import (  # noqa: F401  (some for the views, as kit.NAME)
     section_of, use_dialect_kinds, walk_breadth as _walk)
 from sigil.core import graph as _graph
 from sigil.core.lex import (
-    BLOCK_SENTINEL, GLYPH_PREFIXES, MODIFIER_RE, PAYLOAD_PIECE_RE, declaration_name,
-    first_content, glyph_kind, is_hidden, is_mode_line, net_braces, split_lines, visible)
-from sigil.core.kinds import is_kind_line
-from sigil.core.statements import comment_of
+    BLOCK_SENTINEL, GLYPH_PREFIXES, MODIFIER_RE, PAYLOAD_PIECE_RE,
+    first_content, glyph_kind, is_hidden, is_mode_line, split_lines, visible)
+from sigil.core.statements import title_of
 from sigil.core.tokens import lexicon
 from sigil.core.vocab import Diagnostic
 from sigil.analyse.lint import lint as _lint_document
@@ -1815,21 +1814,9 @@ def doc_title(text: str, dialect=None) -> str:
     heading's extra `#`s dropped. Blank lines, `#!` mode lines, the `#%` kind line and `#&`
     declarations (lex.declaration_name, with the `{ … }` block one opens) are
     stepped over; a comment is read the dialect's way (statements.comment_of with
-    its COMMENT_MARKERS). "" when another statement (or a bare `#`) comes first."""
-    marker = lexicon(dialect).marker
-    depth = 0                           # braces a declaration's block holds open
-    for line in split_lines(text):
-        if depth > 0:
-            depth += net_braces(line)
-            continue
-        if not line.strip() or is_mode_line(line) or is_kind_line(line):
-            continue
-        if declaration_name(line) is not None:
-            depth = net_braces(line)
-            continue
-        c = comment_of(line, marker)
-        return c[0].lstrip("#").strip() if c and c[1] else ""
-    return ""
+    its COMMENT_MARKERS). "" when another statement (or a bare `#`) comes first.
+    Read in core (statements.title_of)."""
+    return title_of(split_lines(text), lexicon(dialect).marker)
 
 
 def doc_mode(text: str) -> str:

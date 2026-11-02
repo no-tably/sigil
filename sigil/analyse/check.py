@@ -568,11 +568,10 @@ class Doc:
 def read_mode(lines: list) -> str:
     """The mode as lint reads it (the first content line, lex.first_content, when
     it is a mode line); none means sketch."""
-    from sigil.core.lex import first_content
+    from sigil.core.lex import mode_word
     from sigil.core.vocab import VALID_MODES
-    k = first_content(lines)
-    head = lines[k].split()[0] if k is not None else ""
-    return head[2:] if head in VALID_MODES else "sketch"
+    head = mode_word(lines)
+    return head.replace("#!", "", 1) if head in VALID_MODES else "sketch"
 
 
 # ---------------------------------------------------------------------------

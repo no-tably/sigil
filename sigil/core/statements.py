@@ -455,6 +455,28 @@ def comment_of(line: str, marker) -> Optional[tuple]:
     return c[1:] if c else None
 
 
+def title_of(lines, marker) -> str:
+    """A document's title: the first comment line of its opening notes, a
+    heading's extra `#`s dropped. Blank lines, `#!` mode lines, the `#%` kind
+    line and `#&` declarations (with the `{ … }` block one opens) are stepped
+    over; a comment is read as comment_of reads it (`marker`: the dialect's
+    comment markers, one pattern, or None). "" when another statement (or a
+    bare `#`) comes first."""
+    depth = 0                           # braces a declaration's block holds open
+    for line in lines:
+        if depth > 0:
+            depth += net_braces(line)
+            continue
+        if not line.strip() or is_mode_line(line) or is_kind_line(line):
+            continue
+        if declaration_name(line) is not None:
+            depth = net_braces(line)
+            continue
+        c = comment_of(line, marker)
+        return c[0].lstrip("#").strip() if c and c[1] else ""
+    return ""
+
+
 def _comment_at(line: str, marker) -> Optional[tuple]:
     """comment_of with the column its marker starts at: (column, text, own_line)."""
     if marker is None and "#" not in line:
