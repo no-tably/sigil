@@ -215,6 +215,11 @@
   # shape's field joins its data's description (body hash, never the interface); an ack of a
   # unit's own finding (unit-cycle, large-unit) on its header is the unit's system's and its
   # face's, not its members'
+  # round 10: a comment trailing a line that draws flows (or continuing one) describes those
+  # flows, as the views already draw it: each Flow keeps it as its note (system.json "note",
+  # the component pages' interface lines). A flow's note is in the body hash of both its ends
+  # and of each system listing it, never in an interface hash. A line that draws no flow
+  # (a declaration, a branch, a transition) still describes its first node
   [Hashes] -> [Model] : systems({Doc}) => {Spine}
   [Hashes] -> [Analyse] : names({Name}) => {Catalog}           # check.CORE_NAMES, to read `# accepts:` lines
   # manifest: sigil (round 9: the version that wrote it; in no hash, so a new sigil marks

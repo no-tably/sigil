@@ -649,3 +649,38 @@ Choices made, with the reason:
 
 Readings: lint clean, sketch and spec checks clean (two acknowledged splits, as before), the
 happy run ends ok at default limits, no new unit cycle.
+
+## Round 10: a flow line's comment describes the flow (2026-11-02, candidate 0.6.12)
+
+Asked by construct (hardening-2, A6). In `[Order_Book] -> [Match] # fills in price order`
+the comment is about the flow, but export puts it in Order_Book's description. The views
+already read it the right way: Scene keys a line's inline note by the flows it drew and draws
+it on the wire. Export is the one reader that disagrees.
+
+What changes in the model (Publish, the Hashes comment):
+- **The reading:** a comment trailing a line that draws flows describes those flows. This
+  includes a continued trailing comment and one under a statement. A chain or fan-out line
+  gives each flow it drew the same note. A line that draws no flow (a declaration, a tree
+  branch, a state transition) still describes its first node, and a comment above a
+  statement is unchanged.
+- **Where it shows:** a Flow gets a `note`. system.json's flow entries and each component's
+  interface entries carry it, and the component pages print it after the flow.
+- **Hashes:** a flow's note is in the body hash of both ends and of every system that lists
+  the flow, and never in an interface hash. Comments stay body-only, as since round 7.
+
+Cost, measured on the three specs:
+- cure: 175 comments on flow lines, on 90 nodes.
+- construct: 114, on 44 nodes.
+- sigil.sigil: 67, on 37 nodes.
+
+Most systems' bodies move once, and no interface moves. As in the 0.6.9 field-notes move,
+cure re-exports and construct re-locks its locked bodies. A component is rebuilt only if a
+conform run says the moved text matters.
+
+Choices made, with the reason:
+- Both ends get the note in their body. A builder of either side reads the flow from its
+  own page, and a note that changes how a flow behaves concerns both.
+- Not hash-neutral. The text really moves from a component to a flow, and the 0.6.9
+  precedent was to let body hashes move for a real change in what a builder reads.
+- No "notes-only" delta class (recheck instead of rebuild for a body change that only
+  touched comments). It would be useful, but it's a separate reading; keep it for later.
