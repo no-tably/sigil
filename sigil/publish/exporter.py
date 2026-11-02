@@ -101,6 +101,11 @@ moves, and a system.json whose `lines` moved is rewritten). Every export writes
 delta.json; a first export's lists every system as added. The delta is a hint:
 the manifest's hashes stay the truth.
 
+A first export (DIR missing or empty) that cannot be written removes what it
+wrote and the folders it made, so DIR is as it was and the next export is not
+refused; a failed re-export leaves the earlier manifest in place (it is written
+last), so the next one compares against it.
+
 Exit codes: 0 exported (or a dry run) · 1 the folder could not be written · 2 not ready to
 export, or bad input (unreadable spec, unknown dialect, a folder `sigil export` did
 not make, a manifest.json it cannot read, or a symbolic link where it would write).
@@ -110,6 +115,7 @@ Standard library only. Deterministic: no clock, no randomness, no set-order outp
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -702,10 +708,57 @@ def run(text: str, spec: Path, out: Path, dialect, as_json: bool = False,
         head = [f"sigil export (dry run): nothing written to {out}"]
         return Outcome(0, report(change, as_json, head))
     written = written_files(old)
+    made = missing_folders(out) if old is None else None
     try:
         kept = write_export(out, plan, only=changed_systems(out, plan, written),
                             drop=dropped_folders(old, plan.manifest),
                             change=change, written=written)
-    except OSError as exc:
-        return Outcome(1, problem=f"cannot write {out}: {exc}")
+    except BaseException as exc:
+        if made is not None:                 # a first export: out was missing or empty
+            undo_first_export(out, plan, made)
+        if not isinstance(exc, OSError):
+            raise
+        return Outcome(1, problem=f"cannot write {out}: {exc}" + left_note(out, made))
     return Outcome(0, report(change, as_json, done_lines(plan, out)), kept=tuple(kept))
+
+
+def missing_folders(out: Path) -> list:
+    """`out` and those of its parents that do not exist yet (deepest first): the
+    folders a first export makes."""
+    made = []
+    for p in (out, *out.parents):
+        if p.exists() or p.is_symlink():
+            break
+        made.append(p)
+    return made
+
+
+def undo_first_export(out: Path, plan: ExportPlan, made: list) -> None:
+    """Remove what a first export that failed part way wrote into `out` (missing
+    or empty before it began): the planned files, the system folders, then the
+    folders it made (`made`, deepest first). Only a planned name is removed and a
+    folder only when empty, so nothing else is touched; a removal that fails
+    leaves that path (left_note says so)."""
+    paths = [out / sp.path / n for sp in plan.systems.values() for n in sp.files]
+    paths += [out / n for n in (INDEX, DELTA, MANIFEST)]
+    for p in paths:
+        with contextlib.suppress(OSError):
+            if p.is_file() and not p.is_symlink():
+                p.unlink()
+    for folder in [out / sp.path for sp in plan.systems.values()] + made:
+        with contextlib.suppress(OSError):
+            if folder.is_dir() and not folder.is_symlink() and not any(folder.iterdir()):
+                folder.rmdir()
+
+
+def left_note(out: Path, made: Optional[list]) -> str:
+    """After a failed first export: a note when `out` still holds files (they were
+    not ours to remove, or could not be removed), so the next export would refuse."""
+    if made is None:
+        return ""
+    try:
+        if not out.is_dir() or not any(out.iterdir()):
+            return ""
+    except OSError:
+        pass
+    return f" ({out} still holds files: empty it before exporting there again)"

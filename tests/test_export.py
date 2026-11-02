@@ -325,7 +325,8 @@ class TestWrite(Tmp):
         self.assertIn("disk full", err)
         out = self.tmp / "out"
         self.assertFalse((out / "manifest.json").exists())
-        self.assertFalse([p for p in out.iterdir() if p.name.endswith(".tmp")])
+        # a first export that fails removes what it wrote, temp file and folder too
+        self.assertFalse(out.exists())
 
     def test_blocked_spec_touches_nothing(self):
         code, out, err = self.export(READY.replace("#!spec", "#!sketch"))
