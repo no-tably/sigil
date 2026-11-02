@@ -240,7 +240,10 @@ any call (SGC402).
 
 - `--out DIR` the export folder, made when missing. It must be empty or hold an
   earlier export (a `manifest.json`); `sigil export` never writes over a folder it did
-  not make. DIR itself may be a symbolic link, but nothing inside it where the export
+  not make. A first export (DIR missing or empty) that fails while writing (or is
+  interrupted) removes what it wrote and the folders it made, so DIR is as it was and
+  the next export into it is not refused; a failed re-export keeps the earlier
+  manifest. DIR itself may be a symbolic link, but nothing inside it where the export
   would write, compare or delete may be one (a system folder, a file in one, the
   root's `README.md`, `delta.json` or `manifest.json`): it refuses, exit 2, a dry
   run too.
@@ -392,6 +395,7 @@ A flow holds:
 | `card` | the destination's cardinality written on the flow (`×N`): `"N"`, `"4"` |
 | `implied` | `"return"` or `"alert"` for a flow the notation implies without an arrow |
 | `from_path`, `to_path` | a qualified-path end (`[Bullet]/{Transform}`), as written |
+| `note` | the comment trailing the line that drew it (or continuing one), whitespace joined; a chain or fan-out line gives each flow it drew the same note. In the body hash of both ends and of each system listing it, never in an interface hash |
 | `lines` | the spec lines that write it |
 
 A component holds `name`, `kind`, `glyph` (as written, a dialect kind in its own

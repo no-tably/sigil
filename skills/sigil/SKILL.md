@@ -467,8 +467,10 @@ unacknowledged. The tool enforces that gate itself.
    empty one, so write the flow that calls it (`[App] -> [Tab] : view({Board})`) and
    the shapes of the data it holds or is sent. Descriptions come from the `#` comments:
    a header comment needs a blank line after it to describe the top system, or it
-   describes the first statement's node. A trailing comment describes its line's
-   first node, and a comment-only line aligned under it continues it. A
+   describes the first statement's node. A trailing comment on a line that draws
+   flows is those flows' note (system.json `note`, body hash only); on any other
+   line it describes the line's first node. A comment-only line aligned under it
+   continues it. A
    comment-only line indented under a statement line with no comment (and no `{`
    opening a block) is that line's trailing comment, not the next statement's
    header; at the statement's own column it is the next one's. `# accepts:`

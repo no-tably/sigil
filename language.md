@@ -1392,18 +1392,25 @@ notes:
   miss: a header comment with no blank line after it describes the first statement's
   node, not the document;
 - a header comment followed by a blank line describes the top system;
-- a comment at the end of a line describes that line's first node. A comment-only
-  line right below it whose `#` sits in the same column continues it (as do more
-  such lines); without that alignment it is a comment above the next statement. A
-  `# accepts:` line never continues one;
+- a comment at the end of a line that draws flows describes those flows: each flow
+  the line drew keeps it as its **note** (a chain or fan-out line gives every flow
+  it drew the same note; a continuation line starting with an arrow has its own).
+  `[Order_Book] -> [Match] : fill({Order})   # in price order` says how that flow
+  behaves, not what `[Order_Book]` is. A comment at the end of a line that draws no
+  flow (a declaration, a tree branch, a state transition) describes that line's
+  first node, and so does one on a self-call line (`[A] -> [A] : retry()   # x`),
+  whose loop the drawing puts on the node itself. A comment-only line right below
+  either kind whose `#` sits in the same column continues it (as do more such
+  lines); without that alignment it is a comment above the next statement. A
+  `# accepts:` line never continues one and is never a note;
 - a comment-only line right below a statement line that holds no comment and opens
   no block (no `{` last), indented deeper than that line's first column, is that
   line's trailing comment, and the lines below it with their `#` in the same column
   continue it. `[Web] -> [Api] : get({Id}) => {Page}`, then `  # read-only,` and
-  `  # cached for a minute` under it, describes `[Web]` as "read-only, cached for a
-  minute", exactly as a trailing comment would; it says nothing about the statement
-  after. Under a continuation line (one starting with an arrow) it goes where a
-  trailing comment on that line would. A comment at the statement's own column, one
+  `  # cached for a minute` under it, gives that flow the note "read-only, cached
+  for a minute", exactly as a trailing comment would; it says nothing about the
+  statement after. Under a continuation line (one starting with an arrow) it goes
+  where a trailing comment on that line would. A comment at the statement's own column, one
   under a block opener, or one between a line and the continuation line below it,
   stays a comment above what follows. A `# accepts:` line never starts one;
 - a comment above an expansion `X := {` describes both the node `X` and the
@@ -1415,10 +1422,15 @@ notes:
 
 So in a spec that opens `# one storefront, one checkout`, a blank line,
 `# the browser's door`, then `[Web] -> [Api] : get({Id}) => {Page}   # read-only`,
-the top system's description is "one storefront, one checkout" and `[Web]`'s is
-"the browser's door" and "read-only". Without the blank line, the two comments
-above `[Web]` run together as one description of `[Web]`, and the top system has
-none.
+the top system's description is "one storefront, one checkout", `[Web]`'s is
+"the browser's door", and the flow from `[Web]` to `[Api]` has the note
+"read-only". Without the blank line, the two comments above `[Web]` run together
+as one description of `[Web]`, and the top system has none.
+
+A flow's note is listed with the flow (in `system.json`, and after the flow on the
+pages of both its ends and of the system that lists it). It moves the body hash of
+both ends and of every system listing the flow, never an interface hash: like any
+comment, it is body only. The drawings already put it on the wire.
 
 ```
 [Shop] -> [Billing] : charge({Order}) => {Receipt}   # crosses into Billing: a typed contract

@@ -2,6 +2,61 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
+## 0.6.12 — 2026-11-02
+
+A comment on a flow line now describes the flow in the export, as the drawings
+already showed it. Plus the leftovers from 0.6.11: a failed first export no longer
+blocks the next one, and lint, the graph view, the run view and the export model
+stay fast on very large input.
+
+### Changed
+
+- **A flow line's comment describes the flow.** In
+  `[Order_Book] -> [Match] : fill({Order})   # in price order` the comment says how
+  the flow behaves, but the export put it in `[Order_Book]`'s description. Now each
+  flow the line drew keeps it as its `note`: in `system.json` (flow entries and each
+  component's interface entries) and after the flow on the Markdown pages. A chain or
+  fan-out line gives every flow it drew the same note; a continued trailing comment
+  and a comment indented under a statement count too. A line that draws no flow (a
+  declaration, a tree branch, a state transition) and a self-call line still
+  describe their first node, and a comment above a statement is unchanged.
+  **Hashes:** a note is in the body hash of both ends of its flow and of each system
+  listing it, never in an interface hash: a re-export marks the systems whose
+  flow-line comments moved `rebuild`, and no recheck spreads from it. In the bundled example
+  `07-export`, the comment on `[Storefront] !> (Shopper)` moved from Storefront's
+  description to that flow; the bodies of the top system, Shopper and Storefront
+  moved, no interface did.
+- **Mermaid:** a data shape with no body (or fields only) and an empty `[A] := { }`
+  are drawn as their node, not as an empty subgraph.
+
+### Fixes
+
+- **A failed first export leaves nothing behind.** When `--out` was missing or empty
+  and the write failed (or was interrupted), the half-written folder had no
+  `manifest.json`, so every later export into it was refused until you emptied it by
+  hand. Now the export removes exactly the files it wrote and the folders it made. A
+  failed re-export keeps the earlier manifest, as before.
+- **Linear on very large input.**
+  - `lint` on one line holding a 150,000-edge chain: 42 s → 4.9 s. Lines with a
+    modifier, `?` or `×2` on each of many edges scale the same way.
+  - The graph view on a 4000-level expansion chain: 48 s → 6.4 s.
+  - The run view on a 10,000-iteration loop: 179 s → 20 s (most of it is now the
+    run itself).
+  - The export model at 800 levels of nesting: 13 s → 0.5 s; a re-export at 500
+    levels: 72 s → 1.5 s.
+  No output changed.
+- **`highlight --stream`** answers a request line longer than 128 MiB with an error
+  (`{"id": null, "error": …}`) without reading it in full, and the session goes on.
+- **The page's theme reader** has the same limits as sigil's (nesting depth, an
+  `extends` chain, 1 MiB, UTF-8) and sets only the entries sigil's own theme reader
+  accepts, so a malformed theme can't inject CSS.
+
+### Docs
+
+- language.md "Descriptions" and docs/tools.md (`note` in the flow schema) say how a
+  flow line's comment is read; docs/tools.md says JSON outputs keep names raw on
+  purpose (escape them for display); the page's skill cards name `sigil highlight`.
+
 ## 0.6.11 — 2026-10-31
 
 A hardening release. A robustness probe fed sigil broken, hostile and very large
