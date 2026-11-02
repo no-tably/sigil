@@ -347,11 +347,12 @@ def model_of(graph, stem: str, accepts: Iterable[Accepted] = (),
     actors = frozenset(nid for nid, insts in nodes.items() if insts[0].kind == "actor")
     homes, shared_at = resolve_homes(layout, actors)
     flows = collect_flows(graph, nodes)
+    found = index_of(graph, layout, nodes, flows, accepts)
     facts = Facts(graph, layout, homes, flows,
-                  {nid: glyph([n], kinds) for g in walk(graph) for nid, n in g.nodes.items()},
+                  {nid: glyph([n], kinds) for g in found.graphs for nid, n in g.nodes.items()},
                   tuple(accepts), kinds,
                   nodes, field_notes, unit_acks(graph, layout, accepts),
-                  flow_note_lines(flows))
+                  flow_note_lines(flows), found)
     appears = merged(graph_lines(graph, nodes), head_lines(graph, nodes))
     components = {nid: make_component(nid, insts, appears[nid], facts)
                   for nid, insts in nodes.items()}
@@ -406,6 +407,54 @@ class Facts(NamedTuple):
                                         # system key (unit_acks)
     flow_lines: frozenset = frozenset() # lines whose comment is a flow's note
                                         # (flow_note_lines)
+    found: Optional["Index"] = None     # the graphs, read once (index_of; model_of
+                                        # always gives it)
+
+
+class Index(NamedTuple):
+    """What the components and systems read off the graphs, gathered in one walk
+    so no component or system walks every graph again (a document nesting a
+    thousand expansions would walk them a thousand times)."""
+    graphs: list                        # walk(graph), in its order
+    notes: dict                         # node id → its notes, walk order
+    access: dict                        # principal id → its access lists
+    held: dict                          # tree root id → data its trees hold (deep)
+    children: dict                      # node id → data children (`\-&`) it holds
+    by_system: dict                     # system key → its graphs, walk order
+    flows: dict                         # node id → the flows it is an end of
+    acks: dict = {}                     # line → positions in `accepts` of the
+                                        # acknowledgements (not document-wide)
+                                        # whose span holds it
+
+
+def index_of(graph, lay: "Layout", nodes: Mapping, flows: list,
+             accepts: tuple = ()) -> Index:
+    """The Index of a document: one walk of its graphs; `accepts` its
+    acknowledgements (Facts.accepts)."""
+    graphs = list(walk(graph))
+    notes, access, held, children, by_system, ends = {}, {}, {}, {}, {}, {}
+    for g in graphs:
+        for n in g.notes:
+            notes.setdefault(n.node, []).append(n)
+        for a in g.access:
+            access.setdefault(a.principal, []).append(a)
+        roots = tree_roots(g.tree)
+        for i, e in enumerate(g.tree):
+            if e.rel != "&" or e.parent is None or not is_data(e.node, nodes):
+                continue
+            held.setdefault(g.tree[roots[i]].node, {}).setdefault(e.node, None)
+            children.setdefault(g.tree[e.parent].node, {}).setdefault(e.node, None)
+        by_system.setdefault(lay.graph_system.get(id(g)), []).append(g)
+    for f in flows:
+        for end in dict.fromkeys((f.src, f.dst)):
+            ends.setdefault(end, []).append(f)
+    acks = {}
+    for i, a in enumerate(accepts):
+        if not a.document:
+            for ln in a.span:
+                acks.setdefault(ln, []).append(i)
+    return Index(graphs, notes, access, {k: list(v) for k, v in held.items()},
+                 {k: list(v) for k, v in children.items()}, by_system, ends, acks)
 
 
 # ---------------------------------------------------------------------------
@@ -504,16 +553,18 @@ def nest_headers(lay: Layout):
             lay.candidates[nid] = [key]
     inward = set(lay.follow)            # these move only into a unit under the header
     owners = [nid for nid, _key in lay.headers] + lay.follow
+    nest = Nesting(lay.systems)
     for _ in range(len(owners)):
         changed = False
         for nid in owners:
             own = lay.by_face[nid]
-            home = home_of(home_candidates(lay, nid), lay.systems)
+            home = home_of(home_candidates(lay, nid, nest), nest)
             name, kind, face, parent = lay.systems[own]
-            if home is None or home == parent or own in ancestors(home, lay.systems):
+            if home is None or home == parent or nest.encloses(own, home):
                 continue
-            if nid in inward and parent not in ancestors(home, lay.systems):
+            if nid in inward and (parent is None or not nest.encloses(parent, home)):
                 continue
+            nest.set_parent(own, home)
             lay.systems[own] = (name, kind, face, home)
             changed = True
         if not changed:
@@ -580,7 +631,7 @@ REF_RANK = ("subject", "passing", "flow", "owner")  # how a level refers to a no
                                         # weakest first
 
 
-def home_candidates(lay: Layout, nid: str) -> list:
+def home_candidates(lay: Layout, nid: str, nest: Nesting) -> list:
     """The candidates a node's home is chosen from: its candidates less each level
     that writes it only as a reference into another system — a level writing it
     only as flow ends or in passing (named_in_passing), when any other candidate
@@ -603,11 +654,11 @@ def home_candidates(lay: Layout, nid: str) -> list:
                                     for o in cands):
             return True                 # a flow end (or a declaration) elsewhere wins
         return how is not None and any(
-            o != c and c in ancestors(o, lay.systems)
+            o != c and nest.encloses(c, o)
             and (how != "owner" or (nid, o) not in lay.refs) for o in cands)
 
     kept = [c for c in cands if not reference(c)]
-    if kept and home_of(kept, lay.systems) is not None:
+    if kept and home_of(kept, nest) is not None:
         return kept
     return list(cands)          # no home left: the outer levels stay (no new SGC401)
 
@@ -647,10 +698,11 @@ def _lay_level(g, key: str, lay: Layout) -> list:
     for nid in g.nodes:
         if nid not in member:
             local[nid] = key
-            if header_only(g, nid) and shape_owner(g, nid):
+            on_header = header_only(g, nid)
+            if on_header and shape_owner(g, nid):
                 lay.shaped.append((nid, key))
                 continue
-            if header_only(g, nid):
+            if on_header:
                 lay.headers.append((nid, key))
                 continue
             ref = reference_only(g, nid)
@@ -794,16 +846,95 @@ def _add(index: dict, k, value):
 
 def ancestors(key: str, systems: dict) -> list:
     """key, its parent, … up to the top (a cycle stops the walk)."""
-    out = []
-    while key is not None and key not in out:
+    out, seen = [], set()
+    while key is not None and key not in seen:
         out.append(key)
+        seen.add(key)
         key = systems[key][3]
     return out
 
 
-def home_of(cands: list, systems: dict) -> Optional[str]:
+class Nesting:
+    """Which system encloses which, read off `systems` (key → (name, kind, face,
+    parent)) as `c in ancestors(o, systems)` reads it, without walking a whole
+    chain each time: a nesting a thousand levels deep is answered in about the
+    same time as a shallow one. Built once; set_parent keeps it in step while
+    nest_headers moves systems. `fixed`: the systems no longer move, so each
+    key's place in a depth-first order of the tree answers in one step (keys on
+    a cycle, if any, are walked)."""
+
+    def __init__(self, systems: dict, fixed: bool = False):
+        self.systems = systems
+        self.children: dict = {}
+        for key, sysm in systems.items():
+            if sysm[3] is not None:
+                self.children.setdefault(sysm[3], []).append(key)
+        self.span = self._spans() if fixed else {}
+
+    def _spans(self) -> dict:
+        """{key: (entered, left)} in a depth-first walk from each top key: b is
+        under a when a's span holds b's. A key on a cycle is never reached."""
+        span, clock = {}, 0
+        for root in (k for k, v in self.systems.items() if v[3] is None):
+            todo = [(root, False)]
+            while todo:
+                key, done = todo.pop()
+                if done:
+                    span[key] = (span[key][0], clock)
+                    continue
+                span[key] = (clock, None)
+                clock += 1
+                todo.append((key, True))
+                todo += [(c, False) for c in reversed(self.children.get(key, ()))]
+        return span
+
+    def set_parent(self, key: str, parent: Optional[str]):
+        old = self.systems[key][3]
+        if old is not None:
+            self.children[old].remove(key)
+        if parent is not None:
+            self.children.setdefault(parent, []).append(key)
+
+    def encloses(self, outer: str, key: str) -> bool:
+        """Whether `outer` is `key` or one of the systems enclosing it (`outer in
+        ancestors(key, systems)`)."""
+        if outer == key:
+            return True
+        a, b = self.span.get(outer), self.span.get(key)
+        if a is not None and b is not None:
+            return a[0] <= b[0] and b[1] <= a[1]
+        # walk up from key and down from outer by turns: the first walk to end
+        # (or to meet its goal) answers, so the cost is the shorter of the two
+        up, down = self._up(key), self._down(outer)
+        while True:
+            for walker, goal in ((up, outer), (down, key)):
+                step = next(walker, None)
+                if step is None:
+                    return False
+                if step == goal:
+                    return True
+
+    def _up(self, key: str):
+        seen = set()
+        while key is not None and key not in seen:
+            seen.add(key)
+            yield key
+            key = self.systems[key][3]
+
+    def _down(self, key: str):
+        seen, todo = {key}, [key]
+        while todo:
+            k = todo.pop()
+            yield k
+            for c in self.children.get(k, ()):
+                if c not in seen:
+                    seen.add(c)
+                    todo.append(c)
+
+
+def home_of(cands: list, nest: Nesting) -> Optional[str]:
     """The candidate that encloses all the others, or None."""
-    return next((c for c in cands if all(c in ancestors(o, systems) for o in cands)), None)
+    return next((c for c in cands if all(nest.encloses(c, o) for o in cands)), None)
 
 
 def resolve_homes(lay: Layout, actors: frozenset = frozenset()) -> tuple:
@@ -813,9 +944,10 @@ def resolve_homes(lay: Layout, actors: frozenset = frozenset()) -> tuple:
     of which encloses the rest, it lives in the nearest system enclosing them all
     (and no level refers to it into a nested one, see reference_only)."""
     homes, shared = {}, {}
+    nest = Nesting(lay.systems, fixed=True)
     for nid in lay.candidates:
-        cands = home_candidates(lay, nid)
-        home = home_of(cands, lay.systems)
+        cands = home_candidates(lay, nid, nest)
+        home = home_of(cands, nest)
         if home is None and nid in actors:
             home = enclosing(cands, lay.systems)
         if home is None:
@@ -874,26 +1006,33 @@ def make_component(nid: str, insts: list, lines: tuple, facts: Facts) -> Compone
     """The component of node `nid` (its Node instances, one per graph it is in;
     `lines`: the lines it is written on)."""
     n, lay = insts[0], facts.lay
+    found = facts.found
+    own = found.flows.get(nid, ())
     return Component(
         id=nid, name=n.name, kind=n.kind, glyph=glyph(insts, facts.kinds),
         home=facts.homes.get(nid, lay.top),
         systems=tuple(lay.candidates.get(nid, (lay.top,))),
-        description=description(facts.graph, nid, facts.flow_lines)
+        description=description(found, nid, facts.flow_lines)
         + tuple(facts.field_notes.get(nid, ())),
-        flows=tuple(f for f in facts.flows if nid in (f.src, f.dst)),
+        flows=tuple(own),
         modifiers=tuple(sorted({norm_mod(m) for i in insts for m in i.mods},
                                key=_mod_key)),
-        access=granted_access(facts.graph, nid, facts.glyphs),
-        accepts=tuple(a.text for a in facts.accepts
-                      if not a.document and set(lines) & a.span
-                      and facts.unit_acks.get(a, lay.by_face.get(nid)) ==
+        access=granted_access(found, nid, facts.glyphs),
+        accepts=tuple(a.text for a in accepts_on(facts, lines)
+                      if facts.unit_acks.get(a, lay.by_face.get(nid)) ==
                       lay.by_face.get(nid)),
         lifecycle=lifecycle(lay.machines.get(nid)),
         lines=lines,
         attrs=merged_attrs(insts),
-        shapes=shapes_of(facts, [d for f in facts.flows if nid in (f.src, f.dst)
-                                 for d in flow_data(f, facts.nodes)] + [nid],
-                         held_data(facts.graph, nid, facts.nodes, deep=False)))
+        shapes=shapes_of(facts, [d for f in own for d in flow_data(f, facts.nodes)] + [nid],
+                         found.children.get(nid, ())))
+
+
+def accepts_on(facts: Facts, lines: tuple) -> list:
+    """The acknowledgements (not document-wide) whose span holds one of `lines`,
+    in facts.accepts order."""
+    at = facts.found.acks
+    return [facts.accepts[i] for i in sorted({i for ln in lines for i in at.get(ln, ())})]
 
 
 def merged_attrs(insts: list) -> dict:
@@ -906,12 +1045,13 @@ def merged_attrs(insts: list) -> dict:
     return out
 
 
-def description(graph, nid: str, flow_lines: frozenset = frozenset()) -> tuple:
-    """The texts of the notes about a node, in line order, acknowledgements aside;
-    `flow_lines`: the lines whose trailing comment describes the flows they drew
-    (flow_note_lines), so not the line's first node."""
-    notes = sorted((n for g in walk(graph) for n in g.notes if n.node == nid
-                    and not (n.kind == "inline" and n.edges and n.line in flow_lines)),
+def description(found: Index, nid: str, flow_lines: frozenset = frozenset()) -> tuple:
+    """The texts of the notes about a node (`found`: the document's Index), in
+    line order, acknowledgements aside; `flow_lines`: the lines whose trailing
+    comment describes the flows they drew (flow_note_lines), so not the line's
+    first node."""
+    notes = sorted((n for n in found.notes.get(nid, ())
+                    if not (n.kind == "inline" and n.edges and n.line in flow_lines)),
                    key=lambda n: n.line)
     return _dedup(ws(n.text) for n in notes if not is_ack_text(n.text))
 
@@ -952,15 +1092,14 @@ def is_ack_text(text: str) -> bool:
     return text.strip().startswith("accepts:")
 
 
-def granted_access(graph, nid: str, glyphs: dict) -> tuple:
-    """(mode, store glyph) for every access a store grants this principal."""
+def granted_access(found: Index, nid: str, glyphs: dict) -> tuple:
+    """(mode, store glyph) for every access a store grants this principal
+    (`found`: the document's Index)."""
     out = set()
-    for g in walk(graph):
-        for a in g.access:
-            if a.principal == nid:
-                store = glyphs.get(a.store) if a.store else ws(a.store_name)
-                mode = f"{a.mode}({a.narrow})" if a.narrow else a.mode
-                out.add((mode, store or ""))
+    for a in found.access.get(nid, ()):
+        store = glyphs.get(a.store) if a.store else ws(a.store_name)
+        mode = f"{a.mode}({a.narrow})" if a.narrow else a.mode
+        out.add((mode, store or ""))
     return tuple(sorted(out))
 
 
@@ -1156,7 +1295,7 @@ def make_systems(facts: Facts, components: dict, inside: dict) -> dict:
     """Every system with its members, boundary, flows, blocks and dependencies
     (no hashes: sigil.publish.systems adds them); the top one also holds the
     document-wide acknowledgements."""
-    lay, flows, graph = facts.lay, facts.flows, facts.graph
+    lay, flows, found = facts.lay, facts.flows, facts.found
     doc_accepts = tuple(a.text for a in facts.accepts if a.document)
     unit_accepts = {}
     for a in facts.accepts:
@@ -1164,26 +1303,33 @@ def make_systems(facts: Facts, components: dict, inside: dict) -> dict:
             _add(unit_accepts, facts.unit_acks[a], a.text)
     deps = dependencies(lay, flows, inside,
                         frozenset(nid for nid, c in components.items() if c.kind == "actor"))
+    members, interface, internal = {}, {}, {}
+    for nid, c in components.items():
+        members.setdefault(c.home, []).append(nid)
+    for f in flows:                     # in document order, each to its systems
+        a, b = inside[f.src], inside[f.dst]
+        for key in sorted(a & b, key=repr):
+            internal.setdefault(key, []).append(f)
+        if crossing(f, inside):
+            for key in sorted(a ^ b, key=repr):
+                interface.setdefault(key, []).append(f)
     out = {}
     for key, (name, kind, face, parent) in lay.systems.items():
         sysm = System(
             key=key, name=name, kind=kind, face=face, parent=parent,
-            members=tuple(nid for nid, c in components.items() if c.home == key),
-            description=system_description(graph, lay, key, face,
+            members=tuple(members.get(key, ())),
+            description=system_description(found, lay, key, face,
                                            facts.flow_lines),
-            interface=tuple(f for f in flows
-                            if crossing(f, inside)
-                            and (key in inside[f.src]) != (key in inside[f.dst])),
-            internal=tuple(f for f in flows
-                           if key in inside[f.src] and key in inside[f.dst]),
-            blocks=system_blocks(graph, lay, key),
+            interface=tuple(interface.get(key, ())),
+            internal=tuple(internal.get(key, ())),
+            blocks=system_blocks(found, lay, key),
             depends_on=tuple(sorted(deps.get(key, ()))),
             accepts=doc_accepts if kind == "top" else tuple(unit_accepts.get(key, ())),
-            declarations=system_declarations(graph, lay, key))
+            declarations=system_declarations(found, lay, key))
         holder = face if face is not None else lay.top_face if kind == "top" else None
         sysm = replace(sysm, shapes=shapes_of(
             facts, [d for f in sysm.interface for d in flow_data(f, facts.nodes)],
-            held_data(graph, holder, facts.nodes) if holder is not None else ()))
+            held_data(found, holder) if holder is not None else ()))
         out[key] = sysm
     return out
 
@@ -1199,8 +1345,9 @@ def dependencies(lay: Layout, flows: list, inside: dict,
         if parent is not None and parent != key:
             _add(deps, parent, key)
     parents = {key: sysm[3] for key, sysm in lay.systems.items()}
+    nest = Nesting(lay.systems, fixed=True)
     for f in flows:
-        for sa, sb in payload_dependencies(f, inside, lay.by_face, parents, actors):
+        for sa, sb in payload_dependencies(f, inside, lay.by_face, parents, actors, nest):
             _add(deps, sa, sb)
         if f.src in actors or f.dst in actors:
             continue
@@ -1214,7 +1361,8 @@ def dependencies(lay: Layout, flows: list, inside: dict,
 
 
 def payload_dependencies(f: Flow, inside: dict, faces: dict, parents: dict,
-                         actors: frozenset = frozenset()) -> list:
+                         actors: frozenset = frozenset(),
+                         nest: Optional[Nesting] = None) -> list:
     """[(system, system it depends on)] for the data f carries: a `{D}` named in
     its payload, op arguments or return that is a component (written somewhere
     as a part, so it has a home) makes each end's systems depend on the systems
@@ -1222,7 +1370,8 @@ def payload_dependencies(f: Flow, inside: dict, faces: dict, parents: dict,
     unless that system is the end's own or encloses it. A {D} named only in
     payloads has no home, and makes no dependency. An actor end depends on
     nothing (it is not built); the other end still depends on what it carries.
-    `faces`: {face node id: its system}; `parents`: {system: its parent}."""
+    `faces`: {face node id: its system}; `parents`: {system: its parent};
+    `nest`: the same nesting as a Nesting, when the caller has one (faster)."""
     out = []
     for nid in carried_data(f):
         if nid not in inside:
@@ -1232,7 +1381,8 @@ def payload_dependencies(f: Flow, inside: dict, faces: dict, parents: dict,
                 continue
             for sa in inside[end]:
                 for sb in ({faces[nid]} if nid in faces else inside[nid]):
-                    if sb not in lineage(sa, parents):
+                    if not (nest.encloses(sb, sa) if nest is not None
+                            else sb in lineage(sa, parents)):
                         out.append((sa, sb))
     return out
 
@@ -1240,9 +1390,10 @@ def payload_dependencies(f: Flow, inside: dict, faces: dict, parents: dict,
 def lineage(key: str, parents: dict) -> list:
     """key, its parent, … up to the top, from {system: parent} (a cycle stops
     the walk)."""
-    out = []
-    while key is not None and key not in out:
+    out, seen = [], set()
+    while key is not None and key not in seen:
         out.append(key)
+        seen.add(key)
         key = parents.get(key)
     return out
 
@@ -1285,20 +1436,11 @@ def is_data(nid: str, nodes: Mapping) -> bool:
 # describes has an interface). Fields are sorted by name: the order they are
 # written in moves no hash.
 
-def held_data(graph, nid: str, nodes: Mapping, deep: bool = True) -> list:
+def held_data(found: Index, nid: str, deep: bool = True) -> list:
     """The data glyphs the trees node `nid` roots hold: every `\\-&` data entry
     below it (deep), or only its own children (not deep), first written first;
-    `nodes`: component_nodes."""
-    out = []
-    for g in walk(graph):
-        roots = tree_roots(g.tree)
-        for i, e in enumerate(g.tree):
-            if e.rel != "&" or e.parent is None or not is_data(e.node, nodes):
-                continue
-            top = g.tree[roots[i]].node if deep else g.tree[e.parent].node
-            if top == nid and e.node not in out:
-                out.append(e.node)
-    return out
+    `found`: the document's Index (index_of reads them)."""
+    return list((found.held if deep else found.children).get(nid, ()))
 
 
 def shapes_of(facts: Facts, carried: Iterable[str], held: Iterable[str]) -> tuple:
@@ -1340,28 +1482,29 @@ def reached(nid: str, lay: Layout, inside: dict) -> frozenset:
     return frozenset({key}) if key is not None else inside[nid]
 
 
-def system_description(graph, lay: Layout, key: str, face: Optional[str],
+def system_description(found: Index, lay: Layout, key: str, face: Optional[str],
                        flow_lines: frozenset = frozenset()) -> tuple:
     """The top level's document header; an expansion's body header notes; and
     the face's own description (the top's face's too; `flow_lines` as description)."""
-    texts = [n.text for g in walk(graph) if lay.graph_system.get(id(g)) == key
-             and (g is graph or lay.systems[key][1] == "expansion")
+    top = found.graphs[0]
+    texts = [n.text for g in found.by_system.get(key, ())
+             if g is top or lay.systems[key][1] == "expansion"
              for n in g.notes if n.node is None and n.block is None]
     if face is not None:
-        texts += description(graph, face, flow_lines)
+        texts += description(found, face, flow_lines)
     return _dedup(ws(t) for t in texts if not is_ack_text(t))
 
 
-def system_declarations(graph, lay: Layout, key: str) -> tuple:
+def system_declarations(found: Index, lay: Layout, key: str) -> tuple:
     """The `#&` declarations written in system `key`'s scope, by line."""
-    return tuple(sorted((d for g in walk(graph) if lay.graph_system.get(id(g)) == key
+    return tuple(sorted((d for g in found.by_system.get(key, ())
                          for d in g.declarations), key=lambda d: d.line))
 
 
-def system_blocks(graph, lay: Layout, key: str) -> tuple:
+def system_blocks(found: Index, lay: Layout, key: str) -> tuple:
     return tuple(sorted({(b.kind, tight(b.header),
                           tuple(sorted({norm_mod(m) for m in b.modifiers}, key=_mod_key)))
-                         for g in walk(graph) if lay.graph_system.get(id(g)) == key
+                         for g in found.by_system.get(key, ())
                          for b in g.blocks}, key=repr))
 
 

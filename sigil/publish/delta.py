@@ -33,6 +33,7 @@ delta_note are what the exporter deletes and prints.
 from __future__ import annotations
 
 import re
+from collections import Counter
 from typing import Optional
 
 
@@ -65,7 +66,7 @@ def manifest_problem(obj) -> Optional[str]:
         if not _FOLDER_RE.fullmatch(e["path"]):
             return f"system {key!r} has folder {e['path']!r}, no slug"
     folders = [e["path"] for e in systems.values()]
-    for path in sorted({p for p in folders if folders.count(p) > 1}):
+    for path in sorted(p for p, n in Counter(folders).items() if n > 1):
         return f"two systems share folder {path!r}"   # a delete would reach the other's files
     return None
 
@@ -78,7 +79,8 @@ def delta(old: Optional[dict], new: dict) -> dict:
     moved = top_renamed(old, new)
     if moved:
         olds = {(moved["to"] if k == moved["from"] else k): e for k, e in olds.items()}
-    systems = {k: with_move(system_delta(k, olds, news), olds.get(k), news[k])
+    spans = nesting_spans(news)
+    systems = {k: with_move(system_delta(k, olds, news, spans), olds.get(k), news[k])
                for k in news}
     systems.update({k: {"status": "removed", "old": hashes(olds[k]), "new": None}
                     for k in sorted(olds) if k not in news})
@@ -116,11 +118,13 @@ def top_renamed(old: Optional[dict], new: dict) -> Optional[dict]:
     return {"from": was, "to": now}
 
 
-def system_delta(key: str, olds: dict, news: dict) -> dict:
+def system_delta(key: str, olds: dict, news: dict,
+                 spans: Optional[dict] = None) -> dict:
     """One system of the new export against the old: added, rebuild (its body
     changed), recheck or unchanged. A recheck's `because` names the changed
     systems it depends on, then those it inherits (inherited_changes); `via`
-    maps each inherited one to the enclosing system it came through."""
+    maps each inherited one to the enclosing system it came through. `spans`:
+    nesting_spans(news), when the caller has it (faster)."""
     old, new = olds.get(key), news[key]
     entry = {"old": hashes(old), "new": hashes(new)}
     if old is None:
@@ -128,7 +132,7 @@ def system_delta(key: str, olds: dict, news: dict) -> dict:
     if old["body"] != new["body"]:
         return {"status": "rebuild", **entry}
     because = [d for d in new["depends_on"] if interface_changed(d, olds, news)]
-    via = {d: up for d, up in inherited_changes(key, olds, news).items()
+    via = {d: up for d, up in inherited_changes(key, olds, news, spans).items()
            if d not in because}
     if because or via:
         return {"status": "recheck", **entry, "because": because + list(via),
@@ -136,7 +140,8 @@ def system_delta(key: str, olds: dict, news: dict) -> dict:
     return {"status": "unchanged", **entry}
 
 
-def inherited_changes(key: str, olds: dict, news: dict) -> dict:
+def inherited_changes(key: str, olds: dict, news: dict,
+                      spans: Optional[dict] = None) -> dict:
     """{changed system: the nearest enclosing system it came through} for system
     `key`: each system an enclosing system of `key` (its parent, its parent's
     parent, …, read from the new manifest's `parent`) depends on, outside that
@@ -145,7 +150,7 @@ def inherited_changes(key: str, olds: dict, news: dict) -> dict:
     out = {}
     for up in enclosing(key, news):
         for d in news[up]["depends_on"]:
-            if d not in out and d != key and not within(d, up, news) \
+            if d not in out and d != key and not within(d, up, news, spans) \
                     and interface_changed(d, olds, news):
                 out[d] = up
     return out
@@ -154,16 +159,54 @@ def inherited_changes(key: str, olds: dict, news: dict) -> dict:
 def enclosing(key: str, news: dict) -> list:
     """The systems enclosing `key`, nearest first (its parent, …): none when the
     manifest has no `parent` fields (an export before 0.6.5)."""
-    out, k = [], news.get(key, {}).get("parent")
-    while k in news and k != key and k not in out:
-        out.append(k)
+    return list(_ups(key, news))
+
+
+def _ups(key: str, news: dict):
+    """The systems enclosing `key`, nearest first, one at a time (a cycle, or a
+    parent the manifest lacks, ends the walk)."""
+    seen, k = set(), news.get(key, {}).get("parent")
+    while k in news and k != key and k not in seen:
+        yield k
+        seen.add(k)
         k = news[k].get("parent")
-    return out
 
 
-def within(key: str, up: str, news: dict) -> bool:
-    """Whether system `key` is `up` or nested (at any depth) under it."""
-    return key == up or up in enclosing(key, news)
+def within(key: str, up: str, news: dict, spans: Optional[dict] = None) -> bool:
+    """Whether system `key` is `up` or nested (at any depth) under it; `spans`:
+    nesting_spans(news), which answers in one step where it reaches both."""
+    if key == up:
+        return True
+    a, b = (spans.get(up), spans.get(key)) if spans else (None, None)
+    if a is not None and b is not None:
+        return a[0] < b[0] and b[1] <= a[1]
+    return any(k == up for k in _ups(key, news))
+
+
+def nesting_spans(news: dict) -> dict:
+    """{system: (entered, left)} in a depth-first walk of the manifest's nesting
+    (`parent`, as _ups reads it), from each system with no parent in it: `key`
+    is nested under `up` when up's span holds key's. A system on a cycle of
+    parents is never reached, and within walks for it."""
+    children: dict = {}
+    for k, e in news.items():
+        p = e.get("parent")
+        if p in news and p != k:
+            children.setdefault(p, []).append(k)
+    span, clock = {}, 0
+    for root in (k for k, e in news.items() if e.get("parent") not in news
+                 or e.get("parent") == k):
+        todo = [(root, False)]
+        while todo:
+            k, done = todo.pop()
+            if done:
+                span[k] = (span[k][0], clock)
+                continue
+            span[k] = (clock, None)
+            clock += 1
+            todo.append((k, True))
+            todo += [(c, False) for c in reversed(children.get(k, ()))]
+    return span
 
 
 def interface_changed(key: str, olds: dict, news: dict) -> bool:
