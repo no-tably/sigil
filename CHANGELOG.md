@@ -50,6 +50,8 @@ stay fast on very large input.
 - **The page's theme reader** has the same limits as sigil's (nesting depth, an
   `extends` chain, 1 MiB, UTF-8) and sets only the entries sigil's own theme reader
   accepts, so a malformed theme can't inject CSS.
+- **Out of memory** is a one-line message (exit 2), not a Python traceback. Lower the
+  run limits (`--limit`, or the `#%` line) for very large input.
 
 ### Docs
 

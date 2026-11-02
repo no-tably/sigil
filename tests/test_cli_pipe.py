@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -109,6 +110,17 @@ class InProcessTest(unittest.TestCase):
         with contextlib.redirect_stdout(Gone()), contextlib.redirect_stderr(err):
             self.assertEqual(cli.main(["themes"]), 1)
         self.assertEqual(err.getvalue(), "")
+
+    def test_out_of_memory_is_a_message(self):
+        """A run that runs out of memory exits 2 with one line, no traceback."""
+        def starved(args, dialect):
+            raise MemoryError
+        err = io.StringIO()
+        with mock.patch.dict(cli.COMMANDS, {"check": starved}), \
+                contextlib.redirect_stderr(err):
+            self.assertEqual(cli.main(["check", "x.sigil"]), 2)
+        self.assertIn("out of memory", err.getvalue())
+        self.assertNotIn("Traceback", err.getvalue())
 
 
 if __name__ == "__main__":

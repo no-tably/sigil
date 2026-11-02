@@ -911,6 +911,9 @@ def main(argv=None, dialect=None) -> int:
     except DialectError as exc:            # a dialect hook broke its contract mid-read
         say(argv[0], str(exc))
         return 2
+    except MemoryError:                    # the stack unwound: what it held is free again
+        say(argv[0], "out of memory; lower the run limits (--limit, or the #% line)")
+        return 2
 
 
 def version_line() -> str:
