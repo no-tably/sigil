@@ -75,6 +75,15 @@ Anything else exits 2 with `sigil CMD: cannot read F: not UTF-8 (line N: …)` o
 `… larger than 64 MiB …`; the live view keeps its last drawing and shows the
 message instead.
 
+**Names in text and in JSON.** A name holding a control or format character (lint's
+SGL195) is printed escaped wherever sigil writes text for a person: the views, lint
+and check lines, narration, `--structure`, Mermaid, highlight's ANSI. JSON outputs
+(`check --json`, `view --structure --json`, `--sim … --json`, `--run --json`,
+`highlight --json` and `--stream`, export's `system.json`, `manifest.json` and
+`delta.json`) keep every name raw, on purpose: JSON escapes the controls itself,
+and a name read back must be the name written. A consumer escapes a name when it
+displays one.
+
 ## `sigil lint FILE|-`
 
 Validates a document and prints one `severity:line:rule: message` line per issue.
@@ -1079,8 +1088,10 @@ checked and nothing else is read but the theme and the dialect.
   Sigil), or any of them together; the answer echoes `id` and holds the runs and end
   carries in `--json`'s shape, the theme or dialect now in use, or only `error` for a
   request that fails (which changes nothing; the loop goes on), a JSON line nested
-  too deep to read included. The full protocol is
-  in `sigil highlight --help`.
+  too deep to read included. A request line longer than 128 MiB of characters (room
+  for any document under the 64 MiB cap, its JSON escapes included) is read no
+  further: it is skipped to its end and answered `{"id": null, "error": …}`, and the
+  loop goes on. The full protocol is in `sigil highlight --help`.
 
 **The carry.** Three things in Sigil span lines: a `"""…"""` block string, a `#&`
 declaration's `{ … }` body, and a `state` block. A line's carry, `[quote, decl,

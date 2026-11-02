@@ -242,6 +242,13 @@ def emit_graph(graph: Graph, depth: int = 1, indent: str = "    ", depth_so_far:
     return body
 
 
+def _draws_inside(sub: Graph) -> bool:
+    """An expansion with something to draw inside its subgraph: a node, a flow or
+    a tree. A body-less shape (`{Doc} := { }`, or fields only: a field is never a
+    node) has none, so it is drawn as its node, not as an empty subgraph."""
+    return bool(sub.nodes or sub.edges or sub.tree)
+
+
 def _emit_composed(graph: Graph, depth: int, indent: str, depth_so_far: int, dialect) -> str:
     """Composition as subgraphs: one Mermaid node per occurrence; flows fan out to
     every occurrence of a bare name, or to the path-matching ones."""
@@ -260,7 +267,7 @@ def _emit_composed(graph: Graph, depth: int, indent: str, depth_so_far: int, dia
         oid, _chain = occ[i]
         n = graph.nodes[graph.tree[i].node]
         expand = (n.id in graph.expansions and depth_so_far < depth
-                  and n.id not in shown_internals)
+                  and n.id not in shown_internals and _draws_inside(graph.expansions[n.id]))
         if kids.get(i) or expand:
             lines.append(f'{ind}subgraph {oid}["{mermaid_text(node_label(n, dialect))}"]')
             lines.append(f"{ind}    direction TB")
@@ -327,7 +334,8 @@ def _emit_flat(graph: Graph, depth: int = 1, indent: str = "    ", depth_so_far:
 
     # First pass: figure out which nodes are being expanded
     for node in graph.nodes.values():
-        if depth_so_far < depth and node.id in graph.expansions:
+        if (depth_so_far < depth and node.id in graph.expansions
+                and _draws_inside(graph.expansions[node.id])):
             expanded_ids.add(node.id)
 
     # Emit nodes — flat ones first, subgraphs after

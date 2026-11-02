@@ -78,8 +78,11 @@
   // Exactly the subset sigil/present/themes.py reads (its module docstring is the contract;
   // tests/fixtures/yaml_cases.json checks both): nested maps, plain / "JSON-
   // escaped" / 'single-quoted' scalars, # comments, space indentation. Lists,
-  // flow collections, tabs in the indent, duplicate and empty keys are errors.
+  // flow collections, tabs in the indent, duplicate and empty keys are errors, and so
+  // are maps nested more than MAX_DEPTH deep (themes.py's limit).
   // Maps have no prototype, so a key like __proto__ is just a key.
+
+  const MAX_DEPTH = 16;                                // as themes.MAX_DEPTH
 
   // What Python's str.isspace() calls whitespace (BMP), for the indent check.
   const PY_SPACE = /[\t\n\v\f\r\x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/;
@@ -165,6 +168,7 @@
         const [pIndent, pMap, pKey] = pending;
         pending = null;
         if (indent > pIndent) {                        // deeper: `key:` opens a map
+          if (stack.length > MAX_DEPTH) throw new Error(`${where}: maps nested more than ${MAX_DEPTH} deep`);
           pMap[pKey] = Object.create(null);
           stack.push([indent, pMap[pKey]]);
         }
@@ -197,37 +201,115 @@
     return out;
   };
 
+  // The limits and readings of themes.py: a file over MAX_BYTES or not UTF-8, an
+  // `extends` chain of more than MAX_EXTENDS themes, a palette cycle or unknown $name
+  // are errors (the theme is not applied); an entry sigil's own theme would not read
+  // (themes.problems) sets no variable, so the page keeps sigil's own value there.
+  const MAX_EXTENDS = 16;                              // as themes.MAX_EXTENDS
+  const MAX_BYTES = 1024 * 1024;                       // as themes.MAX_BYTES
+  const HEX = /^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/;  // as themes.HEX_RE
+  const CSS_NAME = /^[A-Za-z0-9_-]+$/;                 // a key that names a CSS variable
+  const CSS_VALUE = /^[^;{}]+$/;                       // as build_site.theme_css
+  const isMap = (v) => v !== null && typeof v === "object";
+  const own = (map, key) => Object.prototype.hasOwnProperty.call(map, key);
+
+  /** A theme file's text, as themes.load_raw reads it. */
+  async function themeText(res, source) {
+    const buf = await res.arrayBuffer();
+    if (buf.byteLength > MAX_BYTES) throw new Error(`${source}: larger than ${MAX_BYTES} bytes; not a theme`);
+    try {
+      return new TextDecoder("utf-8", { fatal: true }).decode(buf);
+    } catch {
+      throw new Error(`${source}: cannot read theme: not UTF-8`);
+    }
+  }
+
   async function loadThemeRaw(name, seen = []) {
     if (seen.includes(name)) throw new Error(`theme extends cycle at ${name}`);
+    if (seen.length >= MAX_EXTENDS) throw new Error(`${name}.yaml: an extends chain longer than ${MAX_EXTENDS} themes`);
     const res = await fetch(`themes/${encodeURIComponent(name)}.yaml`);
     if (!res.ok) throw new Error(`theme ${name}: HTTP ${res.status}`);
-    let theme = parseYaml(await res.text(), `${name}.yaml`);
-    if (theme.extends) {
-      const parent = await loadThemeRaw(theme.extends, [...seen, name]);
-      delete theme.extends;
-      theme = merge(parent, theme);
-    }
+    let theme = parseYaml(await themeText(res, `${name}.yaml`), `${name}.yaml`);
+    const parent = theme.extends;
+    delete theme.extends;
+    if (isMap(parent)) throw new Error(`${name}.yaml: extends must be a theme name or path, not a map`);
+    if (parent) theme = merge(await loadThemeRaw(parent, [...seen, name]), theme);
     return theme;
   }
 
+  /** The theme with every "$name" replaced by palette.name, as themes.resolve does. */
+  function resolveTheme(theme, source) {
+    const palette = own(theme, "palette") ? theme.palette : Object.create(null);
+    if (!isMap(palette)) throw new Error(`${source}: palette must be a map of name: colour`);
+    const colour = (value) => {
+      const seen = new Set();
+      while (typeof value === "string" && value.startsWith("$")) {
+        const name = value.slice(1);
+        if (seen.has(name)) throw new Error(`${source}: palette cycle through $${name}`);
+        if (!own(palette, name)) throw new Error(`${source}: unknown palette colour $${name}`);
+        value = palette[name];
+        if (typeof value !== "string") throw new Error(`${source}: palette.${name} is a map, not a colour`);
+        seen.add(name);
+      }
+      return value;
+    };
+    const walk = (node) => {
+      if (!isMap(node)) return colour(node);
+      const out = Object.create(null);
+      for (const [k, v] of Object.entries(node)) out[k] = walk(v);
+      return out;
+    };
+    return walk(theme);
+  }
+
+  /** A number from 0 to 1 (themes._fraction), else null. */
+  function fraction(text) {
+    const k = typeof text === "string" && text.trim() ? Number(text) : NaN;
+    return k >= 0 && k <= 1 ? k : null;
+  }
+
+  /** [CSS property, value] for each entry of a raw theme that sigil's own resolved
+      theme `ref` reads (themes.problems): a section of it, a role of it (any role in
+      palette and kinds), a colour where sigil's is one, a number from 0 to 1 where
+      sigil's is one, never a value that could leave its declaration. A $ref stays
+      var(--palette-…), so a role follows its palette colour. Throws as resolveTheme. */
+  function themeVars(raw, ref, source) {
+    const resolved = resolveTheme(raw, source);
+    const out = [];
+    for (const [section, entries] of Object.entries(raw)) {
+      const known = own(ref, section) ? ref[section] : null;
+      if (!isMap(entries) || !isMap(known) || !CSS_NAME.test(section)) continue;
+      const anyRole = section === "palette" || section === "kinds";
+      for (const [role, value] of Object.entries(entries)) {
+        if (typeof value !== "string" || !CSS_NAME.test(role)) continue;
+        if (!own(known, role) && !anyRole) continue;
+        const like = own(known, role) ? known[role] : "#000000";
+        const got = resolved[section][role];
+        if (typeof like !== "string") continue;
+        if (HEX.test(like) && !HEX.test(got)) continue;
+        if (fraction(like) !== null && fraction(got) === null) continue;
+        if (!CSS_VALUE.test(value)) continue;
+        if (value.startsWith("$") && !CSS_NAME.test(value.slice(1))) continue;
+        const css = value.startsWith("$") ? `var(--palette-${value.slice(1)})` : value;
+        out.push([`--${section}-${role.replace(/_/g, "-")}`, css]);
+      }
+    }
+    return out;
+  }
+
   let appliedVars = [];
-  function applyTheme(theme) {
+  function applyTheme(theme, ref, source) {
+    const vars = themeVars(theme, ref, source);        // throws before anything changes
     const style = document.documentElement.style;
     appliedVars.forEach((v) => style.removeProperty(v));
     appliedVars = [];
     style.colorScheme = "";
-    for (const [section, entries] of Object.entries(theme)) {
-      if (!entries || typeof entries !== "object") continue;
-      for (const [key, value] of Object.entries(entries)) {
-        if (typeof value !== "string") continue;
-        const prop = `--${section}-${key.replace(/_/g, "-")}`;
-        const css = value.startsWith("$") ? `var(--palette-${value.slice(1)})` : value;
-        style.setProperty(prop, css);
-        appliedVars.push(prop);
-      }
+    for (const [prop, css] of vars) {
+      style.setProperty(prop, css);
+      appliedVars.push(prop);
     }
     if (theme.type === "dark" || theme.type === "light") style.colorScheme = theme.type;
-    document.documentElement.dataset.theme = theme.name || "";
+    document.documentElement.dataset.theme = typeof theme.name === "string" ? theme.name : "";
   }
 
   async function initThemes() {
@@ -236,19 +318,21 @@
     try {
       const res = await fetch("themes/index.yaml");
       if (res.ok) {
-        const index = parseYaml(await res.text(), "index.yaml").themes || {};
+        const index = parseYaml(await themeText(res, "index.yaml"), "index.yaml").themes || {};
         select.innerHTML = Object.entries(index)
           .map(([name, label]) => `<option value="${esc(name)}">${esc(label)}</option>`).join("");
       }
     } catch { /* keep the built-in option */ }
+    let ref = null;                                    // sigil's own theme, resolved: what a theme may set
+    const sigilRef = async () => ref || (ref = resolveTheme(await loadThemeRaw("sigil"), "sigil.yaml"));
     const wanted = new URLSearchParams(location.search).get("theme") || store.get("sigil-theme") || "sigil";
     if ([...select.options].some((o) => o.value === wanted)) select.value = wanted;
     const use = async (name, save) => {
       const id = ++request;
       try {
-        const theme = await loadThemeRaw(name);
+        const [base, theme] = await Promise.all([sigilRef(), loadThemeRaw(name)]);
         if (id !== request) return;
-        applyTheme(theme);
+        applyTheme(theme, base, `${name}.yaml`);
         if (save) store.set("sigil-theme", name);     // only a choice made here, not ?theme=
       } catch (err) {
         console.warn(err);

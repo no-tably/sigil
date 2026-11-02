@@ -741,6 +741,8 @@ line on stdout (flushed), until stdin ends (exit 0):
   {"id": ANY, "dialect": NAME|PATH|null}
     -> {"id": ANY, "dialect": NAME|null[, "theme": NAME]}
   anything malformed                -> {"id": ANY|null, "error": "..."}
+  a request line over 128 MiB of characters (twice the document size cap)
+                                    -> {"id": null, "error": "..."}, skipped
 A request may hold dialect, theme and lines together: the dialect switches
 first, then the theme, then the lines are highlighted with both; the answer
 holds a key for each part. A request that fails in any part answers only
@@ -781,6 +783,11 @@ def carry_json(carry) -> list:
 
 
 MAX_CARRY_DEPTH = MAX_SOURCE_BYTES   # a brace depth no document under the size cap reaches
+# A --stream request line longer than this (characters) is answered with an error
+# and skipped (the session goes on): room for any document under the size cap,
+# its JSON escapes included, without reading an endless line into memory.
+MAX_REQUEST_CHARS = 2 * MAX_SOURCE_BYTES
+_DRAIN_CHARS = 1 << 20                # a long line is skipped this many characters at a time
 _LINE_END_KEPT_RE = re.compile(r"(\r\n|\r|\n)")   # lex.split_lines' line ends, kept
 
 
@@ -960,15 +967,31 @@ def _stream_lines(req: dict, theme: dict, lx: Lexicon) -> dict:
 
 
 def stream(session: StreamSession, inp, out) -> int:
-    """The --stream loop: a response per non-blank request line, flushed, until EOF."""
+    """The --stream loop: a response per non-blank request line, flushed, until EOF.
+    A line over MAX_REQUEST_CHARS is read no further than that: it is skipped to
+    its end and answered with an error, and the session goes on."""
     while True:
-        raw = inp.readline()
+        cap = MAX_REQUEST_CHARS
+        raw = inp.readline(cap + 1)
         if not raw:
             return 0
-        if not raw.strip():
+        if len(raw) > cap and not raw.endswith("\n"):
+            _skip_line(inp)
+            said = {"id": None, "error": f"a request line longer than {cap} characters"}
+        elif not raw.strip():
             continue
-        out.write(json.dumps(session.answer(raw)) + "\n")
+        else:
+            said = session.answer(raw)
+        out.write(json.dumps(said) + "\n")
         out.flush()
+
+
+def _skip_line(inp) -> None:
+    """Read `inp` to the end of the line it is in (or to EOF), a piece at a time."""
+    while True:
+        piece = inp.readline(_DRAIN_CHARS)
+        if not piece or piece.endswith("\n"):
+            return
 
 
 def serve(inp, out, theme: dict, name: str, lx: Lexicon, dialect=None,
