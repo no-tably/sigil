@@ -23,26 +23,21 @@ load(spec, dialect): an explicit spec (--theme) wins, then env SIGIL_THEME (the
 person's choice), then the dialect's THEME hook (sigil.core.dialects.theme_hook:
 a name, or a path taken against the dialect module's folder), read exactly as
 any theme file is, else "sigil".
-`sigil themes` itself loads no dialect. Standard library only.
+`sigil themes` itself loads no dialect. Standard library and the vendored cure.
 
-The YAML subset (the site's JavaScript parser implements the same rules):
-  - "\\r\\n" becomes "\\n", then lines split on "\\n" only; a leading BOM is ignored.
-  - Indentation is spaces only: a tab or any other whitespace in it is an error.
-    Trailing spaces/tabs are dropped; blank and comment-only lines are skipped.
-  - A comment starts at "#" at line start or after a space/tab, outside quotes
-    (a quote opens only at line start or after a space, tab or colon).
-  - Each line is `key: value` or `key:` (the colon is followed by a space or
-    ends the line). Keys and values are plain, "double-" or 'single-quoted'.
-  - Double-quoted scalars follow JSON string rules (not YAML's): \\" and the
-    other JSON escapes; \\" does not end the string.
-  - Single-quoted scalars write a quote as '' (which does not end the string,
-    in keys and values alike) and must be closed, with nothing after the close.
-  - `key:` with no value followed by deeper-indented lines is a map; otherwise
-    its value is "". Siblings share one indent; top-level keys are at column 0.
-  - Errors: duplicate key, empty key, a line that is "-" or starts with "- ",
-    "[" or "{" (lists / flow collections), inconsistent indentation, maps
-    nested more than MAX_DEPTH (16) deep, an `extends` chain of more than
-    MAX_EXTENDS (16) themes.
+The grammar is cure's (cure.draw.theme.parse, the one theme reader sigil and
+construct share; its docstring is the contract, and the site's JavaScript parser
+follows the same rules): nested maps by space indentation, plain / "JSON-escaped" /
+'single-quoted' scalars, # comments; keys are dot-joined segments of ASCII letters,
+digits, _ and - (`a.b: x` is `a:` / `  b: x`); a plain value starting with # (a
+colour YAML reads as a comment) or with a YAML indicator must be quoted; control
+characters, lists, flow collections, tabs in the indent, duplicate keys and
+inconsistent indentation are errors, each naming the file and line in cure's words.
+Sigil reads cure's flat key paths back into nested maps, which adds two errors of
+its own: maps nested more than MAX_DEPTH (16) deep, and a key path that is both a
+value and a map (`list.item: x` beside `list.item.selected: y`). `extends` is
+cure's overlay (a value replaces the map below it), followed by name or path here;
+an `extends` chain of more than MAX_EXTENDS (16) themes is an error.
 All values are strings; maps are dicts.
 """
 
@@ -72,153 +67,53 @@ class ThemeError(ValueError):
 
 
 # ---------------------------------------------------------------------------
-# The YAML subset
+# The grammar: cure's, read back into nested maps
 # ---------------------------------------------------------------------------
 
-def _skip_quoted(s: str, i: int) -> int:
-    """`s[i]` opens a quote; return the index just past its close (len(s) if
-    unclosed). Double quotes: a backslash escapes the next character. Single
-    quotes: '' is an escaped quote."""
-    q = s[i]
-    i += 1
-    while i < len(s):
-        ch = s[i]
-        if q == '"' and ch == "\\":
-            i += 2
-            continue
-        if ch == q:
-            if q == "'" and s[i + 1:i + 2] == "'":
-                i += 2
-                continue
-            return i + 1
-        i += 1
-    return len(s)
+def _cure():
+    """cure's theme reader, imported on first use (`sigil themes --list` and the
+    commands that never colour do not load cure's draw package)."""
+    import importlib
+    return importlib.import_module("cure.draw.theme.parse")
 
 
-def _strip_comment(line: str) -> str:
-    """Drop a # comment: one at the start or after whitespace, outside quotes."""
-    i = 0
-    while i < len(line):
-        ch = line[i]
-        if ch in "\"'" and (i == 0 or line[i - 1] in " \t:"):
-            i = _skip_quoted(line, i)
-            continue
-        if ch == "#" and (i == 0 or line[i - 1] in " \t"):
-            return line[:i]
-        i += 1
-    return line
+def _read(text: str, source: str):
+    """cure's Raw of a theme text: its flat key paths, values and lines."""
+    reader = _cure()
+    try:
+        return reader.parse(text, source)
+    except reader.ThemeError as exc:
+        raise ThemeError(str(exc)) from None
 
 
-def _single_quoted(text: str, where: str) -> str:
-    out = []
-    i = 1
-    while i < len(text):
-        ch = text[i]
-        if ch == "'":
-            if text[i + 1:i + 2] == "'":
-                out.append("'")
-                i += 2
-                continue
-            if i + 1 != len(text):
-                raise ThemeError(f"{where}: text after a closing single quote")
-            return "".join(out)
-        out.append(ch)
-        i += 1
-    raise ThemeError(f"{where}: unterminated single-quoted string")
-
-
-def _scalar(text: str, where: str) -> str:
-    text = text.strip(" \t")
-    if text[:1] == '"':
-        try:
-            value = json.loads(text)
-        except json.JSONDecodeError:
-            raise ThemeError(f"{where}: bad double-quoted string {text}") from None
-        if not isinstance(value, str):  # pragma: no cover - a "..." is a str
-            raise ThemeError(f"{where}: bad double-quoted string {text}")
-        return value
-    if text[:1] == "'":
-        return _single_quoted(text, where)
-    return text
-
-
-def _key(text: str, where: str) -> str:
-    key = _scalar(text, where)
-    if not key:
-        raise ThemeError(f"{where}: empty key")
-    return key
-
-
-def _find_colon(body: str) -> int:
-    """Index of the key/value colon (followed by a space or the end), skipping a
-    quoted key; -1 if there is none."""
-    i = _skip_quoted(body, 0) if body[:1] in "\"'" else 0
-    while i < len(body):
-        if body[i] == ":" and (i + 1 == len(body) or body[i + 1] == " "):
-            return i
-        i += 1
-    return -1
-
-
-def parse(text: str, source: str = "<theme>") -> dict:
-    """Parse the theme YAML subset (see the module docstring) into nested dicts
-    of strings."""
-    if text.startswith("﻿"):
-        text = text[1:]
+def _tree(raw) -> dict:
+    """A Raw's flat key paths as nested dicts of strings (sigil's theme tree)."""
     root: dict = {}
-    stack: list[tuple[int, dict]] = [(0, root)]      # (indent, map), innermost last
-    pending: tuple[int, dict, str] | None = None     # a `key:` that may open a map
-    for n, raw in enumerate(text.replace("\r\n", "\n").split("\n"), start=1):
-        where = f"{source}:{n}"
-        line = _strip_comment(raw).rstrip(" \t")
-        if not line.strip(" \t"):
-            continue
-        indent = len(line) - len(line.lstrip(" "))
-        if line[indent].isspace():
-            raise ThemeError(f"{where}: indent with spaces only (found {line[indent]!r})")
-        body = line[indent:]
-        if body.startswith(("- ", "[", "{")) or body == "-":
-            raise ThemeError(f"{where}: lists and flow collections are not supported")
-        if pending is not None:
-            p_indent, p_map, p_key = pending
-            pending = None
-            if indent > p_indent:                    # deeper: `key:` opens a map
-                if len(stack) > MAX_DEPTH:
-                    raise ThemeError(f"{where}: maps nested more than {MAX_DEPTH} deep")
-                child: dict = {}
-                p_map[p_key] = child
-                stack.append((indent, child))
-        while indent < stack[-1][0]:
-            stack.pop()
-        if indent != stack[-1][0]:
-            if len(stack) == 1 and not root:
-                raise ThemeError(f"{where}: top-level keys start at column 0")
-            raise ThemeError(f"{where}: inconsistent indentation")
-        cur = stack[-1][1]
-        sep = _find_colon(body)
-        if sep < 0:
-            raise ThemeError(f"{where}: expected `key: value`")
-        key, value = _key(body[:sep], where), body[sep + 1:].strip(" \t")
-        if key in cur:
-            raise ThemeError(f"{where}: duplicate key {key!r}")
-        if value:
-            cur[key] = _scalar(value, where)
-        else:
-            cur[key] = ""
-            pending = (indent, cur, key)
+    for path, value in raw.leaves.items():
+        source, line = raw.lines[path]
+        if len(path) - 1 > MAX_DEPTH:
+            raise ThemeError(f"{source}:{line}: maps nested more than {MAX_DEPTH} deep")
+        node = root
+        for k, key in enumerate(path):
+            if isinstance(node.get(key), str) or (k == len(path) - 1 and key in node):
+                dotted = ".".join(path[:k + 1])
+                raise ThemeError(f"{source}:{line}: '{dotted}' is both a value and a map")
+            if k == len(path) - 1:
+                node[key] = value
+            else:
+                node = node.setdefault(key, {})
     return root
 
 
-# ---------------------------------------------------------------------------
-# Resolution: extends + $refs
-# ---------------------------------------------------------------------------
+def parse(text: str, source: str = "<theme>") -> dict:
+    """Parse a theme's text by cure's grammar (see the module docstring) into
+    nested dicts of strings; `extends` stays a key here."""
+    return _tree(_read(text, source))
 
-def _merge(base: dict, over: dict) -> dict:
-    out = dict(base)
-    for k, v in over.items():
-        out[k] = _merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
-    return out
 
+# ---------------------------------------------------------------------------
+# Resolution: $refs
+# ---------------------------------------------------------------------------
 
 def resolve(theme: dict, source: str = "<theme>") -> dict:
     """Replace every "$name" with palette.name (palette entries may chain)."""
@@ -318,13 +213,14 @@ def find(spec: str, base: Path | None = None) -> Path:
     raise ThemeError(f"unknown theme {spec!r} (have: {', '.join(names()) or 'none'})")
 
 
-def load_raw(spec: str, _seen: tuple[Path, ...] = (), _base: Path | None = None) -> dict:
-    """A theme with `extends` applied but $refs left in place."""
-    path = find(spec, _base)
+def _chain(spec: str, seen: tuple[Path, ...], base: Path | None):
+    """The Raw of a theme with its `extends` laid under it (cure's merge), the
+    parent found by name or path (a path against this theme's folder)."""
+    path = find(spec, base)
     key = path.resolve()
-    if key in _seen:
+    if key in seen:
         raise ThemeError(f"{path}: extends cycle")
-    if len(_seen) >= MAX_EXTENDS:
+    if len(seen) >= MAX_EXTENDS:
         raise ThemeError(f"{path}: an extends chain longer than {MAX_EXTENDS} themes")
     try:
         with path.open("rb") as fh:
@@ -334,13 +230,22 @@ def load_raw(spec: str, _seen: tuple[Path, ...] = (), _base: Path | None = None)
         text = data.decode("utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         raise ThemeError(f"{path}: cannot read theme: {exc}") from None
-    theme = parse(text, str(path))
-    parent = theme.pop("extends", "")
-    if isinstance(parent, dict):
+    raw = _read(text, str(path))
+    extends = [p for p in raw.leaves if p[0] == "extends"]
+    if any(len(p) > 1 for p in extends):
         raise ThemeError(f"{path}: extends must be a theme name or path, not a map")
+    parent = raw.leaves.get(("extends",), "")
+    if extends:
+        kept = {p: v for p, v in raw.leaves.items() if p[0] != "extends"}
+        raw = type(raw)(raw.source, kept, {p: raw.lines[p] for p in kept})
     if parent:
-        theme = _merge(load_raw(parent, _seen + (key,), path.parent), theme)
-    return theme
+        raw = _cure().merge(_chain(parent, seen + (key,), path.parent), raw)
+    return raw
+
+
+def load_raw(spec: str, _seen: tuple[Path, ...] = (), _base: Path | None = None) -> dict:
+    """A theme with `extends` applied but $refs left in place."""
+    return _tree(_chain(spec, _seen, _base))
 
 
 def chosen(spec: str | None = None, dialect=None) -> tuple[str, Path | None, bool]:

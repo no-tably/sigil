@@ -125,7 +125,7 @@ class SiteThemeLimits(unittest.TestCase):
     def test_only_what_sigil_reads_becomes_a_variable(self):
         sigil = (ROOT / "themes" / "sigil.yaml").read_text(encoding="utf-8")
         theme = ("name: odd\nextends: sigil\n"
-                 "palette:\n  fg: red\n  new: '#123456'\n  'bad name': '#123456'\n"
+                 "palette:\n  fg: red\n  new: '#123456'\n"
                  "ui:\n  text: $new\n  fill: '2'\n  sim_trail: '0.5'\n  nonsense: '#ffffff'\n"
                  "syntax:\n  operator: '#12345'\n  keyword: $fg\n"
                  "kinds:\n  widget: '#abcdef'\n"
@@ -139,7 +139,7 @@ class SiteThemeLimits(unittest.TestCase):
         self.assertEqual(got["--ui-text"], "var(--palette-new)")
         self.assertEqual(got["--ui-sim-trail"], "0.5")
         self.assertEqual(got["--kinds-widget"], "#abcdef")
-        for gone in ("--palette-fg", "--palette-bad name", "--ui-fill", "--ui-nonsense",
+        for gone in ("--palette-fg", "--ui-fill", "--ui-nonsense",
                      "--syntax-operator", "--syntax-keyword", "--site-scene-blur", "--extra-a"):
             with self.subTest(prop=gone):
                 self.assertNotIn(gone, got)

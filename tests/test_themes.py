@@ -1,7 +1,8 @@
 """Tests for sigil.present.themes and the viewer's theming.
 
 Covers:
-  - the YAML subset: nesting, comments, quoting, and the errors it reports;
+  - the YAML subset (cure's grammar): nesting, comments, quoting, dotted keys,
+    and the errors it reports;
   - $palette references, `extends`, lookup by name / path / SIGIL_THEME_PATH;
   - the views' kit applying a theme: box, edge and chrome colours come from it, each
     tagged with its role; --theme on the command line.
@@ -36,11 +37,21 @@ class TestYamlSubset(unittest.TestCase):
             "ui": {"inner": {"deep": "yes"}, "text": "$fg"},
         })
 
-    def test_unquoted_hash_value_is_a_comment(self):
-        self.assertEqual(themes.parse("a: #abc\n"), {"a": ""})
+    def test_unquoted_hash_value_must_be_quoted(self):
+        with self.assertRaisesRegex(themes.ThemeError, "must be quoted"):
+            themes.parse("a: #abc\n")
+        self.assertEqual(themes.parse("a: '#abc'  # quoted\n"), {"a": "#abc"})
 
-    def test_quoted_key(self):
-        self.assertEqual(themes.parse('"!>": red\n'), {"!>": "red"})
+    def test_quoted_key_is_the_plain_key(self):
+        self.assertEqual(themes.parse('"ui": red\n'), {"ui": "red"})
+        with self.assertRaisesRegex(themes.ThemeError, "bad key"):
+            themes.parse('"!>": red\n')
+
+    def test_dotted_key_is_a_path(self):
+        self.assertEqual(themes.parse("ui.bar: x\nui:\n  text: y\n"),
+                         {"ui": {"bar": "x", "text": "y"}})
+        with self.assertRaisesRegex(themes.ThemeError, "'list.item' is both a value and a map"):
+            themes.parse("list.item: x\nlist.item.selected: y\n")
 
     def test_errors(self):
         for doc in ("a:\n\tb: 1\n", "a:\n  - 1\n", "a: 1\n  b: 2\n", "a: 1\na: 2\n",

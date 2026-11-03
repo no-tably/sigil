@@ -2,9 +2,10 @@
 CLI and dialect module loading.
 
 Covers:
-  - themes.parse: escaped double quotes, '' in single-quoted keys and values,
-    line splitting on "\\n" only, a leading BOM, non-space indentation, the
-    top-level indentation message, unterminated single quotes;
+  - themes.parse (cure's grammar): escaped double quotes, '' in single-quoted
+    values, quoted keys still keys, line splitting on "\\n" only, control
+    characters refused, a leading BOM, non-space indentation, the top-level
+    indentation message, unterminated single quotes;
   - themes.resolve: malformed palettes raise ThemeError, never a crash;
   - themes extends: path values relative to the theme's folder, map values
     rejected, a BOM-prefixed `extends`;
@@ -83,8 +84,10 @@ class TestParseQuotes(unittest.TestCase):
         self.assertEqual(themes.parse("a: 'it''s # here'\n"), {"a": "it's # here"})
         self.assertEqual(themes.parse("a: 'it''s' # c\n"), {"a": "it's"})
 
-    def test_doubled_single_quote_in_a_key(self):                      # item 11
-        self.assertEqual(themes.parse("'a'': b': v\n"), {"a': b": "v"})
+    def test_a_quoted_key_is_still_a_key(self):                        # item 11, cure's KEY
+        self.assertEqual(themes.parse("'a': v\n"), {"a": "v"})
+        with self.assertRaisesRegex(themes.ThemeError, "bad key"):
+            themes.parse("'a'': b': v\n")
 
     def test_single_quotes_must_close_cleanly(self):
         for doc in ("a: 'abc''\n", "a: 'abc\n", "a: 'x' y'\n", "a: \"x\n"):
@@ -98,9 +101,15 @@ class TestParseQuotes(unittest.TestCase):
 
 class TestParseLines(unittest.TestCase):
     def test_only_newline_splits_lines(self):                          # item 14
-        for sep in ("\x0c", "\x0b", "\x85", "\u2028", "\u2029", "\x1e"):
+        for sep in ("\u2028", "\u2029"):
             with self.subTest(sep=repr(sep)):
                 self.assertEqual(themes.parse(f"a: x{sep}y\n"), {"a": f"x{sep}y"})
+
+    def test_control_characters_are_errors(self):                      # cure's rule 2
+        for sep in ("\x0c", "\x0b", "\x85", "\x1e", "\r", "\x7f"):
+            with self.subTest(sep=repr(sep)), self.assertRaises(themes.ThemeError) as cm:
+                themes.parse(f"a: x{sep}y\n")
+            self.assertIn(f"<theme>:1: control character U+{ord(sep):04X}", str(cm.exception))
 
     def test_crlf_is_a_newline(self):
         self.assertEqual(themes.parse("a:\r\n  b: 1\r\nc: 2\r\n"),
@@ -111,7 +120,7 @@ class TestParseLines(unittest.TestCase):
 
     def test_non_space_indentation_is_an_error(self):                  # item 21
         for doc in ("a:\n\u00a0 b: 1\n", "a:\n \u00a0b: 1\n", "a:\n \tb: 1\n",
-                    "a:\n\x0cb: 1\n"):
+                    "a:\n\u3000b: 1\n"):
             with self.subTest(doc=repr(doc)), self.assertRaises(themes.ThemeError) as cm:
                 themes.parse(doc)
             self.assertIn("spaces", str(cm.exception))

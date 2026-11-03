@@ -58,18 +58,28 @@
   }
 
   // ------------------------------------------------------------------ YAML subset
-  // Exactly the subset sigil/present/themes.py reads (its module docstring is the contract;
-  // tests/fixtures/yaml_cases.json checks both): nested maps, plain / "JSON-
-  // escaped" / 'single-quoted' scalars, # comments, space indentation. Lists,
-  // flow collections, tabs in the indent, duplicate and empty keys are errors, and so
-  // are maps nested more than MAX_DEPTH deep (themes.py's limit).
-  // Maps have no prototype, so a key like __proto__ is just a key.
+  // cure's theme grammar (cure.draw.theme.parse, which sigil/present/themes.py reads
+  // through; its docstring is the contract, tests/fixtures/yaml_cases.json checks both):
+  // nested maps by space indentation, plain / "JSON-escaped" / 'single-quoted' scalars,
+  // # comments; keys are dot-joined segments of ASCII letters, digits, _ and - (a dotted
+  // key is a path: `a.b: x` is `a:` / `  b: x`). Control characters, lists, flow
+  // collections, tabs in the indent, bad, duplicate and empty keys, a plain value
+  // starting with # or a YAML indicator are errors, in cure's words. parseLeaves gives
+  // cure's flat Raw (path -> value and line); nest reads it back into maps as themes.py
+  // does, which adds its two errors: maps nested more than MAX_DEPTH deep, and a path
+  // that is both a value and a map. Maps have no prototype, so a key like __proto__ is
+  // just a key.
 
   const MAX_DEPTH = 16;                                // as themes.MAX_DEPTH
+  const KEY = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/; // as cure's parse.KEY
+  const INDICATORS = "[{|>&*!%@`";                     // a plain value may not start with these
 
   // What Python's str.isspace() calls whitespace (BMP), for the indent check.
   const PY_SPACE = /[\t\n\v\f\r\x1c-\x1f\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/;
   const stripTabs = (s) => s.replace(/^[ \t]+|[ \t]+$/g, "");
+  const isControl = (ch) => { const c = ch.charCodeAt(0); return c < 0x20 || (c >= 0x7f && c <= 0x9f); };
+  const controlIn = (s, tabOk) => [...s].find((ch) => isControl(ch) && !(tabOk && ch === "\t"));
+  const controlError = (ch) => `control character U+${ch.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")}`;
 
   /** s[i] opens a quote: the index just past its close (s.length if unclosed). */
   function skipQuoted(s, i) {
@@ -87,6 +97,8 @@
     return s.length;
   }
 
+  /** [the line without its comment, the character after the comment's # ("" at the
+      end of the line, null when there was no comment)]. */
   function stripComment(line) {
     let i = 0;
     while (i < line.length) {
@@ -95,92 +107,136 @@
         i = skipQuoted(line, i);
         continue;
       }
-      if (ch === "#" && (i === 0 || line[i - 1] === " " || line[i - 1] === "\t")) return line.slice(0, i);
+      if (ch === "#" && (i === 0 || line[i - 1] === " " || line[i - 1] === "\t")) {
+        return [line.slice(0, i), line.slice(i + 1, i + 2)];
+      }
       i++;
     }
-    return line;
+    return [line, null];
   }
 
-  function singleQuoted(text, where) {
+  function singleQuoted(text, fail) {
     let out = "";
     for (let i = 1; i < text.length; i++) {
       if (text[i] !== "'") { out += text[i]; continue; }
       if (text[i + 1] === "'") { out += "'"; i++; continue; }
-      if (i + 1 !== text.length) throw new Error(`${where}: text after a closing single quote`);
+      if (i + 1 !== text.length) throw fail("text after a closing single quote");
       return out;
     }
-    throw new Error(`${where}: unterminated single-quoted string`);
+    throw fail("unclosed single-quoted string");
   }
 
-  function scalar(text, where) {
-    text = stripTabs(text);
+  function scalar(text, fail) {
+    let value;
     if (text[0] === '"') {
-      let value;
       try { value = JSON.parse(text); } catch { value = null; }
-      if (typeof value !== "string") throw new Error(`${where}: bad double-quoted string ${text}`);
-      return value;
+      if (typeof value !== "string") throw fail("malformed double-quoted string");
+    } else if (text[0] === "'") {
+      value = singleQuoted(text, fail);
+    } else if (text && INDICATORS.includes(text[0])) {
+      throw fail(`quote a value that starts with ${text[0]}`);
+    } else {
+      value = text;
     }
-    if (text[0] === "'") return singleQuoted(text, where);
-    return text;
+    const bad = controlIn(value, false);
+    if (bad !== undefined) throw fail(controlError(bad));
+    return value;
   }
 
-  /** The key/value colon (followed by a space or the end), past a quoted key; -1 if none. */
-  function findColon(body) {
+  /** The key/value colon (followed by a space, a tab or the end), past a quoted key; -1 if none. */
+  function separator(body) {
     for (let i = body[0] === '"' || body[0] === "'" ? skipQuoted(body, 0) : 0; i < body.length; i++) {
-      if (body[i] === ":" && (i + 1 === body.length || body[i + 1] === " ")) return i;
+      if (body[i] === ":" && (i + 1 === body.length || body[i + 1] === " " || body[i + 1] === "\t")) return i;
     }
     return -1;
   }
 
-  function parseYaml(text, source = "theme") {
+  /** cure's Raw of a theme text: a Map "a.b" -> { path, value, source, line }, in order. */
+  function parseLeaves(text, source = "theme") {
     if (text[0] === "\ufeff") text = text.slice(1);
-    const root = Object.create(null);
-    const stack = [[0, root]];                         // [indent, map], innermost last
-    let pending = null;                                // a `key:` that may open a map
-    text.replace(/\r\n/g, "\n").split("\n").forEach((raw, n) => {
-      const where = `${source}:${n + 1}`;
-      const line = stripComment(raw).replace(/[ \t]+$/, "");
-      if (!stripTabs(line)) return;
+    const leaves = new Map();
+    const stack = [[0, [], new Set()]];                // [indent, path, keys seen], innermost last
+    let pending = null;                                // [indent, path, line] of a `key:` that may open a map
+    let first = true;
+    const leaf = (n, path, value) => {
+      const key = path.join(".");
+      if (leaves.has(key)) throw new Error(`${source}:${n}: duplicate key '${key}'`);
+      leaves.set(key, { path, value, source, line: n });
+    };
+    text.replace(/\r\n/g, "\n").split("\n").forEach((raw, i) => {
+      const n = i + 1;
+      const fail = (reason) => new Error(`${source}:${n}: ${reason}`);
+      const ctl = controlIn(raw, true);
+      if (ctl !== undefined) throw fail(controlError(ctl));
+      let [line, hashed] = stripComment(raw);
+      line = line.replace(/[ \t]+$/, "");
+      if (!line) return;
       const indent = line.length - line.replace(/^ +/, "").length;
-      if (PY_SPACE.test(line[indent])) throw new Error(`${where}: indent with spaces only`);
+      if (PY_SPACE.test(line[indent])) throw fail("indent with spaces only");
       const body = line.slice(indent);
-      if (/^(- |\[|\{)/.test(body) || body === "-") {
-        throw new Error(`${where}: lists and flow collections are not supported`);
-      }
+      if (body === "-" || /^(- |\[|\{)/.test(body)) throw fail("lists and flow collections are not supported");
       if (pending) {
-        const [pIndent, pMap, pKey] = pending;
+        const [pIndent, pPath, pLine] = pending;
         pending = null;
-        if (indent > pIndent) {                        // deeper: `key:` opens a map
-          if (stack.length > MAX_DEPTH) throw new Error(`${where}: maps nested more than ${MAX_DEPTH} deep`);
-          pMap[pKey] = Object.create(null);
-          stack.push([indent, pMap[pKey]]);
-        }
+        if (indent > pIndent) stack.push([indent, pPath, new Set()]);
+        else leaf(pLine, pPath, "");
       }
       while (indent < stack[stack.length - 1][0]) stack.pop();
       if (indent !== stack[stack.length - 1][0]) {
-        if (stack.length === 1 && !Object.keys(root).length) throw new Error(`${where}: top-level keys start at column 0`);
-        throw new Error(`${where}: inconsistent indentation`);
+        throw fail(first ? "top-level keys start at column 0" : "inconsistent indentation");
       }
-      const cur = stack[stack.length - 1][1];
-      const sep = findColon(body);
-      if (sep < 0) throw new Error(`${where}: expected key: value`);
-      const key = scalar(body.slice(0, sep), where);
-      if (!key) throw new Error(`${where}: empty key`);
-      if (key in cur) throw new Error(`${where}: duplicate key ${JSON.stringify(key)}`);
+      first = false;
+      const sep = separator(body);
+      if (sep < 0) throw fail("expected `key: value`");
+      let key = stripTabs(body.slice(0, sep));
+      if (key[0] === '"' || key[0] === "'") key = scalar(key, fail);
+      if (!key) throw fail("empty key");
+      if (!KEY.test(key)) throw fail("bad key");
       const value = stripTabs(body.slice(sep + 1));
-      cur[key] = value ? scalar(value, where) : "";
-      if (!value) pending = [indent, cur, key];
+      const [, path, keys] = stack[stack.length - 1];
+      if (keys.has(key)) throw fail(`duplicate key '${key}'`);
+      keys.add(key);
+      const full = [...path, ...key.split(".")];
+      if (value) leaf(n, full, scalar(value, fail));
+      else if (hashed && /^[A-Za-z0-9]$/.test(hashed)) throw fail("a value starting with # must be quoted");
+      else pending = [indent, full, n];
     });
+    if (pending) leaf(pending[2], pending[1], "");
+    return leaves;
+  }
+
+  /** cure's Raw read back into nested maps (themes._tree). */
+  function nest(leaves) {
+    const root = Object.create(null);
+    for (const { path, value, source, line } of leaves.values()) {
+      if (path.length - 1 > MAX_DEPTH) throw new Error(`${source}:${line}: maps nested more than ${MAX_DEPTH} deep`);
+      let node = root;
+      path.forEach((key, k) => {
+        const last = k === path.length - 1;
+        if (typeof node[key] === "string" || (last && key in node)) {
+          throw new Error(`${source}:${line}: '${path.slice(0, k + 1).join(".")}' is both a value and a map`);
+        }
+        if (last) node[key] = value;
+        else node = key in node ? node[key] : (node[key] = Object.create(null));
+      });
+    }
     return root;
+  }
+
+  function parseYaml(text, source = "theme") {
+    return nest(parseLeaves(text, source));
   }
 
   // ------------------------------------------------------------------ themes
 
+  /** cure's merge: `over` laid on `base`; a leaf of over drops the base's leaves below it. */
   const merge = (base, over) => {
-    const out = Object.assign(Object.create(null), base);
-    for (const [k, v] of Object.entries(over)) {
-      out[k] = v && typeof v === "object" && out[k] && typeof out[k] === "object" ? merge(out[k], v) : v;
+    const covered = new Set(over.keys());
+    const out = new Map();
+    for (const [key, leaf] of base) {
+      if (!leaf.path.slice(0, -1).some((_, i) => covered.has(leaf.path.slice(0, i + 1).join(".")))) out.set(key, leaf);
     }
+    for (const [key, leaf] of over) out.set(key, leaf);
     return out;
   };
 
@@ -207,17 +263,25 @@
     }
   }
 
-  async function loadThemeRaw(name, seen = []) {
+  /** A theme's leaves with its `extends` laid under them (themes._chain, by name). */
+  async function loadThemeLeaves(name, seen) {
     if (seen.includes(name)) throw new Error(`theme extends cycle at ${name}`);
     if (seen.length >= MAX_EXTENDS) throw new Error(`${name}.yaml: an extends chain longer than ${MAX_EXTENDS} themes`);
     const res = await fetch(`themes/${encodeURIComponent(name)}.yaml`);
     if (!res.ok) throw new Error(`theme ${name}: HTTP ${res.status}`);
-    let theme = parseYaml(await themeText(res, `${name}.yaml`), `${name}.yaml`);
-    const parent = theme.extends;
-    delete theme.extends;
-    if (isMap(parent)) throw new Error(`${name}.yaml: extends must be a theme name or path, not a map`);
-    if (parent) theme = merge(await loadThemeRaw(parent, [...seen, name]), theme);
-    return theme;
+    let leaves = parseLeaves(await themeText(res, `${name}.yaml`), `${name}.yaml`);
+    if ([...leaves.values()].some((l) => l.path[0] === "extends" && l.path.length > 1)) {
+      throw new Error(`${name}.yaml: extends must be a theme name or path, not a map`);
+    }
+    const parent = leaves.has("extends") ? leaves.get("extends").value : "";
+    leaves = new Map([...leaves].filter(([, l]) => l.path[0] !== "extends"));
+    if (parent) leaves = merge(await loadThemeLeaves(parent, [...seen, name]), leaves);
+    return leaves;
+  }
+
+  /** A theme with `extends` applied but $refs left in place, as themes.load_raw. */
+  async function loadThemeRaw(name) {
+    return nest(await loadThemeLeaves(name, []));
   }
 
   /** The theme with every "$name" replaced by palette.name, as themes.resolve does. */
