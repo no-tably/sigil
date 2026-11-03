@@ -47,16 +47,21 @@ class PackageFilesTest(unittest.TestCase):
         """The plugin ships the whole sigil/ package (the playground takes it less
         the export layer): every file under it but build junk, and no top-level
         module beside build.py, which would not ship. Its only files that are not
-        modules are the vendored cure's: the commit it was copied at and the lock."""
+        modules are cure's lock and the systems file beside it; no cure tree comes
+        from the checkout (the archive's is bundled from the store)."""
         on_disk = sorted([p.relative_to(ROOT).as_posix() for p in (ROOT / "sigil").rglob("*.py")
-                          if "__pycache__" not in p.parts]
-                         + [build.VENDORED_NOTE, build.VENDOR_LOCK])
+                          if "__pycache__" not in p.parts
+                          and not p.relative_to(ROOT).as_posix().startswith(build.VENDOR_TREE)]
+                         + [build.VENDOR_LOCK, f"{build.VENDOR}/cure.systems.json"])
         self.assertEqual(build.package_files(), on_disk)
         self.assertEqual({p.name for p in ROOT.glob("*.py")}, {"build.py"})
 
     def test_the_required_files_are_in_the_repo(self):
+        """Each required file is in the checkout, but the cure tree (bundled into
+        the archive from the store)."""
         for rel in build.REQUIRED_FILES:
-            self.assertTrue((ROOT / rel).is_file(), rel)
+            if not rel.startswith(build.VENDOR_TREE):
+                self.assertTrue((ROOT / rel).is_file(), rel)
         self.assertIn("sigil/cli.py", build.package_files())
 
     def test_build_junk_never_ships(self):
@@ -307,6 +312,9 @@ class BuildTestCase(unittest.TestCase):
                        if "/skills/sigil/scripts/" in n}
             self.assertEqual(shipped.get(build.COMMAND), 0o755, archive.name)
             for rel in build.package_files():
+                self.assertEqual(shipped.get(rel), 0o644, f"{archive.name}: {rel}")
+            for rel in (build.VENDORED_NOTE, f"{build.VENDOR}/cure/__init__.py",
+                        f"{build.VENDOR}/cure/core/__init__.py"):   # cure, bundled from the store
                 self.assertEqual(shipped.get(rel), 0o644, f"{archive.name}: {rel}")
             self.assertFalse([n for n in shipped if "__pycache__" in n or n.endswith(".pyc")])
 

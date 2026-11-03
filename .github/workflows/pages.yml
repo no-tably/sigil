@@ -25,6 +25,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install cure at the lock's commit into the store
+        # sigil/vendor/cure.lock names the commit and its source (cure's public repo);
+        # cure's own store (sigil's verbatim copy) fetches it into ~/.local/share/cure.
+        run: |
+          commit=$(sed -n 's/^commit: //p' sigil/vendor/cure.lock)
+          source=$(sed -n 's/^source: //p' sigil/vendor/cure.lock)
+          python sigil/vendor/supply/store.py install "$commit" --from "$source"
       - name: Build site
         run: python site/build_site.py --out _site
       - uses: actions/configure-pages@v5

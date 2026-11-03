@@ -7,3 +7,7 @@ node_modules/
 # local working notes for agents (not published)
 CLAUDE.md
 .claude/
+
+# cure comes from the shared store (sigil/vendor/cure.lock names the commit); a
+# built archive carries its own copy, put there by build.py
+sigil/vendor/cure/

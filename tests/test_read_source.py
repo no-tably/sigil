@@ -154,9 +154,10 @@ class Utf8EverywhereTest(unittest.TestCase):
         # read_text()/open(…) with no encoding read in the locale's (cp1252 on Windows).
         bare = re.compile(r"\.read_text\(\s*\)|\bopen\((?![^)]*(encoding|\"[rwa]?b|'[rwa]?b))")
         found = []
-        vendored = ROOT / "sigil" / "vendor" / "cure"     # cure's own code, not scanned
+        vendored = {ROOT / "sigil" / "vendor" / "cure",       # cure's own code, not scanned
+                    ROOT / "sigil" / "vendor" / "supply"}     # (its loader and store, verbatim)
         for py in sorted((ROOT / "sigil").rglob("*.py")):
-            if vendored in py.parents:
+            if vendored & set(py.parents):
                 continue
             for n, line in enumerate(py.read_text(encoding="utf-8").split("\n"), 1):
                 if bare.search(line) and "os.open(" not in line and "fdopen" not in line:

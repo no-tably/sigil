@@ -8,8 +8,8 @@ Layers, each importing only the ones before it:
     publish   what leaves sigil: the export folder, Mermaid
     present   the drawings: kit, themes, views, the viewer app
 
-`sigil.vendor` holds the vendored terminal UI library at one pinned commit (its
-lock file beside it); only `present` imports it.
+`sigil.vendor` loads the terminal UI library at the commit its lock names (an
+archive's own copy, else the shared store); only `present` imports it.
 
 `sigil.cli` is the one command (`bin/sigil`, `python3 -m sigil`).
 

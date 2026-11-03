@@ -22,9 +22,11 @@ What it does:
       theme roles (e.g. "kinds-service"), so the background follows a theme
       change like everything else;
     - copies the playground's Python into py/ — the repo's own sigil package,
-      byte for byte, plus playground.py — for Pyodide to run in the browser
-      (loaded only when the playground opens); the export layer stays out (the
-      playground does not export).
+      byte for byte, with cure's core and draw from the tree sigil loads (the
+      shared store, at the commit sigil/vendor/cure.lock names) as
+      py/sigil/vendor/cure/, plus playground.py — for Pyodide to run in the
+      browser (loaded only when the playground opens); the export layer stays out
+      (the playground does not export).
 
 --out is wiped and rebuilt, so it must be empty, missing, or a previous build
 (frames.json or .nojekyll present), and never this directory or a parent of it.
@@ -49,6 +51,7 @@ if str(ROOT) not in sys.path:          # the sigil package and build.py
 
 from build import package_files  # noqa: E402  (after the path is set)
 from sigil.core.parse import parse_document  # noqa: E402
+from sigil import vendor  # noqa: E402  (cure from the store, at the lock's commit)
 from sigil.model import scene  # noqa: E402
 from sigil.present import app, kit, themes  # noqa: E402
 from sigil.present.frames import Styles, autoclose, packed, side_tables  # noqa: E402
@@ -75,18 +78,23 @@ class BuildError(Exception):
 # checks and runs, it never exports (and check loads its export rules only for a
 # check asked for export readiness). The structure reading reads the export model,
 # so it stays out too, with check's structure rules (check loads a rule module
-# only where it ships). Of the vendored cure, only its pure packages go (core and
-# draw, less draw's Graph and construct's Views, which sigil never draws with):
-# edge and interact (Term, Input, Clock, Files) are the terminal's, behind the
-# live view, and a browser has none; testing, the sync tool and the lock are for
-# the repository. A path ending in / leaves out its folder.
+# only where it ships). cure comes from the tree sigil loads (vendor.FOLDER: the
+# store, at the lock's commit), placed as py/sigil/vendor/cure/ with its VENDORED,
+# so the browser's sigil.vendor finds it beside the lock (cure's loader, verbatim,
+# goes too). Only cure's pure packages go (core and draw, less draw's Graph and
+# construct's Views, which sigil never draws with): edge and interact (Term,
+# Input, Clock, Files) are the terminal's, behind the live view, and a browser has
+# none; testing, supply (the store and loader cure carries), sigil's copy of the
+# store, the sync tool and the systems file are for the repository. A path ending
+# in / leaves out its folder.
 NOT_IN_PLAYGROUND = frozenset({"sigil/publish/", "sigil/model/systems.py",
                                "sigil/model/structure.py",
                                "sigil/analyse/rules/export.py",
                                "sigil/analyse/rules/structure.py",
-                               "sigil/vendor/sync_cure.py", "sigil/vendor/cure.lock",
+                               "sigil/vendor/sync_cure.py", "sigil/vendor/cure.systems.json",
+                               "sigil/vendor/supply/store.py",
                                "sigil/vendor/cure/edge/", "sigil/vendor/cure/interact/",
-                               "sigil/vendor/cure/testing/",
+                               "sigil/vendor/cure/testing/", "sigil/vendor/cure/supply/",
                                "sigil/vendor/cure/draw/graph/",
                                "sigil/vendor/cure/draw/views/"})
 
@@ -97,7 +105,19 @@ def in_playground(rel: str) -> bool:
                    for out in NOT_IN_PLAYGROUND)
 
 
-PY_TOOLS = [rel for rel in package_files(ROOT) if in_playground(rel)]
+def cure_files(folder: Path) -> dict[str, Path]:
+    """The cure tree under `folder` (the one holding cure/), as package paths
+    ("sigil/vendor/cure/core/text/width.py") -> source files, less byte code."""
+    tree = folder / "cure"
+    return {f"sigil/vendor/cure/{p.relative_to(tree).as_posix()}": p
+            for p in sorted(tree.rglob("*"))
+            if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc"}
+
+
+# Every file the playground could take, package path -> source: the package as
+# build.py ships it, then the cure tree it draws with.
+SOURCES = {**{rel: ROOT / rel for rel in package_files(ROOT)}, **cure_files(vendor.FOLDER)}
+PY_TOOLS = sorted(rel for rel in SOURCES if in_playground(rel))
 
 
 # ---------------------------------------------------------------------------
@@ -359,7 +379,7 @@ def build(out: Path, logo: str) -> None:
     (out / "py").mkdir()
     for rel in PY_TOOLS:
         (out / "py" / rel).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(ROOT / rel, out / "py" / rel)
+        shutil.copyfile(SOURCES[rel], out / "py" / rel)
     for name in PY_SITE:
         shutil.copyfile(SITE / name, out / "py" / name)
     (out / "py" / "manifest.json").write_text(

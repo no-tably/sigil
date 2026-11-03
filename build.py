@@ -21,8 +21,13 @@ Canonical sources (edit these, never dist/):
                                calls the skill's `bin/sigil frames`
     sigil/ (the package)       copied whole into skills/sigil/scripts/sigil/, with
     bin/sigil                  its command in skills/sigil/scripts/bin/sigil; the
-                               package carries cure, vendored at a pinned commit
-                               under sigil/vendor/ (cure/, cure.lock)
+                               package stands on cure at the commit
+                               sigil/vendor/cure.lock names: the repo keeps only
+                               the lock (and cure's loader and store, copied
+                               verbatim under sigil/vendor/supply/); each archive
+                               gets the tree from the shared store ($CURE_STORE,
+                               else ~/.local/share/cure) through cure's own
+                               `store.py bundle`, into sigil/vendor/cure/
     themes/*.yaml              copied into skills/sigil/scripts/themes/
     language.md examples.md    copied into skills/sigil/references/
 
@@ -52,6 +57,8 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import importlib
+import importlib.util
 import io
 import json
 import os
@@ -74,17 +81,20 @@ PACKAGE = "sigil"
 COMMAND = "bin/sigil"
 # What --check asks of a built skill's scripts/: the command and the package's
 # spine (each layer, the CLI, and the frames the hosts draw from), and the
-# vendored cure Present draws with (its package, the commit it was copied at,
-# the lock naming the same commit).
+# cure Present draws with (the tree bundled from the store, the VENDORED naming
+# its commit, the lock naming the same commit, and cure's loader that reads it).
 VENDOR = "sigil/vendor"
+VENDOR_TREE = f"{VENDOR}/cure/"          # never from the checkout: bundled from the store
 VENDORED_NOTE = f"{VENDOR}/cure/VENDORED"
 VENDOR_LOCK = f"{VENDOR}/cure.lock"
+SUPPLY = ROOT / VENDOR / "supply"        # cure's supply/{loader,store}.py, verbatim
 REQUIRED_FILES = (COMMAND, "sigil/__init__.py", "sigil/__main__.py", "sigil/cli.py",
                   "sigil/core/__init__.py", "sigil/model/__init__.py",
                   "sigil/analyse/__init__.py", "sigil/analyse/rules/__init__.py",
                   "sigil/publish/__init__.py", "sigil/present/__init__.py",
                   "sigil/present/frames.py", f"{VENDOR}/__init__.py",
-                  f"{VENDOR}/cure/__init__.py", VENDORED_NOTE, VENDOR_LOCK)
+                  f"{VENDOR}/supply/loader.py", f"{VENDOR}/cure/__init__.py",
+                  VENDORED_NOTE, VENDOR_LOCK)
 REFERENCES = ["language.md", "examples.md"]
 TARGETS = ["claude", "codex", "pi", "opencode"]
 SKILL = "sigil"
@@ -235,10 +245,34 @@ def is_junk(rel: Path) -> bool:
 
 def package_files(root: Path = ROOT) -> list[str]:
     """Every file of the package under `root`, as sorted posix paths relative to
-    `root` (e.g. "sigil/core/lex.py"), less build junk."""
+    `root` (e.g. "sigil/core/lex.py"), less build junk and any cure tree left in
+    the checkout (sigil/vendor/cure/ is gitignored: the archive's comes from the
+    store, see bundle_cure)."""
     pkg = root / PACKAGE
-    return sorted(p.relative_to(root).as_posix() for p in pkg.rglob("*")
-                  if p.is_file() and not is_junk(p.relative_to(root)))
+    return sorted(rel for rel in (p.relative_to(root).as_posix() for p in pkg.rglob("*")
+                                  if p.is_file() and not is_junk(p.relative_to(root)))
+                  if not rel.startswith(VENDOR_TREE))
+
+
+def cure_store():
+    """cure's store (sigil/vendor/supply/store.py, cure's file verbatim), loaded as
+    a package of its own: `import sigil.vendor` would load cure itself, and a
+    build that cannot find it should say so from bundle_cure, not on import."""
+    name = "_sigil_build_cure_supply"
+    if f"{name}.store" not in sys.modules:
+        spec = importlib.util.spec_from_file_location(
+            name, SUPPLY / "__init__.py", submodule_search_locations=[str(SUPPLY)])
+        pkg = importlib.util.module_from_spec(spec)
+        sys.modules[name] = pkg
+        spec.loader.exec_module(pkg)
+    return importlib.import_module(f"{name}.store")
+
+
+def bundle_cure(scripts: Path) -> Path:
+    """The lock's cure tree copied from the store into scripts/sigil/vendor/cure
+    by cure's own `bundle` (its __pycache__ left out); CureNotFound (an
+    ImportError naming the install command) when the store lacks it."""
+    return cure_store().bundle(ROOT / VENDOR_LOCK, scripts / VENDOR)
 
 
 def load_commands() -> list[tuple[str, dict[str, Any], str]]:
@@ -270,6 +304,7 @@ def stage_skill(dest: Path, claude: bool = False) -> None:
     scripts = dest / "scripts"
     for rel in package_files():
         write(scripts / rel, (ROOT / rel).read_text(encoding="utf-8"))
+    bundle_cure(scripts)
     write(scripts / COMMAND, (ROOT / COMMAND).read_text(encoding="utf-8"), executable=True)
     for p in sorted((ROOT / "themes").glob("*.yaml")):
         write(dest / "scripts" / "themes" / p.name, p.read_text(encoding="utf-8"))
@@ -600,20 +635,36 @@ def check_skill(skill_dir: Path, errs: list[str]) -> None:
 
 
 def vendored_commits(scripts: Path) -> tuple[str | None, str | None]:
-    """(the commit cure/VENDORED names, the commit cure.lock names) under a
-    folder holding the package; None where a file is missing or unreadable."""
-    note = lock = None
+    """(the commit the bundled cure/VENDORED names, the commit cure.lock names)
+    under a folder holding the package, each read by cure's loader; None where a
+    file is missing or not a lock."""
+    loader = cure_store().loader
+
+    def commit(path: Path) -> str | None:
+        try:
+            return loader.read_lock(path).commit
+        except ValueError:                   # LockError: missing or unreadable
+            return None
+    return commit(scripts / VENDORED_NOTE), commit(scripts / VENDOR_LOCK)
+
+
+def bundle_differs(scripts: Path) -> list[str]:
+    """The bundled cure's files that differ from the store's tree at the lock's
+    commit (missing, extra or changed); [] when they match or the store lacks
+    it (the commits are checked apart)."""
+    store = cure_store()
     try:
-        text = (scripts / VENDORED_NOTE).read_text(encoding="utf-8")
-        note = next((ln.split(":", 1)[1].strip() for ln in text.splitlines()
-                     if ln.startswith("commit:")), None)
-    except OSError:
-        pass
-    try:
-        lock = json.loads((scripts / VENDOR_LOCK).read_text(encoding="utf-8")).get("commit")
-    except (OSError, ValueError, AttributeError):
-        pass
-    return note, lock
+        tree = store.loader.find(scripts / VENDOR_LOCK) / "cure"
+    except (ImportError, ValueError):
+        return []
+
+    def files(top: Path) -> dict:
+        return {p.relative_to(top).as_posix(): p for p in top.rglob("*")
+                if p.is_file() and "__pycache__" not in p.parts}
+    have, want = files(scripts / VENDOR / "cure"), files(tree)
+    return sorted(rel for rel in set(have) | set(want)
+                  if rel not in have or rel not in want
+                  or have[rel].read_bytes() != want[rel].read_bytes())
 
 
 def check_sigil_skill(skill_dir: Path, errs: list[str]) -> None:
@@ -622,9 +673,14 @@ def check_sigil_skill(skill_dir: Path, errs: list[str]) -> None:
         if not (skill_dir / "scripts" / rel).is_file():
             errs.append(f"{skill_dir}/scripts/{rel}: missing")
     note, lock = vendored_commits(skill_dir / "scripts")
-    if note and note != lock:
+    if note != lock:
         errs.append(f"{skill_dir}/scripts/{VENDOR_LOCK}: commit {lock!r} is not the "
-                    f"vendored cure's {note!r}")
+                    f"bundled cure's {note!r}")
+    elif lock is not None and lock != vendored_commits(ROOT)[1]:
+        errs.append(f"{skill_dir}/scripts/{VENDOR_LOCK}: commit {lock!r} is not "
+                    f"{VENDOR_LOCK}'s in this checkout")
+    for rel in bundle_differs(skill_dir / "scripts") if note == lock else ():
+        errs.append(f"{skill_dir}/scripts/{VENDOR}/cure/{rel}: not the store's cure at {lock}")
     vendored = skill_dir / "scripts" / VENDORED_NOTE
     if vendored.is_file():
         m = ABS_LEAK_RE.search(vendored.read_text(encoding="utf-8"))
@@ -897,7 +953,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {e}", file=sys.stderr)
         print(f"check: {'FAILED' if errs else 'OK'} ({', '.join(targets)})")
         return 1 if errs else 0
-    for p in build(args.out, targets, args.version):
+    try:
+        made = build(args.out, targets, args.version)
+    except ImportError as exc:             # cure's CureNotFound / CureMismatch: the store
+        print(f"build.py: {exc}", file=sys.stderr)
+        return 1
+    for p in made:
         rel = os.path.relpath(p)
         print(p if rel.startswith("..") else rel)
     return 0

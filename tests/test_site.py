@@ -194,7 +194,7 @@ class TestBuild(unittest.TestCase):
         self.assertEqual(man["files"], site.PY_TOOLS + site.PY_SITE)
         for rel in site.PY_TOOLS:
             self.assertTrue(rel.startswith("sigil/"), rel)
-            self.assertEqual((self.out / "py" / rel).read_bytes(), (_DIR / rel).read_bytes(), rel)
+            self.assertEqual((self.out / "py" / rel).read_bytes(), site.SOURCES[rel].read_bytes(), rel)
         for name in site.PY_SITE:
             self.assertEqual((self.out / "py" / name).read_bytes(), (SITE / name).read_bytes(), name)
         for t in man["themes"]:
@@ -210,9 +210,11 @@ class TestBuild(unittest.TestCase):
     def test_playground_ships_no_export_tools(self):
         """The playground never exports: the export layer (sigil/publish/, the
         export model and check's export rules) stays out of py/, and everything
-        else the plugin ships is in it."""
+        else the plugin ships is in it (the package, and the cure tree it draws
+        with, from the store)."""
         build = _load("sigil_build_site_t2", _DIR / "build.py")
-        shipped = build.package_files()
+        self.assertLessEqual(set(build.package_files()), set(site.SOURCES))
+        shipped = sorted(site.SOURCES)
         left_out = [rel for rel in shipped if rel not in site.PY_TOOLS]
         self.assertEqual(sorted(site.PY_TOOLS + left_out), shipped)
         self.assertTrue(left_out)

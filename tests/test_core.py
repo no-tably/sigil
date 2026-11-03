@@ -294,13 +294,14 @@ class TestExamplesLintClean(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 # The core tools: every module of the package and the `sigil` command (paths
-# relative to the repository root). The vendored library (sigil/vendor/cure, cure's
-# own code at a pinned commit) is not ours and is not scanned; sigil/vendor's own
-# files (its __init__ and sync tool) are.
-_VENDORED = _DIR / "sigil" / "vendor" / "cure"
+# relative to the repository root). cure's own code is not ours and is not
+# scanned: a tree left at sigil/vendor/cure, and sigil/vendor/supply (cure's loader
+# and store, copied verbatim); sigil/vendor's own files (its __init__ and sync
+# tool) are.
+_VENDORED = (_DIR / "sigil" / "vendor" / "cure", _DIR / "sigil" / "vendor" / "supply")
 _CORE_FILES = tuple(sorted(
     p.relative_to(_DIR).as_posix() for p in (_DIR / "sigil").rglob("*.py")
-    if "__pycache__" not in p.parts and _VENDORED not in p.parents)) + ("bin/sigil",)
+    if "__pycache__" not in p.parts and not set(_VENDORED) & set(p.parents))) + ("bin/sigil",)
 # Where the core tools may name cure (round 11: only Present stands on it).
 _CURE_NAMED_IN = ("sigil/present/", "sigil/vendor/")
 # Directories whose every text file must also be free of dialect/host vocabulary.
@@ -366,7 +367,8 @@ class TestStandalone(unittest.TestCase):
             for n, ln in enumerate((_DIR / rel).read_text(encoding="utf-8").splitlines(), 1):
                 with self.subTest(file=rel, line=n):
                     self.assertIsNone(word.search(ln), ln)
-        self.assertFalse([rel for rel in _CORE_FILES if rel.startswith("sigil/vendor/cure/")])
+        self.assertFalse([rel for rel in _CORE_FILES
+                          if rel.startswith(("sigil/vendor/cure/", "sigil/vendor/supply/"))])
         self.assertIn("sigil/vendor/__init__.py", _CORE_FILES)
 
     def test_scan_reaches_highlight_and_tests(self):

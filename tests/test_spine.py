@@ -34,12 +34,13 @@ LAYERS = {"core": 0, "model": 1, "analyse": 2, "publish": 3, "present": 3, "cli"
 # The vendored libraries (sigil.vendor and the top-level packages it puts on the
 # path) and the only layers that may import them.
 VENDOR = "vendor"
-VENDORED = {"cure"}
+VENDORED = {"cure", "supply"}     # supply: cure's loader and store, copied verbatim
 MAY_IMPORT_VENDOR = {"present", VENDOR}
 PATH_LOADERS = {"spec_from_file_location", "module_from_spec", "SourceFileLoader",
                 "run_path", "_sibling", "_load_sibling"}
 MAY_LOAD_BY_PATH = {"sigil.core.dialects",      # a dialect is a file, not a module
-                    "sigil.vendor"}             # the vendored libraries' folder, once
+                    "sigil.vendor",             # the vendored libraries' folder, once
+                    "sigil.vendor.sync_cure"}   # a script: cure's supply beside it
 
 
 def module_name(path: Path) -> str:
