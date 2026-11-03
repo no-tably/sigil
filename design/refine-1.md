@@ -684,3 +684,51 @@ Choices made, with the reason:
   precedent was to let body hashes move for a real change in what a builder reads.
 - No "notes-only" delta class (recheck instead of rebuild for a body change that only
   touched comments). It would be useful, but it's a separate reading; keep it for later.
+
+## Round 11: Present stands on cure (2026-11-03, candidate 0.7.0)
+
+The user's 0.7.0 candidate. cure, the shared terminal UI library, was ported from sigil's
+viewer (its milestone A, 2026-10-25) and has held its interfaces since 0.6.9; construct runs on
+it. sigil still draws with its own copy of the same generic code. 0.7.0 moves Present onto cure,
+so the three tools share one set of cell, style, canvas, theme and terminal semantics.
+
+What changes in the model (Present, the trust boundaries):
+- **A vendored library:** `[Cure]`, under Present only. sigil's other layers (Core, Model,
+  Analyse, Publish) never import it. It is cure at a pinned commit in `sigil/vendor/cure`,
+  with `sigil/vendor/cure.lock` (the commit and the bodies sigil uses), written by cure's sync
+  tool as construct does. cure imports itself absolutely, so `sigil.vendor` puts its folder on
+  `sys.path` once. It ships in every plugin archive. It reads no files and starts no process of
+  its own, so the only new boundary is code loaded from the archive itself.
+- **What moves to cure:** Kit's cells and widths, styles, canvas strokes and memo plans.
+  Themes' parser (Themes still finds and reads the files: the boundary stays sigil's). App's
+  terminal modes, key and mouse decoding, playback clock and viewport. Frames' packing (cure's
+  Wire). Highlight's SGR. Each is a flow from the part to `[Cure]`.
+- **What stays sigil's:** the four views' layouts (cure's Graph is not used), roles and looks,
+  legends, the sim player's choices, the frames envelope, highlight's runs, every command.
+- **The playground:** Pyodide imports only cure's pure packages (core, draw). edge and interact
+  (Term, Input, Clock) are terminal-only and live behind the App.
+
+Held fixed, as the proof the move changes nothing anyone sees:
+- every golden drawing byte for byte (1081), `--once` output, `sigil highlight` output;
+- the frames JSON the pane, pi and the playground read, byte for byte;
+- theme YAML files and their meaning.
+
+Choices, with a recommendation each:
+1. **Frames format.** cure's Wire 2 is a superset of what sigil's hosts read: one code point per
+   cell, plus a side table of clusters (combining marks, ZWJ sequences) that a host may ignore.
+   Recommended: pack through cure, but map its result onto today's envelope, so 0.7.0's frames are
+   byte-identical. Hosts adopt the side table later, as its own round.
+2. **Theme characters.** cure's themes carry charsets (borders, arrows, marks), so a sigil theme
+   could change characters, not only colours (a 0.6.6 leftover). Recommended: not in 0.7.0. The
+   characters are part of the notation's look and every golden. The parser makes it possible
+   later.
+3. **cure's Graph layout.** Recommended: not used. sigil's views have their own layouts, tuned
+   over twelve releases and pinned by the goldens. Moving them would change every drawing.
+4. **Pin and updates.** Recommended: sigil pins one cure commit per release, like construct. A
+   cure change reaches sigil only by a re-sync in a sigil campaign, and its goldens decide.
+
+Cost: Present is about 13.6k lines. cure's study (`study/sigil-tui.md` §8) maps about 2,000 of them
+as generic. The campaign removes those and calls cure instead. Bugs that cure fixed on the way
+(screen diff instead of full repaint, colour depth, SIGTSTP) come with it only where the goldens
+and `--once` stay the same. The live view may now repaint by diff: that is the one visible change
+it is allowed.

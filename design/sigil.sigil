@@ -42,6 +42,9 @@
 #   checks before it reads (owner, mode), names the argv `sigil view` runs; follow writes its
 #   heartbeat there and removes the directory on exit
 # Pyodide: the visitor's text only; no files, no dialect, no export
+# vendored code (round 11): cure at a pinned commit under sigil/vendor/cure (its VENDORED file
+#   names the commit; cure's tools/sync.py writes it, never by hand); imported by Present only,
+#   shipped in every plugin archive; it reads no files and starts no process of its own
 
 --- the one entry point: flags in, one layer called, output out ---
 
@@ -99,6 +102,8 @@
 [Present] -> [Core] : parse({Text}) => {Doc}
 [Present] -> [Model] : run({Scene}) => {Trace}
 [Present] -> [Analyse] : findings({Doc}) => {Findings}
+# round 11: the vendored library under Present (below); sigil's own layers never import it
+[Present] -> [Cure] : draw({Drawing}) => {Canvas}
 
 --- the layers ---
 
@@ -241,7 +246,12 @@
 }
 
 # drawing in cells: the kit and themes, the four views, the app, frames, highlight
-# planned base: the vendored cure library (/home/ian/workspace/projects/cure); not built yet
+# round 11 (0.7.0): Present stands on cure, the shared terminal UI library, vendored at a
+# pinned commit. cure owns the generic parts (cells and widths, styles and SGR, the canvas,
+# retained drawing, the theme parser, the terminal, keys, playback, the packed wire); sigil
+# keeps what is sigil's (the four views' layouts, roles and looks, legends, the sim player's
+# choices, the frames envelope, highlight's runs). The drawings stay byte for byte: the goldens
+# are the proof. cure's Graph (DAG layout) is not used: the views keep their own layouts.
 [Present] := {
   # the live view: keys, pan, sim player, findings overlay; it puts the terminal in raw mode
   # and uses the kit directly too (the screen, the panels, the theme: not drawn)
@@ -271,6 +281,14 @@
   # read once per run, whole: a theme applies only once it parses and resolves, so a save
   # caught half-written stops the run (exit 2), never draws half a theme
   |ThemeFiles| @inv atomic(theme)
+  # round 11: what each part takes from cure (the one direction: sigil calls cure, cure
+  # knows nothing of sigil). The playground (Pyodide) imports only cure's pure packages
+  # (core, draw); Term, Input and Clock (edge, interact) stay terminal-only, in the App
+  [Kit] -> [Cure] : cells({Drawing}) => {Canvas}              # Text widths, Style, Canvas strokes, Memo plans
+  [Themes] -> [Cure] : parse({Yaml}) => {Palette}              # cure's theme parser; Themes still finds and reads the files
+  [App] -> [Cure] : terminal({Argv}) => {Keys}                 # Term modes, Input decoding, Clock playback, Layout viewport
+  [Frames] -> [Cure] : pack({Drawing}) => {Frames}             # Wire: one code point per cell; the envelope stays sigil's
+  [Highlight] -> [Cure] : sgr({Runs}) => {Text}                # Style's one SGR seam for the ANSI form
   [Views]
       \-> [GraphView]
       \-> [TreeView]
