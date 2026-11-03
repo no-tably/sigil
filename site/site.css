@@ -47,7 +47,10 @@
 
 * { box-sizing: border-box; }
 
-html { scroll-behavior: smooth; }
+/* Phones enlarge small text block by block (iOS Safari's text-size-adjust,
+   Android Chrome's font boosting); in the logo and the drawings that stretches
+   some rows but not others, so the character grid skews. Keep sizes as written. */
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 
 body {
   margin: 0;
