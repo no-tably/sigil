@@ -257,7 +257,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import os
 import re
 import signal
 import sys
@@ -588,8 +587,9 @@ class SimPlayer:
     and speed. shown(options) is the run named as a view drawn with those
     SceneOptions draws it (sim.project, cached per options); `at` the frame shown.
     The timing (play / pause, speed, advance, the frame due) is cure's
-    Playback (Clock), made on the first timed call: a player that is only told
-    a frame (--once, frames draw, the playground) never imports cure's
+    Playback (Clock), made only while the run plays and restored (due_at=)
+    when the speed, the frame or the document changes: a player that is only
+    told a frame (--once, frames draw, the playground) never imports cure's
     terminal-side packages. Its choices (scenario, beats, events) stay here.
 
     `name`: the scenario to start on (None: `happy`; `a+b` combines two and is
@@ -618,8 +618,8 @@ class SimPlayer:
             names.append(name)
         self.index = names.index(name) if name is not None else 0
         self._speed = SIM_SPEED         # an index into SIM_SPEEDS
-        self._clock = None              # cure's Playback, made on the first timed call
-        self._at = 0                    # the frame shown while there is no clock
+        self._clock = None              # cure's Playback, only while playing
+        self._at = 0                    # the frame shown while paused (no clock)
         self._run()
 
     def _run(self) -> None:
@@ -628,29 +628,21 @@ class SimPlayer:
         due = self.due
         self.trace = simulator.simulate(self.canon, self.scenarios[self.index],
                                         limits=self.limits)
-        self._at = 0
-        if self._clock is not None:
-            self._reclock(0, due)
+        self._resume(0, due)
         self._shown = {}                # SceneOptions → the trace projected onto them
         self._told_at = {}              # depth → (sim.narrate, sim.hops) of the run there
 
-    # -- the clock: cure's Playback over frames 0..last ------------------------
+    # -- the clock: cure's Playback over frames 0..last, only while playing -----
 
-    def _playback(self):
-        """The run's Playback, made now if there is none yet."""
-        if self._clock is None:
-            self._reclock(self._at, None)
-        return self._clock
-
-    def _reclock(self, at: int, due: float | None) -> None:
-        """A Playback over this run at frame `at` and the current speed;
-        playing with its next frame `due` (monotonic seconds) when `due` is given
-        and `at` is not the last frame (None: paused)."""
+    def _resume(self, at: int, due: float | None) -> None:
+        """Show frame `at`: playing on with its next frame `due` (monotonic
+        seconds; a kept state restored as cure's Playback(..., due_at=)) when
+        `due` is given and `at` is not the last frame, else paused (no clock)."""
+        if due is None or at >= self.last:
+            self._clock, self._at = None, at
+            return
         from cure.edge.clock.playback import Playback   # terminal side: see the class
-        clock = Playback(self.last, fps=float(self.fps), at=at)
-        if due is not None and at < self.last:
-            clock.play(due - clock.interval)            # Playback's due is now + interval
-        self._clock = clock
+        self._clock = Playback(self.last, fps=float(self.fps), at=at, due_at=due)
 
     @property
     def at(self) -> int:
@@ -659,10 +651,7 @@ class SimPlayer:
 
     @at.setter
     def at(self, frame: int) -> None:
-        if self._clock is None:
-            self._at = frame
-        else:
-            self._reclock(frame, self.due)
+        self._resume(frame, self.due)
 
     @property
     def playing(self) -> bool:
@@ -673,9 +662,8 @@ class SimPlayer:
         """Pause, or play on from the frame shown (its next frame due now)."""
         if not on:
             self.pause()
-        elif not self.playing and self.at < self.last:
-            clock = self._playback()
-            clock.play(time.monotonic() - clock.interval)
+        elif not self.playing:
+            self._resume(self.at, time.monotonic())
 
     @property
     def due(self) -> float | None:
@@ -690,13 +678,11 @@ class SimPlayer:
     @speed.setter
     def speed(self, index: int) -> None:
         self._speed = index
-        if self._clock is not None:
-            self._reclock(self.at, self.due)
+        self._resume(self.at, self.due)
 
     def pause(self) -> None:
-        """Stop playing (the frame shown stays)."""
-        if self._clock is not None:
-            self._clock.pause()
+        """Stop playing (the frame shown stays; the clock goes)."""
+        self._resume(self.at, None)
 
     def _told(self) -> tuple:
         """(beats, hops) of the run drawn to self.depth, worked out once per depth."""
@@ -737,9 +723,7 @@ class SimPlayer:
         except UnknownScenario:
             new = SimPlayer(graph, None, self.given, self.depth)
         new._speed = self._speed
-        new.at = min(self.at, new.last)
-        if self._clock is not None:
-            new._reclock(new.at, self.due)
+        new._resume(min(self.at, new.last), self.due)
         return new
 
     # -- controls (each returns True when the shown frame changed) -------------
@@ -752,8 +736,7 @@ class SimPlayer:
 
     def step(self, delta: int) -> bool:
         """Pause and move `delta` frames, clamped to the run."""
-        if self._clock is not None:
-            return self._clock.step(delta)
+        self.pause()
         at = max(0, min(self._at + delta, self.last))
         changed, self._at = at != self._at, at
         return changed
@@ -772,22 +755,29 @@ class SimPlayer:
         return changed
 
     def toggle(self, now: float) -> bool:
-        """Play / pause; playing from the final frame starts the run over."""
-        return self._playback().toggle(now)
+        """Play / pause; playing from the final frame starts the run over
+        (cure's Playback.play)."""
+        if self.playing:
+            self.pause()
+            return False
+        from cure.edge.clock.playback import Playback   # terminal side: see the class
+        clock = Playback(self.last, fps=float(self.fps), at=self.at)
+        changed = clock.play(now)
+        self._clock = clock
+        return changed
 
     def start(self, frame: int | None, play: bool, now: float) -> None:
         """Where the run starts (--frame / --play): at `frame` (None: the first;
         -1 or past the end: the last), playing from there when `play` and it is
         not the last."""
-        at = frame_index(frame, self.last)
-        self._reclock(at, now + 1.0 / self.fps if play else None)
+        self._resume(frame_index(frame, self.last), now + self.interval if play else None)
 
     def faster(self, delta: int, now: float | None = None) -> None:
         """Speed up (+1) / slow down (-1) a step, clamped to SIM_SPEEDS; given
         `now`, the next frame is due a frame at the new speed from it (cure's
         Playback.speed), else when it was due."""
         index = max(0, min(self._speed + delta, len(SIM_SPEEDS) - 1))
-        if now is None or self._clock is None:
+        if now is None or not self.playing:
             self.speed = index
         else:
             self._speed = index
@@ -806,7 +796,11 @@ class SimPlayer:
         """Playing and due by `now`: show the next frame (pausing on the last) —
         or a later one when drawing has fallen behind the speed, so a run plays
         in the same time however slow its frames are to draw (Playback.advance)."""
-        return self._clock is not None and self._clock.advance(now)
+        if self._clock is None or not self._clock.advance(now):
+            return False
+        if not self._clock.playing:                    # paused on the last frame
+            self.pause()
+        return True
 
     def wait(self, now: float) -> float | None:
         """Seconds until the next frame is due (None: paused)."""
@@ -2462,23 +2456,14 @@ def live_modes():
                  probe=False)
 
 
-def live_env(environ) -> dict:
-    """The environment the live view's Term reads its caps from: `environ`
-    saying 24-bit colour (COLORTERM=truecolor, no NO_COLOR / FORCE_COLOR), so the
-    view draws its theme's colours as it always has, whatever the terminal's env
-    claims. (cure's Display drops an rgb colour, rather than take the nearest, at
-    the 256 or 16 colours an env like TERM=xterm-256color alone gives.)"""
-    env = {k: v for k, v in environ.items() if k not in ("NO_COLOR", "FORCE_COLOR")}
-    env["COLORTERM"] = "truecolor"
-    return env
-
-
 _LEAVE = {"terminate": signal.SIGTERM, "hangup": signal.SIGHUP}
 
 
 def tui(state: ViewState, term=None) -> None:
     """The live view: `state` drawn on the terminal (`term`: a cure Term; None:
-    stdin / stdout, signals on, live_env) until q, Ctrl-C or the terminal goes. Each turn
+    stdin / stdout, signals on) until q, Ctrl-C or the terminal goes. The colours are
+    what the environment says the terminal shows (cure's caps: 24-bit, else the
+    nearest of 256 or 16; none under NO_COLOR, as no-color.org asks). Each turn
     stats the file (every POLL_S), plays the run's due frame, repaints when
     anything changed (the Display writes only the change; a resize or a resume
     from Ctrl-Z repaints in full), then waits for input up to the next frame
@@ -2489,12 +2474,10 @@ def tui(state: ViewState, term=None) -> None:
     from cure.interact.input import Decoder
 
     if term is None:
-        term = Term(sys.stdin.fileno(), sys.stdout.fileno(), env=live_env(os.environ),
-                    signals=True)
+        term = Term(sys.stdin.fileno(), sys.stdout.fileno(), signals=True)
     decoder = Decoder()
     with term:
-        opened = getattr(term, "open")       # the Term's open (a tty's modes), not a file's
-        opened(live_modes())
+        term.open(live_modes())
         try:
             state.reload(force=True)
             dirty, last_poll, shown = True, 0.0, None

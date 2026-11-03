@@ -10,7 +10,9 @@ What it pins:
   cure's terminal side (edge, interact);
 - the follow is cure's: the least move, none while the span is already shown;
 - the watch sees an atomic save that keeps the mtime and size (a new inode);
+- SimPlayer's Playback only while playing, restored with its due time (due_at=);
 - tui on a headless cure Term: the modes it sets and undoes, a drawn frame, q;
+  its colours as the env says (24-bit, the nearest of 256, none under NO_COLOR);
 - the real thing in a pty: q leaves with the terminal restored, exit 0; SIGTERM
   leaves with 143, restored too.
 """
@@ -86,6 +88,53 @@ class TestPlaygroundPath(unittest.TestCase):
         self.assertEqual(out.strip(), "[]")
 
 
+class TestPlayerClock(unittest.TestCase):
+    """SimPlayer's Playback exists only while the run plays; a change of speed,
+    frame or document restores it (Playback(..., due_at=)) with its due time."""
+
+    def setUp(self):
+        from sigil.core.parse import parse_document
+        self.graph = parse_document((ROOT / "site/examples/02-shop.sigil").read_text(
+            encoding="utf-8"))
+        self.p = app.SimPlayer(self.graph)
+
+    def test_no_clock_until_it_plays_and_none_after_a_pause(self):
+        p = self.p
+        self.assertIsNone(p._clock)
+        p.at = 3
+        p.step(1)
+        self.assertIsNone(p._clock)
+        p.toggle(100.0)
+        self.assertTrue(p.playing)
+        self.assertIsNotNone(p._clock)
+        p.toggle(100.1)
+        self.assertFalse(p.playing)
+        self.assertIsNone(p._clock)
+        self.assertEqual(p.at, 4)
+
+    def test_restored_with_its_due_time(self):
+        p = self.p
+        p.start(2, True, 50.0)
+        due = p.due
+        self.assertEqual(due, 50.0 + p.interval)
+        p.at = 5
+        self.assertEqual((p.at, p.due, p.playing), (5, due, True))
+        p.speed = p.speed + 1
+        self.assertEqual(p.due, due)
+        q = p.rebuilt(self.graph)
+        self.assertEqual((q.at, q.due, q.speed), (5, due, p.speed))
+        p.at = p.last                                  # the last frame: paused there
+        self.assertEqual((p.at, p.playing, p._clock), (p.last, False, None))
+
+    def test_the_last_frame_pauses_and_drops_the_clock(self):
+        p = self.p
+        p.start(p.last - 1, True, 0.0)
+        self.assertTrue(p.advance(p.due))
+        self.assertEqual((p.at, p.playing, p._clock), (p.last, False, None))
+        self.assertTrue(p.toggle(1.0))                 # from the end: over from 0
+        self.assertEqual((p.at, p.playing), (0, True))
+
+
 class TestFollow(unittest.TestCase):
     def test_a_shown_span_does_not_move(self):
         # 17 cells and two margins don't fit a 20-cell view: the old rule moved to
@@ -151,12 +200,9 @@ class TestHeadlessTerm(unittest.TestCase):
             self.assertIn(b"\x1b[38;2;", out)                 # truecolour, as the env says
             self.assertFalse(term.opened)
 
-    def test_truecolour_whatever_the_env_says(self):
-        """As before cure: the live view writes 24-bit colour on a terminal
-        whose env says 256 colours (cure's Display would drop the rgb colours)."""
+    def _drawn(self, env: dict) -> bytes:
+        """The bytes tui writes for DOC on a headless Term whose env is `env`."""
         from cure.edge.term import Term, Writer
-        env = app.live_env({"TERM": "xterm-256color", "NO_COLOR": "1", "FORCE_COLOR": "0"})
-        self.assertEqual(env, {"TERM": "xterm-256color", "COLORTERM": "truecolor"})
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "doc.sigil"
             path.write_text(DOC)
@@ -164,7 +210,25 @@ class TestHeadlessTerm(unittest.TestCase):
             term = Term(None, Writer(sink=buf), env=env, size=(80, 24), tty=True)
             term.reader.type(b"q")
             app.tui(app.ViewState(path, view="graph"), term)
-            self.assertIn(b"\x1b[38;2;", bytes(buf))
+            return bytes(buf)
+
+    def test_colours_are_what_the_env_says(self):
+        """24-bit when the env says so; the nearest of 256 colours when it says
+        only TERM=xterm-256color (cure's Display), never an rgb colour dropped."""
+        self.assertIn(b"\x1b[38;2;", self._drawn({"TERM": "xterm-256color",
+                                                   "COLORTERM": "truecolor"}))
+        out = self._drawn({"TERM": "xterm-256color"})
+        self.assertNotIn(b"\x1b[38;2;", out)
+        self.assertIn(b"38;5;", out)
+
+    def test_no_color_draws_without_colour(self):
+        out = self._drawn({"TERM": "xterm-256color", "COLORTERM": "truecolor",
+                           "NO_COLOR": "1"})
+        self.assertIn(b"doc.sigil", out)
+        self.assertNotRegex(out, rb"[34]8;[25];")
+        self.assertIn(b"\x1b[38;2;", self._drawn({"TERM": "xterm-256color",
+                                                    "COLORTERM": "truecolor",
+                                                    "NO_COLOR": ""}))   # empty: unset
 
     def test_screen_grid_matches_the_once_text(self):
         with tempfile.TemporaryDirectory() as d:

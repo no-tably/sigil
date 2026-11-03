@@ -149,10 +149,27 @@ class LineBreakTest(unittest.TestCase):
         self.assertTrue(lines and lines <= {2}, res.diagnostics)
 
 
+# A file read in the locale's encoding (cp1252 on Windows): read_text() with no
+# encoding, the builtin open(…) or a path's .open() / .open("r") without one. A
+# method open(…) whose first argument is no mode string (cure's term.open(modes))
+# opens no file.
+BARE_READ = re.compile(
+    r"\.read_text\(\s*\)"
+    r"|(?<![.\w])open\((?![^)]*(encoding|\"[rwa]?b|'[rwa]?b))"
+    r"|\.open\((?=\s*\)|\s*[\"'])(?![^)]*(encoding|\"[rwa]?\+?b|'[rwa]?\+?b))")
+
+
 class Utf8EverywhereTest(unittest.TestCase):
+    def test_the_scan_tells_a_file_from_a_terminal(self):
+        for line in ("open(p)", "x = open(path, 'r')", "path.open()", 'p.open("w")',
+                     "p.read_text()", "with Path(f).open() as fh:"):
+            self.assertRegex(line, BARE_READ, line)
+        for line in ("open(p, encoding='utf-8')", "open(p, 'rb')", 'p.open("rb")',
+                     "p.open('r', encoding='utf-8')", "term.open(live_modes())",
+                     "self._block_open(it)", "subprocess.Popen([x])", "os.open(p, 0)"):
+            self.assertNotRegex(line, BARE_READ, line)
+
     def test_no_read_in_the_locale_encoding(self):
-        # read_text()/open(…) with no encoding read in the locale's (cp1252 on Windows).
-        bare = re.compile(r"\.read_text\(\s*\)|\bopen\((?![^)]*(encoding|\"[rwa]?b|'[rwa]?b))")
         found = []
         vendored = {ROOT / "sigil" / "vendor" / "cure",       # cure's own code, not scanned
                     ROOT / "sigil" / "vendor" / "supply"}     # (its loader and store, verbatim)
@@ -160,7 +177,7 @@ class Utf8EverywhereTest(unittest.TestCase):
             if vendored & set(py.parents):
                 continue
             for n, line in enumerate(py.read_text(encoding="utf-8").split("\n"), 1):
-                if bare.search(line) and "os.open(" not in line and "fdopen" not in line:
+                if BARE_READ.search(line) and "os.open(" not in line and "fdopen" not in line:
                     found.append(f"{py.relative_to(ROOT)}:{n}: {line.strip()}")
         self.assertEqual(found, [])
 
