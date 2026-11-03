@@ -294,10 +294,15 @@ class TestExamplesLintClean(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 # The core tools: every module of the package and the `sigil` command (paths
-# relative to the repository root).
+# relative to the repository root). The vendored library (sigil/vendor/cure, cure's
+# own code at a pinned commit) is not ours and is not scanned; sigil/vendor's own
+# files (its __init__ and sync tool) are.
+_VENDORED = _DIR / "sigil" / "vendor" / "cure"
 _CORE_FILES = tuple(sorted(
     p.relative_to(_DIR).as_posix() for p in (_DIR / "sigil").rglob("*.py")
-    if "__pycache__" not in p.parts)) + ("bin/sigil",)
+    if "__pycache__" not in p.parts and _VENDORED not in p.parents)) + ("bin/sigil",)
+# Where the core tools may name cure (round 11: only Present stands on it).
+_CURE_NAMED_IN = ("sigil/present/", "sigil/vendor/")
 # Directories whose every text file must also be free of dialect/host vocabulary.
 _SCANNED_DIRS = ("highlight", "tests", "site", "themes", "plugin")
 # Generated directories (gitignored) hold no files of ours: `bun install` in
@@ -339,7 +344,7 @@ class TestStandalone(unittest.TestCase):
             self.assertNotRegex(src, r"(?m)^\s*(import|from)\s+\S*merlang", f)
 
     BANNED = re.compile(
-        r"merlang|weaver|\bcure\b|heartstone|WAML|CAML|UAML|triplet|spell(?!check)|keystone"
+        r"merlang|weaver|heartstone|WAML|CAML|UAML|triplet|spell(?!check)|keystone"
         r"|harness|elbow|concern"
         r"|\bT\d{1,3}\b|\bO\d{2}\b|subagent|INBOX|OUTBOX|orchestrator", re.I)
     # vocab-check: word list end
@@ -350,6 +355,19 @@ class TestStandalone(unittest.TestCase):
         for rel, n, ln in _scanned_lines():
             with self.subTest(file=rel, line=n):
                 self.assertIsNone(self.BANNED.search(ln), ln)
+
+    def test_only_present_names_cure(self):
+        """cure is Present's library (round 11): the core tools name it only in
+        sigil/present/ and sigil/vendor/; the vendored package is never scanned."""
+        word = re.compile(r"\bcure\b", re.I)
+        for rel in _CORE_FILES:
+            if rel.startswith(_CURE_NAMED_IN):
+                continue
+            for n, ln in enumerate((_DIR / rel).read_text(encoding="utf-8").splitlines(), 1):
+                with self.subTest(file=rel, line=n):
+                    self.assertIsNone(word.search(ln), ln)
+        self.assertFalse([rel for rel in _CORE_FILES if rel.startswith("sigil/vendor/cure/")])
+        self.assertIn("sigil/vendor/__init__.py", _CORE_FILES)
 
     def test_scan_reaches_highlight_and_tests(self):
         scanned = {rel.split("/")[0] for rel, _n, _l in _scanned_lines()}

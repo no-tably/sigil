@@ -75,11 +75,20 @@ class BuildError(Exception):
 # checks and runs, it never exports (and check loads its export rules only for a
 # check asked for export readiness). The structure reading reads the export model,
 # so it stays out too, with check's structure rules (check loads a rule module
-# only where it ships). A path ending in / leaves out its folder.
+# only where it ships). Of the vendored cure, only its pure packages go (core and
+# draw, less draw's Graph and construct's Views, which sigil never draws with):
+# edge and interact (Term, Input, Clock, Files) are the terminal's, behind the
+# live view, and a browser has none; testing, the sync tool and the lock are for
+# the repository. A path ending in / leaves out its folder.
 NOT_IN_PLAYGROUND = frozenset({"sigil/publish/", "sigil/model/systems.py",
                                "sigil/model/structure.py",
                                "sigil/analyse/rules/export.py",
-                               "sigil/analyse/rules/structure.py"})
+                               "sigil/analyse/rules/structure.py",
+                               "sigil/vendor/sync_cure.py", "sigil/vendor/cure.lock",
+                               "sigil/vendor/cure/edge/", "sigil/vendor/cure/interact/",
+                               "sigil/vendor/cure/testing/",
+                               "sigil/vendor/cure/draw/graph/",
+                               "sigil/vendor/cure/draw/views/"})
 
 
 def in_playground(rel: str) -> bool:

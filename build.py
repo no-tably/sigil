@@ -20,7 +20,9 @@ Canonical sources (edit these, never dist/):
                                with the mod's hooks/logic.ts beside it; it too
                                calls the skill's `bin/sigil frames`
     sigil/ (the package)       copied whole into skills/sigil/scripts/sigil/, with
-    bin/sigil                  its command in skills/sigil/scripts/bin/sigil
+    bin/sigil                  its command in skills/sigil/scripts/bin/sigil; the
+                               package carries cure, vendored at a pinned commit
+                               under sigil/vendor/ (cure/, cure.lock)
     themes/*.yaml              copied into skills/sigil/scripts/themes/
     language.md examples.md    copied into skills/sigil/references/
 
@@ -71,12 +73,18 @@ ROOT = Path(__file__).resolve().parent
 PACKAGE = "sigil"
 COMMAND = "bin/sigil"
 # What --check asks of a built skill's scripts/: the command and the package's
-# spine (each layer, the CLI, and the frames the hosts draw from).
+# spine (each layer, the CLI, and the frames the hosts draw from), and the
+# vendored cure Present draws with (its package, the commit it was copied at,
+# the lock naming the same commit).
+VENDOR = "sigil/vendor"
+VENDORED_NOTE = f"{VENDOR}/cure/VENDORED"
+VENDOR_LOCK = f"{VENDOR}/cure.lock"
 REQUIRED_FILES = (COMMAND, "sigil/__init__.py", "sigil/__main__.py", "sigil/cli.py",
                   "sigil/core/__init__.py", "sigil/model/__init__.py",
                   "sigil/analyse/__init__.py", "sigil/analyse/rules/__init__.py",
                   "sigil/publish/__init__.py", "sigil/present/__init__.py",
-                  "sigil/present/frames.py")
+                  "sigil/present/frames.py", f"{VENDOR}/__init__.py",
+                  f"{VENDOR}/cure/__init__.py", VENDORED_NOTE, VENDOR_LOCK)
 REFERENCES = ["language.md", "examples.md"]
 TARGETS = ["claude", "codex", "pi", "opencode"]
 SKILL = "sigil"
@@ -591,11 +599,37 @@ def check_skill(skill_dir: Path, errs: list[str]) -> None:
                 errs.append(f"{p}: not executable")
 
 
+def vendored_commits(scripts: Path) -> tuple[str | None, str | None]:
+    """(the commit cure/VENDORED names, the commit cure.lock names) under a
+    folder holding the package; None where a file is missing or unreadable."""
+    note = lock = None
+    try:
+        text = (scripts / VENDORED_NOTE).read_text(encoding="utf-8")
+        note = next((ln.split(":", 1)[1].strip() for ln in text.splitlines()
+                     if ln.startswith("commit:")), None)
+    except OSError:
+        pass
+    try:
+        lock = json.loads((scripts / VENDOR_LOCK).read_text(encoding="utf-8")).get("commit")
+    except (OSError, ValueError, AttributeError):
+        pass
+    return note, lock
+
+
 def check_sigil_skill(skill_dir: Path, errs: list[str]) -> None:
     check_skill(skill_dir, errs)
     for rel in REQUIRED_FILES:
         if not (skill_dir / "scripts" / rel).is_file():
             errs.append(f"{skill_dir}/scripts/{rel}: missing")
+    note, lock = vendored_commits(skill_dir / "scripts")
+    if note and note != lock:
+        errs.append(f"{skill_dir}/scripts/{VENDOR_LOCK}: commit {lock!r} is not the "
+                    f"vendored cure's {note!r}")
+    vendored = skill_dir / "scripts" / VENDORED_NOTE
+    if vendored.is_file():
+        m = ABS_LEAK_RE.search(vendored.read_text(encoding="utf-8"))
+        if m:
+            errs.append(f"{vendored}: absolute path leaked: {m.group(0)}")
     command = skill_dir / "scripts" / COMMAND
     if command.is_file() and not _is_exec(command):
         errs.append(f"{command}: not executable")

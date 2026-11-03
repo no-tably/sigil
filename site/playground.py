@@ -5,7 +5,9 @@ this file and the package verbatim into _site/py/; site.js writes them into one
 directory of Pyodide's file system and calls the functions below, each taking
 and returning JSON text. Nothing here re-implements the notation: it only asks
 the package for a drawing and packs it (sigil.present.frames) the way frames.json
-is packed.
+is packed. The package brings the cure it draws with (sigil/vendor/cure): only its
+pure packages, core and draw, ship here; the terminal's parts stay out
+(build_site.NOT_IN_PLAYGROUND), so nothing here may reach them.
 
     draw(request)    the document drawn in one view, its lint and its scenarios
     sim(request)     one frame of a scenario's run, drawn over the same view

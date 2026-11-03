@@ -46,9 +46,11 @@ class PackageFilesTest(unittest.TestCase):
     def test_the_package_is_what_ships(self):
         """The plugin ships the whole sigil/ package (the playground takes it less
         the export layer): every file under it but build junk, and no top-level
-        module beside build.py, which would not ship."""
-        on_disk = sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "sigil").rglob("*.py")
-                         if "__pycache__" not in p.parts)
+        module beside build.py, which would not ship. Its only files that are not
+        modules are the vendored cure's: the commit it was copied at and the lock."""
+        on_disk = sorted([p.relative_to(ROOT).as_posix() for p in (ROOT / "sigil").rglob("*.py")
+                          if "__pycache__" not in p.parts]
+                         + [build.VENDORED_NOTE, build.VENDOR_LOCK])
         self.assertEqual(build.package_files(), on_disk)
         self.assertEqual({p.name for p in ROOT.glob("*.py")}, {"build.py"})
 

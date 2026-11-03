@@ -6,8 +6,13 @@ A module may import its own layer and any layer to its left; publish and present
 never import each other. Every import counts, a lazy one inside a function too,
 and so does `importlib.import_module("sigil.…")`. No module loads a sibling by
 path (`spec_from_file_location`, `module_from_spec`, a `_sibling` helper, a
-`sys.path` edit): the one exception is core/dialects.py, since a dialect is a
-file beside the package, not a module of it.
+`sys.path` edit): the exceptions are core/dialects.py, since a dialect is a
+file beside the package, not a module of it, and sigil/vendor, which puts the
+vendored libraries' folder on the path once.
+
+The vendored code (sigil/vendor: cure, round 11) is Present's alone: only
+present (and vendor itself) may import `sigil.vendor` or `cure`. The vendored
+package's own modules are not sigil's and are not scanned.
 
 Also here: `sigil lint` loads neither check, the model nor the drawings (the
 speed guard), and sigil.core.vocab carries the dialect API.
@@ -26,9 +31,15 @@ sys.path.insert(0, str(ROOT))
 # Layer of each top-level part of the package, by rank: a module may import a
 # rank below its own, or its own layer. Same rank, different layer = sideways.
 LAYERS = {"core": 0, "model": 1, "analyse": 2, "publish": 3, "present": 3, "cli": 4}
+# The vendored libraries (sigil.vendor and the top-level packages it puts on the
+# path) and the only layers that may import them.
+VENDOR = "vendor"
+VENDORED = {"cure"}
+MAY_IMPORT_VENDOR = {"present", VENDOR}
 PATH_LOADERS = {"spec_from_file_location", "module_from_spec", "SourceFileLoader",
                 "run_path", "_sibling", "_load_sibling"}
-MAY_LOAD_BY_PATH = {"sigil.core.dialects"}      # a dialect is a file, not a module
+MAY_LOAD_BY_PATH = {"sigil.core.dialects",      # a dialect is a file, not a module
+                    "sigil.vendor"}             # the vendored libraries' folder, once
 
 
 def module_name(path: Path) -> str:
@@ -42,8 +53,12 @@ def layer_of(name: str):
     """The layer of a module of the package (`sigil.core.parse` → core); the
     package itself, its __main__ and cli are the command (cli); None outside it."""
     parts = name.split(".")
+    if parts[0] in VENDORED:
+        return VENDOR
     if parts[0] != "sigil":
         return None
+    if len(parts) > 1 and parts[1] == VENDOR:
+        return VENDOR
     if len(parts) == 1 or parts[1] in ("cli", "__main__"):
         return "cli"
     return parts[1] if parts[1] in LAYERS else "cli"
@@ -114,6 +129,10 @@ def violation(importer: str, target: str):
     mine, theirs = layer_of(importer), layer_of(target)
     if theirs is None or mine == theirs:
         return None
+    if theirs == VENDOR:
+        return None if mine in MAY_IMPORT_VENDOR else f"{mine} imports vendored code (only present may)"
+    if mine == VENDOR:
+        return f"vendored code imports {theirs}"
     if LAYERS[theirs] > LAYERS[mine]:
         return f"{mine} imports {theirs}, a layer below it"
     if LAYERS[theirs] == LAYERS[mine]:
@@ -122,7 +141,10 @@ def violation(importer: str, target: str):
 
 
 def modules() -> list:
-    return sorted(PACKAGE.rglob("*.py"))
+    """sigil's own modules: the vendored packages under sigil/vendor are not ours."""
+    vendored = [PACKAGE / VENDOR / name for name in VENDORED]
+    return sorted(p for p in PACKAGE.rglob("*.py")
+                  if not any(v in p.parents for v in vendored))
 
 
 class SpineTest(unittest.TestCase):
@@ -158,6 +180,17 @@ class CheckerTest(unittest.TestCase):
         self.assertIn("below", violation("sigil.core.parse", "sigil.analyse.check"))
         self.assertIn("beside", violation("sigil.publish.exporter", "sigil.present.kit"))
         self.assertIn("beside", violation("sigil.present.app", "sigil.publish.systems"))
+        self.assertIsNone(violation("sigil.present.kit", "cure.core.text"))
+        self.assertIsNone(violation("sigil.present", "sigil.vendor"))
+        self.assertIsNone(violation("sigil.vendor.sync_cure", "json"))
+        for importer in ("sigil.core.lex", "sigil.model.scene", "sigil.analyse.check",
+                         "sigil.publish.exporter", "sigil.cli"):
+            self.assertIn("vendored", violation(importer, "cure.draw.canvas"), importer)
+            self.assertIn("vendored", violation(importer, "sigil.vendor"), importer)
+
+    def test_vendored_modules_are_not_scanned(self):
+        self.assertIn(PACKAGE / "vendor" / "__init__.py", modules())
+        self.assertFalse([p for p in modules() if "cure" in p.relative_to(PACKAGE).parts])
 
     def test_imports_seen(self):
         found = {t for _l, t in imports_of(PACKAGE / "analyse" / "rules" / "trace.py")}
