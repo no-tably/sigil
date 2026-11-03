@@ -45,9 +45,10 @@
 # cure (round 11; round 12: one store for sigil and construct): Python code at the commit
 #   sigil/vendor/cure.lock names, loaded by Present only: from the copy a plugin archive carries
 #   (vendor/cure, put there by build), else from the shared store $CURE_STORE/<commit>/cure
-#   (default ~/.local/share/cure), which cure's tools/store.py installs from cure's remote (a
+#   (default ~/.local/share/cure), which cure's supply/store.py installs from cure's remote (a
 #   person, or CI); sigil never fetches, and refuses a store folder whose VENDORED names another
-#   commit. The repo commits only the lock. cure reads no files and starts no process on import
+#   commit. The repo commits the lock and cure's loader and store, copied verbatim
+#   (sigil/vendor/supply: one loader, cure's). cure reads no files and starts no process on import
 
 --- the one entry point: flags in, one layer called, output out ---
 
@@ -109,7 +110,7 @@
 [Present] -> [Cure] : draw({Drawing}) => {Canvas}
 # round 12: the one cure, at the lock's commit (archive copy first, else the shared store)
 [Present] -> |CureStore| : load({Commit}) => {Code}
-(Author) ~> |CureStore| : install({Commit})                 # cure's tools/store.py, or CI; sigil never writes it
+(Author) ~> |CureStore| : install({Commit})                 # cure's supply/store.py (sync_cure.py), or CI; sigil never writes it
 # installed under a temp name and renamed in: a load sees no folder or a whole one, never one changing
 |CureStore| @inv atomic(install)
 
@@ -264,7 +265,9 @@
 # grapheme-cluster widths (sigil's code-point rule goes); frames carry cure's Wire v2 rows
 # with its cluster side table, and the hosts (the CC pane, pi, the page) read it, so a
 # cluster draws whole; Themes reads YAML by cure's grammar (sigil keeps finding files,
-# extends by path and $ref); the goldens move once, for widths only.
+# extends by path and $ref); the goldens move once, for widths only. As built: no golden
+# moved; sigil's own widths, packer and YAML reader are gone. Still sigil's: the Canvas grid,
+# same_look, kit.ansi, the views' layouts, the heavy-dashed light-corner rule.
 [Present] := {
   # the live view: keys, pan, sim player, findings overlay; it puts the terminal in raw mode
   # and uses the kit directly too (the screen, the panels, the theme: not drawn)
@@ -299,7 +302,7 @@
   # (core, draw); Term, Input and Clock (edge, interact) stay terminal-only, in the App
   [Kit] -> [Cure] : cells({Drawing}) => {Canvas}              # stroke glyphs, colour maths, Memo plans, cluster widths (round 12); the grid stays Kit's
   [Themes] -> [Cure] : parse({Yaml}) => {Palette}              # cure's grammar (round 12); Themes still finds and reads the files, extends by path
-  [App] -> [Cure] : terminal({Argv}) => {Keys}                 # Term modes, Input decoding, Clock playback, Layout viewport, Files watch
+  [App] -> [Cure] : terminal({Argv}) => {Keys}                 # Term modes, Input decoding, Display (nearest colour, none under NO_COLOR), Clock playback (made only while playing), Layout viewport, Files watch
   [Frames] -> [Cure] : pack({Drawing}) => {Frames}             # Wire v2 with its cluster side table (round 12); the envelope stays sigil's
   [Highlight] -> [Cure] : sgr({Runs}) => {Text}                # Style's one SGR seam for the ANSI form
   [Views]

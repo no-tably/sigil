@@ -2,7 +2,9 @@
 
 Every tool is a subcommand of one command, `sigil`, with no dependencies beyond
 the Python 3 standard library (the drawings use cure, a standard-library terminal
-UI library vendored inside the package; see the layer table): run `bin/sigil` (or `python3 -m sigil` from the
+UI library at the commit `sigil/vendor/cure.lock` names: a plugin archive carries it,
+a checkout loads it from the shared store; see the layer table and the README's
+[cure](../README.md#cure)): run `bin/sigil` (or `python3 -m sigil` from the
 repository). `lint`, `check`, `export --mermaid` and `highlight` take `-` for stdin; `view`
 needs a file, since it redraws on save, and the folder export needs one too, since
 the manifest names the spec file (and its stem is the top system's default name). The [README](../README.md) has the overview.
@@ -42,7 +44,7 @@ The package is `sigil/`, one subpackage per layer, as drawn in
 | `sigil/publish` | what leaves sigil: `mermaid`, `spine`, `systems`, `exporter`, `delta` |
 | `sigil/present` | the drawings: `app` (the live viewer), `views/` (graph, tree, flow, run), `kit`, `themes`, `frames`, `highlight` (the source as coloured runs) |
 | `sigil/cli.py` | the command: argument parsing, `lint --deep` (lint and check joined here, not in a layer) |
-| `sigil/vendor` | not a layer: cure, the terminal UI library sigil shares with construct, at the commit `cure.lock` names (written by `sync_cure.py`, never by hand). `present` takes from it stroke glyphs, colour maths and the frame memo (`kit`), row packing (`frames`), the SGR seam (`highlight`), and the terminal, keys and mouse, playback clock, viewport and file watch (`app`). Cell widths, the canvas, the theme parser and the views' layouts stay sigil's |
+| `sigil/vendor` | not a layer: loads cure, the terminal UI library sigil shares with construct, at the commit `cure.lock` names (written by `sync_cure.py`, never by hand), with cure's own loader (`supply/`, verbatim): the archive's `vendor/cure` first, else `$CURE_STORE/<commit>/cure` (default `~/.local/share/cure`); another commit there is refused, none is an error naming the install command. `present` takes from it cell widths (grapheme clusters), stroke glyphs, colour maths and the frame memo (`kit`), the theme grammar (`themes`), row packing with its cluster side table (`frames`), the SGR seam (`highlight`), and the terminal, keys and mouse, display, playback clock, viewport and file watch (`app`). The canvas grid and the views' layouts stay sigil's |
 
 **The layer rule.** A layer imports only the layers above it:
 `core ← model ← analyse ← publish / present ← cli`, and publish and present never
@@ -729,8 +731,10 @@ Live keys:
 | `r` `q` | reload · quit |
 | ctrl+z | suspend (the shell's `fg` brings the view back, redrawn) |
 
-The live view repaints only the cells that changed. It always draws in 24-bit
-colour (`NO_COLOR` is not read there).
+The live view repaints only the cells that changed. It draws in the colours the
+terminal says it shows: 24-bit when `COLORTERM` (or `TERM`) says so, else the
+nearest of 256 or 16 colours, and none when `NO_COLOR` is set and not empty.
+`--once`, `frames` and `highlight` don't change with the terminal.
 
 ### `sigil view FILE --structure`
 
@@ -1051,7 +1055,13 @@ What the Claude Code pane and the pi widget run; not meant to be typed.
   [--payloads] [--theme NAME] [--dialect D] [--limit NAME=N]` prints the drawing as one JSON
   object of packed rows (text and a style id per run, a style table with hex
   colours), with the legend, summary, lint and scenarios, and for a run its frames
-  a window at a time. It starts from the document's `#%` limits; `--limit` sets
+  a window at a time. Widths are grapheme clusters (cure's rule): a wide cluster
+  is its first code point and then a `\u0000` cell, which draws nothing, and a
+  cluster longer than one code point (a letter and its marks, an emoji ZWJ
+  sequence, a flag) is its first code point in the row, whole in a side table.
+  The side tables sit under a `"clusters"` key (by field: `frames`, `path`,
+  `legend`), only when a drawing holds such a cluster; a host that ignores them
+  draws the first code point. It starts from the document's `#%` limits; `--limit` sets
   one simulator limit over them (repeatable), as `sigil view` and `sigil check`
   take it, for the run and the scenarios listed. The
   shape is in the docstring of `sigil/present/frames.py`; the page's `frames.json`
@@ -1132,6 +1142,10 @@ else `sigil`, so a dialect's drawings and its source agree. A theme the dialect'
 `sigil themes [NAME|PATH]` prints a theme resolved (its `extends` and `$name`
 references filled in) as JSON, and `sigil themes --list` lists the themes found. The format is in the README under [Themes](../README.md#themes).
 
+A theme file is read by cure's theme grammar (the README's [Themes](../README.md#themes)
+says what to quote); a dotted key is a path (`ui.bar: x`), and a path that is both
+a value and a map is an error, across `extends` too (a child's value replaces a
+parent's map, never the other way). Errors are cure's, as `FILE:LINE: reason`.
 A theme file is a regular file of at most 1 MiB (a FIFO or a device is refused),
 its maps nested at most 16 deep, and an `extends` chain at most 16 themes long;
 past any of these it is an error, as a malformed theme is. `sigil themes` also

@@ -762,3 +762,11 @@ Still sigil's, named (not in this round): the Canvas grid and `same_look` (views
 lines; styles are role-carrying strings), the views' layouts, `kit.ansi`'s SGR without a
 leading reset, the heavy-dashed light-corner rule. Moving the canvas is the next duplication
 to retire.
+
+As built: cure's supply interface came as `cure/supply/{loader,store}.py`
+(not tools/store.py); sigil copies both verbatim into `sigil/vendor/supply/`, and the lock is
+cure's format (`commit:`, `source:`); the per-system hashes moved to
+`sigil/vendor/cure.systems.json`. No golden moved: none draws a cluster whose width changed.
+The frames envelope gains `"clusters"` only when a drawing holds a long cluster. The live
+view's Display picks the nearest colour and draws none under `NO_COLOR`; Playback exists only
+while a run plays.

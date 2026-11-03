@@ -5,50 +5,102 @@ Each release's notes, newest first. The same text is the GitHub release's descri
 ## 0.7.0 — 2026-11-03
 
 sigil's drawings now stand on cure, the terminal UI library sigil shares with
-construct (it began as a port of sigil's own viewer). cure ships inside the
-package at one pinned commit, so the three tools share one set of stroke, colour,
-terminal and packing code. Nothing drawn changes: every golden drawing, `view
---once`, `sigil highlight` (ANSI and `--json`) and the `sigil frames draw` JSON the
-Claude Code pane, pi and the playground read are byte for byte as in 0.6.12, and
-theme files mean what they meant.
+construct (it began as a port of sigil's own viewer). There is one cure, not a copy
+per project: sigil's repository keeps only a lock naming cure's commit, a checkout
+loads cure from a store shared with construct, and every plugin archive carries its
+own copy. sigil keeps no second version of what cure does: cell widths, theme
+parsing and row packing are cure's. Every golden drawing, `view --once`, `sigil
+highlight` (ANSI and `--json`) and the `sigil frames draw` JSON for every example
+are byte for byte as in 0.6.12, and the shipped themes read the same.
 
 ### Changed
 
 - **The live view** (`sigil view` in a terminal) runs on cure's terminal, input,
-  clock, viewport and file watch:
+  display, clock, viewport and file watch:
   - it repaints only the cells that changed, not the whole screen;
+  - it draws in the colours the terminal says it shows: 24-bit when `COLORTERM`
+    or `TERM` says so, else the nearest of 256 or 16 colours, and none at all when
+    `NO_COLOR` is set (an empty `NO_COLOR` counts as unset). It used to send
+    24-bit colour to every terminal. `--once`, `frames` and `highlight` are
+    unchanged;
   - ctrl+z suspends it and `fg` brings it back, redrawn;
   - following a run makes the smallest move that brings the action into view (a
     span wider than the window no longer shifts it on every frame);
   - a save that keeps the file's size and modification time (an atomic rename) is
     seen too;
   - text a terminal pastes is read as the keys it holds;
-  - `-` / `+` time the next frame from the key press.
-  It still draws in 24-bit colour whatever the terminal claims, and SIGTERM /
-  SIGHUP still exit 128+signal with the terminal restored.
-- **Inside the drawings:** `kit` takes its stroke glyphs, colour maths and frame
-  memo from cure; `frames` packs rows through cure's Wire and writes them in
-  today's envelope; `highlight` writes its colour escapes through cure's SGR. Cell
-  widths (one code point per cell, as the hosts read them), the canvas, the theme
-  parser, the views' layouts, roles and the sim player's choices stay sigil's.
+  - `-` / `+` time the next frame from the key press, and changing the speed, the
+    frame or the document keeps the next frame's time.
+  SIGTERM and SIGHUP still exit 128+signal with the terminal restored.
+- **One width rule, grapheme clusters, from the kit to every host.** A cluster
+  takes one cell or a wide pair: an emoji ZWJ sequence, a flag, an emoji with its
+  variation selector, a letter with its combining marks, a Hangul syllable written
+  as jamo. sigil used to measure code point by code point, so such text could
+  draw a cell or two wider than it shows. `sigil frames` sends a long cluster's
+  first code point in its cell and the whole cluster in a side table (a
+  `"clusters"` key, only when a drawing holds one; a host may ignore it). The
+  Claude Code pane, pi and the page draw the cluster whole. No golden drawing
+  changed.
+- **Themes are read by cure's YAML grammar.** The shipped themes read exactly as
+  before, but a theme of your own may now be refused or read differently:
+  - a value starting with `#` must be quoted (`bg: '#0d1117'`); unquoted, it used
+    to read as an empty value with a comment;
+  - a plain value starting with `@` `` ` `` `|` `>` `!` `*` `&` `%` `[` or `{`
+    must be quoted;
+  - a key is letters, digits, `_` and `-`, quoted or not (`"!>": red` is an
+    error);
+  - a dotted key is a path: `ui.bar: x` sets `bar` under `ui`. A path given both
+    a value and a map is an error, across `extends` too (a child's map over a
+    parent's value used to replace it);
+  - a control character (a lone carriage return, a form feed, an escape, NEL…)
+    in a value or a comment is an error, and so is a `\t` escape in a
+    double-quoted value; a tab may follow the colon;
+  - error messages are cure's (`FILE:LINE: reason`).
+  The page reads themes by the same grammar.
+- **Inside the drawings:** `kit` takes its cell widths, stroke glyphs, colour
+  maths and frame memo from cure; `frames` packs every row with cure's Wire (its
+  own packer is gone); `themes` parses with cure (its own YAML reader is gone);
+  `highlight` writes its colour escapes through cure's SGR. The canvas grid, the
+  views' layouts, roles and the sim player's choices stay sigil's.
 
 ### Packaging
 
-- `sigil/vendor/cure/` (cure at 36b83ca), `sigil/vendor/cure.lock` (the commit and
-  the hashes of the 16 cure systems sigil uses) and `sigil/vendor/sync_cure.py`, the
-  tool that re-syncs it (`sync_cure.py CURE_REPO [COMMIT]`, which runs cure's own
-  sync; never edit the vendored files). Every plugin archive carries it, and
-  `build.py --check` asks for it at one commit. The playground loads only cure's
-  `core` and `draw`.
+- **cure comes from one store.** `sigil/vendor/cure.lock` names cure's commit
+  (25d1f4f) and its source, https://github.com/no-tably/cure.git, in cure's lock
+  format. `sigil/vendor/supply/` holds cure's own loader and store, byte for byte.
+  The cure tree is not in sigil's repository. From a checkout, sigil loads it from
+  `$CURE_STORE/<commit>/cure` (default `~/.local/share/cure`), the store construct
+  uses too. Install it once with:
+
+  ```sh
+  python3 sigil/vendor/supply/store.py install 25d1f4f3f1fba4a0fc5ebda01ef69a78facd055d \
+      --from https://github.com/no-tably/cure.git
+  ```
+
+  A drawing command without it stops with that command in its message (`lint`,
+  `check` and `export` don't need cure). A store folder holding another commit is
+  refused, never used.
+- **Every plugin archive carries its own cure**, copied from the store by
+  `build.py`, so an installed plugin needs no store. `build.py --check` refuses a
+  copy at another commit, or one whose files differ from the store's.
+- `sigil/vendor/sync_cure.py REV [--from SOURCE] [--store DIR]` pins a new commit:
+  it installs it into the store, copies cure's loader and store, and rewrites the
+  lock and `cure.systems.json` (the hashes of the 17 cure systems sigil stands on,
+  so a re-pin shows which ones moved). The goldens decide whether sigil takes it.
+- CI and the page build install the lock's commit into the store before they run.
+  The playground loads only cure's `core` and `draw`.
 - Only `sigil/present` imports cure: `lint`, `check` and `export` never load it
   (`tests/test_spine.py`, `tests/test_vendor.py`). Still the Python 3 standard
   library only: cure is too.
 
 ### Known
 
-- A command that draws starts about 90 ms slower (cure's `draw` package loads all of
-  itself on first use), and `frames draw` of the run view takes about twice as long
-  (0.17 s → 0.40 s for 02-shop's happy run): cure packs a row cell by cell.
+- Commands start slower than in 0.6.12 (02-shop, median of 15 runs): `view --once`
+  164 → 233 ms, `frames draw` 162 → 237 ms, `highlight` 90 → 129 ms, `themes` 54 →
+  103 ms (loading cure's styles loads all of cure's core). `frames draw` of 02-shop's
+  happy run takes 0.20 → 0.32 s.
+- A drawing command that cannot find cure prints a Python traceback ending in the
+  install command, not a one-line message.
 
 ## 0.6.12 — 2026-11-02
 

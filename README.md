@@ -111,7 +111,8 @@ the browser — write a design, switch views, step through a simulation.
 ## Tools
 
 One command, `sigil`, Python 3 standard library only (its drawings stand on
-[cure](#layout), a standard-library terminal UI library shipped inside the package):
+[cure](#cure), a standard-library terminal UI library: a release archive carries it, a
+checkout installs it once into a shared store):
 run `bin/sigil` (or `python3 -m sigil` from the repository). `lint`, `check`, `export --mermaid` and
 `highlight` take `-` for stdin; `view` needs a file, since it redraws on save, and so does the
 folder export, since the manifest names the spec file. `sigil --version` prints the
@@ -513,8 +514,11 @@ only what it changes. Drop it in `themes/` or a directory on `SIGIL_THEME_PATH`;
 `sigil themes NAME` prints it resolved and `sigil themes --list` lists what it finds.
 `view`, `frames draw` and `highlight` colour with `--theme NAME` if given, else
 `SIGIL_THEME`, else the loaded dialect's own theme (its `THEME`), else `sigil`.
-The format is a small YAML subset (nested maps, scalars, `#` comments) that
-the viewer's theme loader and the page both parse without a YAML library. A theme
+The format is a small YAML subset, cure's theme grammar (nested maps, dotted keys
+as paths, scalars, `#` comments), which the viewer (through cure) and the page both
+parse without a YAML library. Quote a colour (`bg: '#0d1117'`: unquoted, `#` starts
+a comment, an error there) and any value starting with `@` `` ` `` `|` `>` `!` `*`
+`&` `%` `[` or `{`; a key is letters, digits, `_` and `-`. A theme
 is a regular file of at most 1 MiB, nested at most 16 deep, with an `extends` chain
 of at most 16; `sigil themes` warns about a colour that is not `#rrggbb` / `#rgb`
 or a role the viewer does not know.
@@ -567,6 +571,8 @@ see [`docs/tools.md`](./docs/tools.md#dialects)), and a dialect's own command ca
 ## Development
 
 ```sh
+# once per checkout: cure at the lock's commit, into the shared store (see cure, below)
+python3 sigil/vendor/supply/store.py install "$(sed -n 's/^commit: //p' sigil/vendor/cure.lock)" --from https://github.com/no-tably/cure.git
 python3 -m unittest discover tests          # all tests
 ./build.py                                   # build every target into dist/
 ./build.py --target claude --version 1.2.3   # one target, explicit version
@@ -600,8 +606,8 @@ sigil/publish/   mermaid, spine (--mermaid --spine), systems, exporter,      ┐
 sigil/present/   app (the terminal viewer), views/ (graph · tree · flow ·    ┐ present
                  run), kit, themes, frames (packed rows for the hosts),      │
                  highlight (the source as coloured runs)                     ┘
-sigil/vendor/    cure, the terminal UI library sigil shares with construct,
-                 at one pinned commit (cure.lock); only present imports it
+sigil/vendor/    cure.lock (the cure commit sigil draws with), supply/ (cure's
+                 loader and store, verbatim), sync_cure.py; only present imports it
 themes/          YAML themes, shared with the page
 build.py         packaging (maintainers only)
 site/  the page and playground · tools/  goldens, doc regeneration, snapshot
@@ -612,18 +618,9 @@ highlight/  editor grammars (checked against sigil highlight)
 
 `core ← model ← analyse ← publish / present ← cli`: publish and present never
 import each other, and `sigil lint` loads neither the checker, the model nor the
-drawings. `build.py` ships the whole package, cure included; the page's
+drawings. `build.py` ships the whole package with its own copy of cure; the page's
 playground loads the same files (less the export layer, and only cure's `core` and
 `draw`: the terminal parts stay behind the live viewer).
-
-**cure.** The drawings' generic parts (stroke glyphs, colour maths, the frame memo,
-the terminal's modes, keys and mouse, the playback clock, the viewport, the file
-watch, frames packing, the SGR seam) come from cure, vendored at one commit in
-`sigil/vendor/cure`. Never edit it there: `sigil/vendor/sync_cure.py CURE_REPO
-[COMMIT]` runs cure's own sync and rewrites `sigil/vendor/cure.lock` (the commit and
-the hashes of the cure systems sigil uses), and the goldens decide whether a new
-commit changes anything drawn. `tests/test_vendor.py` checks the pin and that lint,
-check and export never load cure.
 
 Canonical packaging sources — edit these, never `dist/`:
 
@@ -641,11 +638,45 @@ Canonical packaging sources — edit these, never `dist/`:
 
 `build.py` copies the `sigil/` package, `bin/sigil` and `themes/*.yaml` into
 `skills/sigil/scripts/` (the skill runs `scripts/bin/sigil`) and `language.md` / `examples.md` into
-`skills/sigil/references/`, then writes each agent's manifests. Archives are
-deterministic. CI (`.github/workflows/ci.yml`) tests, type-checks the pi extension
+`skills/sigil/references/`, and cure's tree from the store into
+`scripts/sigil/vendor/cure` (cure's own `store.py bundle`), then writes each agent's
+manifests; `--check` refuses an archive whose cure is at another commit than the lock
+or differs from the store's. Archives are
+deterministic. CI (`.github/workflows/ci.yml`) installs cure at the lock's commit,
+tests, type-checks the pi extension
 and the logic it shares with the Claude Code mod (through bun), builds and validates
 on every push; pushing a `v*` tag builds with that version and attaches the
 archives to a GitHub Release.
+
+### cure
+
+The drawings' generic parts come from [cure](https://github.com/no-tably/cure), the
+terminal UI library sigil shares with construct: cell widths (grapheme clusters),
+stroke glyphs, colour maths, the frame memo, the theme grammar, row packing (cure's
+Wire), the SGR seam, and the live view's terminal, keys and mouse, display, playback
+clock, viewport and file watch. sigil keeps the canvas grid, the views' layouts,
+roles and the sim player. There is one cure, at the commit `sigil/vendor/cure.lock`
+names, and sigil's repository holds none of its code but the loader and store it
+copies verbatim (`sigil/vendor/supply/`). sigil loads cure from:
+
+- `sigil/vendor/cure`, the copy a plugin archive carries (`build.py` puts it there),
+  else
+- the shared store, `$CURE_STORE/<commit>/cure` (default `~/.local/share/cure`),
+  which construct uses too. sigil never fetches: install the lock's commit once,
+
+```sh
+python3 sigil/vendor/supply/store.py install "$(sed -n 's/^commit: //p' sigil/vendor/cure.lock)" \
+    --from https://github.com/no-tably/cure.git
+```
+
+A drawing command that finds neither names that command; a folder holding another
+commit is refused, never used. `lint`, `check` and `export` never load cure. To pin
+a new commit, `sigil/vendor/sync_cure.py REV [--from SOURCE] [--store DIR]` installs
+it, copies cure's supply files and rewrites the lock and `cure.systems.json` (the
+hashes of the cure systems sigil stands on, so a re-pin shows which moved); the
+goldens decide whether sigil takes it. Never edit cure's files, in the store or in
+an archive. `tests/test_vendor.py` checks the pin, the verbatim copies, the bundled
+archive and that lint, check and export never load cure.
 
 ## License
 
