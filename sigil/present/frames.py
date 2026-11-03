@@ -40,7 +40,16 @@ Every character of a packed row from draw() is one terminal cell, so the host's
 grid keeps the drawing's columns: a wide character is itself and then
 WIDE_TAIL, the continuation cell of the two columns the views give it (the
 host draws the pair as the one wide glyph), and a combining mark or zero-width
-character is nothing — kit.char_cells's rule. Standard library only.
+character is nothing — kit.char_cells's rule.
+
+draw()'s rows are packed by cure's Wire (round 11): sigil lays each character
+as its cells (cells(), sigil's width rule), cure's `pack` makes the runs, drops
+the trailing blanks and lists the styles, and the result is mapped onto the
+envelope's own style table (Styles / HexStyles, in sigil's order), its cluster
+side table left out — so the JSON is today's, byte for byte. A row cure would
+pack otherwise (a character cure joins to the one before it, an empty run, a
+row ending in a blank) keeps sigil's own packing (pack_rows). pack_rows is also
+the page's and the playground's packing (their text as drawn, no cells).
 """
 
 from __future__ import annotations
@@ -59,6 +68,11 @@ from sigil.present import app, kit
 from sigil.present.views import flow as vflow
 from sigil.present.views import run as vrun
 from sigil.present.views import tree as vtree
+
+# cure (vendored; Present's __init__ puts it on the path): the packed wire
+from cure.core.buffer.rows import Rows
+from cure.core.buffer.wire import pack as wire_pack
+from cure.core.style import Name, Style, resolve
 
 WINDOW = 120               # run frames one draw holds (the host asks for the next as it plays)
 LINT_LINES = 5              # diagnostics carried into the reply
@@ -209,9 +223,116 @@ class HexStyles(Styles):
             return sid
 
 
+# Characters cure's Text lays as part of the cluster before them where sigil's
+# cells give each its own cell: Hangul vowel and final jamo, emoji skin-tone
+# modifiers. Every other character cells() keeps, cure lays as one cell of the
+# same width (tests/test_frames_cure.py checks every code point).
+_JOINS = re.compile("[\u1160-\u11ff\ud7b0-\ud7c6\ud7cb-\ud7fb\U0001f3fb-\U0001f3ff]")
+_UNPACKED = object()    # a style cure would not carry as written (its row keeps pack_rows)
+
+
+@functools.lru_cache(maxsize=1024)
+def _wire_colour(text: str):
+    """A table colour (role or hex, as the envelope writes it) as a cure Colour
+    whose role is that text, so cure's role table gives it back as written; None
+    when cure reads it as something else (not a colour, or its default)."""
+    try:
+        colour = resolve(Name(text, text))
+    except (TypeError, ValueError):
+        return None
+    return None if colour.form == "default" else colour
+
+
+def _wire_style(key: StyleKey):
+    """A table entry (fg, bg, bold) as the cure Style that packs back to it."""
+    fg, bg, bold = key
+    if fg is None and bg is None:
+        return Style(bold=bold) if bold else None
+    fgc = _wire_colour(fg) if fg is not None else None
+    bgc = _wire_colour(bg) if bg is not None else None
+    if (fg is not None and fgc is None) or (bg is not None and bgc is None):
+        return _UNPACKED
+    return Style(fg=fgc, bg=bgc, bold=bold)
+
+
+def _wire_row(laid: list, keys: list, wire: dict):
+    """A row of (cells text, table key) runs as a cure Line's parts, or None
+    when cure would pack it otherwise than pack_rows does."""
+    parts = []
+    for (text, _st), key in zip(laid, keys):
+        if not text or _JOINS.search(text):
+            return None
+        try:
+            style = wire[key]
+        except KeyError:
+            style = wire[key] = _wire_style(key)
+        if style is _UNPACKED:
+            return None
+        parts.append((text, style))
+    if laid and laid[-1][0][-1].isspace() and not keys[-1][1]:
+        return None             # a trailing blank: pack_rows drops whole runs, cure cells
+    return parts
+
+
+_WIRE_STYLES: dict = {}     # table key → cure Style (or _UNPACKED)
+_PACKED_ROWS: dict = {}     # a view's row (hex tables) → (its styles in order, packed runs)
+_ROWS_KEPT = 8192           # rows remembered (a run's frames repeat most rows)
+
+
+def _wire_pack(rows: list) -> list:
+    """cure's Wire on rows of (text, cure Style) parts → each row's packed
+    (text, table key) runs (a table key: the entry's (fg, bg, bold))."""
+    p = wire_pack(Rows.of(rows), colours="role")
+    keys = [(fg, bg, "b" in attrs) for fg, bg, attrs, _link in p.styles]
+    out = [tuple((text, keys[i]) for text, i in row) for row in p.rows]
+    return out + [() for _ in range(len(rows) - len(out))]
+
+
 def packed(rows, styles: Styles) -> list:
-    """The views' rows → packed rows, one character a cell (cells())."""
-    return pack_rows([[(cells(t), st) for t, st in row] for row in rows], styles)
+    """The views' rows → packed rows, one character a cell (cells()), packed by
+    cure's Wire and mapped onto `styles` (see the module docstring). Each row's
+    styles are interned in run order, as pack_rows does, so the table keeps
+    sigil's order; a row packed once is remembered (frame after frame repeats
+    most of them)."""
+    out, todo, at = [], [], []
+    hexed = isinstance(styles, HexStyles)       # a role table tells colours apart by role
+    for row in rows:
+        try:
+            sig = tuple(row) if hexed else None
+            done = _PACKED_ROWS.get(sig)
+        except TypeError:                       # an unhashable run: packed afresh
+            sig = done = None
+        if done is not None:
+            for st in done[0]:
+                styles.intern(st)
+            out.append(done[1])
+            continue
+        laid = [(cells(t).replace(WIDE_TAIL, ""), st) for t, st in row]
+        keys = [tuple(styles.table[styles.intern(st)]) for _t, st in laid]  # sigil's order
+        order = tuple(dict.fromkeys(st for _t, st in laid)) if sig is not None else ()
+        parts = _wire_row(laid, keys, _WIRE_STYLES)
+        if parts is None:                       # sigil's own packing
+            kept = pack_rows([[(cells(t), st) for t, st in row]], styles)
+            runs = tuple((text, tuple(styles.table[i])) for text, i in (kept[0] if kept else ()))
+            out.append(runs)
+            if sig is not None:
+                _PACKED_ROWS[sig] = (order, runs)
+            continue
+        at.append((len(out), sig, order))
+        todo.append(parts)
+        out.append(())
+    if todo:
+        for (y, sig, order), runs in zip(at, _wire_pack(todo)):
+            out[y] = runs
+            if sig is not None:
+                _PACKED_ROWS[sig] = (order, runs)
+    if len(_PACKED_ROWS) > _ROWS_KEPT:
+        _PACKED_ROWS.clear()
+    index = styles.index
+    out = [[[text, index[key]] for text, key in runs] for runs in out]
+    while out and not out[-1]:
+        out.pop()
+    return out
 
 
 # ---------------------------------------------------------------------------
