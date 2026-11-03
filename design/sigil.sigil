@@ -110,6 +110,8 @@
 # round 12: the one cure, at the lock's commit (archive copy first, else the shared store)
 [Present] -> |CureStore| : load({Commit}) => {Code}
 (Author) ~> |CureStore| : install({Commit})                 # cure's tools/store.py, or CI; sigil never writes it
+# installed under a temp name and renamed in: a load sees no folder or a whole one, never one changing
+|CureStore| @inv atomic(install)
 
 --- the layers ---
 
