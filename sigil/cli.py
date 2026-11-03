@@ -914,6 +914,24 @@ def main(argv=None, dialect=None) -> int:
     except MemoryError:                    # the stack unwound: what it held is free again
         say(argv[0], "out of memory; lower the run limits (--limit, or the #% line)")
         return 2
+    except (ImportError, ValueError) as exc:   # a drawing command: its library found nowhere
+        if not _vendor_unloadable(exc):
+            raise
+        print(f"sigil: {exc}", file=sys.stderr)
+        return 2
+
+
+def _vendor_unloadable(exc: BaseException) -> bool:
+    """Whether `exc` is the vendored library's loader saying the lock's commit
+    cannot be loaded (CureNotFound, CureMismatch: ImportErrors; LockError: a
+    lock it cannot read), raised by `import sigil.vendor` under a drawing
+    command (view, frames, themes, highlight). The classes are sigil.vendor's
+    loader copy as it was loaded, read from sys.modules: importing it again
+    would rerun sigil.vendor's load, the thing that failed, and cli never
+    imports the library itself."""
+    loader = sys.modules.get("sigil.vendor.supply.loader")
+    return loader is not None and isinstance(
+        exc, (loader.CureNotFound, loader.CureMismatch, loader.LockError))
 
 
 def version_line() -> str:
