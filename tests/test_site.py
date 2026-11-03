@@ -33,7 +33,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import unicodedata
 import unittest
 import urllib.parse
 from pathlib import Path
@@ -618,40 +617,29 @@ class TestSiteJs(unittest.TestCase):
                 self.assertNotIn("error", res)
                 self.assertEqual(res["ok"], themes.parse(path.read_text(encoding="utf-8")))
 
-    CELL_JS = ("// ------------------------------------------------------------------ cell width",
+    CELL_JS = ("// ------------------------------------------------------------------ cells",
                "// ------------------------------------------------------------------ YAML subset")
 
-    def test_cell_width_matches_viewkit(self):
-        """cellWidth counts every character Python's unicodedata knows (bar private
-        use) as viewkit.char_cells does, so the run section sizes a CJK frame right.
-        Marks are the browser's own Mn / Me: a character node's newer Unicode
-        re-categorised is left out."""
-        known = [c for c in range(0x110000) if unicodedata.category(chr(c)) not in ("Cn", "Cs", "Co")]
-        sample = "名前[支払い]é"
-        runs = []                      # known as [first, last] runs: a short node argument
-        for c in known:
-            if runs and runs[-1][1] == c - 1:
-                runs[-1][1] = c
-            else:
-                runs.append([c, c])
+    def test_rows_are_cures_wire_drawn_from_the_side_table(self):
+        """The page measures nothing: a packed row (cure's Wire, as frames.packed
+        makes it) is as wide as its code points, and drawnRuns draws each cell's
+        cluster from the side table, a wide cluster's tail left out."""
+        from sigil.present import frames as fr
+        text = "名前[支払い]e\u0301 \U0001f468\u200d\U0001f469 ok"
+        tables: list = []
+        rows = fr.packed([[(text, None)]], fr.Styles(), tables)
         body = (_js_section(*self.CELL_JS)
-                + f"\nconst runs = {json.dumps(runs)}, sample = {json.dumps(sample)};\n"
-                + r"const mark = /[\p{Mn}\p{Me}]/u, got = [];"
-                + "for (const [a, b] of runs) for (let c = a; c <= b; c++) {"
-                  " const ch = String.fromCodePoint(c); got.push([charCells(ch), mark.test(ch)]); }"
-                  "process.stdout.write(JSON.stringify({ sample: cellWidth(sample), got }));")
+                + f"\nconst rows = {json.dumps(rows)}, tables = {json.dumps(tables)};\n"
+                  "process.stdout.write(JSON.stringify({ cols: rows[0].reduce((n, [t]) => n + cells(t), 0),"
+                  " text: drawnRuns(rows[0], tables[0]).map(([t]) => t).join('') }));")
         out = json.loads(self._run(body))
-        wrong = [hex(c) for c, (cells, is_mark) in zip(known, out["got"])
-                 if is_mark == (unicodedata.category(chr(c)) in ("Mn", "Me"))
-                 and cells != viewkit.char_cells(chr(c))]
-        self.assertEqual(wrong[:20], [], f"{len(wrong)} characters disagree "
-                         f"(regenerate WIDE in site.js from unicodedata {unicodedata.unidata_version})")
-        self.assertEqual(out["sample"], viewkit.cell_width(sample))
+        self.assertEqual(out, {"cols": viewkit.cell_width(text), "text": text})
+        self.assertNotIn("WIDE", _js_section(*self.CELL_JS))      # no width table of its own
 
     def test_run_frame_width_counts_cells(self):
         code = _js_section("  function runLoop", "  function currentSection")
-        self.assertIn("cellWidth(t)", code)
-        self.assertNotIn("[...String(t)].length", code)
+        self.assertIn("cells(t)", code)
+        self.assertNotIn("cellWidth", code)
 
     def test_highlighter_roles(self):
         code = _js_section("const RULES", "// ------------------------------------------------------------------ frames")

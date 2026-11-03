@@ -1,9 +1,9 @@
 """The doc and table generators under tools/.
 
 Covers:
-  1. tools/wide_table.py: the WIDE tables in site/site.js and
-     plugin/claude/hooks/logic.ts are current (`--check`); the ranges are
-     sigil.present.kit.char_cells's wide characters exactly; each format packs its ranges
+  1. tools/wide_table.py: the WIDE and ZERO tables in plugin/claude/hooks/logic.ts
+     are current (`--check`); the ranges are sigil.present.kit.char_cells's
+     (cure's) wide and zero-width code points exactly; the format packs its ranges
      into lines that fit; only the table's lines are rewritten; `--check` never
      writes, and a file without its table is an error, not a rewrite;
   2. tools/regen_docs.py: `--help` prints usage and draws nothing; `--check`
@@ -46,21 +46,21 @@ class TestWideTable(unittest.TestCase):
         cells = {0x41: 1, 0x42: 2, 0x43: 2, 0x44: 0, 0x45: 2, 0x46: 1, 0x47: 2}
         got = wide.wide_ranges(lambda ch: cells.get(ord(ch), 1), last=0x47)
         self.assertEqual(got, [(0x42, 0x43), (0x45, 0x45), (0x47, 0x47)])   # a mark splits a run
+        zero = wide.wide_ranges(lambda ch: cells.get(ord(ch), 1), last=0x47, n=0)
+        self.assertEqual(zero, [(0x44, 0x44)])
 
-    def test_formats(self):
+    def test_format(self):
         ranges = [(0x1100, 0x115f), (0x23f0, 0x23f0), (0x20000, 0x2fffd)]
-        self.assertEqual(wide.js_regex_lines(ranges),
-                         ["    String.raw`\\u{1100}-\\u{115f}\\u{23f0}\\u{20000}-\\u{2fffd}`,"])
         self.assertEqual(wide.ts_pair_lines(ranges),
                          ["  0x1100, 0x115f, 0x23f0, 0x23f0, 0x20000, 0x2fffd,"])
         many = [(k * 4, k * 4 + 1) for k in range(0x1000, 0x1100)]
-        for lines in (wide.js_regex_lines(many, 60), wide.ts_pair_lines(many, 60)):
-            self.assertGreater(len(lines), 1)
-            self.assertTrue(all(len(ln) <= 60 for ln in lines))
-        self.assertEqual(sum(ln.count(",") for ln in wide.ts_pair_lines(many, 60)), 2 * len(many))
+        lines = wide.ts_pair_lines(many, 60)
+        self.assertGreater(len(lines), 1)
+        self.assertTrue(all(len(ln) <= 60 for ln in lines))
+        self.assertEqual(sum(ln.count(",") for ln in lines), 2 * len(many))
 
     def test_only_the_table_lines_change(self):
-        table = wide.TABLES[1]
+        table = wide.TABLES[0]
         text = "before\nconst WIDE: readonly number[] = [\n  0x1, 0x2,\n]\nconst x = [\n]\n"
         got = wide.with_table(text, table, [(0x10, 0x11)])
         self.assertEqual(got, "before\nconst WIDE: readonly number[] = [\n  0x10, 0x11,\n]\n"
@@ -72,40 +72,36 @@ class TestWideTable(unittest.TestCase):
 
     @staticmethod
     def cells(ch: str) -> int:
-        """A width rule for the copies: U+4E00..U+4E0F wide, the rest narrow."""
-        return 2 if 0x4E00 <= ord(ch) <= 0x4E0F else 1
+        """A width rule for the copy: U+4E00..U+4E0F wide, U+0300 zero, the rest narrow."""
+        return 2 if 0x4E00 <= ord(ch) <= 0x4E0F else 0 if ch == "\u0300" else 1
 
-    def copy_tree(self, tmp: Path, js_table: str) -> Path:
-        """A root holding the two files, their tables as given (logic.ts's
-        already the one `cells` makes)."""
-        (tmp / "site").mkdir()
+    def copy_tree(self, tmp: Path, wide_table: str) -> Path:
+        """A root holding logic.ts, its WIDE table as given, its ZERO table
+        already the one `cells` makes."""
         (tmp / "plugin" / "claude" / "hooks").mkdir(parents=True)
         (tmp / "plugin" / "claude" / "hooks" / "logic.ts").write_text(
-            "const WIDE: readonly number[] = [\n  0x4e00, 0x4e0f,\n]\n", encoding="utf-8")
-        (tmp / "site" / "site.js").write_text(
-            '  const WIDE = new RegExp(`[${[\n' + js_table + '\n  ].join("")}]`, "u");\n',
-            encoding="utf-8")
+            "const WIDE: readonly number[] = [\n" + wide_table + "\n]\n"
+            "const ZERO: readonly number[] = [\n  0x300, 0x300,\n]\n", encoding="utf-8")
         return tmp
 
     def test_check_never_writes_and_update_does(self):
         with tempfile.TemporaryDirectory() as d:
-            root = self.copy_tree(Path(d), "    String.raw`\\u{1100}`,")
-            site = root / "site" / "site.js"
-            before = site.read_text(encoding="utf-8")
+            root = self.copy_tree(Path(d), "  0x1100, 0x1100,")
+            logic = root / "plugin" / "claude" / "hooks" / "logic.ts"
+            before = logic.read_text(encoding="utf-8")
             self.assertEqual(quiet(wide.main, ["--check"], root=root, cells=self.cells), 1)
-            self.assertEqual(site.read_text(encoding="utf-8"), before)
+            self.assertEqual(logic.read_text(encoding="utf-8"), before)
             self.assertEqual(quiet(wide.main, [], root=root, cells=self.cells), 0)
-            self.assertIn("    String.raw`\\u{4e00}-\\u{4e0f}`,\n",
-                          site.read_text(encoding="utf-8"))
+            self.assertIn("  0x4e00, 0x4e0f,\n", logic.read_text(encoding="utf-8"))
             self.assertEqual(quiet(wide.main, ["--check"], root=root, cells=self.cells), 0)
 
     def test_missing_table_is_an_error(self):
         with tempfile.TemporaryDirectory() as d:
             root = self.copy_tree(Path(d), "")
-            (root / "site" / "site.js").write_text("no table here\n", encoding="utf-8")
+            logic = root / "plugin" / "claude" / "hooks" / "logic.ts"
+            logic.write_text("no table here\n", encoding="utf-8")
             self.assertEqual(quiet(wide.main, [], root=root, cells=self.cells), 2)
-            self.assertEqual((root / "site" / "site.js").read_text(encoding="utf-8"),
-                             "no table here\n")
+            self.assertEqual(logic.read_text(encoding="utf-8"), "no table here\n")
 
 
 class TestRegenDocs(unittest.TestCase):

@@ -1971,8 +1971,9 @@ def _extent(look) -> tuple:
 def _blanks(look) -> tuple:
     """Which of the cells _extent counts are blank: each character's width, 0
     for a blank (what it says and its style aside)."""
-    return _beside(look, lambda runs: tuple(0 if ch == " " else kit.cell_width(ch)
-                                            for text, _style in runs for ch in text))
+    return _beside(look, lambda runs: tuple(0 if ch == " " else kit.char_cells(ch)
+                                            for text, _style in runs
+                                            for ch in kit.clusters(text)))
 
 
 def _beside(look, cells) -> tuple:

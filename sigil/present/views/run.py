@@ -55,7 +55,6 @@ from __future__ import annotations
 
 import bisect
 import re
-import textwrap
 from typing import NamedTuple, Optional
 
 from sigil.present import kit
@@ -1151,8 +1150,8 @@ def _cut_runs(row: list, w: int) -> list:
 
 
 def _wrapped(text: str, width: int) -> list:
-    """Text wrapped at width between words (a word longer stays whole)."""
-    return textwrap.wrap(text, width, break_long_words=False, break_on_hyphens=False) or [text]
+    """Text wrapped at width between words, by drawn width (a word longer stays whole)."""
+    return kit.wrap_cells(text, width, hyphens=False, long_words=False) or [text]
 
 
 def _merge(row: list) -> list:

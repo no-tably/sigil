@@ -25,13 +25,17 @@ Not a command: the app (sigil.present.app) loads it, and the views
                 marks and styles, in the theme's ui.error / ui.warn roles
     output      ansi(), clip(), row_len(); doc_title(), doc_mode(), run_lint()
 
-The generic parts come from cure (vendored under sigil.vendor): the colour
-maths of muted / faded / tints (Theme's derive), hex reading (Style), the
-stroke glyphs, direction bits and ranks (Canvas's junctions and charset), and
-the frame plans and dirty rows (Memo: Plan, held, slot, FrameMemo's Memo,
-Retained's moved). Cells and widths, the Canvas grid itself, same_look and the
-ANSI text stay sigil's: they measure by code point and compare colours by
-role, as the frames hosts and the goldens read them.
+The generic parts come from cure (vendored under sigil.vendor): cell widths
+by grapheme cluster (Text: width, put, cut, wrap — char_cells, cell_width,
+cut_cells, wrap_cells, clip and the Canvas text layer measure with them, so
+the live view, --once and the frames hosts agree), the colour maths of muted /
+faded / tints (Theme's derive), hex reading (Style), the stroke glyphs,
+direction bits and ranks (Canvas's junctions and charset), and the frame plans
+and dirty rows (Memo: Plan, held, slot, FrameMemo's Memo, Retained's moved).
+The Canvas grid itself, same_look and the ANSI text stay sigil's: the views
+reach the grid's cells, and colours compare by role. wrap_cells keeps
+textwrap's lines for text of one-column clusters (every drawing's wrapping as
+it was); cure's Wrap fills any other.
 
 Theme application rebinds this module's style globals (GREY, EDGE_COLOR,
 PAYLOAD_STYLE, … — see _theme_styles()), so other modules read them as
@@ -44,7 +48,6 @@ import functools
 import itertools
 import re
 import textwrap
-import unicodedata
 from typing import NamedTuple
 
 from sigil.core.comments import (  # noqa: F401  (some for the views, as kit.NAME)
@@ -69,6 +72,9 @@ from sigil.present import themes
 # generic drawing parts sigil stands on — Theme's colour maths, Style's hex
 # reading, Canvas's stroke glyphs and ranks, Memo's plans and dirty rows.
 from cure.core.style import parse_hex
+from cure.core.text import Line as _Line, cluster as _cluster, cut as _cut, put as _put
+from cure.core.text import width as _text_width, wrap as _wrap
+from cure.core.text.width import cells as _cluster_cells
 from cure.draw.canvas.junctions import (
     E, N, OPPOSITE, RANK, S, W, glyph as _junction_glyph, part as _junction_part)
 from cure.draw.memo import Looks, Memo, Plan, held, moved, slot  # noqa: F401  (kit.NAME)
@@ -429,30 +435,27 @@ _STROKES = {"=>": "heavy", "*>": "double", "~>": "dashed", "trigger": "hdash",
 
 
 # ---------------------------------------------------------------------------
-# Cells — what a drawing measures. A terminal shows a wide character (CJK,
-# east_asian_width W / F) in two columns and a combining mark in none, so a
-# drawn width is cell_width(text), never len(text). A Canvas cell is one
-# column: a wide character takes two, the second holding WIDE_TAIL.
+# Cells — what a drawing measures, by cure's Text (round 12): a terminal shows
+# text by grapheme cluster, each cluster 0, 1 or 2 columns from cure's one
+# |WideTable| (a CJK character two, a letter and its combining marks one, an
+# emoji ZWJ sequence or a flag two, Hangul L V T jamo one syllable of two), so a
+# drawn width is cell_width(text), never len(text). A Canvas cell is one column:
+# a wide cluster takes two, the second holding WIDE_TAIL. The hosts (the Claude
+# Code pane, pi, the page) read the same widths from frames' packed rows.
 # ---------------------------------------------------------------------------
 
 WIDE_TAIL = ""          # the second cell of a wide character: draws nothing
-_ZERO_WIDTH = {"\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"}   # ZWSP ZWNJ ZWJ WJ BOM
-_CHAR_CELLS: dict = {}  # a non-ASCII character → its cells, as char_cells finds them
 
 
 def char_cells(ch: str) -> int:
-    """The columns one character takes: 2 wide (W / F), 0 a combining mark or a
-    zero-width character, else 1."""
-    if ch < "\x80":
-        return 1
-    n = _CHAR_CELLS.get(ch)
-    if n is None:
-        if unicodedata.category(ch) in ("Mn", "Me") or ch in _ZERO_WIDTH:
-            n = 0
-        else:
-            n = 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
-        _CHAR_CELLS[ch] = n
-    return n
+    """The columns one grapheme cluster `ch` takes (a single code point is
+    measured as a cluster of its own): cure's cluster rule, 0, 1 or 2."""
+    return 1 if ch < "\x80" and len(ch) == 1 else _cluster_cells(ch)
+
+
+def clusters(s: str) -> tuple:
+    """`s` cut into grapheme clusters (cure's Graphemes)."""
+    return tuple(s) if s.isascii() and s.isprintable() else _cluster(s)
 
 
 def unhidden(s: str) -> str:
@@ -465,24 +468,27 @@ def unhidden(s: str) -> str:
 
 
 def cell_width(s: str) -> int:
-    """The columns text takes in a terminal (len(s) for ASCII)."""
+    """The columns text takes in a terminal (len(s) for ASCII): cure's width."""
     if s.isascii():
         return len(s)
-    return sum(map(char_cells, s))
+    return _text_width(s)
 
 
 def cut_cells(s: str, n: int) -> str:
-    """The longest start of s that fits n columns (s[:n] for ASCII); a wide
-    character that would straddle the edge is left out, a combining mark kept
-    with its base."""
+    """The longest start of s that fits n columns (s[:n] for ASCII): cure's
+    cut, so a wide cluster that would straddle the edge is left out and a
+    combining mark stays with its base."""
     if s.isascii():
         return s[:max(n, 0)]
-    used = 0
-    for k, ch in enumerate(s):
-        used += char_cells(ch)
-        if used > n:
-            return s[:k]
-    return s
+    return _cut(_Line.of(s), max(n, 0)).plain
+
+
+def _one_per_cell(s: str, n: int | None = None) -> bool:
+    """Whether every code point of `s` is a cluster of its own one column wide
+    (so an index into `s` is a column); `n`: its cell_width, when known."""
+    if s.isascii():
+        return True
+    return (cell_width(s) if n is None else n) == len(s) == len(_cluster(s))
 
 
 def ljust_cells(s: str, n: int, fill: str = " ") -> str:
@@ -490,52 +496,29 @@ def ljust_cells(s: str, n: int, fill: str = " ") -> str:
     return s + fill * (n - cell_width(s))
 
 
-_SPACES = re.compile(r"[ \t\n\r\f\v]+")       # textwrap's whitespace (not \xa0)
+_BREAKS = str.maketrans("\n\r\v\f", "    ")    # textwrap's replace_whitespace
 
 
 def wrap_cells(text: str, width: int, indent: str = "", hyphens: bool = True,
                long_words: bool = True) -> list:
     """textwrap.wrap by drawn width (indent: its subsequent_indent, hyphens:
-    break_on_hyphens, long_words: break_long_words). Text whose characters
-    are one column each gets textwrap's own lines; otherwise words fill lines
-    greedily, and a word wider than its line is cut by columns — even with
-    long_words=False when it holds a wide character (CJK has no spaces to
-    break at). A width under 1 is taken as 1 (textwrap refuses it)."""
+    break_on_hyphens, long_words: break_long_words). Text whose clusters are
+    one column each gets textwrap's own lines (as every drawing always has);
+    any other text cure's Wrap fills, by cluster width: CJK breaks between any
+    two wide characters, and a word wider than its line is cut by columns
+    when long_words, else left whole on a line of its own. Read as textwrap
+    reads it: tabs expanded, line breaks taken as spaces. A width under 1 is
+    taken as 1; an indent as wide as the line is dropped."""
     width = max(width, 1)
-    if cell_width(text) == len(text) and cell_width(indent) == len(indent):
+    if _one_per_cell(text) and _one_per_cell(indent):
         return textwrap.wrap(text, width, subsequent_indent=indent,
                              break_on_hyphens=hyphens, break_long_words=long_words)
-    lines, line = [], ""                        # line: the open line's words, no indent
-
-    def room() -> int:
-        lead = cell_width(indent) if lines else 0
-        return max(width - lead - (cell_width(line) + 1 if line else 0), 0)
-
-    def close():
-        nonlocal line
-        lines.append((indent if lines else "") + line)
-        line = ""
-
-    for word in _SPACES.split(text.strip()):
-        cut = long_words or cell_width(word) != len(word)
-        if line and cell_width(word) > room() and (
-                not cut or cell_width(word) <= width - cell_width(indent)):
-            close()                             # it fits a line of its own: start one
-        while cut and word and cell_width(word) > room():
-            head = cut_cells(word, room())
-            if not head and not line:           # not one character fits: take one anyway
-                head = word[0]
-            if head:
-                line = line + " " + head if line else head
-                word = word[len(head):]
-            close()
-        if word:
-            if line and cell_width(word) > room():
-                close()
-            line = line + " " + word if line else word
-    if line:
-        close()
-    return lines
+    if cell_width(indent) >= width:
+        indent = ""
+    if not text.isprintable():
+        text = text.expandtabs().translate(_BREAKS)
+    return [line.plain for line in _wrap(text, width, indent=indent, hyphens=hyphens,
+                                         long_words=long_words)]
 
 
 class Probe(tuple):
@@ -647,9 +630,10 @@ class Canvas:
             check_size(self.w, self.h)
 
     def put(self, x, y, s, style=None):
-        """Text from column x on row y: one cell a character, two a wide one
-        (its second WIDE_TAIL), a combining mark joined to the character before
-        (a wide one's first cell, never its tail)."""
+        """Text from column x on row y, laid by cure's Text (put): one cell a
+        grapheme cluster, two a wide one (its second WIDE_TAIL); a cluster's
+        combining marks and joiners ride its cell; a mark with no base before
+        it in `s` is dropped."""
         if not s:
             return
         if not s.isprintable():
@@ -661,19 +645,11 @@ class Canvas:
             self._grow(x + n - 1, y)
             return
         at = x
-        base = None                     # the last character's own cell (not its tail)
-        for ch in s:
-            k = char_cells(ch)
-            if k == 0:                  # a combining mark: onto that character's cell
-                if base is not None:
-                    self.text[(base, y)] = (self.text[(base, y)][0] + ch, style)
-                continue
-            base = at
-            self.text[(at, y)] = (ch, style)
-            if k == 2:
-                self.text[(at + 1, y)] = (WIDE_TAIL, style)
+        for c in _put(_Line.of(s)):
+            if c.width == 0:            # a wide cluster's tail
                 self._wide = True
-            at += k
+            self.text[(at, y)] = (c.glyph, style)
+            at += 1
         if at > x:
             self._grow(at - 1, y)
 
@@ -814,9 +790,9 @@ class Canvas:
         for x, (ch, st) in list(cells.items()):
             if ch == WIDE_TAIL:
                 head = cells.get(x - 1)
-                if head is None or not head[0] or char_cells(head[0][0]) != 2:
+                if head is None or not head[0] or char_cells(head[0]) != 2:
                     cells[x] = (" ", st)
-            elif ch and char_cells(ch[0]) == 2:
+            elif ch and char_cells(ch) == 2:
                 tail = cells.get(x + 1)
                 if tail is None or tail[0] != WIDE_TAIL:
                     cells[x] = (" ", st)
@@ -1634,7 +1610,7 @@ def _one_per_column(text: str) -> str:
     repeats it, a combining mark is dropped (what is drawn where, by column)."""
     if text.isascii():
         return text
-    return "".join(ch * char_cells(ch) for ch in text)
+    return "".join(c[0] * char_cells(c) for c in clusters(text))
 
 
 def _empty_spot(acc, ph: int, pw: int, width: int, corner: str):
@@ -1847,7 +1823,7 @@ def clip(row, start: int, width: int):
     out, x = [], 0
     for t, st in row:
         n = cell_width(t)
-        if n == len(t):
+        if _one_per_cell(t, n):
             a, b = max(start - x, 0), min(start + width - x, n)
             if a < b:
                 out.append((t[a:b], st))
@@ -1862,23 +1838,15 @@ def clip(row, start: int, width: int):
 
 
 def _clip_cells(t: str, lo: int, hi: int) -> str:
-    """The columns [lo, hi) of text with wide characters: a wide character
-    straddling lo or hi becomes a blank column, combining marks stay with
-    their base."""
-    out, x, kept = [], 0, False                 # kept: the last base character is in
-    for ch in t:
-        k = char_cells(ch)
-        if k == 0:
-            if kept:
-                out.append(ch)
-            continue
-        kept = x >= lo and x + k <= hi
-        if kept:
-            out.append(ch)
-        elif x < hi and x + k > lo:             # straddles an edge: its cells inside
-            out.append(" " * (min(x + k, hi) - max(x, lo)))
-        x += k
-    return "".join(out)
+    """The columns [lo, hi) of text with wide characters (cure's cut): a wide
+    cluster straddling lo or hi becomes a blank column, combining marks stay
+    with their base."""
+    start = max(lo, 0)
+    if hi <= start:
+        return ""
+    kept = _cut(_Line.of(t), hi - start, start=start).plain
+    want = max(min(hi, cell_width(t)) - start, 0)      # a straddler at hi: its cells inside
+    return kept + " " * (want - cell_width(kept))
 
 
 def row_len(row) -> int:

@@ -20,7 +20,9 @@ tests/*.test.ts      run by `claude plugin test`
 ```
 
 On the terminal the pane draws the drawing as `Raster`s, which `$.ui.blit` repaints
-in place. Rows that hold a wide character (CJK, most emoji) are drawn as `Text`
+in place. Rows that hold a wide character (CJK, most emoji) or a cluster longer
+than one code point (a letter and its mark, a ZWJ sequence, a flag: `sigil frames`
+sends it whole in the row's side table, cure's Wire) are drawn as `Text`
 instead, so they can't be blitted. The engine's `RasterProps.cells` takes only
 "one printable width-1 BMP character" per cell, and a tree whose Raster holds a
 wide code point is refused ("Raster … cell 0 holds U+754C, which is not one

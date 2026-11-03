@@ -3,7 +3,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import {
   WIDE_TAIL, WINDOW, WINDOW_BACK, aheadFrom, askedFrame, cellWidth, charCells, colourOf, cropRows, cutCells, displayReport, drawArgv, drawnFrame, followArgv, frameIndex,
   herdrPaneGetArgv, herdrPaneOf, herdrReadyArgv, herdrWorkspaceOf, holds, layoutOf, layoutReport, nextView, nextSpeed, panTo, parseCommandArgs, parseDisplayArgs,
-  glyphs, heldBy, holdsWide, parseDrawing, parseLayoutArgs, parsePlacementArgs, parseRequest, pickDisplay, pickLayout, pickPlacement,
+  drawnRuns, heldBy, holdsWide, sideTables, parseDrawing, parseLayoutArgs, parsePlacementArgs, parseRequest, pickDisplay, pickLayout, pickPlacement,
   placementOf, placementReport, playbackFor, playTick, rasterCells, replyText,
   resolveDisplay, runLines, shellQuote, slices, slot, speedText, splitArgv, splitStart, statusLine, tabArgv, viewArgv, windowFor,
   windowStart, zellijLayout, zellijLayoutPath, CONTROL_NAME, CONTROL_PREFIX, controlPath, privateDirArgv, privateWriteArgv,
@@ -205,15 +205,33 @@ describe('cells', () => {
   })
   test('a wide character is itself over two cells: the glyph, then WIDE_TAIL', () => {
     const T = WIDE_TAIL
-    expect(glyphs(`a界${T}b`)).toBe('a界b')
-    expect(glyphs(`${T}b`)).toBe(' b')                     // panned past the glyph: its tail a blank
-    expect(glyphs('a界')).toBe('a ')                       // cut before the tail: a blank, not half a glyph
-    expect(glyphs('plain')).toBe('plain')
+    const text = (row: [string, number][], table: [number, string][] = [], from = 0, width = Infinity) =>
+      drawnRuns(row, table, from, width).map(([t]) => t).join('')
+    expect(text([[`a界${T}b`, 0]])).toBe('a界b')
+    expect(text([[`a界${T}b`, 0]], [], 2)).toBe(' b')       // panned past the glyph: its tail a blank
+    expect(text([[`a界${T}b`, 0]], [], 0, 2)).toBe('a ')    // cut before the tail: a blank, not half a glyph
+    expect(text([['plain', 0]])).toBe('plain')
     expect(holdsWide([[['ab', 0]], [[`界${T}`, 1]]])).toBe(true)
     expect(holdsWide([[['ab', 0]]])).toBe(false)
+    expect(holdsWide([[['ab', 0]]], [[[1, 'b\u0301']]])).toBe(true)   // a cluster: drawn as text
     const row = [['(', 0], [`利${T}用${T}`, 1], [')', 0]] as [string, number][]
-    expect(cropRows([row], 2, 4).map(r => r.map(([t]) => glyphs(t)).join(''))).toEqual([' 用)'])
-    expect(cropRows([row], 0, 4).map(r => r.map(([t]) => glyphs(t)).join(''))).toEqual(['(利 '])
+    expect(text(row, [], 2, 4)).toBe(' 用)')
+    expect(text(row, [], 0, 4)).toBe('(利 ')
+    expect(drawnRuns(row, [], 2, 4)).toEqual([[' 用', 1], [')', 0]])
+  })
+  test('a cluster longer than one code point is drawn whole from the side table', () => {
+    const T = WIDE_TAIL
+    // cure's Wire: `cafe\u0301!` and a ZWJ family, each cluster's first code point on the row
+    expect(drawnRuns([['cafe!', 0]], [[3, 'e\u0301']])).toEqual([['cafe\u0301!', 0]])
+    const fam = '\u{1f468}\u200d\u{1f469}\u200d\u{1f467}'
+    expect(drawnRuns([[`x\u{1f468}${T}y`, 0]], [[1, fam]])).toEqual([[`x${fam}y`, 0]])
+    expect(drawnRuns([[`x\u{1f468}${T}y`, 0]], [[1, fam]], 2)).toEqual([[' y', 0]])
+    const drawing = { frames: [[], []], styles: [], legend: [],
+      clusters: { frames: [[], [[], [[3, 'e\u0301']]]], legend: [[[0, 'a\u0301']]] } } as unknown as Drawing
+    expect(sideTables(drawing, 'frames', 1)).toEqual([[], [[3, 'e\u0301']]])
+    expect(sideTables(drawing, 'frames', 0)).toEqual([])
+    expect(sideTables(drawing, 'legend')).toEqual([[[0, 'a\u0301']]])
+    expect(sideTables(drawing, 'path', 0)).toEqual([])
   })
   test('slices and frames', () => {
     expect(slices([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]])

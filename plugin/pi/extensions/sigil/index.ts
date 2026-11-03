@@ -15,13 +15,13 @@ import { fileURLToPath } from 'node:url'
 
 import {
   DEFAULT_WIDTH, DISPLAYS, LAYOUTS, PLACEMENTS, START_SPEED, SUPERSEDED, UNASKED_COLUMNS, VIEWS,
-  CONTROL_PREFIX, aheadFrom, askedFrame, cellWidth, controlPath, cropRows, cutCells, glyphs, heldBy, detectMux, displayReport, drawArgv, drawnFrame, followArgv, frameIndex, frameMs,
+  CONTROL_PREFIX, aheadFrom, askedFrame, cellWidth, controlPath, cutCells, drawnRuns, heldBy, detectMux, displayReport, drawArgv, drawnFrame, followArgv, frameIndex, frameMs,
   herdrPaneGetArgv, herdrPaneOf, herdrReadyArgv, herdrWorkspaceOf,
   lastFrame, layoutReport, nextSpeed, panTo, parseCommandArgs, parseDisplayArgs, parseDrawing, parseLayoutArgs, parsePlacementArgs, parseRequest,
   pickDisplay, pickLayout, pickPlacement, placementReport, playbackFor, playTick, replyText, resolveDisplay, runLines, shellQuote, slot, splitArgv,
-  splitStart, statusLine, tabArgv, viewArgv, windowFor, windowStart, zellijLayout, zellijLayoutPath,
+  sideTables, splitStart, statusLine, tabArgv, viewArgv, windowFor, windowStart, zellijLayout, zellijLayoutPath,
 } from './logic.ts'
-import type { Ahead, Asked, Display, DisplayChoice, LayoutChoice, Placement } from './logic.ts'
+import type { Ahead, Asked, Clusters, Display, DisplayChoice, LayoutChoice, Placement } from './logic.ts'
 
 // The shapes this file uses (types/index.d.ts in plugin/claude has them all).
 type ViewRequest = { file: string; view: 'graph' | 'tree' | 'flow' | 'run'; depth: number; scenario?: string; payloads?: boolean }
@@ -33,6 +33,7 @@ type Drawing = {
   legend: PackedRow[]; summary: string; lint: string[]; scenarios: string[]
   status?: string[]; log?: string[]; say?: string[]; trail?: string[]; path?: PackedRow[][]; outcome?: string
   first?: number; last?: number // a run is drawn a window at a time: its frames first … first + frames.length - 1
+  clusters?: { frames?: [number, string][][][]; path?: [number, string][][][]; legend?: [number, string][][] }
 }
 type Playback = { at: number; isPlaying: boolean }
 type Mux = 'herdr' | 'tmux' | 'zellij'
@@ -164,17 +165,14 @@ export function sgrColour(hex: string | null, base: 38 | 48): string | null {
   return `${base};2;${(n >> 16) & 255};${(n >> 8) & 255};${n & 255}`
 }
 
-/** A packed row as one terminal line, at most `width` cells (`sigil frames` makes
- * every character one cell, a wide one itself and its WIDE_TAIL: drawn as the
- * one glyph, glyphs), each run in its style's colours. */
-export function ansiRow(row: PackedRow, styles: readonly Style[], width: number): string {
+/** A packed row as one terminal line, its columns from … from+width-1 (`sigil
+ * frames` makes every code point one cell, a wide cluster its first code point and
+ * WIDE_TAIL, a longer cluster whole in the side table `table`: drawn as the one
+ * glyph, drawnRuns), each run in its style's colours. */
+export function ansiRow(row: PackedRow, styles: readonly Style[], width: number,
+                        table: Clusters = [], from = 0): string {
   let out = ''
-  let left = width
-  for (const [text, id] of row) {
-    if (left <= 0) break
-    const cells = [...text].slice(0, left)
-    left -= cells.length
-    const cut = glyphs(cells.join(''))
+  for (const [cut, id] of drawnRuns(row, table, from, width)) {
     const [fg, bg, bold] = styles[id] ?? [null, null, false]
     const codes = [bold ? '1' : null, sgrColour(fg, 38), sgrColour(bg, 48)].filter(c => c !== null)
     out += codes.length > 0 ? `\x1b[${codes.join(';')}m${cut}\x1b[0m` : cut
@@ -214,21 +212,25 @@ export function widgetLines(drawing: Drawing, request: ViewRequest, playback: Pl
   const at = frameIndex(drawing as never, playback)
   const drawn = drawing.frames[slot(drawing as never, at)] ?? []
   const isPanned = drawing.layout === 'pan' && drawn.some(r => r.reduce((n, [t]) => n + [...t].length, 0) > width)
-  const rows = isPanned ? cropRows(drawn, panX, width) : drawn
+  const rows = drawn
+  const from = isPanned ? panX : 0
+  const tables = sideTables(drawing as never, 'frames', slot(drawing as never, at))
   const lines = [styled(statusLine(drawing as never, request, at, playback.isPlaying, speed), width, '1')]
   if (error !== null) lines.push(styled(`✖ ${error}`, width, '31'))
   const shown = rows.length > bodyRows ? rows.slice(0, Math.max(1, bodyRows - 1)) : rows
-  for (const row of shown) lines.push(ansiRow(row, drawing.styles, width))
+  shown.forEach((row, y) => lines.push(ansiRow(row, drawing.styles, width, tables[y], from)))
   if (shown.length < rows.length) {
     lines.push(styled(`… ${rows.length - shown.length} more rows: sigil view ${drawing.file} draws the whole of it`, width, '2'))
   }
   const told = runLines(drawing as never, at)
   if (told !== null) {
-    if (told.path !== null) for (const row of told.path) lines.push(ansiRow(row, drawing.styles, width))
+    const paths = sideTables(drawing as never, 'path', slot(drawing as never, at))
+    if (told.path !== null) told.path.forEach((row, y) => lines.push(ansiRow(row, drawing.styles, width, paths[y])))
     else lines.push(styled(told.trail, width, '2'))
     lines.push(styled(told.now, width, '1'))
   }
-  if (shown.length === rows.length) for (const row of drawing.legend) lines.push(ansiRow(row, drawing.styles, width))
+  const keys = sideTables(drawing as never, 'legend')
+  if (shown.length === rows.length) drawing.legend.forEach((row, y) => lines.push(ansiRow(row, drawing.styles, width, keys[y])))
   lines.push(...wrapped(drawing.summary, width, '2'))
   for (const line of drawing.lint) lines.push(...wrapped(line, width, '2'))
   if (isPanned) lines.push(styled(PAN_HINT, width, '2'))

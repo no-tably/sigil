@@ -10,16 +10,16 @@ import type { EngineInterface, Register, UiOpenResult } from 'claude-code'
 import type { Drawing, Mux, Playback, Split, ViewRequest } from '../types'
 import {
   COMMAND, DEFAULT_WIDTH, PANE, VIEWS, RASTER_COLUMNS, START_SPEED, SUPERSEDED, TOOL, UNASKED_COLUMNS,
-  aheadFrom, askedFrame, controlPath, cropRows, detectMux, glyphs, heldBy, holdsWide, displayReport, drawArgv, drawnFrame, followArgv, frameIndex, frameMs,
+  aheadFrom, askedFrame, controlPath, cropRows, detectMux, drawnRuns, heldBy, holdsWide, displayReport, drawArgv, drawnFrame, followArgv, frameIndex, frameMs,
   herdrPaneGetArgv, herdrPaneOf, herdrReadyArgv, herdrWorkspaceOf,
   isDisplayChoice, lastFrame, layoutOf, layoutReport, nextDepth, nextSpeed, nextView, panTo, parseCommandArgs,
   parseDisplayArgs, parseDrawing, parseLayoutArgs, parsePlacementArgs, parseRequest, placementOf, placementReport,
   privateDirArgv, privateWriteArgv,
   playbackFor, playTick, rasterCells, replyText,
-  resolveDisplay, rowsWidth, runLines, shellQuote, slices, slot, splitArgv, splitStart, statusLine, tabArgv, viewArgv,
+  resolveDisplay, rowsWidth, runLines, shellQuote, sideTables, slices, slot, splitArgv, splitStart, statusLine, tabArgv, viewArgv,
   windowFor, windowStart, zellijLayout, zellijLayoutPath,
 } from './logic'
-import type { Ahead, Asked, Display, DisplayChoice, LayoutChoice, Placement } from './logic'
+import type { Ahead, Asked, Clusters, Display, DisplayChoice, LayoutChoice, Placement } from './logic'
 
 const request = atom({ plugin: 'sigil', key: 'request' } as const, null)
 const drawing = atom({ plugin: 'sigil', key: 'drawing' } as const, null)
@@ -489,11 +489,14 @@ export const register: Register = (on, options) => {
     const across = rowsWidth(drawn)
     const x = await read($, panX)
     const isPanned = shown.layout === 'pan' && across > width
-    const frame = isPanned ? cropRows(drawn, x, width) : drawn
     const isRun = shown.status !== undefined
     const told = runLines(shown, at)
-    const body = (cells: typeof drawn, key: string) => {
-      if (e.surface === 'terminal' && !holdsWide(cells)) {
+    // a panned drawing is cut to the pane's columns from x; a cluster the side
+    // table holds (a mark, a ZWJ sequence, a flag) or a wide one is drawn as text
+    const body = (rows: typeof drawn, key: string, tables: Clusters[] = [], from = 0,
+                  span = Infinity) => {
+      const cells = from > 0 || span < Infinity ? cropRows(rows, from, span) : rows
+      if (e.surface === 'terminal' && !holdsWide(cells, tables)) {
         const { Raster } = $.ui.resolve(e)
         const cols = Math.max(1, Math.min(width, rowsWidth(cells) || 1))
         return slices(cells).map((part, i) => (
@@ -501,11 +504,11 @@ export const register: Register = (on, options) => {
             cells={rasterCells(part.length > 0 ? part : [[]], shown.styles, cols)} />
         ))
       }
-      return cells.map(row => (
+      return rows.map((row, y) => (
         <Text wrap="truncate">
-          {row.map(([text, id]) => {
+          {drawnRuns(row, tables[y], from, span).map(([text, id]) => {
             const [fg, bg, bold] = shown.styles[id] ?? [null, null, false]
-            return <Text color={fg ?? undefined} backgroundColor={bg ?? undefined} bold={bold}>{glyphs(text)}</Text>
+            return <Text color={fg ?? undefined} backgroundColor={bg ?? undefined} bold={bold}>{text}</Text>
           })}
         </Text>
       ))
@@ -519,11 +522,14 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column" {...fill}>
         <Text bold wrap="truncate">{statusLine(shown, req, at, now.isPlaying, pace)}</Text>
         {error !== null && <Text color="error" wrap="truncate">✖ {error}</Text>}
-        <Box flexDirection="column" flexGrow={1}>{body(frame, 'frame')}</Box>
-        {told !== null && (told.path !== null ? body(told.path, 'path')
+        <Box flexDirection="column" flexGrow={1}>
+          {body(drawn, 'frame', sideTables(shown, 'frames', slot(shown, at)), isPanned ? x : 0,
+                isPanned ? width : Infinity)}
+        </Box>
+        {told !== null && (told.path !== null ? body(told.path, 'path', sideTables(shown, 'path', slot(shown, at)))
           : <Text dimColor wrap="truncate">{told.trail}</Text>)}
         {told !== null && <Text bold wrap="truncate">{told.now}</Text>}
-        {shown.legend.length > 0 && body(shown.legend, 'legend')}
+        {shown.legend.length > 0 && body(shown.legend, 'legend', sideTables(shown, 'legend'))}
         <Text dimColor wrap="wrap">{shown.summary}</Text>
         {shown.lint.map(line => <Text dimColor wrap="wrap">{line}</Text>)}
         <Box flexDirection="row" gap={1}>

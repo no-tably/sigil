@@ -71,24 +71,37 @@ def _graph(text: str):
     return parse_document(frames.autoclose(text.split("\n")))
 
 
-def _rows(g, o: dict, trace=None, tick: int = 0, memo=None) -> list:
+def _rows(g, o: dict, trace=None, tick: int = 0, memo=None, sides: dict | None = None) -> list:
     """The drawing packed; `memo` (kit.FrameMemo) as compose_view's: kept while
-    one run steps, so a frame repaints only what changed (the same drawing)."""
+    one run steps, so a frame repaints only what changed (the same drawing);
+    `sides`: where its side tables go (see _packed)."""
     rows, _w = app.compose_view(g, o["view"], depth=o["depth"], payloads=o["payloads"],
                                  notes=o["notes"], triggers=o["triggers"],
                                  spaced=o["spaced"], width=o["width"], access=o["access"],
                                  mods=o["mods"], events=o["events"], trace=trace, tick=tick, memo=memo)
-    return frames.pack_rows(rows, STYLES)
+    return _packed(rows, {} if sides is None else sides, "rows")
 
 
-def _legend(o: dict, g, sim: bool) -> list:
+def _packed(rows, sides: dict, field: str) -> list:
+    """rows packed as `sigil frames` packs them (frames.packed, cure's Wire);
+    their side tables kept in `sides[field]` when a cluster needs one."""
+    tables: list = []
+    out = frames.packed(rows, STYLES, tables)
+    tables = frames.side_tables(tables)
+    if tables:
+        sides[field] = tables
+    return out
+
+
+def _legend(o: dict, g, sim: bool, sides: dict | None = None) -> list:
     """The view's legend rows (the tree's key, the flow view's wires, the run's
     markers), wrapped."""
     rows = frames.legend_rows(g, o["view"], depth=o["depth"], payloads=o["payloads"],
                               events=o["events"], sim=sim, triggers=o["triggers"],
                               access=o["access"], mods=o["mods"])
     width = min(app.LEGEND_WIDTH, o["width"] or app.LEGEND_WIDTH)
-    return frames.pack_rows([ln for r in rows for ln in app.wrap_legend(r, width)], STYLES)
+    return _packed([ln for r in rows for ln in app.wrap_legend(r, width)],
+                   {} if sides is None else sides, "legend")
 
 
 def _scenarios(g) -> list:
@@ -102,17 +115,22 @@ def _scenarios(g) -> list:
 
 def draw(request: str) -> str:
     """{"rows", "legend", "lint": [{severity, line, rule, message}], "nodes",
-    "edges", "scenarios": [{name, label, group}], "styles"}; group is "overlaps" for a
+    "edges", "scenarios": [{name, label, group}], "styles"}, and "clusters":
+    {"rows" / "legend": side tables} when a cluster needs one (rows are cure's
+    Wire, as `sigil frames` sends them); group is "overlaps" for a
     scenario that starts an entry at a tick (Scenario.starts), else ""."""
     req = json.loads(request)
     text, o = req.get("text", ""), _opts(req)
     g = _graph(text)
     diags = kit.run_lint(text)
-    out = {"rows": _rows(g, o), "legend": _legend(o, g, False),
+    sides: dict = {}
+    out = {"rows": _rows(g, o, sides=sides), "legend": _legend(o, g, False, sides),
            "lint": [{"severity": d.severity, "line": d.line, "rule": d.rule,
                      "message": d.message} for d in diags],
            "nodes": len(g.nodes), "edges": len(g.edges),
            "scenarios": _scenarios(g), "styles": STYLES.table}
+    if sides:
+        out["clusters"] = sides
     return json.dumps(out, ensure_ascii=False)
 
 
@@ -141,19 +159,22 @@ def sim(request: str) -> str:
     shown = player.shown(scene.SceneOptions(o["events"], o["triggers"], o["access"],
                                                  o["depth"]))
     log = [ln for f in player.trace.frames[:player.at + 1] for ln in f.log]
-    out = {"rows": _rows(g, o, shown, player.at, _player["memo"]), "legend": _legend(o, g, True),
+    sides: dict = {}
+    out = {"rows": _rows(g, o, shown, player.at, _player["memo"], sides),
+           "legend": _legend(o, g, True, sides),
            "frame": player.at, "last": player.last,
            "tick": player.trace.frames[player.at].tick, "ticks": player.trace.frames[-1].tick,
            "choice": player.choice(), "log": log[-40:],
            "say": player.narration(),
            "story": [app.beat_line(b) for b in player.told()][-40:],
            "beats": [b.frame for b in player.beats], "trail": player.path(),
-           "path": frames.pack_rows(app.path_rows(player.path_branches(),
-                                                   min(app.LEGEND_WIDTH, o["width"]
-                                                       or app.LEGEND_WIDTH),
-                                                   hold=True), STYLES),
+           "path": _packed(app.path_rows(player.path_branches(),
+                                         min(app.LEGEND_WIDTH, o["width"] or app.LEGEND_WIDTH),
+                                         hold=True), sides, "path"),
            "outcome": player.trace.outcome if player.at == player.last else None,
            "styles": STYLES.table}
+    if sides:
+        out["clusters"] = sides
     return json.dumps(out, ensure_ascii=False)
 
 

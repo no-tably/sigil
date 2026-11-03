@@ -11,9 +11,10 @@ export type ViewRequest = {
 
 export type ViewName = 'graph' | 'tree' | 'flow' | 'run'
 
-/** One packed row: [text, style id] runs (`sigil frames`' packing), each
- * character one terminal cell (`sigil frames` writes a wide one as itself then
- * WIDE_TAIL, its second cell). */
+/** One packed row: [text, style id] runs (`sigil frames`' packing: cure's Wire),
+ * each code point one terminal cell (a wide cluster its first code point then
+ * WIDE_TAIL, its second cell; a cluster longer than one code point is whole in the
+ * row's side table, Drawing.clusters). */
 export type PackedRow = [string, number][]
 
 /** A style: [foreground hex | null, background hex | null, bold]. */
@@ -42,6 +43,9 @@ export type Drawing = {
   choice?: string
   first?: number // the run's frame the drawn frames start at (a run is drawn a window at a time)
   last?: number // the run's last frame
+  // the side tables of the packed rows that hold a cluster longer than one code point:
+  // per frame (frames, path) or for the legend, one [column, cluster][] per row
+  clusters?: { frames?: [number, string][][][]; path?: [number, string][][][]; legend?: [number, string][][] }
 }
 
 /** The run's playback: the frame of the run shown (the viewer's numbering) and whether it plays. */

@@ -5,10 +5,10 @@ a terminal. The page (site/build_site.py's frames.json), the playground
 (`sigil frames draw`) all read their drawings from here.
 
     autoclose(lines)     a half-typed document with its open `{` blocks closed
-    Styles / pack_rows   the views' rows of (text, (fg, bg, bold)) runs → compact
-                         [[text, style id], …] rows plus a style table whose
-                         colours are theme roles ("kinds-service"), so the page
-                         recolours them on a theme change
+    Styles / packed      the views' rows of (text, (fg, bg, bold)) runs → compact
+                         [[text, style id], …] rows (cure's Wire) plus a style
+                         table whose colours are theme roles ("kinds-service"),
+                         so the page recolours them on a theme change
     HexStyles            the same table with each colour's hex value (the pane
                          paints cells, not CSS)
     draw(path, …)        the JSON object `sigil frames draw` prints (below)
@@ -36,27 +36,29 @@ as it plays on. The legend is the tree's key, the flow view's or the run
 view's, then a run's marks (the run view: its path's only; without --scenario
 it draws the happy run). A document or view that cannot be drawn: {"error"}.
 
-Every character of a packed row from draw() is one terminal cell, so the host's
-grid keeps the drawing's columns: a wide character is itself and then
-WIDE_TAIL, the continuation cell of the two columns the views give it (the
-host draws the pair as the one wide glyph), and a combining mark or zero-width
-character is nothing — kit.char_cells's rule.
+With any cluster longer than one code point drawn, also "clusters": {field:
+side tables} for the fields "frames" (a list per frame), "path" (a list per
+frame) and "legend" that hold one; a field's side tables are a list per packed
+row, [[column, cluster], …], trailing rows without one left out. A drawing
+with none has no "clusters" key: the envelope is the one before it.
 
-draw()'s rows are packed by cure's Wire (round 11): sigil lays each character
-as its cells (cells(), sigil's width rule), cure's `pack` makes the runs, drops
-the trailing blanks and lists the styles, and the result is mapped onto the
-envelope's own style table (Styles / HexStyles, in sigil's order), its cluster
-side table left out — so the JSON is today's, byte for byte. A row cure would
-pack otherwise (a character cure joins to the one before it, an empty run, a
-row ending in a blank) keeps sigil's own packing (pack_rows). pack_rows is also
-the page's and the playground's packing (their text as drawn, no cells).
+Every packed row is cure's Wire format 2 (packed()): every character of a
+packed row is one terminal cell, so the host's grid keeps the drawing's
+columns — a wide cluster is its first code point and then WIDE_TAIL (the host
+draws the pair as the one wide glyph), any other cluster its first code point,
+widths by cure's grapheme-cluster rule (the kit's: kit.char_cells); the side
+table gives the whole cluster where it is longer (e + a combining mark, an
+emoji ZWJ sequence, a flag), so a host that reads it draws the cluster whole
+and one that does not still keeps every column. Runs, the trailing blanks and
+the style list are cure's; the styles are mapped onto the envelope's own table
+(Styles / HexStyles, in sigil's order). The page (site/build_site.py) and the
+playground (site/playground.py) pack through the same packed().
 """
 
 from __future__ import annotations
 
 import functools
 import re
-import unicodedata
 from pathlib import Path
 
 from sigil.core.lex import read_source
@@ -72,12 +74,12 @@ from sigil.present.views import tree as vtree
 # cure (vendored; Present's __init__ puts it on the path): the packed wire
 from cure.core.buffer.rows import Rows
 from cure.core.buffer.wire import pack as wire_pack
-from cure.core.style import Name, Style, resolve
+from cure.core.style import Colour, Style
 
 WINDOW = 120               # run frames one draw holds (the host asks for the next as it plays)
 LINT_LINES = 5              # diagnostics carried into the reply
 _SPEED_RE = re.compile(r" (?:▶|❚❚) \S+ frames?/s")   # the live view's play mark and speed
-WIDE_TAIL = "\0"   # a wide character's second cell (logic.ts's WIDE_TAIL): draws nothing
+WIDE_TAIL = "\0"   # a wide cluster's second cell on cure's wire (logic.ts's WIDE_TAIL): draws nothing
 
 
 # ---------------------------------------------------------------------------
@@ -153,55 +155,6 @@ class Styles:
         return self.index[key]
 
 
-def pack_rows(rows, styles: Styles) -> list:
-    """Rows of (text, style) runs -> [[text, style id], …] with equal neighbours
-    merged; trailing blank runs and rows are dropped (a run with a background
-    colour is kept — it is visible)."""
-    out = []
-    for row in rows:
-        packed: list = []
-        for text, st in row:
-            sid = styles.intern(st)
-            if packed and packed[-1][1] == sid:
-                packed[-1][0] += text
-            else:
-                packed.append([text, sid])
-        while packed and not packed[-1][0].strip() and not styles.table[packed[-1][1]][1]:
-            packed.pop()
-        out.append(packed)
-    while out and not out[-1]:
-        out.pop()
-    return out
-
-
-# ---------------------------------------------------------------------------
-# Cells — what the pane and pi paint
-# ---------------------------------------------------------------------------
-
-def cell(ch: str) -> str:
-    """`ch` as the cells the views draw it in (kit.char_cells), one character a
-    cell: a wide character itself then WIDE_TAIL, a combining mark or zero-width
-    character nothing, any other one-column character that is not a printable
-    BMP character `?`."""
-    n = kit.char_cells(ch)
-    if n == 2:
-        return ch + WIDE_TAIL
-    if n == 0:
-        return ""
-    if ord(ch) > 0xFFFF or unicodedata.category(ch)[0] in "MC":
-        return "?"
-    return ch
-
-
-@functools.lru_cache(maxsize=4096)
-def cells(text: str) -> str:
-    """text as cell() draws each character, one cell a character (a run's
-    text recurs frame after frame)."""
-    if text.isascii() and text.isprintable():
-        return text
-    return "".join(ch if " " <= ch < "\x7f" else cell(ch) for ch in text)
-
-
 class HexStyles(Styles):
     """Styles with each colour as its hex value, not its theme role."""
 
@@ -223,78 +176,55 @@ class HexStyles(Styles):
             return sid
 
 
-# Characters cure's Text lays as part of the cluster before them where sigil's
-# cells give each its own cell: Hangul vowel and final jamo, emoji skin-tone
-# modifiers. Every other character cells() keeps, cure lays as one cell of the
-# same width (tests/test_frames_cure.py checks every code point).
-_JOINS = re.compile("[\u1160-\u11ff\ud7b0-\ud7c6\ud7cb-\ud7fb\U0001f3fb-\U0001f3ff]")
-_UNPACKED = object()    # a style cure would not carry as written (its row keeps pack_rows)
-
+# ---------------------------------------------------------------------------
+# Packing — cure's Wire v2
+# ---------------------------------------------------------------------------
 
 @functools.lru_cache(maxsize=1024)
-def _wire_colour(text: str):
+def _wire_colour(text: str) -> Colour:
     """A table colour (role or hex, as the envelope writes it) as a cure Colour
-    whose role is that text, so cure's role table gives it back as written; None
-    when cure reads it as something else (not a colour, or its default)."""
-    try:
-        colour = resolve(Name(text, text))
-    except (TypeError, ValueError):
-        return None
-    return None if colour.form == "default" else colour
+    whose role is that text: cure's role table gives it back as written."""
+    return Colour("rgb", (0, 0, 0), text)
 
 
+@functools.lru_cache(maxsize=4096)
 def _wire_style(key: StyleKey):
-    """A table entry (fg, bg, bold) as the cure Style that packs back to it."""
+    """A table entry (fg, bg, bold) as the cure Style that packs back to it
+    (None: the plain entry)."""
     fg, bg, bold = key
-    if fg is None and bg is None:
-        return Style(bold=bold) if bold else None
-    fgc = _wire_colour(fg) if fg is not None else None
-    bgc = _wire_colour(bg) if bg is not None else None
-    if (fg is not None and fgc is None) or (bg is not None and bgc is None):
-        return _UNPACKED
-    return Style(fg=fgc, bg=bgc, bold=bold)
+    if fg is None and bg is None and not bold:
+        return None
+    return Style(fg=_wire_colour(fg) if fg is not None else None,
+                 bg=_wire_colour(bg) if bg is not None else None, bold=bool(bold))
 
 
-def _wire_row(laid: list, keys: list, wire: dict):
-    """A row of (cells text, table key) runs as a cure Line's parts, or None
-    when cure would pack it otherwise than pack_rows does."""
-    parts = []
-    for (text, _st), key in zip(laid, keys):
-        if not text or _JOINS.search(text):
-            return None
-        try:
-            style = wire[key]
-        except KeyError:
-            style = wire[key] = _wire_style(key)
-        if style is _UNPACKED:
-            return None
-        parts.append((text, style))
-    if laid and laid[-1][0][-1].isspace() and not keys[-1][1]:
-        return None             # a trailing blank: pack_rows drops whole runs, cure cells
-    return parts
+def _wire_pack(rows: list) -> tuple:
+    """cure's Wire on rows of (text, table key) runs → (each row's packed
+    (text, table key) runs, each row's side table of long clusters)."""
+    p = wire_pack(Rows.of([[(t, _wire_style(k)) for t, k in row] for row in rows]),
+                  colours="role")
+    keys = [(fg, bg, "b" in attrs) for fg, bg, attrs, _link in p.styles]
+    out = [tuple((text, keys[i]) for text, i in row) for row in p.rows]
+    pad = len(rows) - len(out)
+    return out + [()] * pad, list(p.clusters) + [()] * pad
 
 
-_WIRE_STYLES: dict = {}     # table key → cure Style (or _UNPACKED)
-_PACKED_ROWS: dict = {}     # a view's row (hex tables) → (its styles in order, packed runs)
+_PACKED_ROWS: dict = {}     # a view's row (hex tables) → (its styles in order, runs, clusters)
 _ROWS_KEPT = 8192           # rows remembered (a run's frames repeat most rows)
 
 
-def _wire_pack(rows: list) -> list:
-    """cure's Wire on rows of (text, cure Style) parts → each row's packed
-    (text, table key) runs (a table key: the entry's (fg, bg, bold))."""
-    p = wire_pack(Rows.of(rows), colours="role")
-    keys = [(fg, bg, "b" in attrs) for fg, bg, attrs, _link in p.styles]
-    out = [tuple((text, keys[i]) for text, i in row) for row in p.rows]
-    return out + [() for _ in range(len(rows) - len(out))]
-
-
-def packed(rows, styles: Styles) -> list:
-    """The views' rows → packed rows, one character a cell (cells()), packed by
-    cure's Wire and mapped onto `styles` (see the module docstring). Each row's
-    styles are interned in run order, as pack_rows does, so the table keeps
-    sigil's order; a row packed once is remembered (frame after frame repeats
-    most of them)."""
-    out, todo, at = [], [], []
+def packed(rows, styles: Styles, tables: list | None = None) -> list:
+    """The views' rows → packed rows by cure's Wire (format 2): one code point a
+    cell — a wide cluster its first code point then WIDE_TAIL, any other its
+    first code point, a control U+FFFD — runs of equal styles, a row's trailing
+    blanks (a space with no background) and the trailing empty rows dropped.
+    Each row's styles are interned in run order into `styles` (sigil's table,
+    roles or hex), so the table keeps sigil's order. `tables`: when given, a
+    list each packed row's side table is appended to — [[column, cluster], …]
+    for the cells whose cluster is longer than one code point (a mark, a
+    joiner, a selector, a flag), so a host draws the cluster whole. A row
+    packed once is remembered (frame after frame repeats most of them)."""
+    out, side, todo, at = [], [], [], []
     hexed = isinstance(styles, HexStyles)       # a role table tells colours apart by role
     for row in rows:
         try:
@@ -306,33 +236,38 @@ def packed(rows, styles: Styles) -> list:
             for st in done[0]:
                 styles.intern(st)
             out.append(done[1])
+            side.append(done[2])
             continue
-        laid = [(cells(t).replace(WIDE_TAIL, ""), st) for t, st in row]
-        keys = [tuple(styles.table[styles.intern(st)]) for _t, st in laid]  # sigil's order
-        order = tuple(dict.fromkeys(st for _t, st in laid)) if sig is not None else ()
-        parts = _wire_row(laid, keys, _WIRE_STYLES)
-        if parts is None:                       # sigil's own packing
-            kept = pack_rows([[(cells(t), st) for t, st in row]], styles)
-            runs = tuple((text, tuple(styles.table[i])) for text, i in (kept[0] if kept else ()))
-            out.append(runs)
-            if sig is not None:
-                _PACKED_ROWS[sig] = (order, runs)
-            continue
+        keys = [tuple(styles.table[styles.intern(st)]) for _t, st in row]   # sigil's order
+        order = tuple(dict.fromkeys(st for _t, st in row)) if sig is not None else ()
         at.append((len(out), sig, order))
-        todo.append(parts)
+        todo.append([(t, k) for (t, _st), k in zip(row, keys)])
         out.append(())
+        side.append(())
     if todo:
-        for (y, sig, order), runs in zip(at, _wire_pack(todo)):
-            out[y] = runs
+        runs, clusters = _wire_pack(todo)
+        for (y, sig, order), r, c in zip(at, runs, clusters):
+            out[y], side[y] = r, c
             if sig is not None:
-                _PACKED_ROWS[sig] = (order, runs)
+                _PACKED_ROWS[sig] = (order, r, c)
     if len(_PACKED_ROWS) > _ROWS_KEPT:
         _PACKED_ROWS.clear()
     index = styles.index
-    out = [[[text, index[key]] for text, key in runs] for runs in out]
+    out = [[[text, index[key]] for text, key in r] for r in out]
     while out and not out[-1]:
         out.pop()
+    if tables is not None:
+        tables.extend([[col, glyph] for col, glyph in t] for t in side[:len(out)])
     return out
+
+
+def side_tables(tables: list) -> list:
+    """Packed rows' side tables as the envelope carries them: the trailing
+    rows without a long cluster left out ([] when no row has one)."""
+    end = len(tables)
+    while end and not tables[end - 1]:
+        end -= 1
+    return tables[:end]
 
 
 # ---------------------------------------------------------------------------
@@ -416,6 +351,7 @@ def draw(path: Path, view_name: str = "flow", depth: int = 1, width: int | None 
     kw = dict(depth=depth, payloads=payloads, notes="off", triggers=True, spaced=True,
               width=width, access=False, mods=False, events=events)
     styles = HexStyles()
+    side: dict = {}                     # the side tables of every packed field
     out: dict = {"file": path.name, "view": view_name, "width": width}
     try:
         out["layout"] = placing(g, view_name, layout, width, height, kw)
@@ -426,24 +362,31 @@ def draw(path: Path, view_name: str = "flow", depth: int = 1, width: int | None 
             shown = player.shown(scene.SceneOptions(events, True, False, depth))
             picks = window(start, count, player.last)
             drawn, status, log, say, trail, path_rows = [], [], [], [], [], []
+            side["frames"], side["path"] = [], []
             cols = width or app.LEGEND_WIDTH
             memo = kit.FrameMemo()
             for at in picks:
                 player.at = at
                 rows, _w = app.compose_view(g, view_name, trace=shown, tick=at, memo=memo, **kw)
-                drawn.append(packed(rows, styles))
+                tables: list = []
+                drawn.append(packed(rows, styles, tables))
+                side["frames"].append(side_tables(tables))
                 status.append(_SPEED_RE.sub("", player.status()))
                 log.append(player.log_line())
                 say.append(player.narration())
                 trail.append(player.path())
+                tables = []
                 path_rows.append(packed(app.path_rows(player.path_branches(), cols, hold=True),
-                                        styles))
+                                        styles, tables))
+                side["path"].append(side_tables(tables))
             out.update(scenario=player.scenario.name, status=status, log=log, say=say,
                        trail=trail, path=path_rows, first=picks.start, last=player.last,
                        outcome=player.trace.outcome, choice=player.choice())
         else:
             rows, _w = app.compose_view(g, view_name, **kw)
-            drawn = [packed(rows, styles)]
+            tables = []
+            drawn = [packed(rows, styles, tables)]
+            side["frames"] = [side_tables(tables)]
     except app.UnknownScenario as exc:
         return {"error": f"scenario: {exc}"}
     except LookupError as exc:
@@ -451,7 +394,10 @@ def draw(path: Path, view_name: str = "flow", depth: int = 1, width: int | None 
     cols = min(app.LEGEND_WIDTH, width or app.LEGEND_WIDTH)
     legend = legend_rows(g, view_name, depth=depth, payloads=payloads, events=events,
                          sim=bool(scenario))
-    out["legend"] = packed([ln for r in legend for ln in app.wrap_legend(r, cols)], styles)
+    tables = []
+    out["legend"] = packed([ln for r in legend for ln in app.wrap_legend(r, cols)], styles,
+                           tables)
+    side["legend"] = side_tables(tables)
     diags = kit.run_lint(text, dialect)
     mode = kit.doc_mode(text)
     out["summary"] = (f"{path.name}: {len(g.nodes)} nodes, {len(g.edges)} edges"
@@ -464,4 +410,7 @@ def draw(path: Path, view_name: str = "flow", depth: int = 1, width: int | None 
     except Exception:                       # a half-written design still draws
         out["scenarios"] = []
     out["frames"], out["styles"] = drawn, styles.table
+    clusters = {key: tables for key, tables in side.items() if any(tables)}
+    if clusters:
+        out["clusters"] = clusters
     return out

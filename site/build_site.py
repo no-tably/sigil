@@ -51,7 +51,7 @@ from build import package_files  # noqa: E402  (after the path is set)
 from sigil.core.parse import parse_document  # noqa: E402
 from sigil.model import scene  # noqa: E402
 from sigil.present import app, kit, themes  # noqa: E402
-from sigil.present.frames import Styles, autoclose, pack_rows  # noqa: E402
+from sigil.present.frames import Styles, autoclose, packed, side_tables  # noqa: E402
 
 PAGE = "index.html"                  # the one file with {{placeholders}}
 ASSETS = ["site.css", "site.js"]     # copied verbatim
@@ -184,14 +184,20 @@ def draw(g, name: str, player=None) -> list:
     return rows
 
 
-def intern(rows, styles: Styles, frames: list, seen: dict) -> int:
-    """The index of `rows` packed in `frames`, appending it when new (seen:
-    json -> index, so an unchanged drawing is stored once)."""
-    packed = pack_rows(rows, styles)
-    key = json.dumps(packed, ensure_ascii=False)
+def intern(rows, styles: Styles, frames: list, seen: dict, clusters: dict) -> int:
+    """The index of `rows` packed in `frames` (frames.packed: cure's Wire, as
+    `sigil frames` sends the panes), appending it when new (seen: json -> index,
+    so an unchanged drawing is stored once); its side tables go in `clusters`
+    under that index when it has a cluster longer than one code point."""
+    tables: list = []
+    rows = packed(rows, styles, tables)
+    tables = side_tables(tables)
+    key = json.dumps([rows, tables], ensure_ascii=False)
     if key not in seen:
         seen[key] = len(frames)
-        frames.append(packed)
+        frames.append(rows)
+        if tables:
+            clusters[str(seen[key])] = tables
     return seen[key]
 
 
@@ -202,10 +208,11 @@ def happy_player(g):
     return player
 
 
-def render_example(path: Path, styles: Styles, frames: list, seen: dict) -> dict:
+def render_example(path: Path, styles: Styles, frames: list, seen: dict,
+                   clusters: dict) -> dict:
     """One example's typing steps: a frame per plane (PLANE_VIEWS; the run
     plane the happy run's last frame) after each typed line. Mutates styles,
-    frames and seen (see intern). A crash in the viewer or the simulator fails
+    frames, seen and clusters (see intern). A crash in the viewer or the simulator fails
     the build — the parser is tolerant, so a crash here is a real bug, not a
     half-typed line."""
     lines = path.read_text(encoding="utf-8").rstrip("\n").split("\n")
@@ -214,7 +221,7 @@ def render_example(path: Path, styles: Styles, frames: list, seen: dict) -> dict
         text = autoclose(lines[:k])
         g = parse_document(text)
         ids = {name: intern(draw(g, name, happy_player(g) if name == "run" else None),
-                            styles, frames, seen) for name in PLANE_VIEWS}
+                            styles, frames, seen, clusters) for name in PLANE_VIEWS}
         diags = kit.run_lint(text)
         n_err = sum(d.severity == "error" for d in diags)
         n_warn = sum(d.severity == "warn" for d in diags)
@@ -227,7 +234,7 @@ def render_example(path: Path, styles: Styles, frames: list, seen: dict) -> dict
             "lines": lines, "steps": steps}
 
 
-def render_runs(path: Path, styles: Styles, frames: list, seen: dict) -> list:
+def render_runs(path: Path, styles: Styles, frames: list, seen: dict, clusters: dict) -> list:
     """The run section's runs (RUNS) of one example, frame by frame in the run
     view, each frame with the viewer's narration line (SimPlayer.narration)."""
     g = parse_document(path.read_text(encoding="utf-8"))
@@ -237,7 +244,7 @@ def render_runs(path: Path, styles: Styles, frames: list, seen: dict) -> list:
         seq = []
         for at in range(player.last + 1):
             player.at = at
-            seq.append({"run": intern(draw(g, "run", player), styles, frames, seen),
+            seq.append({"run": intern(draw(g, "run", player), styles, frames, seen, clusters),
                         "say": player.narration()})
         out.append({"scenario": scenario, "label": label,
                     "outcome": str(player.trace.outcome), "frames": seq})
@@ -245,19 +252,24 @@ def render_runs(path: Path, styles: Styles, frames: list, seen: dict) -> list:
 
 
 def build_frames() -> dict:
-    """frames.json: the style table, the deduplicated frames, every example's
-    steps, the example the view sections show, and its runs."""
+    """frames.json: the style table, the deduplicated frames (cure's Wire rows),
+    every example's steps, the example the view sections show, and its runs;
+    with "clusters" ({frame index: side tables}) when a frame has a cluster
+    longer than one code point."""
     kit.use_dialect(None)
     kit.use_theme(themes.DEFAULT)
-    styles, frames, seen = Styles(), [], {}
+    styles, frames, seen, clusters = Styles(), [], {}, {}
     paths = example_paths()
-    examples = [render_example(p, styles, frames, seen) for p in paths]
+    examples = [render_example(p, styles, frames, seen, clusters) for p in paths]
     shown = next((p for p in paths if public_name(p) == f"{RUN_EXAMPLE}.sigil"), None)
     if shown is None:
         raise BuildError(f"no {RUN_EXAMPLE}.sigil in site/examples/ for the run section")
-    runs = render_runs(shown, styles, frames, seen)
-    return {"styles": styles.table, "frames": frames, "examples": examples,
-            "views": RUN_EXAMPLE, "runs": runs}
+    runs = render_runs(shown, styles, frames, seen, clusters)
+    out = {"styles": styles.table, "frames": frames, "examples": examples,
+           "views": RUN_EXAMPLE, "runs": runs}
+    if clusters:            # {frame index: its side tables}, for the frames with any
+        out["clusters"] = clusters
+    return out
 
 
 # ---------------------------------------------------------------------------
