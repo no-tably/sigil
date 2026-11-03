@@ -732,3 +732,33 @@ as generic. The campaign removes those and calls cure instead. Bugs that cure fi
 (screen diff instead of full repaint, colour depth, SIGTSTP) come with it only where the goldens
 and `--once` stay the same. The live view may now repaint by diff: that is the one visible change
 it is allowed.
+
+## Round 12: one cure, from one store (2026-11-03, still 0.7.0)
+
+The 0.7.0 gate passed on round 11, but sigil kept its own cell widths, canvas, theme parser and
+a fallback packer beside cure's: one library vendored, two implementations. The user's aim is
+one cure for sigil and construct, pinned once and supplied from outside both ("module style").
+User decisions (2026-11-03): sigil adopts cure's theme grammar; cure's Display uses the nearest
+colour on 256/16-colour terminals (changes construct too, approved); sigil moves onto cure's
+grapheme-cluster widths with its hosts; cure gets an MIT licence and a public remote; cure's
+lazy `draw` import and pack fast path; cure supplied from a shared store.
+
+Model changes:
+- Trust boundary: cure is loaded from the copy an archive carries, else the shared store
+  `$CURE_STORE/<commit>/cure` (cure's tools/store.py installs it; a person or CI fetches,
+  sigil never does; a folder whose VENDORED names another commit is refused). The repo keeps
+  only `sigil/vendor/cure.lock`. New: `|CureStore|`, `[Present] -> |CureStore| : load`,
+  `(Author) ~> |CureStore| : install`.
+- Present: Kit measures with cure's cluster widths; Frames send Wire v2 rows with cure's
+  cluster side table, and the hosts (CC pane, pi, page) read it; Themes parse by cure's grammar
+  (finding files, extends by path and `$ref` stay sigil's).
+
+Held fixed: every drawing except where a cluster's width differs from the code-point rule
+(jamo, format characters, emoji sequences): the goldens move once, for widths only. Frames
+JSON keeps its envelope and adds the side table, which a host may ignore. Theme files that
+parse today and fit cure's grammar read the same; the shipped themes do.
+
+Still sigil's, named (not in this round): the Canvas grid and `same_look` (views reach its
+lines; styles are role-carrying strings), the views' layouts, `kit.ansi`'s SGR without a
+leading reset, the heavy-dashed light-corner rule. Moving the canvas is the next duplication
+to retire.
