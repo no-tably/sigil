@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import select
 import shutil
 import subprocess
 import sys
@@ -251,15 +253,23 @@ class FollowTest(unittest.TestCase):
     def test_a_failing_view_leaves_it_waiting_for_the_next_request(self):
         with tempfile.TemporaryDirectory() as d:
             control, proc = self.start(Path(d), [str(SHOP), "--no-such-flag"])
-            deadline = time.monotonic() + 15
-            while not Path(str(control) + ".alive").exists() and time.monotonic() < deadline:
-                time.sleep(0.1)
-            time.sleep(1.5)
+            # read until follow says the view stopped (no fixed sleep: on a loaded
+            # machine the failing view can take seconds to start)
+            fd, seen = proc.stdout.fileno(), b""
+            deadline = time.monotonic() + 30
+            while b"waiting for the next request" not in seen and time.monotonic() < deadline:
+                if select.select([fd], [], [], 0.1)[0]:
+                    chunk = os.read(fd, 65536)
+                    if not chunk:
+                        break
+                    seen += chunk
+            self.assertIn(b"waiting for the next request", seen)
+            time.sleep(0.3)
             self.assertIsNone(proc.poll())                 # still up after the view failed
             time.sleep(0.05)
             control.write_text(json.dumps({"argv": [str(SHOP), "--color", "never"]}))
             self.assertEqual(proc.wait(timeout=30), 0)
-            out = proc.stdout.read()
+            out = seen.decode() + proc.stdout.read()
             self.assertIn("waiting for the next request", out)
             self.assertIn("[Shop]", out)
 
