@@ -127,7 +127,12 @@ Zero dependencies: python3 standard library only. The graph comes from
 core's parse_document (the same parse sigil export --mermaid draws), laid out
 top-down in layers (cycle breaking, longest-path layering, barycenter ordering,
 block-merged x placement, one track per fan-out) and drawn with box-drawing
-characters. The live view is a plain alternate-screen terminal loop. Wrapped
+characters. The live view is an alternate-screen terminal loop on cure (the
+shared terminal UI library, vendored under sigil.vendor): its Term sets the
+modes and handles the signals (resize, Ctrl-Z, TERM / HUP), its Input decodes
+keys and mouse reports, its Clock's Playback times a run, its Layout Viewport
+pans and follows, its Files watch notices a save, and the screen repaints only
+what changed (cure's Display). Wrapped
 (--layout wrap, or auto's pick) it shows the drawing rearranged to the pane's
 width (sections side by side when the window is wider), from the top-left, and
 scrolled down when it is taller; panned (pan) it
@@ -242,7 +247,10 @@ Modules: this file is the app (the --once printer, the live view, the CLI). The
 drawing lives beside it in sigil.present — kit.py (styles, canvas, runs, notes,
 fit panels) and views/graph.py (the graph view), views/tree.py (the tree view),
 views/flow.py (the flow view) and views/run.py (the run view), read here as kit,
-vgraph, vtree, vflow and vrun.
+vgraph, vtree, vflow and vrun. Only the live view's terminal side (tui, the
+key decoding, the run's clock, the file watch) imports cure's edge and interact
+packages, and only when it runs: the playground (Pyodide) carries cure's core
+and draw only.
 """
 
 from __future__ import annotations
@@ -251,12 +259,11 @@ import importlib.util
 import json
 import os
 import re
-import select
-import shutil
 import signal
 import sys
 import time
 from dataclasses import replace
+from functools import lru_cache
 from pathlib import Path
 from typing import NamedTuple
 
@@ -269,6 +276,15 @@ from sigil.present.views import flow as vflow
 from sigil.present.views import run as vrun
 from sigil.model import scene
 from sigil.model import sim as simulator
+
+# cure (vendored; Present's __init__ puts it on the path): only its pure core and
+# draw packages here, as the playground has them. The terminal side (cure.edge,
+# cure.interact) is imported where the live view runs (tui, parse_keys, the
+# run's clock, the file watch).
+from cure.core.buffer.rows import cells as grid_cells
+from cure.core.geometry import Rect
+from cure.core.style import Style, resolve
+from cure.draw.layout.viewport import Viewport
 
 
 # ---------------------------------------------------------------------------
@@ -532,7 +548,8 @@ def path_legend() -> list:
 # ---------------------------------------------------------------------------
 
 SIM_KEY_NAMES = (" ", ",", ".", "<", ">", "[", "]", "-", "+", "=", "w")   # = is + without shift
-SIM_SPEEDS = (0.25, 0.5, 1, 2, 4, 8, 16, 32)   # frames per second, - / + steps
+SIM_SPEEDS = (0.25, 0.5, 1, 2, 4, 8, 16, 32)   # frames per second, - / + steps (cure's
+                                                # Playback SPEEDS; site.js mirrors them)
 SIM_SPEED = 3                                   # the starting speed: 2 frames a second (a hop
                                                 # of Limits.hop = 4 ticks takes 2 s)
 SIM_LOG_ROWS = 3                                # the recent events above the narration line
@@ -570,6 +587,10 @@ class SimPlayer:
     chosen one's Trace (on the canonical scene), the frame shown, play / pause
     and speed. shown(options) is the run named as a view drawn with those
     SceneOptions draws it (sim.project, cached per options); `at` the frame shown.
+    The timing (play / pause, speed, advance, the frame due) is cure's
+    Playback (Clock), made on the first timed call: a player that is only told
+    a frame (--once, frames draw, the playground) never imports cure's
+    terminal-side packages. Its choices (scenario, beats, events) stay here.
 
     `name`: the scenario to start on (None: `happy`; `a+b` combines two and is
     added to the list); `limits`: --limit's pairs laid over the document's own
@@ -596,18 +617,86 @@ class SimPlayer:
                 raise UnknownScenario(exc.args[0]) from None
             names.append(name)
         self.index = names.index(name) if name is not None else 0
-        self.playing = False
-        self.speed = SIM_SPEED
-        self.due = 0.0                  # when (monotonic seconds) the next frame shows
+        self._speed = SIM_SPEED         # an index into SIM_SPEEDS
+        self._clock = None              # cure's Playback, made on the first timed call
+        self._at = 0                    # the frame shown while there is no clock
         self._run()
 
     def _run(self) -> None:
-        """Simulate the chosen scenario and show its first frame."""
+        """Simulate the chosen scenario and show its first frame (playing on,
+        when it was playing)."""
+        due = self.due
         self.trace = simulator.simulate(self.canon, self.scenarios[self.index],
                                         limits=self.limits)
-        self.at = 0
+        self._at = 0
+        if self._clock is not None:
+            self._reclock(0, due)
         self._shown = {}                # SceneOptions → the trace projected onto them
         self._told_at = {}              # depth → (sim.narrate, sim.hops) of the run there
+
+    # -- the clock: cure's Playback over frames 0..last ------------------------
+
+    def _playback(self):
+        """The run's Playback, made now if there is none yet."""
+        if self._clock is None:
+            self._reclock(self._at, None)
+        return self._clock
+
+    def _reclock(self, at: int, due: float | None) -> None:
+        """A Playback over this run at frame `at` and the current speed;
+        playing with its next frame `due` (monotonic seconds) when `due` is given
+        and `at` is not the last frame (None: paused)."""
+        from cure.edge.clock.playback import Playback   # terminal side: see the class
+        clock = Playback(self.last, fps=float(self.fps), at=at)
+        if due is not None and at < self.last:
+            clock.play(due - clock.interval)            # Playback's due is now + interval
+        self._clock = clock
+
+    @property
+    def at(self) -> int:
+        """The frame shown."""
+        return self._at if self._clock is None else self._clock.at
+
+    @at.setter
+    def at(self, frame: int) -> None:
+        if self._clock is None:
+            self._at = frame
+        else:
+            self._reclock(frame, self.due)
+
+    @property
+    def playing(self) -> bool:
+        return self._clock is not None and self._clock.playing
+
+    @playing.setter
+    def playing(self, on: bool) -> None:
+        """Pause, or play on from the frame shown (its next frame due now)."""
+        if not on:
+            self.pause()
+        elif not self.playing and self.at < self.last:
+            clock = self._playback()
+            clock.play(time.monotonic() - clock.interval)
+
+    @property
+    def due(self) -> float | None:
+        """When (monotonic seconds) the next frame shows; None while paused."""
+        return None if self._clock is None else self._clock.due_at
+
+    @property
+    def speed(self) -> int:
+        """The speed, an index into SIM_SPEEDS."""
+        return self._speed
+
+    @speed.setter
+    def speed(self, index: int) -> None:
+        self._speed = index
+        if self._clock is not None:
+            self._reclock(self.at, self.due)
+
+    def pause(self) -> None:
+        """Stop playing (the frame shown stays)."""
+        if self._clock is not None:
+            self._clock.pause()
 
     def _told(self) -> tuple:
         """(beats, hops) of the run drawn to self.depth, worked out once per depth."""
@@ -647,8 +736,10 @@ class SimPlayer:
             new = SimPlayer(graph, self.scenario.name, self.given, self.depth)
         except UnknownScenario:
             new = SimPlayer(graph, None, self.given, self.depth)
+        new._speed = self._speed
         new.at = min(self.at, new.last)
-        new.playing, new.speed, new.due = self.playing, self.speed, self.due
+        if self._clock is not None:
+            new._reclock(new.at, self.due)
         return new
 
     # -- controls (each returns True when the shown frame changed) -------------
@@ -661,16 +752,17 @@ class SimPlayer:
 
     def step(self, delta: int) -> bool:
         """Pause and move `delta` frames, clamped to the run."""
-        self.playing = False
-        at = max(0, min(self.at + delta, self.last))
-        changed, self.at = at != self.at, at
+        if self._clock is not None:
+            return self._clock.step(delta)
+        at = max(0, min(self._at + delta, self.last))
+        changed, self._at = at != self._at, at
         return changed
 
     def step_event(self, delta: int) -> bool:
         """Pause and move to the next (+1) / previous (-1) frame where something
         happens (a beat); past the last beat: the final frame, before the first:
         the first frame."""
-        self.playing = False
+        self.pause()
         frames = [b.frame for b in self.beats]
         if delta > 0:
             at = next((k for k in frames if k > self.at), self.last)
@@ -681,49 +773,44 @@ class SimPlayer:
 
     def toggle(self, now: float) -> bool:
         """Play / pause; playing from the final frame starts the run over."""
-        self.playing = not self.playing
-        changed = self.playing and self.at == self.last
-        if changed:
-            self.at = 0
-        self.due = now + self.interval
-        return changed
+        return self._playback().toggle(now)
 
     def start(self, frame: int | None, play: bool, now: float) -> None:
         """Where the run starts (--frame / --play): at `frame` (None: the first;
         -1 or past the end: the last), playing from there when `play` and it is
         not the last."""
-        self.at = frame_index(frame, self.last)
-        self.playing = play and self.at < self.last
-        self.due = now + self.interval
+        at = frame_index(frame, self.last)
+        self._reclock(at, now + 1.0 / self.fps if play else None)
 
-    def faster(self, delta: int) -> None:
-        """Speed up (+1) / slow down (-1) a step, clamped to SIM_SPEEDS."""
-        self.speed = max(0, min(self.speed + delta, len(SIM_SPEEDS) - 1))
+    def faster(self, delta: int, now: float | None = None) -> None:
+        """Speed up (+1) / slow down (-1) a step, clamped to SIM_SPEEDS; given
+        `now`, the next frame is due a frame at the new speed from it (cure's
+        Playback.speed), else when it was due."""
+        index = max(0, min(self._speed + delta, len(SIM_SPEEDS) - 1))
+        if now is None or self._clock is None:
+            self.speed = index
+        else:
+            self._speed = index
+            self._clock.speed(float(self.fps), now)
 
     @property
     def fps(self) -> float:
         """The speed: frames a second."""
-        return SIM_SPEEDS[self.speed]
+        return SIM_SPEEDS[self._speed]
 
     @property
     def interval(self) -> float:
-        return 1.0 / SIM_SPEEDS[self.speed]
+        return 1.0 / SIM_SPEEDS[self._speed]
 
     def advance(self, now: float) -> bool:
         """Playing and due by `now`: show the next frame (pausing on the last) —
         or a later one when drawing has fallen behind the speed, so a run plays
-        in the same time however slow its frames are to draw."""
-        if not self.playing or now < self.due:
-            return False
-        behind = int((now - self.due) / self.interval)   # frames already overdue
-        self.at = min(self.at + 1 + behind, self.last)
-        self.due = now + self.interval
-        self.playing = self.at < self.last
-        return True
+        in the same time however slow its frames are to draw (Playback.advance)."""
+        return self._clock is not None and self._clock.advance(now)
 
     def wait(self, now: float) -> float | None:
         """Seconds until the next frame is due (None: paused)."""
-        return max(self.due - now, 0.0) if self.playing else None
+        return None if self._clock is None else self._clock.due(now)
 
     # -- what is shown -------------------------------------------------------
 
@@ -1618,17 +1705,24 @@ SCROLL_X = 4                                    # columns per left / right key /
 WHEEL_Y = 3                                     # rows per wheel notch
 POLL_S = 0.3                                    # how often to stat the file
 TICK_S = 0.1                                    # key wait per loop turn
-READ_BYTES = 1024                               # bytes per input read (mouse drags are chatty)
-MOUSE_ON = "\x1b[?1002h\x1b[?1006h"            # report button drags + wheel, SGR encoded
-MOUSE_OFF = "\x1b[?1006l\x1b[?1002l"
+FOLLOW_MARGIN = 2                               # cells kept around a followed run's focus
 
 
-# -- placing the drawing in the viewport: one axis at a time. An origin is the
-#    drawing cell at the viewport's first cell; negative = blank lead-in. --------
+# -- placing the drawing in the viewport: cure's Viewport (Layout) keeps the
+#    origin — the drawing cell at the viewport's first cell; negative = blank
+#    lead-in — its bounds (fitted: clamped, natural: free) and the follow. The
+#    helpers below are one axis of it; home and the centre are sigil's. --------
+
+def _axis(size: int, view: int, origin: int = 0, fit: bool = True) -> Viewport:
+    """One axis as a Viewport (the other axis empty): fitted is cure's
+    clamped mode, natural its free one."""
+    return Viewport(size, 0, view, 0, x=origin, free=not fit)
+
 
 def home_origin(size: int, view: int) -> int:
-    """Where a drawing opens: at its start (top-left), so a drawing that fits
-    keeps the window's far side free rather than a blank lead-in."""
+    """Where a drawing opens (the Viewport's home): at its start (top-left), so
+    a drawing that fits keeps the window's far side free rather than a blank
+    lead-in."""
     return 0
 
 
@@ -1638,26 +1732,27 @@ def centre_origin(size: int, view: int) -> int:
 
 
 def pan_bounds(size: int, view: int, fit: bool) -> tuple[int, int]:
-    """(lowest, highest) origin. Fitted: pinned at its start while the drawing fits,
-    else scrolled within it. Natural (free pan): anywhere that keeps at least half
-    the viewport (or all of a smaller drawing) on screen."""
-    if fit:
-        if size <= view:
-            return (home_origin(size, view),) * 2
-        return 0, size - view
-    keep = min(size, max(view // 2, 1))
-    return keep - view, size - keep
+    """(lowest, highest) origin, the Viewport's bounds. Fitted: pinned at its
+    start while the drawing fits, else scrolled within it. Natural (free pan):
+    anywhere that keeps at least half the viewport (or all of a smaller drawing)
+    on screen."""
+    return _axis(size, view, fit=fit).bounds[0]
+
+
+def placed(vp: Viewport, request: str | None) -> Viewport:
+    """`vp` with `request` resolved ("home" | "centre" | None: its origin kept),
+    clamped to its bounds. The centre is sigil's (centre_origin), per axis."""
+    if request == "home":
+        return vp.home()
+    if request == "centre":
+        return vp.scroll_to(centre_origin(vp.content_w, vp.view_w),
+                            centre_origin(vp.content_h, vp.view_h))
+    return vp.clamped()
 
 
 def place(size: int, view: int, origin: int, fit: bool, request: str | None) -> int:
-    """The origin to draw at: `request` ("home" | "centre" | None: keep `origin`),
-    clamped to pan_bounds."""
-    if request == "home":
-        origin = home_origin(size, view)
-    elif request == "centre":
-        origin = centre_origin(size, view)
-    lo, hi = pan_bounds(size, view, fit)
-    return max(lo, min(origin, hi))
+    """The origin to draw at on one axis: placed() of it."""
+    return placed(_axis(size, view, origin, fit), request).x
 
 
 def wheel_step(code: int) -> tuple[int, int]:
@@ -1760,13 +1855,12 @@ class ViewState:
     # -- model ---------------------------------------------------------------
 
     def reload(self, force: bool = False) -> bool:
-        """Re-read the file if it changed. Returns True when the view changed."""
-        try:
-            st = self.path.stat()
-            stamp = (st.st_mtime_ns, st.st_size)
-        except FileNotFoundError:
-            return False               # mid-save rename or deleted: keep the last view
-        if stamp == self.stamp and not force:
+        """Re-read the file if it changed (cure's Files watch: its mtime, size,
+        inode and device; missing mid-save, or never seen: the last view kept).
+        Returns True when the view changed."""
+        from cure.edge.files.watch import watch   # terminal side (see tui)
+        stamp = watch(self.path, self.stamp)
+        if stamp is None or (stamp == self.stamp and not force):
             return False
         self.stamp = stamp
         try:
@@ -1948,7 +2042,7 @@ class ViewState:
         if k == "x":                   # off pauses the run: it resumes paused where it was
             self.sim_on = not self.sim_on
             if self.player is not None:
-                self.player.playing = False
+                self.player.pause()
             self._recompose()
         elif k == "c":
             self.show_checks = not self.show_checks
@@ -2041,7 +2135,7 @@ class ViewState:
         elif k in ("[", "]"):
             changed = p.choose(1 if k == "]" else -1)
         else:
-            p.faster(-1 if k == "-" else 1)
+            p.faster(-1 if k == "-" else 1, now)
             changed = False
         if changed:
             self._recompose(frame=k not in ("[", "]"))
@@ -2179,17 +2273,18 @@ class ViewState:
                                                   kit.BAR_STYLE[1], True)))
         return kit.clip(left + [(" " * max(cols - kit.row_len(left), 0), kit.BAR_STYLE)], 0, cols)
 
-    def _follow(self, cols: int, vh: int) -> bool:
+    def _focus(self, cols: int, vh: int):
         """Following a run (sim mode, w on): when the shown frame (or the view,
-        size or placing) changed since the last follow, pan the least that brings
-        the frame's focus (sim_focus) inside the viewport; between frames the
-        origin is the reader's to pan. Returns True when it moved the origin."""
+        size or placing) changed since the last follow, the frame's focus box
+        (sim_focus) as a Rect, for the Viewport to follow (the least pan that
+        brings it in view); else None: between frames the origin is the reader's
+        to pan."""
         if not (self.sim_on and self.follow and self.player is not None):
-            return False
+            return None
         key = (self.player.index, self.player.at, self.view, self.placing, cols, vh,
                self.drawn_depth, self.unroll)
         if key == self._followed:
-            return False
+            return None
         self._followed = key
         try:
             box = sim_focus(self.graph, self.view, depth=self.drawn_depth,
@@ -2202,14 +2297,8 @@ class ViewState:
                             limits=self.limits, unroll=self.unroll, run_notes=self.run_notes,
                             memo=self.memo)
         except Exception:              # following is a nicety: never break the frame
-            return False
-        if box is None:
-            return False
-        x, y, w, h = box
-        origin = (self.sx, self.sy)
-        self.sx = follow_origin(self.sx, x, w, cols)
-        self.sy = follow_origin(self.sy, y, h, vh)
-        return (self.sx, self.sy) != origin
+            return None
+        return None if box is None else Rect(*box)
 
     def frame(self, cols: int, rows: int):
         """Exactly `rows` rows of styled runs for a cols×rows terminal: the status bar,
@@ -2227,12 +2316,12 @@ class ViewState:
         if self.graph is None and not self.error:
             body = [[("waiting for " + str(self.path), (kit.GREY["mid"], None, False))]]
             W, H = kit.row_len(body[0]), 1
-        self.sx = place(W, cols, self.sx, fit, self._place)
-        self.sy = place(H, vh, self.sy, fit, self._place)
+        vp = placed(Viewport(W, H, cols, vh, self.sx, self.sy, free=not fit), self._place)
         self._place = None
-        if self.graph is not None and self._follow(cols, vh):
-            self.sx = place(W, cols, self.sx, fit, None)
-            self.sy = place(H, vh, self.sy, fit, None)
+        box = self._focus(cols, vh) if self.graph is not None else None
+        if box is not None:            # hold 0: a new frame's focus is always followed
+            vp = vp.follow(box, 0, hold=0, margin=FOLLOW_MARGIN)
+        self.sx, self.sy = vp.x, vp.y
         return ([self._bar(cols)] + viewport(body, self.sx, self.sy, cols, vh) + footer)[:rows]
 
 
@@ -2253,16 +2342,16 @@ def sim_story_rows(player: SimPlayer, cols: int) -> list:
     return rows
 
 
-def follow_origin(origin: int, lo: int, size: int, view: int, margin: int = 2) -> int:
-    """The origin, moved the least that shows cells lo … lo + size - 1 of the
-    drawing with `margin` cells to spare (a span wider than the view: its start)."""
-    if size + 2 * margin >= view:
-        return lo - min(margin, max(view - size, 0) // 2)
-    if lo - margin < origin:
-        return lo - margin
-    if lo + size + margin > origin + view:
-        return lo + size + margin - view
-    return origin
+def follow_origin(origin: int, lo: int, size: int, view: int,
+                  margin: int = FOLLOW_MARGIN) -> int:
+    """One axis of the Viewport's follow, unbounded: the origin moved the least
+    that shows cells lo … lo + size - 1 of the drawing with up to `margin` cells
+    to spare (fewer when the span and its margins don't fit); a span wider than
+    the view: unchanged while the view lies inside it, else its start."""
+    shift = view + margin + max(0, -origin, -lo)        # every candidate >= 0 once shifted
+    content = shift + max(origin + view, lo + size) + view   # so no bound is reached
+    vp = Viewport(content, 0, view, 0, x=origin + shift, free=True)
+    return vp.follow(Rect(lo + shift, 0, size, 0), 0, hold=0, margin=margin).x - shift
 
 
 def viewport(body, ox: int, oy: int, cols: int, vh: int):
@@ -2276,109 +2365,167 @@ def viewport(body, ox: int, oy: int, cols: int, vh: int):
     return out
 
 
-_ESCAPES = {
-    "\x1b[A": "up", "\x1b[B": "down", "\x1b[C": "right", "\x1b[D": "left",
-    "\x1bOA": "up", "\x1bOB": "down", "\x1bOC": "right", "\x1bOD": "left",
-    "\x1b[5~": "pgup", "\x1b[6~": "pgdn", "\x1b[H": "home", "\x1b[1~": "home",
-}
-
-
 class Mouse(NamedTuple):
-    """An SGR (1006) mouse report: `code` the button code (0 left, 1 middle,
-    2 right; +4 shift, +8 meta, +16 ctrl, +32 motion, 64-67 wheel up / down /
-    left / right), `x` / `y` the 1-based cell, `release` a button let go."""
+    """A mouse report as ViewState.mouse reads it, in SGR (1006) terms: `code`
+    the button code (0 left, 1 middle, 2 right, 3 none; +4 shift, +8 meta,
+    +16 ctrl, +32 motion, 64-67 wheel up / down / left / right), `x` / `y` the
+    1-based cell, `release` a button let go. Made from cure's Input Mouse by
+    mouse_report."""
     code: int
     x: int
     y: int
     release: bool
 
 
-_SGR_MOUSE = re.compile(r"\x1b\[<(\d+);(\d+);(\d+)([Mm])")
-_CSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")           # any complete CSI sequence
-_CSI_OPEN = re.compile(r"\x1b(\[[0-?]*[ -/]*)?\Z")      # one cut off by the read
+_BUTTON_CODE = {"left": 0, "middle": 1, "right": 2, None: 3,
+                "wheel_up": 64, "wheel_down": 65, "wheel_left": 66, "wheel_right": 67}
+_MOD_CODE = {"shift": 4, "alt": 8, "meta": 8, "ctrl": 16}
+_KEY_NAME = {"up": "up", "down": "down", "left": "left", "right": "right",
+             "page_up": "pgup", "page_down": "pgdn", "home": "home", "space": " "}
+
+
+def mouse_report(ev) -> Mouse:
+    """cure's Input Mouse (0-based cell, button name, kind) as a Mouse."""
+    code = _BUTTON_CODE[ev.button] + sum({_MOD_CODE.get(m, 0) for m in ev.mods})
+    return Mouse(code + (32 if ev.kind == "move" else 0), ev.x + 1, ev.y + 1,
+                 ev.kind == "release")
+
+
+def key_names(events):
+    """Yield what ViewState reads from cure's Input events: a key name ("up",
+    "pgdn", " ", …; "quit" for q), a character, or a Mouse report. A named key
+    held with a modifier, a control key (tab, enter, Ctrl+…), a lone Esc and
+    anything that is no key or mouse report give nothing; Alt+a character is the
+    character (as an Esc before it always read). sigil asks for no bracketed
+    paste, so a paste a terminal sends anyway is read as the keys it holds."""
+    from cure.interact.input import Key, Mouse as CureMouse, Paste, decode
+    for ev in events:
+        if isinstance(ev, CureMouse):
+            yield mouse_report(ev)
+        elif isinstance(ev, Paste):
+            yield from key_names(decode(ev.text.encode("utf-8", "replace")))
+        elif not isinstance(ev, Key) or ev.event == "release":
+            continue
+        elif ev.name in _KEY_NAME:
+            if not ev.mods:
+                yield _KEY_NAME[ev.name]
+        elif len(ev.name) == 1 and not ev.mods - {"shift", "alt"}:
+            ch = ev.text or (ev.name.upper() if "shift" in ev.mods else ev.name)
+            yield "quit" if ch == "q" else ch
+
+
+def parse_keys(data: str):
+    """Yield the keys in `data` (key_names of cure's decoding of it, as the end
+    of the input: a cut-off sequence is read as far as it goes)."""
+    from cure.interact.input import decode
+    yield from key_names(decode(data.encode("utf-8", "replace")))
+
+
+_CSI_OPEN = re.compile(r"\x1b(\[[0-?]*[ -/]*)?\Z")      # an escape sequence cut off at the end
 
 
 def split_input(data: str) -> tuple[str, str]:
-    """(complete, rest): `data` with an escape sequence cut off at its end (a read
-    ended mid-sequence) moved to `rest`, to be read again with the next bytes."""
+    """(complete, rest): `data` with an escape sequence cut off at its end moved
+    to `rest`, for a caller reading text in pieces (the live view's decoder
+    holds a cut sequence itself, until the rest comes or its Esc timeout)."""
     m = _CSI_OPEN.search(data)
     return (data[:m.start()], data[m.start():]) if m else (data, "")
 
 
-def parse_keys(data: str):
-    """Yield the keys in `data`: a key name ("up", "pgdn", …; "quit" for q), a
-    character, or a Mouse report. Unknown escape sequences are dropped whole."""
-    i = 0
-    while i < len(data):
-        for seq, name in _ESCAPES.items():
-            if data.startswith(seq, i):
-                yield name
-                i += len(seq)
-                break
-        else:
-            if m := _SGR_MOUSE.match(data, i):
-                yield Mouse(int(m[1]), int(m[2]), int(m[3]), m[4] == "m")
-                i = m.end()
-            elif m := _CSI.match(data, i):
-                i = m.end()            # an unknown sequence: none of its bytes are keys
-            else:
-                ch = data[i]
-                i += 1
-                if ch != "\x1b":      # a lone escape
-                    yield "quit" if ch == "q" else ch
+@lru_cache(maxsize=4096)
+def _cure_style(style) -> Style | None:
+    """A sigil style (fg, bg, bold), its colours "#rrggbb", as cure's Style."""
+    fg, bg, bold = style
+    if not (fg or bg or bold):
+        return None
+    return Style(fg=resolve(str(fg)) if fg else None, bg=resolve(str(bg)) if bg else None,
+                 bold=bool(bold))
 
 
-def tui(state: ViewState) -> None:
-    import termios                     # POSIX-only: imported here so --once runs anywhere
-    import tty
+def screen_grid(rows, cols: int, height: int):
+    """The frame's rows of runs as a cols × height cure Grid for the Term's
+    Display (which writes only what changed since the last frame): each run's
+    text with its control characters escaped (lex.visible), as kit.ansi prints
+    it; the rest of the screen blank."""
+    lines = [[(visible(t, controls_only=True), _cure_style(st) if st else None)
+              for t, st in row if t] for row in rows]
+    return grid_cells(lines, cols, height)
 
-    def leave(signum, _frame):         # SIGTERM / SIGHUP: unwind through the finally
-        raise SystemExit(128 + signum)
 
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-    out = sys.stdout
-    resized = [True]
-    previous = {sig: signal.signal(sig, leave) for sig in (signal.SIGTERM, signal.SIGHUP)}
-    previous[signal.SIGWINCH] = signal.signal(signal.SIGWINCH,
-                                              lambda *_: resized.__setitem__(0, True))
-    try:
-        tty.setcbreak(fd)
-        out.write("\x1b[?1049h\x1b[?25l" + MOUSE_ON)
-        state.reload(force=True)
-        dirty, last_poll, pending = True, 0.0, ""
-        while True:
-            now = time.monotonic()
-            if now - last_poll >= POLL_S:
-                last_poll = now
-                dirty |= state.reload()
-            if resized[0]:
-                resized[0], dirty = False, True
-            dirty |= state.tick(now)
-            cols, rows = shutil.get_terminal_size()
-            if dirty:
-                frame = state.frame(cols, rows)
-                out.write("\x1b[H" + "\r\n".join(kit.ansi(r) + "\x1b[K" for r in frame) + "\x1b[J")
-                out.flush()
-                dirty = False
-            due = state.wait(time.monotonic())
-            ready, _, _ = select.select([fd], [], [], TICK_S if due is None else min(due, TICK_S))
-            if ready:
-                data, pending = split_input(pending + os.read(fd, READ_BYTES)
-                                            .decode(errors="ignore"))
-                for k in parse_keys(data):
+def live_modes():
+    """The terminal modes of the live view (cure's Term Modes): cbreak (Ctrl-C
+    and Ctrl-Z stay signals), the alternate screen, button-drag mouse reports
+    in SGR, no bracketed paste, no kitty keys, no probe (the environment says
+    what the terminal can do)."""
+    from cure.edge.term import Modes
+    return Modes(input="cbreak", screen="alt", mouse="drag", paste=False, kitty=0,
+                 probe=False)
+
+
+def live_env(environ) -> dict:
+    """The environment the live view's Term reads its caps from: `environ`
+    saying 24-bit colour (COLORTERM=truecolor, no NO_COLOR / FORCE_COLOR), so the
+    view draws its theme's colours as it always has, whatever the terminal's env
+    claims. (cure's Display drops an rgb colour, rather than take the nearest, at
+    the 256 or 16 colours an env like TERM=xterm-256color alone gives.)"""
+    env = {k: v for k, v in environ.items() if k not in ("NO_COLOR", "FORCE_COLOR")}
+    env["COLORTERM"] = "truecolor"
+    return env
+
+
+_LEAVE = {"terminate": signal.SIGTERM, "hangup": signal.SIGHUP}
+
+
+def tui(state: ViewState, term=None) -> None:
+    """The live view: `state` drawn on the terminal (`term`: a cure Term; None:
+    stdin / stdout, signals on, live_env) until q, Ctrl-C or the terminal goes. Each turn
+    stats the file (every POLL_S), plays the run's due frame, repaints when
+    anything changed (the Display writes only the change; a resize or a resume
+    from Ctrl-Z repaints in full), then waits for input up to the next frame
+    due, the decoder's Esc timeout or TICK_S. SIGTERM / SIGHUP leave with
+    128 + the signal, the terminal restored (the Term's close)."""
+    from cure.closed import Closed
+    from cure.edge.term import Term
+    from cure.interact.input import Decoder
+
+    if term is None:
+        term = Term(sys.stdin.fileno(), sys.stdout.fileno(), env=live_env(os.environ),
+                    signals=True)
+    decoder = Decoder()
+    with term:
+        opened = getattr(term, "open")       # the Term's open (a tty's modes), not a file's
+        opened(live_modes())
+        try:
+            state.reload(force=True)
+            dirty, last_poll, shown = True, 0.0, None
+            while True:
+                now = time.monotonic()
+                if now - last_poll >= POLL_S:
+                    last_poll = now
+                    dirty |= state.reload()
+                dirty |= state.tick(now)
+                if dirty or term.size != shown:
+                    cols, rows = shown = term.size
+                    if isinstance(term.show(screen_grid(state.frame(cols, rows), cols, rows)),
+                                  Closed):
+                        return
+                    dirty = False
+                now = time.monotonic()
+                waits = [TICK_S, state.wait(now),
+                         None if decoder.deadline is None else decoder.deadline - now]
+                data = term.read(timeout=max(min(w for w in waits if w is not None), 0.0))
+                if isinstance(data, Closed):
+                    if data.reason in _LEAVE:
+                        raise SystemExit(128 + _LEAVE[data.reason])
+                    return
+                dirty |= bool(term.events)         # a resize or resume: a full repaint
+                for k in key_names(decoder.feed(data, time.monotonic())):
                     if k == "quit":
                         return
                     dirty |= (state.mouse(k) if isinstance(k, Mouse)
                               else state.key(k, now=time.monotonic()))
-    except KeyboardInterrupt:
-        pass
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
-        out.write(MOUSE_OFF + "\x1b[0m\x1b[?25h\x1b[?1049l")
-        out.flush()
-        for sig, handler in previous.items():
-            signal.signal(sig, handler)
+        except KeyboardInterrupt:
+            pass
 
 
 # ---------------------------------------------------------------------------
