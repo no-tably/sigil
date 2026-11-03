@@ -116,6 +116,9 @@ from sigil.core.tokens import NO_DIALECT, Code, code_line, lexicon as core_lexic
 from sigil.core.tokens import Lexicon as CoreLexicon
 from sigil.present import themes
 
+from cure.core.caps import Caps
+from cure.core.style import Style, codes, resolve, sgr
+
 
 # ---------------------------------------------------------------------------
 # What a dialect adds
@@ -823,9 +826,21 @@ def printed(text: str, role: Optional[str]) -> str:
     return visible(text, keep="\t\x0b\x0c", controls_only=role in FREE_TEXT_ROLES)
 
 
+_TRUECOLOUR = Caps(depth=24)     # `sigil highlight` always writes 24-bit colour
+_RESET = sgr(None, _TRUECOLOUR).escape     # a style's full codes, none: the reset ESC[0m
+
+
+@lru_cache(maxsize=256)
+def _pen_on(hexa: str) -> str:
+    """The SGR that takes the plain pen to a run's colour, through cure's Style
+    (its one SGR seam): the change from no style, so ESC[38;2;r;g;bm."""
+    return codes(Style(fg=resolve(hexa)), _TRUECOLOUR, None).escape
+
+
 def ansi_line(runs, theme: dict, lx: Lexicon) -> str:
-    """A line's runs with a truecolour SGR around each coloured one, each run's
-    text as printed() hands it on."""
+    """A line's runs with a truecolour SGR around each coloured one (the pen
+    starts plain and is reset after each), each run's text as printed() hands
+    it on."""
     out = []
     for text, role in runs:
         text = printed(text, role)
@@ -833,8 +848,7 @@ def ansi_line(runs, theme: dict, lx: Lexicon) -> str:
         if hexa is None or not text:
             out.append(text)
         else:
-            r, g, b = (int(hexa[k:k + 2], 16) for k in (1, 3, 5))
-            out.append(f"\x1b[38;2;{r};{g};{b}m{text}\x1b[0m")
+            out.append(_pen_on(hexa) + text + _RESET)
     return "".join(out)
 
 
