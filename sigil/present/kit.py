@@ -25,6 +25,14 @@ Not a command: the app (sigil.present.app) loads it, and the views
                 marks and styles, in the theme's ui.error / ui.warn roles
     output      ansi(), clip(), row_len(); doc_title(), doc_mode(), run_lint()
 
+The generic parts come from cure (vendored under sigil.vendor): the colour
+maths of muted / faded / tints (Theme's derive), hex reading (Style), the
+stroke glyphs, direction bits and ranks (Canvas's junctions and charset), and
+the frame plans and dirty rows (Memo: Plan, held, slot, FrameMemo's Memo,
+Retained's moved). Cells and widths, the Canvas grid itself, same_look and the
+ANSI text stay sigil's: they measure by code point and compare colours by
+role, as the frames hosts and the goldens read them.
+
 Theme application rebinds this module's style globals (GREY, EDGE_COLOR,
 PAYLOAD_STYLE, … — see _theme_styles()), so other modules read them as
 `kit.NAME` at call time, never as copies.
@@ -32,7 +40,6 @@ PAYLOAD_STYLE, … — see _theme_styles()), so other modules read them as
 
 from __future__ import annotations
 
-import colorsys
 import functools
 import itertools
 import re
@@ -57,6 +64,16 @@ from sigil.analyse.lint import lint as _lint_document
 from sigil.model import scene
 from sigil.model.scene import EDGE_ROLE
 from sigil.present import themes
+
+# cure (vendored, sigil.vendor; Present's __init__ puts it on the path): the
+# generic drawing parts sigil stands on — Theme's colour maths, Style's hex
+# reading, Canvas's stroke glyphs and ranks, Memo's plans and dirty rows.
+from cure.core.style import parse_hex
+from cure.draw.canvas.junctions import (
+    E, N, OPPOSITE, RANK, S, W, glyph as _junction_glyph, part as _junction_part)
+from cure.draw.memo import Looks, Memo, Plan, held, moved, slot  # noqa: F401  (kit.NAME)
+from cure.draw.theme.charset import Charset
+from cure.draw.theme.derive import desaturate, mix
 
 
 # ---------------------------------------------------------------------------
@@ -116,14 +133,16 @@ _BUILTIN_THEME = {
     "run": {"episode_1": "#a5d6ff", "episode_2": "#ffbf47", "episode_3": "#7ee787",
             "episode_4": "#f59cc4", "episode_5": "#bc8cff", "episode_6": "#5abea0"},
 }
-_HEX = re.compile(r"#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})")
-
-
 def _hex(value) -> str | None:
-    """value as "#rrggbb" when it is a "#rrggbb" / "#rgb" colour, else None."""
-    if not isinstance(value, str) or not _HEX.fullmatch(value):
+    """value as "#rrggbb" when it is a "#rrggbb" / "#rgb" colour (cure's
+    parse_hex reads it), else None; its letters keep their case."""
+    if not isinstance(value, str) or parse_hex(value) is None:
         return None
     return value if len(value) == 7 else "#" + "".join(ch * 2 for ch in value[1:])
+
+
+def _rgb_hex(rgb) -> str:
+    return "#%02x%02x%02x" % tuple(rgb)
 
 
 def _fraction(value, default) -> float:
@@ -142,11 +161,8 @@ def muted(colour: "Colour") -> "Colour":
     """A glyph name's colour: its kind's colour at NAME_SATURATION of the
     saturation (HSL). Its role, "muted:<role>", lets the page do the same."""
     key = (str(colour), getattr(colour, "role", ""), NAME_SATURATION)   # one hex, two roles
-    if key not in _MUTED:
-        r, g, b = (int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5))
-        h, light, s = colorsys.rgb_to_hls(r, g, b)
-        rgb = colorsys.hls_to_rgb(h, light, s * NAME_SATURATION)
-        _MUTED[key] = Colour("#%02x%02x%02x" % tuple(round(c * 255) for c in rgb),
+    if key not in _MUTED:                                   # cure's desaturate: the same HLS maths
+        _MUTED[key] = Colour(_rgb_hex(desaturate(parse_hex(colour), NAME_SATURATION)),
                              "muted:" + getattr(colour, "role", ""))
     return _MUTED[key]
 
@@ -164,10 +180,8 @@ def faded(colour: "Colour", k: float, kind: str) -> "Colour":
     role = getattr(colour, "role", "")
     base = muted(colour) if kind == "faint" else colour
     key = (str(base), role, kind, k, str(BG))
-    if key not in _FADED:
-        fg = [int(base[i:i + 2], 16) for i in (1, 3, 5)]
-        bg = [int(BG[i:i + 2], 16) for i in (1, 3, 5)]
-        mixed = "#%02x%02x%02x" % tuple(round(b + (f - b) * k) for f, b in zip(fg, bg))
+    if key not in _FADED:                                   # cure's mix toward the ground
+        mixed = _rgb_hex(mix(parse_hex(base), parse_hex(BG), k))
         _FADED[key] = Colour(mixed, f"{kind}:{role}" if role else "")
     return _FADED[key]
 
@@ -286,9 +300,7 @@ def kind_color(kind: str) -> str:
 
 def _tint(hex_colour: str) -> str:
     """The colour mixed toward the background — a box fill that keeps the label legible."""
-    fg = [int(hex_colour[i:i + 2], 16) for i in (1, 3, 5)]
-    bg = [int(BG[i:i + 2], 16) for i in (1, 3, 5)]
-    mixed = "#%02x%02x%02x" % tuple(round(b + (f - b) * FILL) for f, b in zip(fg, bg))
+    mixed = _rgb_hex(mix(parse_hex(hex_colour), parse_hex(BG), FILL))
     role = getattr(hex_colour, "role", "")
     return Colour(mixed, "tint:" + role if role else "")
 
@@ -372,30 +384,29 @@ def edge_text(g, e) -> str:
 # crossings and corners resolve to the right box-drawing junction.
 # ---------------------------------------------------------------------------
 
-U, R, D, L = 1, 2, 4, 8
-_OPP = {U: D, D: U, L: R, R: L}
+U, R, D, L = N, E, S, W              # cure's direction bits: up, right, down, left
+_OPP = OPPOSITE
 
-_LIGHT = {0: " ", U: "│", D: "│", U | D: "│", L: "─", R: "─", L | R: "─",
-          D | R: "┌", D | L: "┐", U | R: "└", U | L: "┘",
-          U | D | R: "├", U | D | L: "┤", L | R | D: "┬", L | R | U: "┴",
-          U | D | L | R: "┼"}
-_HEAVY = {0: " ", U: "┃", D: "┃", U | D: "┃", L: "━", R: "━", L | R: "━",
-          D | R: "┏", D | L: "┓", U | R: "┗", U | L: "┛",
-          U | D | R: "┣", U | D | L: "┫", L | R | D: "┳", L | R | U: "┻",
-          U | D | L | R: "╋"}
-# Straight runs only; corners/junctions fall back to the light set.
-_DASHED = {U | D: "╎", U: "╎", D: "╎", L | R: "╌", L: "╌", R: "╌"}
-_DOTTED = {U | D: "┆", U: "┆", D: "┆", L | R: "┄", L: "┄", R: "┄"}
-_HDASH = {U | D: "╏", U: "╏", D: "╏", L | R: "╍", L: "╍", R: "╍"}   # heavy dashed: triggers
+# A stroke's weight in cure's junctions (sigil's names: hdash is heavy-dashed,
+# the trigger stroke) and the rank by which crossing strokes take a cell.
+_WEIGHT = {"light": "light", "heavy": "heavy", "double": "double", "dashed": "dashed",
+           "dotted": "dotted", "hdash": "heavy-dashed"}
+_STROKE_RANK = {stroke: RANK[weight] for stroke, weight in _WEIGHT.items()}
+_CHARSET = Charset()                # cure's Unicode box drawing
+_DASHES = ("dashed", "dotted", "heavy-dashed")
 
-_DOUBLE = {0: " ", U: "║", D: "║", U | D: "║", L: "═", R: "═", L | R: "═",
-           D | R: "╔", D | L: "╗", U | R: "╚", U | L: "╝",
-           U | D | R: "╠", U | D | L: "╣", L | R | D: "╦", L | R | U: "╩",
-           U | D | L | R: "╬"}
-_TABLES = {"heavy": _HEAVY, "double": _DOUBLE, "dashed": _DASHED, "dotted": _DOTTED,
-           "hdash": _HDASH}
 
-_STROKE_RANK = {"heavy": 4, "double": 3, "light": 2, "hdash": 1, "dashed": 1, "dotted": 0}
+def _stroke_char(stroke: str, mask: int) -> str:
+    """The glyph a stroke draws at a cell of direction mask `mask`, from cure's
+    charset: a dashed stroke is dashed only where it runs straight (or ends);
+    its corners, tees and crosses are light (sigil's look: a heavy-dashed
+    trigger turns a light corner too). No arm: a blank."""
+    if not mask:
+        return " "
+    weight = _WEIGHT.get(stroke, "light")
+    if weight in _DASHES and _junction_part(mask) not in ("h", "v"):
+        weight = "light"
+    return _junction_glyph(mask, weight, _CHARSET)
 
 # Each arrow kind's source marker in the tree view (its stroke comes from _stroke).
 # A `<->` lane starts in ▶ (its row also gets ◀: ◀──▶ both ways); a permission
@@ -573,8 +584,7 @@ def _line_cell(line) -> tuple | None:
     mask, stroke, style = line
     ch = _LINE_CHARS.get((stroke, mask))
     if ch is None:
-        ch = _LINE_CHARS[(stroke, mask)] = _TABLES.get(stroke, _LIGHT).get(
-            mask, _LIGHT.get(mask, "┼"))
+        ch = _LINE_CHARS[(stroke, mask)] = _stroke_char(stroke, mask)
     return ch, style
 
 
@@ -1015,78 +1025,28 @@ def _first_fit(cols: list, lo: int, hi: int) -> int:
 # only the rows of what looks different (Retained).
 # ---------------------------------------------------------------------------
 
-class Plan:
-    """One drawing's plan, kept while its run plays: `held`, what the view
-    works out once (its Scene, the choices its wrap ladder made); and the
-    drawings one compose makes, in the order it makes them (slot()), so the
-    next frame's compose finds each where the last one left it."""
+# Plan, held and slot are cure's Memo (imported above): a Plan per drawing,
+# what it works out once (held) and the slots one compose fills in order.
 
-    def __init__(self):
-        self.held: dict = {}
-        self._slots: list = []
-        self._at = 0
-
-    def begin(self) -> "Plan":
-        """Start a compose: slot() hands out the slots from the first again."""
-        self._at = 0
-        return self
-
-    def slot(self) -> dict:
-        """The next drawing's slot (a dict the view fills; {} the first time)."""
-        if self._at == len(self._slots):
-            self._slots.append({})
-        self._at += 1
-        return self._slots[self._at - 1]
-
-    def sub(self, name) -> "Plan":
-        """The plan of one way of drawing (a step of a wrap ladder, taken on
-        some frames only), slots of its own, begun."""
-        if ("sub", name) not in self.held:
-            self.held[("sub", name)] = Plan()
-        return self.held[("sub", name)].begin()
-
-
-def held(plan: Plan | None, name: str, make):
-    """make(), worked out once per plan (kept in plan.held under `name`); each
-    time without a plan."""
-    if plan is None:
-        return make()
-    if name not in plan.held:
-        plan.held[name] = make()
-    return plan.held[name]
-
-
-def slot(plan: Plan | None) -> dict | None:
-    """plan's next slot (Plan.slot); None without a plan."""
-    return plan.slot() if plan is not None else None
-
-
-class FrameMemo:
+class FrameMemo(Memo):
     """What a caller that draws a run frame after frame (view.ViewState, a
     pane) keeps between its frames: a Plan per drawing — a view, its options
     and width, the document, the run and the checks overlay drawn — the
-    newest KEEP of them. Pass one to view.compose_view for every frame of a
-    run; a drawing made with it is the drawing made without it. A theme or a
-    dialect applied in between starts every plan afresh (what they keep is
-    drawn in the colours and kinds of then)."""
+    newest KEEP of them (cure's Memo). Pass one to view.compose_view for every
+    frame of a run; a drawing made with it is the drawing made without it. A
+    theme or a dialect applied in between starts every plan afresh (what they
+    keep is drawn in the colours and kinds of then): the memo's epoch is the
+    kit's style count."""
     KEEP = 8
 
     def __init__(self):
-        self._plans: list = []          # (key, held objects, Plan), newest last
+        super().__init__(self.KEEP)
 
     def plan(self, key: tuple, holds: tuple) -> Plan:
         """The Plan of the drawing `key` names (the view's name and options) of
         the objects `holds` (the document, the run, the overlay: the same
         objects, not equal ones), begun (Plan.begin)."""
-        key = (_STYLED,) + key
-        for i, (k, h, p) in enumerate(self._plans):
-            if k == key and len(h) == len(holds) and all(a is b for a, b in zip(h, holds)):
-                self._plans.append(self._plans.pop(i))
-                return p.begin()
-        p = Plan()
-        self._plans.append((key, holds, p))
-        del self._plans[:-self.KEEP]
-        return p.begin()
+        return super().plan(key, holds, epoch=_STYLED).begin()
 
 
 def same_look(a, b) -> bool:
@@ -1107,18 +1067,42 @@ def _same_roles(a, b) -> bool:
     return True
 
 
+class _Look:
+    """A look as cure's Retained compares it: equal only when it draws alike
+    (same_look, roles included)."""
+    __slots__ = ("look",)
+
+    def __init__(self, look):
+        self.look = look
+
+    def __eq__(self, other):
+        return isinstance(other, _Look) and same_look(self.look, other.look)
+
+    def __ne__(self, other):
+        return not self == other
+
+    __hash__ = None
+
+
+def _looks(now: dict) -> Looks:
+    """{element: (rows, look)} as cure's Looks, each look compared by same_look."""
+    return Looks.of({e: (rows, _Look(look)) for e, (rows, look) in now.items()})
+
+
 class Retained:
     """A drawing kept from frame to frame of a run: its canvas, and for each
     element drawn on it (a box, a wire, the tokens …) the rows it takes and the
     look it was drawn with. repaint() redraws only the rows of the elements
-    whose look or rows changed. Looks compare by value and by role
-    (same_look): a colour of another role repaints, though its hex is the same,
-    so the drawing keeps every colour's role (the page re-colours by role)."""
+    whose look or rows changed (cure's Memo `moved`). Looks compare by value
+    and by role (same_look): a colour of another role repaints, though its hex
+    is the same, so the drawing keeps every colour's role (the page re-colours
+    by role)."""
 
     def __init__(self, canvas: Canvas, now: dict):
         """`now`: {element: (its rows, its look)} — every element of the drawing."""
         self.canvas = canvas.keep_rows()
         self.now = now
+        self._looks = _looks(now)
 
     def repaint(self, now: dict, paint) -> Canvas:
         """The canvas as drawn with the looks `now` (as __init__'s): the rows of
@@ -1126,22 +1110,11 @@ class Retained:
         old rows and its new) come from paint(rows) — a drawing whose rows
         `rows` are right (of every element taking any of them, the rest may be
         left out); the others are kept."""
-        old, dirty = self.now, set()
-        for e, (rows, look) in now.items():
-            was = old.get(e)
-            if was is None:
-                dirty.update(rows)
-            elif was[0] is not rows and was[0] != rows:
-                dirty.update(was[0])
-                dirty.update(rows)
-            elif not same_look(was[1], look):
-                dirty.update(rows)
-        for e in old.keys() - now.keys():
-            dirty.update(old[e][0])
-        dirty = frozenset(y for y in dirty if 0 <= y < self.canvas.h)
+        looks = _looks(now)
+        dirty = frozenset(y for y in moved(self._looks, looks) if 0 <= y < self.canvas.h)
         if dirty:
             self.canvas.splice(paint(dirty), dirty)
-        self.now = now
+        self.now, self._looks = now, looks
         return self.canvas
 
 
@@ -1739,8 +1712,7 @@ ARROW_LEGEND = (("->", "call"), ("~>", "async"), ("=>", "produces"), ("!>", "err
 
 
 def _stroke_sample(kind: str) -> str:
-    return {"heavy": "━", "double": "═", "dashed": "╌", "dotted": "┄",
-            "hdash": "╍"}.get(_stroke(kind), "─")
+    return _stroke_char(_stroke(kind), L | R)
 
 
 # ---------------------------------------------------------------------------
