@@ -284,9 +284,9 @@
   # round 11: what each part takes from cure (the one direction: sigil calls cure, cure
   # knows nothing of sigil). The playground (Pyodide) imports only cure's pure packages
   # (core, draw); Term, Input and Clock (edge, interact) stay terminal-only, in the App
-  [Kit] -> [Cure] : cells({Drawing}) => {Canvas}              # Text widths, Style, Canvas strokes, Memo plans
+  [Kit] -> [Cure] : cells({Drawing}) => {Canvas}              # as built (0.7.0): stroke glyphs, colour maths, Memo plans; widths and the grid stay Kit's
   [Themes] -> [Cure] : parse({Yaml}) => {Palette}              # cure's theme parser; Themes still finds and reads the files
-  [App] -> [Cure] : terminal({Argv}) => {Keys}                 # Term modes, Input decoding, Clock playback, Layout viewport
+  [App] -> [Cure] : terminal({Argv}) => {Keys}                 # Term modes, Input decoding, Clock playback, Layout viewport, Files watch
   [Frames] -> [Cure] : pack({Drawing}) => {Frames}             # Wire: one code point per cell; the envelope stays sigil's
   [Highlight] -> [Cure] : sgr({Runs}) => {Text}                # Style's one SGR seam for the ANSI form
   [Views]

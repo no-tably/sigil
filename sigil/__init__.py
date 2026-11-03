@@ -8,10 +8,13 @@ Layers, each importing only the ones before it:
     publish   what leaves sigil: the export folder, Mermaid
     present   the drawings: kit, themes, views, the viewer app
 
+`sigil.vendor` holds the vendored terminal UI library at one pinned commit (its
+lock file beside it); only `present` imports it.
+
 `sigil.cli` is the one command (`bin/sigil`, `python3 -m sigil`).
 
 `__version__` is the one version (`sigil --version`, an export's manifest); a test
 keeps it equal to plugin/meta.json's, which packaging reads.
 """
 
-__version__ = "0.6.12"
+__version__ = "0.7.0"

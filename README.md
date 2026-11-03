@@ -110,8 +110,9 @@ the browser — write a design, switch views, step through a simulation.
 
 ## Tools
 
-One command, `sigil`, Python 3 standard library only: run `bin/sigil` (or
-`python3 -m sigil` from the repository). `lint`, `check`, `export --mermaid` and
+One command, `sigil`, Python 3 standard library only (its drawings stand on
+[cure](#layout), a standard-library terminal UI library shipped inside the package):
+run `bin/sigil` (or `python3 -m sigil` from the repository). `lint`, `check`, `export --mermaid` and
 `highlight` take `-` for stdin; `view` needs a file, since it redraws on save, and so does the
 folder export, since the manifest names the spec file. `sigil --version` prints the
 version. Every flag and key is in [`docs/tools.md`](./docs/tools.md).
@@ -599,6 +600,8 @@ sigil/publish/   mermaid, spine (--mermaid --spine), systems, exporter,      ┐
 sigil/present/   app (the terminal viewer), views/ (graph · tree · flow ·    ┐ present
                  run), kit, themes, frames (packed rows for the hosts),      │
                  highlight (the source as coloured runs)                     ┘
+sigil/vendor/    cure, the terminal UI library sigil shares with construct,
+                 at one pinned commit (cure.lock); only present imports it
 themes/          YAML themes, shared with the page
 build.py         packaging (maintainers only)
 site/  the page and playground · tools/  goldens, doc regeneration, snapshot
@@ -609,8 +612,18 @@ highlight/  editor grammars (checked against sigil highlight)
 
 `core ← model ← analyse ← publish / present ← cli`: publish and present never
 import each other, and `sigil lint` loads neither the checker, the model nor the
-drawings. `build.py` ships the whole package; the page's playground loads the
-same files (less the export layer).
+drawings. `build.py` ships the whole package, cure included; the page's
+playground loads the same files (less the export layer, and only cure's `core` and
+`draw`: the terminal parts stay behind the live viewer).
+
+**cure.** The drawings' generic parts (stroke glyphs, colour maths, the frame memo,
+the terminal's modes, keys and mouse, the playback clock, the viewport, the file
+watch, frames packing, the SGR seam) come from cure, vendored at one commit in
+`sigil/vendor/cure`. Never edit it there: `sigil/vendor/sync_cure.py CURE_REPO
+[COMMIT]` runs cure's own sync and rewrites `sigil/vendor/cure.lock` (the commit and
+the hashes of the cure systems sigil uses), and the goldens decide whether a new
+commit changes anything drawn. `tests/test_vendor.py` checks the pin and that lint,
+check and export never load cure.
 
 Canonical packaging sources — edit these, never `dist/`:
 

@@ -1,7 +1,8 @@
 # Tools reference
 
 Every tool is a subcommand of one command, `sigil`, with no dependencies beyond
-the Python 3 standard library: run `bin/sigil` (or `python3 -m sigil` from the
+the Python 3 standard library (the drawings use cure, a standard-library terminal
+UI library vendored inside the package; see the layer table): run `bin/sigil` (or `python3 -m sigil` from the
 repository). `lint`, `check`, `export --mermaid` and `highlight` take `-` for stdin; `view`
 needs a file, since it redraws on save, and the folder export needs one too, since
 the manifest names the spec file (and its stem is the top system's default name). The [README](../README.md) has the overview.
@@ -41,10 +42,12 @@ The package is `sigil/`, one subpackage per layer, as drawn in
 | `sigil/publish` | what leaves sigil: `mermaid`, `spine`, `systems`, `exporter`, `delta` |
 | `sigil/present` | the drawings: `app` (the live viewer), `views/` (graph, tree, flow, run), `kit`, `themes`, `frames`, `highlight` (the source as coloured runs) |
 | `sigil/cli.py` | the command: argument parsing, `lint --deep` (lint and check joined here, not in a layer) |
+| `sigil/vendor` | not a layer: cure, the terminal UI library sigil shares with construct, at the commit `cure.lock` names (written by `sync_cure.py`, never by hand). `present` takes from it stroke glyphs, colour maths and the frame memo (`kit`), row packing (`frames`), the SGR seam (`highlight`), and the terminal, keys and mouse, playback clock, viewport and file watch (`app`). Cell widths, the canvas, the theme parser and the views' layouts stay sigil's |
 
 **The layer rule.** A layer imports only the layers above it:
 `core ← model ← analyse ← publish / present ← cli`, and publish and present never
-import each other. No module loads another by path; the one exception is
+import each other. Only `present` imports `sigil.vendor` (cure), so `lint`, `check`
+and `export` never load it. No module loads another by path; the one exception is
 `core/dialects.py`, since a dialect is a file beside the package.
 `tests/test_spine.py` checks every import, lazy ones too.
 
@@ -724,6 +727,10 @@ Live keys:
 | arrows, `h` `j` `k` `L` | pan; mouse drag pans, the wheel scrolls (shift+wheel across) |
 | `z` `g` | centre · home |
 | `r` `q` | reload · quit |
+| ctrl+z | suspend (the shell's `fg` brings the view back, redrawn) |
+
+The live view repaints only the cells that changed. It always draws in 24-bit
+colour (`NO_COLOR` is not read there).
 
 ### `sigil view FILE --structure`
 

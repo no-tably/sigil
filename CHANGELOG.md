@@ -2,6 +2,54 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
+## 0.7.0 — 2026-11-03
+
+sigil's drawings now stand on cure, the terminal UI library sigil shares with
+construct (it began as a port of sigil's own viewer). cure ships inside the
+package at one pinned commit, so the three tools share one set of stroke, colour,
+terminal and packing code. Nothing drawn changes: every golden drawing, `view
+--once`, `sigil highlight` (ANSI and `--json`) and the `sigil frames draw` JSON the
+Claude Code pane, pi and the playground read are byte for byte as in 0.6.12, and
+theme files mean what they meant.
+
+### Changed
+
+- **The live view** (`sigil view` in a terminal) runs on cure's terminal, input,
+  clock, viewport and file watch:
+  - it repaints only the cells that changed, not the whole screen;
+  - ctrl+z suspends it and `fg` brings it back, redrawn;
+  - following a run makes the smallest move that brings the action into view (a
+    span wider than the window no longer shifts it on every frame);
+  - a save that keeps the file's size and modification time (an atomic rename) is
+    seen too;
+  - text a terminal pastes is read as the keys it holds;
+  - `-` / `+` time the next frame from the key press.
+  It still draws in 24-bit colour whatever the terminal claims, and SIGTERM /
+  SIGHUP still exit 128+signal with the terminal restored.
+- **Inside the drawings:** `kit` takes its stroke glyphs, colour maths and frame
+  memo from cure; `frames` packs rows through cure's Wire and writes them in
+  today's envelope; `highlight` writes its colour escapes through cure's SGR. Cell
+  widths (one code point per cell, as the hosts read them), the canvas, the theme
+  parser, the views' layouts, roles and the sim player's choices stay sigil's.
+
+### Packaging
+
+- `sigil/vendor/cure/` (cure at 36b83ca), `sigil/vendor/cure.lock` (the commit and
+  the hashes of the 16 cure systems sigil uses) and `sigil/vendor/sync_cure.py`, the
+  tool that re-syncs it (`sync_cure.py CURE_REPO [COMMIT]`, which runs cure's own
+  sync; never edit the vendored files). Every plugin archive carries it, and
+  `build.py --check` asks for it at one commit. The playground loads only cure's
+  `core` and `draw`.
+- Only `sigil/present` imports cure: `lint`, `check` and `export` never load it
+  (`tests/test_spine.py`, `tests/test_vendor.py`). Still the Python 3 standard
+  library only: cure is too.
+
+### Known
+
+- A command that draws starts about 90 ms slower (cure's `draw` package loads all of
+  itself on first use), and `frames draw` of the run view takes about twice as long
+  (0.17 s → 0.40 s for 02-shop's happy run): cure packs a row cell by cell.
+
 ## 0.6.12 — 2026-11-02
 
 A comment on a flow line now describes the flow in the export, as the drawings
