@@ -2,7 +2,7 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
-## 0.7.0 — 2026-11-03
+## 0.7.0 — 2026-11-04
 
 sigil's drawings now stand on cure, the terminal UI library sigil shares with
 construct (it began as a port of sigil's own viewer). There is one cure, not a copy
