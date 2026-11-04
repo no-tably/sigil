@@ -354,6 +354,10 @@ table.ref td:last-child { color: var(--muted); }
   font-size: var(--fs-s);
   line-height: 1.1;
   color: var(--syntax-rails);
+  /* The art's rows are trimmed, so they differ in length: centring them (the narrow
+     .hero-head is text-align: center) would shift each row by its own amount. The
+     block itself is centred by the flex column; its rows stay left-aligned. */
+  text-align: left;
 }
 .logo[data-logo^="coin"] { line-height: 1.15; }
 @media (min-width: 1100px) { .logo[data-logo^="coin"] { font-size: var(--fs-m); } }
