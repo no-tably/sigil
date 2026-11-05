@@ -2,6 +2,27 @@
 
 Each release's notes, newest first. The same text is the GitHub release's description.
 
+## 0.7.1 — 2026-11-05
+
+A patch for the cure pin. cure's public history was rewritten after 0.7.0 (its
+library files are unchanged), so sigil now pins cure's rewritten commit `ee48c99`,
+whose `cure/` tree is byte for byte the one 0.7.0 drew with. Nothing sigil draws
+or prints changed.
+
+### Fixes
+
+- **Pinning cure no longer needs anything from cure but its code and its spec.**
+  `sigil/vendor/sync_cure.py` used to read the cure system hashes in
+  `cure.systems.json` from an export folder kept in cure's repository, which the
+  rewrite removed. It now works them out itself: it reads `cure.sigil` at the
+  pinned commit and exports it with this checkout's sigil. cure, which sits
+  upstream of sigil, carries no sigil hashes. At `ee48c99` every hash is the one
+  0.7.0 locked.
+- **The lock names `ee48c99`** (was `25d1f4f`). A 0.7.0 source checkout names a
+  commit that is no longer on cure's main; GitHub may stop serving it, and then
+  `store.py install` from that checkout fails. The 0.7.0 plugin archives carry
+  their own cure and keep working. Upgrade a checkout to 0.7.1 to install cure.
+
 ## 0.7.0 — 2026-11-04
 
 sigil's drawings now stand on cure, the terminal UI library sigil shares with

@@ -14,9 +14,11 @@
    of the cure it pins.
 3. Writes `cure.lock` in cure's lock format (`commit:` and `source:` lines), and
    `cure.systems.json`: the commit, and the full module path, interface hash and
-   body hash of each cure system in SYSTEMS, from cure's own export at that commit
-   (`.construct/export/manifest.json`). A re-pin shows, in that file's diff, which
-   contracts sigil stands on moved; the goldens decide whether sigil takes it.
+   body hash of each cure system in SYSTEMS, as this sigil exports cure's spec
+   (`cure.sigil`) at that commit. The hashes are sigil's reading of cure's design,
+   so sigil computes them; cure carries none (it sits upstream of sigil). A re-pin
+   shows, in that file's diff, which contracts sigil stands on moved; the goldens
+   decide whether sigil takes it.
 
 SYSTEMS covers every cure system Present imports from (the deepest system whose
 full path is the imported module or a prefix of it, and where each imported name
@@ -29,8 +31,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import functools
 import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 if __package__:
@@ -52,7 +57,8 @@ LOCK = HERE / "cure.lock"
 SYSTEMS_FILE = HERE / "cure.systems.json"
 SUPPLY = HERE / "supply"
 SUPPLY_FILES = ("__init__.py", "loader.py", "store.py")
-MANIFEST = ".construct/export/manifest.json"
+SPEC = "cure.sigil"
+SIGIL = HERE.parent.parent / "bin" / "sigil"     # this checkout's sigil
 LOCK_HEAD = ("# cure, the terminal UI library Present draws with, at one commit (cure's lock\n"
              "# format). Written by sigil/vendor/sync_cure.py; never by hand.\n")
 
@@ -81,17 +87,31 @@ def lock_text(lock: loader.Lock) -> str:
     return LOCK_HEAD + f"commit: {lock.commit}\n" + (f"source: {lock.source}\n" if lock.source else "")
 
 
-def manifest_at(sha: str, source: str, root: Path) -> dict:
-    """cure's export manifest at sha: from a local repository, or through the
-    store's bare cache of a URL (fetched there by sha when the cache lacks it)."""
+def spec_at(sha: str, source: str, root: Path) -> str:
+    """cure's spec at sha: from a local repository, or through the store's bare
+    cache of a URL (fetched there by sha when the cache lacks it)."""
     if not store.is_url(source):
-        return json.loads(store.git("-C", source, "show", f"{sha}:{MANIFEST}"))
+        return store.git("-C", source, "show", f"{sha}:{SPEC}", binary=True).decode("utf-8")
     repo = store.cache(root)
     try:
-        return json.loads(store.git("-C", repo, "show", f"{sha}:{MANIFEST}"))
+        return store.git("-C", repo, "show", f"{sha}:{SPEC}", binary=True).decode("utf-8")
     except store.StoreError:
         store.git("-C", repo, "fetch", "-q", "--depth", "1", source, sha)
-        return json.loads(store.git("-C", repo, "show", f"{sha}:{MANIFEST}"))
+        return store.git("-C", repo, "show", f"{sha}:{SPEC}", binary=True).decode("utf-8")
+
+
+@functools.lru_cache(maxsize=4)
+def manifest_of(spec: str) -> dict:
+    """The manifest this checkout's sigil exports from cure's spec (into a
+    throwaway folder; the spec keeps its name, so the top system is `cure`)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / SPEC).write_text(spec, encoding="utf-8")
+        run = subprocess.run([sys.executable, str(SIGIL), "export", SPEC, "--out", "export"],
+                             cwd=tmp, capture_output=True, text=True)
+        if run.returncode != 0:
+            raise ValueError(f"sigil export of {SPEC} failed (exit {run.returncode}):\n"
+                             f"{run.stdout}{run.stderr}".rstrip())
+        return json.loads((Path(tmp) / "export" / "manifest.json").read_text(encoding="utf-8"))
 
 
 def sync(rev: str, source: str | None = None, root: Path | None = None) -> dict:
@@ -103,7 +123,7 @@ def sync(rev: str, source: str | None = None, root: Path | None = None) -> dict:
     root = store.root_of(root, None)
     tree = store.install(rev, source=source, store=root) / "cure"
     pinned = loader.read_lock(tree / "VENDORED")       # commit + the origin URL recorded
-    data = systems_of(pinned.commit, manifest_at(pinned.commit, source, root))
+    data = systems_of(pinned.commit, manifest_of(spec_at(pinned.commit, source, root)))
     for name in SUPPLY_FILES:
         shutil.copyfile(tree / "supply" / name, SUPPLY / name)
     LOCK.write_text(lock_text(loader.Lock(pinned.commit, pinned.source)), encoding="utf-8")

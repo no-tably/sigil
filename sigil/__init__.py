@@ -17,4 +17,4 @@ archive's own copy, else the shared store); only `present` imports it.
 keeps it equal to plugin/meta.json's, which packaging reads.
 """
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"

@@ -408,7 +408,8 @@ class AgainstCureTest(unittest.TestCase):
             blob = subprocess.run(["git", "-C", str(repo), "show", f"{sha}:cure/supply/{name}"],
                                   capture_output=True, check=True).stdout
             self.assertEqual((sync_cure.SUPPLY / name).read_bytes(), blob, name)
-        self.assertEqual(sync_cure.systems_of(sha, sync_cure.manifest_at(sha, str(repo), Path("/"))),
+        self.assertEqual(sync_cure.systems_of(
+            sha, sync_cure.manifest_of(sync_cure.spec_at(sha, str(repo), Path("/")))),
                          systems())
 
     def test_sync_writes_the_committed_files(self):

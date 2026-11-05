@@ -673,7 +673,8 @@ A drawing command that finds neither names that command; a folder holding anothe
 commit is refused, never used. `lint`, `check` and `export` never load cure. To pin
 a new commit, `sigil/vendor/sync_cure.py REV [--from SOURCE] [--store DIR]` installs
 it, copies cure's supply files and rewrites the lock and `cure.systems.json` (the
-hashes of the cure systems sigil stands on, so a re-pin shows which moved); the
+hashes of the cure systems sigil stands on, as this sigil exports cure's
+`cure.sigil` at that commit, so a re-pin shows which moved); the
 goldens decide whether sigil takes it. Never edit cure's files, in the store or in
 an archive. `tests/test_vendor.py` checks the pin, the verbatim copies, the bundled
 archive and that lint, check and export never load cure.
